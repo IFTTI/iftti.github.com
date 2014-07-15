@@ -1,0 +1,66 @@
+---
+layout: post
+title: 用 Perl5 改写 skyline 异常检测算法 
+time: 2014-06-04 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/06/04/skyline-port-to-perl
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>一直以来都知道 Perl5 里也有类似 numpy 的库叫 PDL，但是因为上手资料比较少，官网文档比较烂，就没认真看过。这次因为要了解 skyline 里用到的 9 种异常检测算法的具体原理，正好一一对照重写一下，当做是学习 PDL 了。</p>
+
+<p>最终修改完的 Perl5 版如下：</p>
+
+<script src="https://gist.github.com/chenryn/43315b6c7ddaf9c39aab.js"></script>
+
+<p>~~要承认 PDL 在上手方面比不过 numpy，比如取数组长度，PDL 里居然写作 <code>$p-&gt;nelem</code>；取数组最后一个元素的值，更是要写作 <code>$p-&gt;index($p-&gt;nelem - 1)</code> 这么长！相比在 numpy 方面几乎看起来还是跟操作原生的 python 类型一样。。妈蛋 PDL 你多重载几个操作符会死啊！~~</p>
+
+<p><strong>2014 年 06 月 09 日更新：在blogs.perl.org上得到指点，可以用 <code>$p-&gt;at(-1)</code> 来获取。PDL 自己的文档里 <code>-&gt;at()</code> 的示例都是获取数组的……</strong></p>
+
+<p>稍微复杂一点的多维操作 PDL 还是很方便的。比如程序里 <code>least_squares</code> 检验法的时候，numpy 有这么一句：</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">A</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">x</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">))])</span><span class="o">.</span><span class="n">T</span></code></pre></div>
+
+<p>而在 PDL 里可以写作：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">my</span> <span class="nv">$A</span> <span class="o">=</span> <span class="nv">$x</span><span class="o">-&gt;</span><span class="n">dummy</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">append</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span></code></pre></div>
+
+<p>PDL 里也有 ones() 函数来生成全部由 1 构成的数组，不过我觉得上面这个写法明显更好理解最终目的，就是90°倒转数组然后每个元素作为子数组后面加第二个元素嘛。</p>
+
+<p><em>当然，比较好玩的是最后我发现 <code>least_squares</code> 在 PDL 里可以直接搞出来结果，不用这么复杂</em></p>
+
+<p>比较基础的数值统计还是比较好搞的，麻烦的是一些现成的正态分布检验法。python 版里使用的是 <a href="http://en.wikipedia.org/wiki/Kolmogorov-Smirnov_test">K-S 检验法</a>——其实只是命名，里面实际还用了 <a href="http://en.wikipedia.org/wiki/Anderson%E2%80%93Darling_test">A-D 检验法</a>做改进——我还记得这是 skyline 开源以后社区人帮忙实现的，Etsy 一开始都没有。按说 K-S 检验法是非常基础的一个，但是我找遍了 CPAN 确实就没有(大概是因为 Perl 里调用 R 太方便了，大家都习惯直接用 <a href="https:://metacpan.org/pod/Statistics::R">Statistics::R</a> 模块吧)。于是最后这个改成 <a href="http://en.wikipedia.org/wiki/Shapiro%E2%80%93Wilk_test">S-W 检验法</a>。</p>
+
+<p><strong>根据 SPSS 的规范，一般在数值序列长度小于 5000 的时候，S-W 检验法可信度高于 K-S 检验法；大于 5000 的时候，K-S 检验法可信度大于 S-W 检验法。</strong></p>
+
+<p>考虑这里一般只会检查最近一个小时的数据。一个小时内就算一秒钟一次也就是 3600 个点。事实上应该至少是 10 秒钟出一个统计值才会做比较。那么也就是几百个点，用 S-W 检验法应该更有效。</p>
+
+<p>在重写这个脚本的时候，找到了很多关于这方面的资料，下面这两个链接应该是非常不错:</p>
+
+<ol>
+  <li><a href="http://www.itl.nist.gov/div898/handbook/index.htm">http://www.itl.nist.gov/div898/handbook/index.htm</a></li>
+  <li><a href="http://www.perlmonks.org/?node=Stats%3A%20Testing%20whether%20data%20is%20normally%20(Gaussian)%20distributed">http://www.perlmonks.org/?node=Stats%3A%20Testing%20whether%20data%20is%20normally%20(Gaussian)%20distributed</a></li>
+</ol>
+
+<p>此外，脚本中本身用到的 <a href="http://www.ta-lib.org">ta-lib</a> 和 <a href="https:://metacpan.org/pod/Statistics::Distributions">Statistics::Distributions</a> 模块也还有更多的算法函数提供，值得留意。</p>
+
+<p>注：PDL::Finance::Talib 模块必须先自己编译了 ta-lib 依赖后才能安装。之前测试在美团云主机上做的，结果还安装失败。后来发现是内存不够大==!然后在作者的指导下学会一招，在内存不够大的机器上，可以删除掉 CCFLAGS 里的 <code>-pipe</code> 参数，也能正常编译通过。</p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

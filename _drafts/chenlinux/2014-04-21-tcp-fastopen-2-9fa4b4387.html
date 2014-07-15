@@ -1,0 +1,107 @@
+---
+layout: post
+title: TCP Fast Open 测试(2) 
+time: 2014-04-21 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/04/21/tcp-fastopen-2
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>接上篇。</p>
+
+<p>18 日提到采用 wireshark 而不是 tcpdump 来抓取数据。wireshark 会自动把一些数据解释成可读的内容，于是看到其实在每次 httping 发出请求的时候，第一个 SYN 包后面都有附加了 TCP FASTOPEN COOKIE 请求：</p>
+
+<p><img src="/images/uploads/foc-req.png" alt=""></p>
+
+<p>于是回头重新好好读了一下 TFO 的原理，发现自己对 TFO 的理解是有问题的 - 原先我以为在 SYN 里是可以直接带上请求数据的 - 而这很容易被攻击。实际上的流程应该是：</p>
+
+<ol>
+  <li>客户端发送 SYN 包，包尾加的是一个 FOC 请求，只有 4 字节。</li>
+  <li>服务器端收到 FOC 请求，验证后根据来源 IP 地址生成 COOKIE(8 字节)，将这个 COOKIE 加载 SYN+ACK 包的末尾发送回去。</li>
+  <li>客户端缓存住获取到的 COOKIE 可以给下一次使用。</li>
+  <li>下一次请求开始，客户端发送 SYN 包，这时候包后面带上缓存的 COOKIE，然后就是要正式发送的数据。</li>
+  <li>服务器端验证 COOKIE 正确，将数据交给上层应用处理得到响应结果，然后在发送 SYN+ACK 时，不再等待客户端的 ACK 确认，即开始发送响应数据。</li>
+</ol>
+
+<p>示图如下：</p>
+
+<p><img src="/images/uploads/tfo.jpg" alt=""></p>
+
+<p>所以可以总结两点：</p>
+
+<ol>
+  <li>第一次请求是不会有时间节约的效果的，测试至少要 <code>httping -F -c 2</code>。</li>
+  <li>从第二次开始节约的时间可以认为是第一个来回，httping 本身是个 HEAD 请求，可以认为是 50% 的节约。</li>
+</ol>
+
+<p>但是用 <code>-c 2</code> 运行依然没有看到 RTT 变化。这时候用<code>stap 'probe kernel.function("tcp_fastopen_cookie_gen") {printf("%d\n", $foc-&gt;len)}'</code> 命令发现这个最重要的生成 COOKIE 的函数(net/ipv4/tcp_fastopen.c里)居然一直没有被触发！</p>
+
+<p>认真阅读了一下调用这个函数的 <code>tcp_fastopen_check</code> 函数(net/ipv4/tcp_ipv4.c里)，原来前面首先有一步检查 sysctl 的逻辑：</p>
+
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="k">if</span> <span class="p">((</span><span class="n">sysctl_tcp_fastopen</span> <span class="o">&amp;</span> <span class="n">TFO_SERVER_ENABLE</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="o">||</span>
+        <span class="n">fastopenq</span> <span class="o">==</span> <span class="nb">NULL</span> <span class="o">||</span> <span class="n">fastopenq</span><span class="o">-&gt;</span><span class="n">max_qlen</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">false</span><span class="p">;</span></code></pre></div>
+
+<p>这个 <code>TFO_SERVER_ENABLE</code> 常量是 2。而我电脑默认的 <code>net.ipv4.tcp_fastopen</code> 值是 1。1 只开启客户端支持 TFO，所以这里要改成 2(或者 3，如果你不打算把客户端搬到别的主机上测试的话)。</p>
+
+<p>重新开始 httping 测试，RTT 依然没有缩短。这时候的 stap 命令发现 <code>tcp_fastopen_cookie_gen</code> 函数虽然触发了，但是函数里真正干活的这段逻辑依然没有触发(即 <code>crypto_cipher_encrypt_one</code>)：</p>
+
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="kt">void</span> <span class="nf">tcp_fastopen_cookie_gen</span><span class="p">(</span><span class="n">__be32</span> <span class="n">addr</span><span class="p">,</span> <span class="k">struct</span> <span class="n">tcp_fastopen_cookie</span> <span class="o">*</span><span class="n">foc</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">__be32</span> <span class="n">peer_addr</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span> <span class="n">addr</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span> <span class="p">};</span>
+    <span class="k">struct</span> <span class="n">tcp_fastopen_context</span> <span class="o">*</span><span class="n">ctx</span><span class="p">;</span>
+
+    <span class="n">rcu_read_lock</span><span class="p">();</span>
+    <span class="n">ctx</span> <span class="o">=</span> <span class="n">rcu_dereference</span><span class="p">(</span><span class="n">tcp_fastopen_ctx</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">ctx</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">crypto_cipher_encrypt_one</span><span class="p">(</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">tfm</span><span class="p">,</span>
+                      <span class="n">foc</span><span class="o">-&gt;</span><span class="n">val</span><span class="p">,</span>
+                      <span class="p">(</span><span class="n">__u8</span> <span class="o">*</span><span class="p">)</span><span class="n">peer_addr</span><span class="p">);</span>
+        <span class="n">foc</span><span class="o">-&gt;</span><span class="n">len</span> <span class="o">=</span> <span class="n">TCP_FASTOPEN_COOKIE_SIZE</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">rcu_read_unlock</span><span class="p">();</span>
+<span class="p">}</span></code></pre></div>
+
+<p>我试图通过 <code>stap 'probe kernel.function("tcp_fastopen_cookie_gen"){printf("%s\n", $$locals$$)}'</code> 来查看这个 <code>ctx</code> 是什么内容。输出显示 ctx 结构里的元素值都是问号。</p>
+
+<p>目前就卡在这里。</p>
+
+<p>为了验证除了这步没有其他问题，我”野蛮”的通过 systemtap 修改了一下 <code>tcp_fastopen_cookie_gen</code> 里的变量。命令如下：</p>
+
+<p><code>
+stap 'probe kernel.function("tcp_fastopen_cookie_gen") { $foc-&gt;len = 8 }'
+</code></p>
+
+<p>赋值为 8，就是 <code>TCP_FASTOPEN_COOKIE_SIZE</code> 常量的值。</p>
+
+<p>然后再运行测试，就发现 httping 的第二次运行的 RTT 时间减半了(最后那个 F 应该就是标记为 Fastopen 的意思吧)！可见目前问题就出在这里。</p>
+
+<pre><code>$ httping -F -g http://192.168.0.100 -c 2
+PING 192.168.0.100:80 (/url):
+connected to 192.168.0.100:80 (154 bytes), seq=0 time= 45.60 ms 
+connected to 192.168.0.100:80 (154 bytes), seq=1 time= 23.43 ms  F
+--- http://192.168.0.100/url ping statistics ---
+2 connects, 2 ok, 0.00% failed, time 2069ms
+round-trip min/avg/max = 23.4/34.5/45.6 ms
+</code></pre>
+
+<p><strong>注：上面这个强制赋值 <code>foc-&gt;len</code> 没有改变其实 <code>foc-&gt;val</code> 是空的事实，所以只能是测试验证一下想法，真用的话多客户端之间会乱套的。</strong></p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

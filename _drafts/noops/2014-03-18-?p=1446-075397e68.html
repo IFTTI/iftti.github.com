@@ -1,0 +1,1681 @@
+---
+layout: post
+title: ansible动手篇-如何书写自己的hosts脚本
+time: 2014-03-18 02:50:00 +0800
+site_name: noops.me
+source_url: http://noops.me/?p=1446
+---
+
+                <div>
+<h2><strong>写在前面</strong></h2>
+</div>
+<div>         最近Ansible很火，作为一个后起之秀，在github上他的commitor人数已经超过鼻祖puppet两倍多了，相信很多人也尝试过使用这款工具，如果你所管理的环境足够简单（模块没上50个？），足够变化足够慢（半年不用动？），那么也许你并不需要阅读本文，因为简单的静态配置就可以搞定你的需求了，请参考<a title="inventory介绍" href="http://docs.ansible.com/intro_inventory.html" target="_blank">官方文档</a>。</div>
+<div></div>
+<div>         更多的人遇到的是这样的情形：机器和分组信息需要从服务A中动态获取;资产信息需要从服务B中动态获取…诸如此类，但是我们运行时，往往需要以这些信息作为分组依据来管理。这时候，用静态hosts文件来管理就不现实了。幸运的是，ansible支持动态inventory script，不过官方对这部分的描述甚为模糊，甚至连返回的结构体应该是什么样子都没有提，造成很多同学只能望洋兴叹。本文就以我们自己写一个inventory script的过程，给大家分享下inventory 脚本的写法和要求。</div>
+<div><span id="more-1446"></span></div>
+<div>
+<h2><strong>一、背景</strong></h2>
+</div>
+<div>         在我米，机器的属性是以tag来定义的，通过组合tag就可以唯一的确定一批具有相同属性的机器，这些属性包括但不限于产品划分，服务架构，机器硬件，流程状态，机器归属，控制部署等任何方面，这些tag由一个专门的系统（xbox）来维护和变更。</div>
+<div>         举例来说，我如何找出一台属于小米公司米聊部门A产品线X服务fe（前端）子系统中m机房正在服务的nginx机器列表呢？我会通过类似如下一个tag串来查询它（仅作示例，司内莫要对号入座）：</div>
+<blockquote>
+<div>         com.xiaomi_dept.miliao_pdl.A_service.X.sbs.fe_idc.m_job.nginx_status.service</div>
+</blockquote>
+<div>         其中com，dept，pdl，service，sbs，job，status，分别是属性中公司，部门产品线，服务，子系统，原子服务，在线状态的tag标签。当我把这个串+token发给系统后，系统会找出在我权限范围内，包含所有这些标签，并且其对应属性值与tag串指明值相等的机器集合，于是我们得到了想要的机器列表。</div>
+<div></div>
+<div>
+<h2><strong>二、与ansible的结合</strong></h2>
+</div>
+<div>         在考虑与ansible结合之前，搞清楚ansible本身如何获取、筛选机器列表并考虑与我们自己系统合适的对接是很有必要的，在开始时，我们只是以最粗暴直接的方式修改ansible源码，虽然快速的满足了需求，但也造成一个很严重的后果——给升级带来很大代价，因此最终我们放弃了这个版本。</div>
+<div></div>
+<div>
+<h4><strong>1. 前期调研和规划</strong></h4>
+</div>
+<div>         首先我们来看下ansible是怎么调用到inventory脚本的，详细的列出追踪过程无论对作者还是读者都是一个极其痛苦的事情，因此我决定在这里只列出关键代码段：</div>
+<div>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41d983" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">bin/ansible:run()</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Python</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+    def run(self, options, args):
+        ''' use Runner lib to do SSH things '''
+
+        pattern = args[0]
+
+        inventory_manager = inventory.Inventory(options.inventory)
+        ……
+        runner = Runner(
+            module_name=options.module_name, module_path=options.module_path,
+            module_args=options.module_args,
+            remote_user=options.remote_user, remote_pass=sshpass,
+            inventory=inventory_manager, timeout=options.timeout,
+            private_key_file=options.private_key_file,
+            forks=options.forks,
+            pattern=pattern,
+            callbacks=self.callbacks, sudo=options.sudo,
+            sudo_pass=sudopass,sudo_user=options.sudo_user,
+            transport=options.connection, subset=options.subset,
+            check=options.check,
+            diff=options.check,
+            confirm=options.confirm
+        )
+        ……
+        results = runner.run()
+        return (runner, results)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-6">6</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-8">8</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-10">10</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-12">12</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-14">14</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-16">16</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-18">18</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-20">20</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-22">22</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41d983-24">24</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41d983-25">25</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41d983-1">
+<span class="h">    </span><span class="r">def</span><span class="h"> </span><span class="e">run</span><span class="sy">(</span><span class="r">self</span><span class="sy">,</span><span class="h"> </span><span class="i">options</span><span class="sy">,</span><span class="h"> </span><span class="i">args</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-2">
+<span class="h">        </span><span class="s">''' use Runner lib to do SSH things '''</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-4">
+<span class="h">        </span><span class="v">pattern</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">args</span><span class="sy">[</span><span class="cn">0</span><span class="sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-5"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-6">
+<span class="h">        </span><span class="v">inventory_manager</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">inventory</span><span class="sy">.</span><span class="e">Inventory</span><span class="sy">(</span><span class="i">options</span><span class="sy">.</span><span class="v">inventory</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-7">
+<span class="h">        </span>……</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-8">
+<span class="h">        </span><span class="v">runner</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">Runner</span><span class="sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-9">
+<span class="h">            </span><span class="v">module_name</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">module_name</span><span class="sy">,</span><span class="h"> </span><span class="v">module_path</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">module_path</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-10">
+<span class="h">            </span><span class="v">module_args</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">module_args</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-11">
+<span class="h">            </span><span class="v">remote_user</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">remote_user</span><span class="sy">,</span><span class="h"> </span><span class="v">remote_pass</span><span class="o">=</span><span class="i">sshpass</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-12">
+<span class="h">            </span><span class="v">inventory</span><span class="o">=</span><span class="i">inventory_manager</span><span class="sy">,</span><span class="h"> </span><span class="v">timeout</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">timeout</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-13">
+<span class="h">            </span><span class="v">private_key_file</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">private_key_file</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-14">
+<span class="h">            </span><span class="v">forks</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">forks</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-15">
+<span class="h">            </span><span class="v">pattern</span><span class="o">=</span><span class="i">pattern</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-16">
+<span class="h">            </span><span class="v">callbacks</span><span class="o">=</span><span class="r">self</span><span class="sy">.</span><span class="v">callbacks</span><span class="sy">,</span><span class="h"> </span><span class="v">sudo</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">sudo</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-17">
+<span class="h">            </span><span class="v">sudo_pass</span><span class="o">=</span><span class="i">sudopass</span><span class="sy">,</span><span class="v">sudo_user</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">sudo_user</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-18">
+<span class="h">            </span><span class="v">transport</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">connection</span><span class="sy">,</span><span class="h"> </span><span class="v">subset</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">subset</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-19">
+<span class="h">            </span><span class="v">check</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">check</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-20">
+<span class="h">            </span><span class="v">diff</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">check</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-21">
+<span class="h">            </span><span class="v">confirm</span><span class="o">=</span><span class="i">options</span><span class="sy">.</span><span class="v">confirm</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-22">
+<span class="h">        </span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-23">
+<span class="h">        </span>……</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41d983-24">
+<span class="h">        </span><span class="v">results</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">runner</span><span class="sy">.</span><span class="e">run</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41d983-25">
+<span class="h">        </span><span class="st">return</span><span class="h"> </span><span class="sy">(</span><span class="i">runner</span><span class="sy">,</span><span class="h"> </span><span class="i">results</span><span class="sy">)</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0069 seconds] -->
+<br>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41da3d" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">lib/ansible/inventory/__init__.py</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Python</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+class Inventory(object):
+    """
+    Host inventory for ansible.
+    """
+    def __init__(self, host_list=C.DEFAULT_HOST_LIST):
+
+        # the host file file, or script path, or list of hosts
+        # if a list, inventory data will NOT be loaded
+        self.host_list = host_list
+        ……
+        if isinstance(host_list, basestring):
+            if "," in host_list:
+                host_list = host_list.split(",")
+                host_list = [ h for h in host_list if h and h.strip() ]
+
+        if host_list is None:
+            self.parser = None
+        elif isinstance(host_list, list):
+            self.parser = None
+            all = Group('all')
+            self.groups = [ all ]
+            ipv6_re = re.compile('\[([a-f:A-F0-9]*[%[0-z]+]?)\](?::(\d+))?')
+            for x in host_list:
+                m = ipv6_re.match(x)
+                if m:
+                    all.add_host(Host(m.groups()[0], m.groups()[1]))
+                else:
+                    if ":" in x:
+                        tokens = x.rsplit(":", 1)
+                        # if there is ':' in the address, then this is a ipv6
+                        if ':' in tokens[0]:
+                            all.add_host(Host(x))
+                        else:
+                            all.add_host(Host(tokens[0], tokens[1]))
+                    else:
+                        all.add_host(Host(x))
+        elif os.path.exists(host_list):
+            if os.path.isdir(host_list):
+                # Ensure basedir is inside the directory
+                self.host_list = os.path.join(self.host_list, "")
+                self.parser = InventoryDirectory(filename=host_list)
+                self.groups = self.parser.groups.values()
+            elif utils.is_executable(host_list):
+                self.parser = InventoryScript(filename=host_list)
+                self.groups = self.parser.groups.values()
+            else:
+                self.parser = InventoryParser(filename=host_list)
+                self.groups = self.parser.groups.values()
+
+            utils.plugins.vars_loader.add_directory(self.basedir(), with_subdir=True)
+        else:
+            raise errors.AnsibleError("Unable to find an inventory file, specify one with -i ?")
+        ……</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-6">6</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-8">8</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-10">10</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-12">12</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-14">14</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-16">16</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-18">18</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-20">20</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-22">22</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-24">24</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-26">26</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-28">28</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-30">30</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-32">32</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-34">34</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-36">36</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-38">38</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-40">40</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-42">42</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-44">44</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-46">46</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-48">48</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-50">50</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41da3d-52">52</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41da3d-53">53</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41da3d-1">
+<span class="t">class</span><span class="h"> </span><span class="e">Inventory</span><span class="sy">(</span><span class="k ">object</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-2">
+<span class="h">    </span><span class="s">"""</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-3"><span class="s">    Host inventory for ansible.</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-4"><span class="s">    """</span></div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-5">
+<span class="h">    </span><span class="r">def</span><span class="h"> </span><span class="e">__init__</span><span class="sy">(</span><span class="r">self</span><span class="sy">,</span><span class="h"> </span><span class="v">host_list</span><span class="o">=</span><span class="i">C</span><span class="sy">.</span><span class="v">DEFAULT_HOST_LIST</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-6"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-7">
+<span class="h">        </span><span class="c"># the host file file, or script path, or list of hosts</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-8">
+<span class="h">        </span><span class="c"># if a list, inventory data will NOT be loaded</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-9">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="v">host_list</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">host_list</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-10">
+<span class="h">        </span>……</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-11">
+<span class="h">        </span><span class="st">if</span><span class="h"> </span><span class="k ">isinstance</span><span class="sy">(</span><span class="i">host_list</span><span class="sy">,</span><span class="h"> </span><span class="k ">basestring</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-12">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="s">","</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">host_list</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-13">
+<span class="h">                </span><span class="v">host_list</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">host_list</span><span class="sy">.</span><span class="e">split</span><span class="sy">(</span><span class="s">","</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-14">
+<span class="h">                </span><span class="v">host_list</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">[</span><span class="h"> </span><span class="i">h</span><span class="h"> </span><span class="st">for</span><span class="h"> </span><span class="i">h</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="e">host_list </span><span class="st">if</span><span class="h"> </span><span class="i">h</span><span class="h"> </span><span class="st">and</span><span class="h"> </span><span class="i">h</span><span class="sy">.</span><span class="e">strip</span><span class="sy">(</span><span class="sy">)</span><span class="h"> </span><span class="sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-15"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-16">
+<span class="h">        </span><span class="st">if</span><span class="h"> </span><span class="e">host_list </span><span class="st">is</span><span class="h"> </span><span class="t">None</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-17">
+<span class="h">            </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="t">None</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-18">
+<span class="h">        </span><span class="st">elif</span><span class="h"> </span><span class="k ">isinstance</span><span class="sy">(</span><span class="i">host_list</span><span class="sy">,</span><span class="h"> </span><span class="k ">list</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-19">
+<span class="h">            </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="t">None</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-20">
+<span class="h">            </span><span class="k ">all</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">Group</span><span class="sy">(</span><span class="s">'all'</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-21">
+<span class="h">            </span><span class="r">self</span><span class="sy">.</span><span class="v">groups</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">[</span><span class="h"> </span><span class="k ">all</span><span class="h"> </span><span class="sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-22">
+<span class="h">            </span><span class="v">ipv6_re</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="k ">re</span><span class="sy">.</span><span class="k ">compile</span><span class="sy">(</span><span class="s">'\[([a-f:A-F0-9]*[%[0-z]+]?)\](?::(\d+))?'</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-23">
+<span class="h">            </span><span class="st">for</span><span class="h"> </span><span class="i">x</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">host_list</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-24">
+<span class="h">                </span><span class="v">m</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">ipv6_re</span><span class="sy">.</span><span class="e">match</span><span class="sy">(</span><span class="i">x</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-25">
+<span class="h">                </span><span class="st">if</span><span class="h"> </span><span class="i">m</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-26">
+<span class="h">                    </span><span class="k ">all</span><span class="sy">.</span><span class="e">add_host</span><span class="sy">(</span><span class="e">Host</span><span class="sy">(</span><span class="i">m</span><span class="sy">.</span><span class="e">groups</span><span class="sy">(</span><span class="sy">)</span><span class="sy">[</span><span class="cn">0</span><span class="sy">]</span><span class="sy">,</span><span class="h"> </span><span class="i">m</span><span class="sy">.</span><span class="e">groups</span><span class="sy">(</span><span class="sy">)</span><span class="sy">[</span><span class="cn">1</span><span class="sy">]</span><span class="sy">)</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-27">
+<span class="h">                </span><span class="st">else</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-28">
+<span class="h">                    </span><span class="st">if</span><span class="h"> </span><span class="s">":"</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">x</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-29">
+<span class="h">                        </span><span class="v">tokens</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">x</span><span class="sy">.</span><span class="e">rsplit</span><span class="sy">(</span><span class="s">":"</span><span class="sy">,</span><span class="h"> </span><span class="cn">1</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-30">
+<span class="h">                        </span><span class="c"># if there is ':' in the address, then this is a ipv6</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-31">
+<span class="h">                        </span><span class="st">if</span><span class="h"> </span><span class="s">':'</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">tokens</span><span class="sy">[</span><span class="cn">0</span><span class="sy">]</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-32">
+<span class="h">                            </span><span class="k ">all</span><span class="sy">.</span><span class="e">add_host</span><span class="sy">(</span><span class="e">Host</span><span class="sy">(</span><span class="i">x</span><span class="sy">)</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-33">
+<span class="h">                        </span><span class="st">else</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-34">
+<span class="h">                            </span><span class="k ">all</span><span class="sy">.</span><span class="e">add_host</span><span class="sy">(</span><span class="e">Host</span><span class="sy">(</span><span class="i">tokens</span><span class="sy">[</span><span class="cn">0</span><span class="sy">]</span><span class="sy">,</span><span class="h"> </span><span class="i">tokens</span><span class="sy">[</span><span class="cn">1</span><span class="sy">]</span><span class="sy">)</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-35">
+<span class="h">                    </span><span class="st">else</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-36">
+<span class="h">                        </span><span class="k ">all</span><span class="sy">.</span><span class="e">add_host</span><span class="sy">(</span><span class="e">Host</span><span class="sy">(</span><span class="i">x</span><span class="sy">)</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-37">
+<span class="h">        </span><span class="st">elif</span><span class="h"> </span><span class="k ">os.path</span><span class="sy">.</span><span class="e">exists</span><span class="sy">(</span><span class="i">host_list</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-38">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="k ">os.path</span><span class="sy">.</span><span class="e">isdir</span><span class="sy">(</span><span class="i">host_list</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-39">
+<span class="h">                </span><span class="c"># Ensure basedir is inside the directory</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-40">
+<span class="h">                </span><span class="r">self</span><span class="sy">.</span><span class="v">host_list</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="k ">os.path</span><span class="sy">.</span><span class="e">join</span><span class="sy">(</span><span class="r">self</span><span class="sy">.</span><span class="v">host_list</span><span class="sy">,</span><span class="h"> </span><span class="s">""</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-41">
+<span class="h">                </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">InventoryDirectory</span><span class="sy">(</span><span class="v">filename</span><span class="o">=</span><span class="i">host_list</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-42">
+<span class="h">                </span><span class="r">self</span><span class="sy">.</span><span class="v">groups</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="sy">.</span><span class="v">groups</span><span class="sy">.</span><span class="e">values</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-43">
+<span class="h">            </span><span class="st">elif</span><span class="h"> </span><span class="i">utils</span><span class="sy">.</span><span class="e">is_executable</span><span class="sy">(</span><span class="i">host_list</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-44">
+<span class="h">                </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">InventoryScript</span><span class="sy">(</span><span class="v">filename</span><span class="o">=</span><span class="i">host_list</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-45">
+<span class="h">                </span><span class="r">self</span><span class="sy">.</span><span class="v">groups</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="sy">.</span><span class="v">groups</span><span class="sy">.</span><span class="e">values</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-46">
+<span class="h">            </span><span class="st">else</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-47">
+<span class="h">                </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">InventoryParser</span><span class="sy">(</span><span class="v">filename</span><span class="o">=</span><span class="i">host_list</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-48">
+<span class="h">                </span><span class="r">self</span><span class="sy">.</span><span class="v">groups</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="k ">parser</span><span class="sy">.</span><span class="v">groups</span><span class="sy">.</span><span class="e">values</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-49"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-50">
+<span class="h">            </span><span class="i">utils</span><span class="sy">.</span><span class="v">plugins</span><span class="sy">.</span><span class="v">vars_loader</span><span class="sy">.</span><span class="e">add_directory</span><span class="sy">(</span><span class="r">self</span><span class="sy">.</span><span class="e">basedir</span><span class="sy">(</span><span class="sy">)</span><span class="sy">,</span><span class="h"> </span><span class="v">with_subdir</span><span class="o">=</span><span class="t">True</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-51">
+<span class="h">        </span><span class="st">else</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41da3d-52">
+<span class="h">            </span><span class="st">raise</span><span class="h"> </span><span class="i">errors</span><span class="sy">.</span><span class="e">AnsibleError</span><span class="sy">(</span><span class="s">"Unable to find an inventory file, specify one with -i ?"</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41da3d-53">
+<span class="h">        </span>……</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0157 seconds] -->
+<br>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41dafe" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">lib/ansible/inventory/script.py</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+class InventoryScript(object):
+    ''' Host inventory parser for ansible using external inventory scripts. '''
+
+    def __init__(self, filename=C.DEFAULT_HOST_LIST):
+
+        # Support inventory scripts that are not prefixed with some
+        # path information but happen to be in the current working
+        # directory when '.' is not in PATH.
+        self.filename = os.path.abspath(filename)
+        cmd = [ self.filename, "--list" ]
+        try:
+            sp = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except OSError, e:
+            raise errors.AnsibleError("problem running %s (%s)" % (' '.join(cmd), e))
+        (stdout, stderr) = sp.communicate()
+        self.data = stdout
+        # see comment about _meta below
+        self.host_vars_from_top = None
+        self.groups = self._parse(stderr)
+
+    def _parse(self, err):
+
+        all_hosts = {}
+        self.raw  = utils.parse_json(self.data)
+        all       = Group('all')
+        groups    = dict(all=all)
+        group     = None
+
+        if 'failed' in self.raw:
+            sys.stderr.write(err + "\n")
+            raise errors.AnsibleError("failed to parse executable inventory script results: %s" % self.raw)
+
+        for (group_name, data) in self.raw.items():
+
+            # in Ansible 1.3 and later, a "_meta" subelement may contain
+            # a variable "hostvars" which contains a hash for each host
+            # if this "hostvars" exists at all then do not call --host for each
+            # host.  This is for efficiency and scripts should still return data
+            # if called with --host for backwards compat with 1.2 and earlier.
+
+            if group_name == '_meta':
+                if 'hostvars' in data:
+                    self.host_vars_from_top = data['hostvars']
+                    continue
+
+            if group_name != all.name:
+                group = groups[group_name] = Group(group_name)
+            else:
+                group = all
+            host = None
+
+            if not isinstance(data, dict):
+                data = {'hosts': data}
+            elif not any(k in data for k in ('hosts','vars')):
+                data = {'hosts': [group_name], 'vars': data}
+
+            if 'hosts' in data:
+
+                for hostname in data['hosts']:
+                    # filter out hosts not in user's permission
+                    if hostname not in C.DEFAULT_HOST_LIST:
+                        continue
+                    if not hostname in all_hosts:
+                        all_hosts[hostname] = Host(hostname)
+                    host = all_hosts[hostname]
+                    group.add_host(host)
+
+            if 'vars' in data:
+                for k, v in data['vars'].iteritems():
+                    if group.name == all.name:
+                        all.set_variable(k, v)
+                    else:
+                        group.set_variable(k, v)
+            if group.name != all.name:
+                all.add_child_group(group)
+
+        # Separate loop to ensure all groups are defined
+        for (group_name, data) in self.raw.items():
+            if group_name == '_meta':
+                continue
+            if isinstance(data, dict) and 'children' in data:
+                for child_name in data['children']:
+                    if child_name in groups:
+                        groups[group_name].add_child_group(groups[child_name])
+        return groups
+
+    def get_host_variables(self, host):
+        """ Runs &lt;script&gt; --host &lt;hostname&gt; to determine additional host variables """
+        if self.host_vars_from_top is not None:
+            got = self.host_vars_from_top.get(host.name, {})
+            return got
+
+        cmd = [self.filename, "--host", host.name]
+        try:
+            sp = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except OSError, e:
+            raise errors.AnsibleError("problem running %s (%s)" % (' '.join(cmd), e))
+        (out, err) = sp.communicate()
+        return utils.parse_json(out)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-6">6</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-8">8</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-10">10</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-12">12</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-14">14</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-16">16</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-18">18</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-20">20</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-22">22</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-24">24</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-26">26</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-28">28</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-30">30</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-32">32</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-34">34</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-36">36</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-38">38</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-40">40</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-42">42</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-44">44</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-46">46</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-48">48</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-50">50</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-52">52</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-53">53</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-54">54</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-55">55</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-56">56</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-57">57</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-58">58</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-59">59</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-60">60</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-61">61</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-62">62</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-63">63</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-64">64</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-65">65</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-66">66</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-67">67</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-68">68</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-69">69</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-70">70</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-71">71</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-72">72</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-73">73</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-74">74</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-75">75</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-76">76</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-77">77</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-78">78</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-79">79</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-80">80</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-81">81</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-82">82</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-83">83</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-84">84</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-85">85</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-86">86</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-87">87</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-88">88</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-89">89</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-90">90</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-91">91</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-92">92</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-93">93</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-94">94</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-95">95</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-96">96</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-97">97</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dafe-98">98</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dafe-99">99</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41dafe-1">
+<span class="t">class</span><span class="h"> </span><span class="e">InventoryScript</span><span class="sy">(</span><span class="t">object</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-2">
+<span class="h">    </span><span class="s">''</span><span class="s">' Host inventory parser for ansible using external inventory scripts. '</span><span class="s">''</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-4">
+<span class="h">    </span><span class="e">def </span><span class="e">__init__</span><span class="sy">(</span><span class="r">self</span><span class="sy">,</span><span class="h"> </span><span class="v">filename</span><span class="o">=</span><span class="i">C</span><span class="sy">.</span><span class="v">DEFAULT_HOST_LIST</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-5"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-6">
+<span class="h">        </span><span class="p"># Support inventory scripts that are not prefixed with some</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-7">
+<span class="h">        </span><span class="p"># path information but happen to be in the current working</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-8">
+<span class="h">        </span><span class="p"># directory when '.' is not in PATH.</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-9">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="v">filename</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">os</span><span class="sy">.</span><span class="v">path</span><span class="sy">.</span><span class="e">abspath</span><span class="sy">(</span><span class="i">filename</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-10">
+<span class="h">        </span><span class="v">cmd</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">[</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">filename</span><span class="sy">,</span><span class="h"> </span><span class="s">"--list"</span><span class="h"> </span><span class="sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-11">
+<span class="h">        </span><span class="st">try</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-12">
+<span class="h">            </span><span class="v">sp</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">subprocess</span><span class="sy">.</span><span class="e">Popen</span><span class="sy">(</span><span class="i">cmd</span><span class="sy">,</span><span class="h"> </span><span class="v">stdout</span><span class="o">=</span><span class="i">subprocess</span><span class="sy">.</span><span class="v">PIPE</span><span class="sy">,</span><span class="h"> </span><span class="v">stderr</span><span class="o">=</span><span class="i">subprocess</span><span class="sy">.</span><span class="v">PIPE</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-13">
+<span class="h">        </span><span class="e">except </span><span class="i">OSError</span><span class="sy">,</span><span class="h"> </span><span class="i">e</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-14">
+<span class="h">            </span><span class="e">raise </span><span class="i">errors</span><span class="sy">.</span><span class="e">AnsibleError</span><span class="sy">(</span><span class="s">"problem running %s (%s)"</span><span class="h"> </span><span class="o">%</span><span class="h"> </span><span class="sy">(</span><span class="s">' '</span><span class="sy">.</span><span class="e">join</span><span class="sy">(</span><span class="i">cmd</span><span class="sy">)</span><span class="sy">,</span><span class="h"> </span><span class="i">e</span><span class="sy">)</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-15">
+<span class="h">        </span><span class="sy">(</span><span class="i">stdout</span><span class="sy">,</span><span class="h"> </span><span class="i">stderr</span><span class="sy">)</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">sp</span><span class="sy">.</span><span class="e">communicate</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-16">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="v">data</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">stdout</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-17">
+<span class="h">        </span><span class="p"># see comment about _meta below</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-18">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="v">host_vars_from_top</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">None</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-19">
+<span class="e">        </span><span class="r">self</span><span class="sy">.</span><span class="v">groups</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="e">_parse</span><span class="sy">(</span><span class="i">stderr</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-20"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-21">
+<span class="h">    </span><span class="e">def </span><span class="e">_parse</span><span class="sy">(</span><span class="r">self</span><span class="sy">,</span><span class="h"> </span><span class="i">err</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-22"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-23">
+<span class="h">        </span><span class="e">all_hosts</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">{</span><span class="sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-24">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="v">raw</span><span class="h">  </span><span class="o">=</span><span class="h"> </span><span class="i">utils</span><span class="sy">.</span><span class="e">parse_json</span><span class="sy">(</span><span class="r">self</span><span class="sy">.</span><span class="v">data</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-25">
+<span class="h">        </span><span class="v">all</span><span class="h">       </span><span class="o">=</span><span class="h"> </span><span class="e">Group</span><span class="sy">(</span><span class="s">'all'</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-26">
+<span class="h">        </span><span class="v">groups</span><span class="h">    </span><span class="o">=</span><span class="h"> </span><span class="e">dict</span><span class="sy">(</span><span class="v">all</span><span class="o">=</span><span class="i">all</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-27">
+<span class="h">        </span><span class="v">group</span><span class="h">     </span><span class="o">=</span><span class="h"> </span><span class="e">None</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-28"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-29">
+<span class="e">        </span><span class="st">if</span><span class="h"> </span><span class="s">'failed'</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">raw</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-30">
+<span class="h">            </span><span class="i">sys</span><span class="sy">.</span><span class="v">stderr</span><span class="sy">.</span><span class="e">write</span><span class="sy">(</span><span class="i">err</span><span class="h"> </span><span class="o">+</span><span class="h"> </span><span class="s">"\n"</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-31">
+<span class="h">            </span><span class="e">raise </span><span class="i">errors</span><span class="sy">.</span><span class="e">AnsibleError</span><span class="sy">(</span><span class="s">"failed to parse executable inventory script results: %s"</span><span class="h"> </span><span class="o">%</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">raw</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-32"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-33">
+<span class="h">        </span><span class="st">for</span><span class="h"> </span><span class="sy">(</span><span class="i">group_name</span><span class="sy">,</span><span class="h"> </span><span class="i">data</span><span class="sy">)</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">raw</span><span class="sy">.</span><span class="e">items</span><span class="sy">(</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-34"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-35">
+<span class="h">            </span><span class="p"># in Ansible 1.3 and later, a "_meta" subelement may contain</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-36">
+<span class="h">            </span><span class="p"># a variable "hostvars" which contains a hash for each host</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-37">
+<span class="h">            </span><span class="p"># if this "hostvars" exists at all then do not call --host for each</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-38">
+<span class="h">            </span><span class="p"># host.  This is for efficiency and scripts should still return data</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-39">
+<span class="h">            </span><span class="p"># if called with --host for backwards compat with 1.2 and earlier.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-40"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-41">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="v">group_name</span><span class="h"> </span><span class="o">==</span><span class="h"> </span><span class="s">'_meta'</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-42">
+<span class="h">                </span><span class="st">if</span><span class="h"> </span><span class="s">'hostvars'</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">data</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-43">
+<span class="h">                    </span><span class="r">self</span><span class="sy">.</span><span class="v">host_vars_from_top</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">data</span><span class="sy">[</span><span class="s">'hostvars'</span><span class="sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-44">
+<span class="h">                    </span><span class="st">continue</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-45"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-46">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="i">group_name</span><span class="h"> </span><span class="o">!=</span><span class="h"> </span><span class="i">all</span><span class="sy">.</span><span class="v">name</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-47">
+<span class="h">                </span><span class="v">group</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">groups</span><span class="sy">[</span><span class="i">group_name</span><span class="sy">]</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">Group</span><span class="sy">(</span><span class="i">group_name</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-48">
+<span class="h">            </span><span class="st">else</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-49">
+<span class="h">                </span><span class="v">group</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">all</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-50">
+<span class="e">            </span><span class="v">host</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">None</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-51"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-52">
+<span class="e">            </span><span class="st">if</span><span class="h"> </span><span class="st">not</span><span class="h"> </span><span class="e">isinstance</span><span class="sy">(</span><span class="i">data</span><span class="sy">,</span><span class="h"> </span><span class="i">dict</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-53">
+<span class="h">                </span><span class="e">data</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">{</span><span class="s">'hosts'</span><span class="o">:</span><span class="h"> </span><span class="i">data</span><span class="sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-54">
+<span class="h">            </span><span class="e">elif </span><span class="st">not</span><span class="h"> </span><span class="e">any</span><span class="sy">(</span><span class="i">k</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="e">data </span><span class="st">for</span><span class="h"> </span><span class="i">k</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="sy">(</span><span class="s">'hosts'</span><span class="sy">,</span><span class="s">'vars'</span><span class="sy">)</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-55">
+<span class="h">                </span><span class="e">data</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">{</span><span class="s">'hosts'</span><span class="o">:</span><span class="h"> </span><span class="sy">[</span><span class="i">group_name</span><span class="sy">]</span><span class="sy">,</span><span class="h"> </span><span class="s">'vars'</span><span class="o">:</span><span class="h"> </span><span class="i">data</span><span class="sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-56"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-57">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="s">'hosts'</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">data</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-58"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-59">
+<span class="h">                </span><span class="st">for</span><span class="h"> </span><span class="e">hostname </span><span class="st">in</span><span class="h"> </span><span class="i">data</span><span class="sy">[</span><span class="s">'hosts'</span><span class="sy">]</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-60">
+<span class="h">                    </span><span class="p"># filter out hosts not in user's permission</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-61">
+<span class="h">                    </span><span class="st">if</span><span class="h"> </span><span class="e">hostname </span><span class="st">not</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">C</span><span class="sy">.</span><span class="v">DEFAULT_HOST_LIST</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-62">
+<span class="h">                        </span><span class="st">continue</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-63">
+<span class="h">                    </span><span class="st">if</span><span class="h"> </span><span class="st">not</span><span class="h"> </span><span class="e">hostname </span><span class="st">in</span><span class="h"> </span><span class="i">all_hosts</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-64">
+<span class="h">                        </span><span class="i">all_hosts</span><span class="sy">[</span><span class="i">hostname</span><span class="sy">]</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="e">Host</span><span class="sy">(</span><span class="i">hostname</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-65">
+<span class="h">                    </span><span class="v">host</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">all_hosts</span><span class="sy">[</span><span class="i">hostname</span><span class="sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-66">
+<span class="h">                    </span><span class="i">group</span><span class="sy">.</span><span class="e">add_host</span><span class="sy">(</span><span class="i">host</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-67"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-68">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="s">'vars'</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">data</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-69">
+<span class="h">                </span><span class="st">for</span><span class="h"> </span><span class="i">k</span><span class="sy">,</span><span class="h"> </span><span class="i">v</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">data</span><span class="sy">[</span><span class="s">'vars'</span><span class="sy">]</span><span class="sy">.</span><span class="e">iteritems</span><span class="sy">(</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-70">
+<span class="h">                    </span><span class="st">if</span><span class="h"> </span><span class="i">group</span><span class="sy">.</span><span class="v">name</span><span class="h"> </span><span class="o">==</span><span class="h"> </span><span class="i">all</span><span class="sy">.</span><span class="v">name</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-71">
+<span class="h">                        </span><span class="i">all</span><span class="sy">.</span><span class="e">set_variable</span><span class="sy">(</span><span class="i">k</span><span class="sy">,</span><span class="h"> </span><span class="i">v</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-72">
+<span class="h">                    </span><span class="st">else</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-73">
+<span class="h">                        </span><span class="i">group</span><span class="sy">.</span><span class="e">set_variable</span><span class="sy">(</span><span class="i">k</span><span class="sy">,</span><span class="h"> </span><span class="i">v</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-74">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="i">group</span><span class="sy">.</span><span class="v">name</span><span class="h"> </span><span class="o">!=</span><span class="h"> </span><span class="i">all</span><span class="sy">.</span><span class="v">name</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-75">
+<span class="h">                </span><span class="i">all</span><span class="sy">.</span><span class="e">add_child_group</span><span class="sy">(</span><span class="i">group</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-76"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-77">
+<span class="h">        </span><span class="p"># Separate loop to ensure all groups are defined</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-78">
+<span class="h">        </span><span class="st">for</span><span class="h"> </span><span class="sy">(</span><span class="i">group_name</span><span class="sy">,</span><span class="h"> </span><span class="i">data</span><span class="sy">)</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">raw</span><span class="sy">.</span><span class="e">items</span><span class="sy">(</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-79">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="v">group_name</span><span class="h"> </span><span class="o">==</span><span class="h"> </span><span class="s">'_meta'</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-80">
+<span class="h">                </span><span class="st">continue</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-81">
+<span class="h">            </span><span class="st">if</span><span class="h"> </span><span class="e">isinstance</span><span class="sy">(</span><span class="i">data</span><span class="sy">,</span><span class="h"> </span><span class="i">dict</span><span class="sy">)</span><span class="h"> </span><span class="st">and</span><span class="h"> </span><span class="s">'children'</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="i">data</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-82">
+<span class="h">                </span><span class="st">for</span><span class="h"> </span><span class="e">child_name </span><span class="st">in</span><span class="h"> </span><span class="i">data</span><span class="sy">[</span><span class="s">'children'</span><span class="sy">]</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-83">
+<span class="h">                    </span><span class="st">if</span><span class="h"> </span><span class="e">child_name </span><span class="st">in</span><span class="h"> </span><span class="i">groups</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-84">
+<span class="h">                        </span><span class="i">groups</span><span class="sy">[</span><span class="i">group_name</span><span class="sy">]</span><span class="sy">.</span><span class="e">add_child_group</span><span class="sy">(</span><span class="i">groups</span><span class="sy">[</span><span class="i">child_name</span><span class="sy">]</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-85">
+<span class="h">        </span><span class="st">return</span><span class="h"> </span><span class="e">groups</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-86"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-87">
+<span class="e">    </span><span class="e">def </span><span class="e">get_host_variables</span><span class="sy">(</span><span class="r">self</span><span class="sy">,</span><span class="h"> </span><span class="i">host</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-88">
+<span class="h">        </span><span class="s">""</span><span class="s">" Runs &lt;script&gt; --host &lt;hostname&gt; to determine additional host variables "</span><span class="s">""</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-89">
+<span class="h">        </span><span class="st">if</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="e">host_vars_from_top </span><span class="st">is</span><span class="h"> </span><span class="st">not</span><span class="h"> </span><span class="i">None</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-90">
+<span class="h">            </span><span class="v">got</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">host_vars_from_top</span><span class="sy">.</span><span class="e">get</span><span class="sy">(</span><span class="i">host</span><span class="sy">.</span><span class="v">name</span><span class="sy">,</span><span class="h"> </span><span class="sy">{</span><span class="sy">}</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-91">
+<span class="h">            </span><span class="st">return</span><span class="h"> </span><span class="e">got</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-92"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-93">
+<span class="e">        </span><span class="v">cmd</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">[</span><span class="r">self</span><span class="sy">.</span><span class="v">filename</span><span class="sy">,</span><span class="h"> </span><span class="s">"--host"</span><span class="sy">,</span><span class="h"> </span><span class="i">host</span><span class="sy">.</span><span class="v">name</span><span class="sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-94">
+<span class="h">        </span><span class="st">try</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-95">
+<span class="h">            </span><span class="v">sp</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">subprocess</span><span class="sy">.</span><span class="e">Popen</span><span class="sy">(</span><span class="i">cmd</span><span class="sy">,</span><span class="h"> </span><span class="v">stdout</span><span class="o">=</span><span class="i">subprocess</span><span class="sy">.</span><span class="v">PIPE</span><span class="sy">,</span><span class="h"> </span><span class="v">stderr</span><span class="o">=</span><span class="i">subprocess</span><span class="sy">.</span><span class="v">PIPE</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-96">
+<span class="h">        </span><span class="e">except </span><span class="i">OSError</span><span class="sy">,</span><span class="h"> </span><span class="i">e</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-97">
+<span class="h">            </span><span class="e">raise </span><span class="i">errors</span><span class="sy">.</span><span class="e">AnsibleError</span><span class="sy">(</span><span class="s">"problem running %s (%s)"</span><span class="h"> </span><span class="o">%</span><span class="h"> </span><span class="sy">(</span><span class="s">' '</span><span class="sy">.</span><span class="e">join</span><span class="sy">(</span><span class="i">cmd</span><span class="sy">)</span><span class="sy">,</span><span class="h"> </span><span class="i">e</span><span class="sy">)</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dafe-98">
+<span class="h">        </span><span class="sy">(</span><span class="i">out</span><span class="sy">,</span><span class="h"> </span><span class="i">err</span><span class="sy">)</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">sp</span><span class="sy">.</span><span class="e">communicate</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dafe-99">
+<span class="h">        </span><span class="st">return</span><span class="h"> </span><span class="i">utils</span><span class="sy">.</span><span class="e">parse_json</span><span class="sy">(</span><span class="i">out</span><span class="sy">)</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0230 seconds] -->
+
+</div>
+<div>         从中可以得出如下结论：</div>
+<div>
+<ol>
+<li>   ansible config，HOSTLIST的位置可以调整(ansible/constents.py)。</li>
+<li>   HOSTLIST可以是文件，目录，可执行程序，并且目录可有无数层子目录，下面可以有无数个脚本或配置文件(ansible/inventory/__init__.py:70-107)。</li>
+<li>   inventory Script不限定脚本语言，但至少需要实现–list 选项，并返回一个符合规则的json str，列出全量的机器列表，执行inventory Script阶段不支持传入自定义参数；另外可选的是，实现一个—host方法，返回机器的变量信息(ansible/inventory/script.py)，具体的来说，—list返回格式要求如下：</li>
+</ol>
+</div>
+<div>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41dbc7" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">--list output</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">JavaScript</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+{
+    "group1": [
+        "host1",
+        "host2"
+    ],
+    "group2": [
+        "host3"
+    ],
+    "_meta": {//可选
+        "hostvars": {//可选
+            "host1": {
+                "var1": "value1",
+                "var2": "value2"
+            },
+            "host2": {
+                "var3": "value3"
+            }
+        },
+        "group1": {//可选
+            "children": [
+                “group2"
+            ]
+        }
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-6">6</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-8">8</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-10">10</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-12">12</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-14">14</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-16">16</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-18">18</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-20">20</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-22">22</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dbc7-24">24</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dbc7-25">25</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-1"><span class="sy">{</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-2">
+<span class="h">    </span><span class="s">"group1"</span><span class="o">:</span><span class="h"> </span><span class="sy">[</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-3">
+<span class="h">        </span><span class="s">"host1"</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-4">
+<span class="h">        </span><span class="s">"host2"</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-5">
+<span class="h">    </span><span class="sy">]</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-6">
+<span class="h">    </span><span class="s">"group2"</span><span class="o">:</span><span class="h"> </span><span class="sy">[</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-7">
+<span class="h">        </span><span class="s">"host3"</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-8">
+<span class="h">    </span><span class="sy">]</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-9">
+<span class="h">    </span><span class="s">"_meta"</span><span class="o">:</span><span class="h"> </span><span class="sy">{</span><span class="c">//可选</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-10">
+<span class="h">        </span><span class="s">"hostvars"</span><span class="o">:</span><span class="h"> </span><span class="sy">{</span><span class="c">//可选</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-11">
+<span class="h">            </span><span class="s">"host1"</span><span class="o">:</span><span class="h"> </span><span class="sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-12">
+<span class="h">                </span><span class="s">"var1"</span><span class="o">:</span><span class="h"> </span><span class="s">"value1"</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-13">
+<span class="h">                </span><span class="s">"var2"</span><span class="o">:</span><span class="h"> </span><span class="s">"value2"</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-14">
+<span class="h">            </span><span class="sy">}</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-15">
+<span class="h">            </span><span class="s">"host2"</span><span class="o">:</span><span class="h"> </span><span class="sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-16">
+<span class="h">                </span><span class="s">"var3"</span><span class="o">:</span><span class="h"> </span><span class="s">"value3"</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-17">
+<span class="h">            </span><span class="sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-18">
+<span class="h">        </span><span class="sy">}</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-19">
+<span class="h">        </span><span class="s">"group1"</span><span class="o">:</span><span class="h"> </span><span class="sy">{</span><span class="c">//可选</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-20">
+<span class="h">            </span><span class="s">"children"</span><span class="o">:</span><span class="h"> </span><span class="sy">[</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-21">
+<span class="h">                </span>“<span class="i">group2</span>"</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-22">
+<span class="h">            </span><span class="sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-23">
+<span class="h">        </span><span class="sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dbc7-24">
+<span class="h">    </span><span class="sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dbc7-25"><span class="sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0028 seconds] -->
+<br>
+等效的hosts配置文件：
+</div>
+<div>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41dc80" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">hosts.txt</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+[group1]
+host1 var1=value1 var2=value2
+host2 var3=value2
+[group2]
+host3
+[group1:children]
+group2</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41dc80-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dc80-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dc80-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dc80-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dc80-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dc80-6">6</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dc80-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41dc80-1">
+<span class="sy">[</span><span class="i">group1</span><span class="sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dc80-2">
+<span class="e">host1 </span><span class="v">var1</span><span class="o">=</span><span class="e">value1 </span><span class="v">var2</span><span class="o">=</span><span class="e">value2</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dc80-3">
+<span class="e">host2 </span><span class="v">var3</span><span class="o">=</span><span class="i">value2</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dc80-4">
+<span class="sy">[</span><span class="i">group2</span><span class="sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dc80-5"><span class="i">host3</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dc80-6">
+<span class="sy">[</span><span class="i">group1</span><span class="o">:</span><span class="i">children</span><span class="sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dc80-7"><span class="i">group2</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+
+</div>
+<div>         因为python程序对于python环境十分敏感，所以我们强烈建议大家使用virtualenv将ansible及其环境部署到一个独立的目录，并且得益于结论1，我们可以将所有ansible相关的目录也收敛到此目录下，这样不但方便开发部署，也能避免对其它程序造成影响，我将我的环境统一放到了/usr/local/ansible下，并在activate脚本中export出了所有需要的变量，然后为用户alias了ago/back两个命令来进入和退出ansible环境。</div>
+<div>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41dd33" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">diff activate  activate.old</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">diff</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+49,51d48
+&lt; VIRTUAL_ENV_DISABLE_PROMPT=1
+&lt; ANSIBLE_CONFIG="$VIRTUAL_ENV/etc/ansible.cfg"
+&lt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41dd33-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dd33-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dd33-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dd33-4">4</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41dd33-1">49,51d48</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dd33-2"><span class="cn ">&lt; VIRTUAL_ENV_DISABLE_PROMPT=1</span></div>
+<div class="crayon-line" id="crayon-53c3c1c41dd33-3"><span class="cn ">&lt; ANSIBLE_CONFIG="$VIRTUAL_ENV/etc/ansible.cfg"</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dd33-4"><span class="h">&lt;</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+
+</div>
+<div>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41dded" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">/etc/profile.d/ansible.sh</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+#!/bin/bash
+
+ANSIBLE_HOME=/usr/local/ansible
+alias ago="source $ANSIBLE_HOME/bin/activate"
+alias back="deactivate"</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41dded-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dded-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dded-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41dded-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41dded-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41dded-1"><span class="p">#!/bin/bash</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dded-2"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41dded-3">
+<span class="v">ANSIBLE_HOME</span><span class="o">=</span><span class="o">/</span><span class="i">usr</span><span class="o">/</span><span class="i">local</span><span class="o">/</span><span class="e">ansible</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41dded-4">
+<span class="r">alias</span><span class="h"> </span><span class="v">ago</span><span class="o">=</span><span class="s">"source $ANSIBLE_HOME/bin/activate"</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41dded-5">
+<span class="r">alias</span><span class="h"> </span><span class="v">back</span><span class="o">=</span><span class="s">"deactivate"</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+
+</div>
+<div>         基于2，我们可以将hosts搞成一个目录，然后如果你乐意的话，下面还可以再创建分类目录，方便归类管理。我的目录结构如下：</div>
+<div>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41deab" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">tree /usr/local/ansible/etc/</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+/usr/local/ansible/etc/
+├── ansible.cfg
+└── hosts
+    ├── xbox_global.ini
+    └── xbox.py</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41deab-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41deab-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41deab-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41deab-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41deab-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41deab-1">
+<span class="o">/</span><span class="i">usr</span><span class="o">/</span><span class="i">local</span><span class="o">/</span><span class="i">ansible</span><span class="o">/</span><span class="i">etc</span><span class="o">/</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41deab-2">├──<span class="h"> </span><span class="i">ansible</span><span class="sy">.</span><span class="v">cfg</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41deab-3">└──<span class="h"> </span><span class="i">hosts</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41deab-4">
+<span class="h">    </span>├──<span class="h"> </span><span class="i">xbox_global</span><span class="sy">.</span><span class="v">ini</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41deab-5">
+<span class="h">    </span>└──<span class="h"> </span><span class="i">xbox</span><span class="sy">.</span><span class="v">py</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0010 seconds] -->
+
+</div>
+<div>         结论3中的那个“全量”再加上“不支持传入自定义参数”让我们有些头疼，实际上因为公司的机器成千上万，显然OP并不需要也不能每次运行ansible命令就拉全量机器列表，我们care的可能只有那么百十来台，可人家又不支持传入参数，怎么办？答案是：使用配置+cache，实际上官方提供的两个例子中也都使用了配置，不过配置这事，也需要安全的环境支撑，我们在第一版本中之所以没有用cache，是因为我们运行ansible的机器没有个人账号，呐，你敢不敢把token写文件里面放到上面？恐怕你连cache都不愿意放。说道这里我也特别提醒下，仅在足够安全的环境下使用我们最后提供的脚本。</div>
+<div></div>
+<div>         好了，现在我们脑海中就有个大体的轮廓了：只要写一个脚本，读取自定义配置，然后查询机器信息管理系统获得机器列表，实现到—list中方法，然后吐出一个合理的json，扔到ansible hosts目录下，机器列表的事情就搞定了，如果愿意，甚至可以连分组信息以及机器变量也搞定了。</div>
+<div>         下面我们就开始动手写一个来试试了。</div>
+<div></div>
+<div>
+<h4><strong>2. 动手</strong></h4>
+</div>
+<div>         首先我们来实现一个最简单的脚本，官方的两个示例都是很好的例子，cobber是获取机器列表(—list)的例子，ec2是获取机器信息(—host)的例子。我们下载cobber.py改起，我也画了下这个程序的流程图（<a href="http://noops.me/wp-content/uploads/2014/03/cobber%E6%B5%81%E7%A8%8B%E5%9B%BE.png" target="_blank">这里</a>），也可以到<a href="http://www.lucidchart.com/invitations/accept/531ebc3a-1d5c-4825-bc2c-4a6d0a00d013%20" target="_blank">这里</a>查看带附注的版本（翻墙please…），看完后相信你会觉得这事太简单了，总的来说，我们只需要改动他read_settings，update_cache这两个方法。</div>
+<div>         先来个简化的，不做任何可配置、容错检查以及排错支持，但骨架是全了：获取机器列表，并设置分组和变量信息，要做到这一点只需要添加两个函数，然后再盖一下update_cache就OK了：</div>
+<div>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53c3c1c41df5d" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">xbox.py</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Python</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+    def get_host_list(self):
+        '''根据用户配置从xbox获取机器列表'''
+
+        http = httplib2.Http()
+        url = “http://xbox.xiaomi.com/getMyHostlist?token=123&amp;tag=com.xiaomi”  #示例
+
+            try:
+                response, content = http.request(url, 'GET')
+                # 检查返回是否正常
+                if response.status != 200:
+                    raise Exception('%s %s' % (response.status,response.reason))
+
+                #返回结果类似: { “succ”:0; “hosts”:[“host1”,”host2”] }
+                hosts = json.loads(content)[‘hosts’]
+                for host in hosts:
+                    self.push(self.inventory, 'all', host) # push是对append的一个封装
+            except Exception, e:
+                print e
+                sys.exit(1)
+
+    def get_host_tags(self):
+        '''根据机器列表获得所有机器的tag和ip信息，并将tag作为分组名插入inventory’''
+
+            http = httplib2.Http()
+            hosts=‘_’.join(self.inventory[‘all'])
+            url =  “http://xbox.xiaomi.com/getMyHosttags?token=123&amp;hosts=” + hosts #还是示例。。。
+            try:
+                response, content = http.request(url, 'GET')
+                data = json.loads(content)
+
+                #返回结果类似：{”succ“:0; “tag_list”:{“host1”:”com.xiaomi_dept.miliao_pdl.A_service.X,com.xiaomi_dept.miui_pdl.B_service.Y”}; ….}
+                for host in json.loads(content)['tag_list'].keys():
+                    self.cache[host] = dict()
+                    ip = socket.gethostbyname(host)
+                    self.cache[host]['ip'] = [ip]
+                    tagstrs = json.loads(content)['tag_list'][host].split(',')
+                    for tagstr in tagstrs:
+                        for tag in tagstr.split(‘_'):
+                            [key, value] = tag.split('.')
+                            # 将tag作为hostvar保存
+                            self.push(self.cache[host], key, value)
+                            # 也将tag作为分组依据
+                            group_name = '%s.%s' % (key, value)
+                            self.push(self.inventory, group_name, host)
+                        #将full tag string也作为hostvar和分组依据
+                        self.push(self.inventory, tagstr, host)
+                        self.push(self.cache[host], 'full_tags', tagstr)
+
+            except Exception, e:
+                print e
+                sys.exit(1)
+
+    def update_cache(self):
+        """ Make calls to xbox and save the output in a cache """
+
+        self.get_host_list()
+        self.get_host_tags()
+
+        self.write_to_cache(self.cache, self.cache_path_cache)
+        self.write_to_cache(self.inventory, self.cache_path_inventory)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-2">2</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-4">4</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-6">6</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-8">8</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-10">10</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-12">12</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-14">14</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-16">16</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-18">18</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-20">20</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-22">22</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-24">24</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-26">26</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-28">28</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-30">30</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-32">32</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-34">34</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-36">36</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-38">38</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-40">40</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-42">42</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-44">44</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-46">46</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-48">48</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-50">50</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-52">52</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-53">53</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-54">54</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-55">55</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-56">56</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-57">57</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-58">58</div>
+<div class="crayon-num" data-line="crayon-53c3c1c41df5d-59">59</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53c3c1c41df5d-60">60</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53c3c1c41df5d-1">
+<span class="h">    </span><span class="r">def</span><span class="h"> </span><span class="e">get_host_list</span><span class="sy">(</span><span class="r">self</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-2">
+<span class="h">        </span><span class="s">'''根据用户配置从xbox获取机器列表'''</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-4">
+<span class="h">        </span><span class="v">http</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">httplib2</span><span class="sy">.</span><span class="e">Http</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-5">
+<span class="h">        </span><span class="v">url</span><span class="h"> </span><span class="o">=</span><span class="h"> </span>“<span class="i">http</span><span class="o">:</span><span class="o">/</span><span class="o">/</span><span class="i">xbox</span><span class="sy">.</span><span class="v">xiaomi</span><span class="sy">.</span><span class="v">com</span><span class="o">/</span><span class="i">getMyHostlist</span><span class="sy">?</span><span class="k ">token</span><span class="o">=</span><span class="cn">123</span><span class="o">&amp;</span><span class="v">tag</span><span class="o">=</span><span class="i">com</span><span class="sy">.</span><span class="v">xiaomi</span>”<span class="h">  </span><span class="c">#示例</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-6"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-7">
+<span class="h">            </span><span class="st">try</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-8">
+<span class="h">                </span><span class="i">response</span><span class="sy">,</span><span class="h"> </span><span class="v">content</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">http</span><span class="sy">.</span><span class="e">request</span><span class="sy">(</span><span class="i">url</span><span class="sy">,</span><span class="h"> </span><span class="s">'GET'</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-9">
+<span class="h">                </span><span class="c"># 检查返回是否正常</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-10">
+<span class="h">                </span><span class="st">if</span><span class="h"> </span><span class="i">response</span><span class="sy">.</span><span class="v">status</span><span class="h"> </span><span class="o">!=</span><span class="h"> </span><span class="cn">200</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-11">
+<span class="h">                    </span><span class="st">raise</span><span class="h"> </span><span class="k ">Exception</span><span class="sy">(</span><span class="s">'%s %s'</span><span class="h"> </span><span class="o">%</span><span class="h"> </span><span class="sy">(</span><span class="i">response</span><span class="sy">.</span><span class="v">status</span><span class="sy">,</span><span class="i">response</span><span class="sy">.</span><span class="v">reason</span><span class="sy">)</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-12"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-13">
+<span class="h">                </span><span class="c">#返回结果类似: { “succ”:0; “hosts”:[“host1”,”host2”] }</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-14">
+<span class="h">                </span><span class="v">hosts</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="k ">json</span><span class="sy">.</span><span class="e">loads</span><span class="sy">(</span><span class="i">content</span><span class="sy">)</span><span class="sy">[</span>‘<span class="i">hosts</span>’<span class="sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-15">
+<span class="h">                </span><span class="st">for</span><span class="h"> </span><span class="e">host </span><span class="st">in</span><span class="h"> </span><span class="i">hosts</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-16">
+<span class="h">                    </span><span class="r">self</span><span class="sy">.</span><span class="e">push</span><span class="sy">(</span><span class="r">self</span><span class="sy">.</span><span class="v">inventory</span><span class="sy">,</span><span class="h"> </span><span class="s">'all'</span><span class="sy">,</span><span class="h"> </span><span class="i">host</span><span class="sy">)</span><span class="h"> </span><span class="c"># push是对append的一个封装</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-17">
+<span class="h">            </span><span class="st">except</span><span class="h"> </span><span class="k ">Exception</span><span class="sy">,</span><span class="h"> </span><span class="i">e</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-18">
+<span class="h">                </span><span class="k ">print</span><span class="h"> </span><span class="i">e</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-19">
+<span class="h">                </span><span class="k ">sys</span><span class="sy">.</span><span class="e">exit</span><span class="sy">(</span><span class="cn">1</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-20"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-21">
+<span class="h">    </span><span class="r">def</span><span class="h"> </span><span class="e">get_host_tags</span><span class="sy">(</span><span class="r">self</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-22">
+<span class="h">        </span><span class="s">''</span><span class="s">'根据机器列表获得所有机器的tag和ip信息，并将tag作为分组名插入inventory’'</span><span class="s">'</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-23"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-24"><span class="s">            http = httplib2.Http()</span></div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-25">
+<span class="s">            hosts=‘_’.join(self.inventory[‘all'</span><span class="sy">]</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-26">
+<span class="h">            </span><span class="v">url</span><span class="h"> </span><span class="o">=</span><span class="h">  </span>“<span class="i">http</span><span class="o">:</span><span class="o">/</span><span class="o">/</span><span class="i">xbox</span><span class="sy">.</span><span class="v">xiaomi</span><span class="sy">.</span><span class="v">com</span><span class="o">/</span><span class="i">getMyHosttags</span><span class="sy">?</span><span class="k ">token</span><span class="o">=</span><span class="cn">123</span><span class="o">&amp;</span><span class="v">hosts</span><span class="o">=</span>”<span class="h"> </span><span class="o">+</span><span class="h"> </span><span class="i">hosts</span><span class="h"> </span><span class="c">#还是示例。。。</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-27">
+<span class="h">            </span><span class="st">try</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-28">
+<span class="h">                </span><span class="i">response</span><span class="sy">,</span><span class="h"> </span><span class="v">content</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">http</span><span class="sy">.</span><span class="e">request</span><span class="sy">(</span><span class="i">url</span><span class="sy">,</span><span class="h"> </span><span class="s">'GET'</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-29">
+<span class="h">                </span><span class="v">data</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="k ">json</span><span class="sy">.</span><span class="e">loads</span><span class="sy">(</span><span class="i">content</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-30"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-31">
+<span class="h">                </span><span class="c">#返回结果类似：{”succ“:0; “tag_list”:{“host1”:”com.xiaomi_dept.miliao_pdl.A_service.X,com.xiaomi_dept.miui_pdl.B_service.Y”}; ….}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-32">
+<span class="h">                </span><span class="st">for</span><span class="h"> </span><span class="e">host </span><span class="st">in</span><span class="h"> </span><span class="k ">json</span><span class="sy">.</span><span class="e">loads</span><span class="sy">(</span><span class="i">content</span><span class="sy">)</span><span class="sy">[</span><span class="s">'tag_list'</span><span class="sy">]</span><span class="sy">.</span><span class="e">keys</span><span class="sy">(</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-33">
+<span class="h">                    </span><span class="r">self</span><span class="sy">.</span><span class="v">cache</span><span class="sy">[</span><span class="i">host</span><span class="sy">]</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="k ">dict</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-34">
+<span class="h">                    </span><span class="v">ip</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="k ">socket</span><span class="sy">.</span><span class="e">gethostbyname</span><span class="sy">(</span><span class="i">host</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-35">
+<span class="h">                    </span><span class="r">self</span><span class="sy">.</span><span class="v">cache</span><span class="sy">[</span><span class="i">host</span><span class="sy">]</span><span class="sy">[</span><span class="s">'ip'</span><span class="sy">]</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="sy">[</span><span class="i">ip</span><span class="sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-36">
+<span class="h">                    </span><span class="v">tagstrs</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="k ">json</span><span class="sy">.</span><span class="e">loads</span><span class="sy">(</span><span class="i">content</span><span class="sy">)</span><span class="sy">[</span><span class="s">'tag_list'</span><span class="sy">]</span><span class="sy">[</span><span class="i">host</span><span class="sy">]</span><span class="sy">.</span><span class="e">split</span><span class="sy">(</span><span class="s">','</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-37">
+<span class="h">                    </span><span class="st">for</span><span class="h"> </span><span class="e">tagstr </span><span class="st">in</span><span class="h"> </span><span class="i">tagstrs</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-38">
+<span class="h">                        </span><span class="st">for</span><span class="h"> </span><span class="e">tag </span><span class="st">in</span><span class="h"> </span><span class="i">tagstr</span><span class="sy">.</span><span class="e">split</span><span class="sy">(</span>‘<span class="i">_</span><span class="s">'):</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-39">
+<span class="s">                            [key, value] = tag.split('</span><span class="sy">.</span><span class="s">')</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-40"><span class="s">                            # 将tag作为hostvar保存</span></div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-41"><span class="s">                            self.push(self.cache[host], key, value)</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-42"><span class="s">                            # 也将tag作为分组依据</span></div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-43">
+<span class="s">                            group_name = '</span><span class="o">%</span><span class="i">s</span><span class="sy">.</span><span class="o">%</span><span class="i">s</span><span class="s">' % (key, value)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-44"><span class="s">                            self.push(self.inventory, group_name, host)</span></div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-45"><span class="s">                        #将full tag string也作为hostvar和分组依据</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-46"><span class="s">                        self.push(self.inventory, tagstr, host)</span></div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-47">
+<span class="s">                        self.push(self.cache[host], '</span><span class="i">full_tags</span>'<span class="sy">,</span><span class="h"> </span><span class="i">tagstr</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-48"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-49">
+<span class="h">            </span><span class="st">except</span><span class="h"> </span><span class="k ">Exception</span><span class="sy">,</span><span class="h"> </span><span class="i">e</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-50">
+<span class="h">                </span><span class="k ">print</span><span class="h"> </span><span class="i">e</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-51">
+<span class="h">                </span><span class="k ">sys</span><span class="sy">.</span><span class="e">exit</span><span class="sy">(</span><span class="cn">1</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-52"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-53">
+<span class="h">    </span><span class="r">def</span><span class="h"> </span><span class="e">update_cache</span><span class="sy">(</span><span class="r">self</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-54">
+<span class="h">        </span><span class="s">""" Make calls to xbox and save the output in a cache """</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-55"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-56">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="e">get_host_list</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-57">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="e">get_host_tags</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-58"> </div>
+<div class="crayon-line" id="crayon-53c3c1c41df5d-59">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="e">write_to_cache</span><span class="sy">(</span><span class="r">self</span><span class="sy">.</span><span class="v">cache</span><span class="sy">,</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">cache_path_cache</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53c3c1c41df5d-60">
+<span class="h">        </span><span class="r">self</span><span class="sy">.</span><span class="e">write_to_cache</span><span class="sy">(</span><span class="r">self</span><span class="sy">.</span><span class="v">inventory</span><span class="sy">,</span><span class="h"> </span><span class="r">self</span><span class="sy">.</span><span class="v">cache_path_inventory</span><span class="sy">)</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0143 seconds] -->
+
+</div>
+<div>         上面的代码可读性好到屌爆，也许你替换url后还真能用，不过大多数情况下，你得到了一堆exception，恩没错，你的代码需要更多的裹脚布，然后，你需要尽可能的把配置抽取出来，像我还顺手加点小功能，于是到最后我的脚本达到了400多行。。</div>
+<div>         恩，你一定会说，累死我了，给我脚本我自己看吧，好吧，请摆驾<a href="https://github.com/iambocai/ansible-plugins/tree/master/inventory_plugin" target="_blank">这里</a><a href="http://git.n.xiaomi.com/ansible/ansible-plugins"><br>
+</a>
+</div>
+<div>         简单的说明下，这个脚本除了上面的主体功能外，还包括以下酱油功能：</div>
+<div>          ·   管理员可配置：API URL , 用户配置模板获取位置，合理超时区间，封禁用户，用户缓存路径</div>
+<div>          ·   用户可配置：token，关心的机器tags（就是all怎么获得），超时间隔</div>
+<div></div>
+<div>enjoy！</div>
+            

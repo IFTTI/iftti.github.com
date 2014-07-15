@@ -1,0 +1,84 @@
+---
+layout: post
+title: 巧用 Puppet 的 stdlib 库 
+time: 2014-05-28 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/05/28/stdlib-of-puppet
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>这几天上线机器给 Elasticsearch 集群扩容，开始撰写 Puppet 的 elasticsearch 类来规范化管理。这里碰到一个小问题，相信在很多大容量集群的机器上都会有。那就是每台机器上都挂载有十几二十块磁盘，怎么用 Puppet 给快速方便的创建各磁盘上的工作目录呢？</p>
+
+<p>一个一个写 File 资源申明肯定不可取；File 资源申明支持接受数组，但是二十多个元素写一个大数组也没方便到哪里去。有没有比较简单的办法来生成这个大数组，而不是手写呢？</p>
+
+<p>有，就是使用 Puppet 官方出的这个 stdlib 库 <a href="http://forge.puppetlabs.com/puppetlabs/stdlib">http://forge.puppetlabs.com/puppetlabs/stdlib</a>。</p>
+
+<p>安装方法很简单，在 Puppet Master 上运行命令 <code>puppet module install puppetlabs-stdlib</code> 即可。</p>
+
+<p>因为 puppet 默认会分发所有 module 的 lib/ 目录，所以即便你没有在自己的类里 <code>import stdlib</code>，也是可以直接使用它提供的各种函数的。</p>
+
+<p>下面就是我的 elsticsearch 类配置：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="n">elasticsearch</span> <span class="p">{</span>
+
+    <span class="vg">$esdatadir</span> <span class="o">=</span> <span class="n">suffix</span><span class="p">(</span> <span class="n">prefix</span><span class="p">(</span> <span class="n">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="vg">$:</span><span class="ss">:datadircount</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="s1">'/data'</span><span class="p">),</span> <span class="s1">'/elasticsearch'</span><span class="p">)</span>
+
+    <span class="n">package</span> <span class="p">{</span><span class="o">[</span><span class="s1">'java-1.7.0-openjdk'</span><span class="p">,</span> <span class="s1">'elasticsearch'</span><span class="o">]</span><span class="p">:</span>
+        <span class="k">ensure</span>  <span class="o">=&gt;</span> <span class="s1">'present'</span><span class="p">,</span>
+        <span class="nb">require</span> <span class="o">=&gt;</span> <span class="no">Class</span><span class="o">[</span><span class="s1">'repos'</span><span class="o">]</span><span class="p">,</span>
+    <span class="p">}</span><span class="o">-&gt;</span>
+    <span class="n">file</span> <span class="p">{</span><span class="vg">$esdatadir</span><span class="p">:</span>
+        <span class="k">ensure</span>  <span class="o">=&gt;</span> <span class="s1">'directory'</span><span class="p">,</span>
+        <span class="n">owner</span>   <span class="o">=&gt;</span> <span class="s1">'elasticsearch'</span><span class="p">,</span>
+    <span class="p">}</span><span class="o">-&gt;</span>
+    <span class="n">file</span> <span class="p">{</span><span class="s1">'/etc/elasticsearch/elasticsearch.yml'</span><span class="p">:</span>
+        <span class="k">ensure</span>  <span class="o">=&gt;</span> <span class="s1">'file'</span><span class="p">,</span>
+        <span class="n">owner</span>   <span class="o">=&gt;</span> <span class="s1">'elasticsearch'</span><span class="p">,</span>
+        <span class="n">content</span> <span class="o">=&gt;</span> <span class="n">template</span><span class="p">(</span><span class="s1">'elasticsearch/elasticsearch.yml.erb'</span><span class="p">),</span>
+    <span class="p">}</span>
+    <span class="p">}</span><span class="o">~&gt;</span>
+    <span class="n">service</span> <span class="p">{</span><span class="s1">'elasticsearch'</span><span class="p">:</span>
+        <span class="k">ensure</span>  <span class="o">=&gt;</span> <span class="kp">true</span><span class="p">,</span>
+        <span class="n">enable</span>  <span class="o">=&gt;</span> <span class="kp">true</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre></div>
+
+<p>其中 <code>$::datadircount</code> 是我自定义的 Facts 变量，插件代码见两年前的博客<a href="http://chenlinux.com/2012/05/10/quick-start-for-puppet-facter-erb">《puppet安装／Facter插件和puppet模板编写》</a>。</p>
+
+<p>然后 <code>elasticsearch.yml.erb</code> 里的数据目录配置定义如下：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="n">path</span><span class="o">.</span><span class="n">data</span><span class="p">:</span>
+<span class="o">&lt;</span><span class="sx">% scope.lookupvar("elasticsearch::esdatadir").each </span><span class="k">do</span> <span class="o">|</span><span class="n">dir</span><span class="o">|</span> <span class="o">-</span><span class="sx">%&gt;</span>
+<span class="sx">  - &lt;%= dir %&gt;</span>
+<span class="o">&lt;</span><span class="sx">% end </span><span class="o">%&gt;</span></code></pre></div>
+
+<p><code>puppetlibs-stdlib</code> 实现了很多对基础类型的扩展函数，比如本例中用到了 <code>range</code>、<code>prefix</code> 和 <code>suffix</code> 三个。依次生成了 1 到 N 的数组，给数组每个元素加上 <code>/data</code> 前缀字符串，再给每个元素加上 <code>/elasticsearch</code> 后缀字符串，最后变成了 <code>/dataN/elasticsearch</code> 这种格式的元素构成的数组。</p>
+
+<p><code>puppetlibs-stdlib</code> 实现的非常漂亮的地方是，很多函数都根据常见用途提供了不同场景下的不同行为。</p>
+
+<ul>
+  <li>比如 <code>range</code> 即可以 1 到 N，也可以 01 到 NN，甚至可以先加上 prefix 后再 ‘/data1’ 到 ‘/dataN’ 都支持。</li>
+  <li>比如 <code>unique</code> 既可以针对字符串去重，也可以针对数组元素去重。</li>
+</ul>
+
+<p>更多函数说明，见源码仓库 <a href="https://github.com/puppetlabs/puppetlabs-stdlib/blob/master/README.markdown">README</a> 文档。</p>
+
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

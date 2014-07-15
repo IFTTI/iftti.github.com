@@ -1,0 +1,176 @@
+---
+layout: post
+title: Perl6 的 YAML::Dumper 模块 
+time: 2014-04-24 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/04/24/yaml-dump-pm6
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>这两天决定试一把 Perl6，因为<a href="http://www.php-oa.com">扶凯</a>兄已经把还没有正式发行 Rakudo Star 包的 MoarVM 编译打包好了，所以可以跳过这步直接进入模块安装。当然，源码编译本身也没有太大难度，只不过从 github 下源码本身耗时间比较久而已。</p>
+
+<p>既然木有 Star 包，那么安装好 MoarVM 上的 Rakudo 后我们就有必要先自己把 panda 之类的工具编译出来。这一步需要注意一下你的 <code>@*INC</code> 路径和实际的 <code>$PERL6LIB</code> 路径，已经编译之后的 panda 存在的 <code>$PATH</code> 是不是都正确，如果不对的修改一下 <code>~/.bashrc</code> 就好了。</p>
+
+<p>我的尝试迁移对象是一个很简单的 Puppet 的 ENC 脚本，只涉及 SQLite 的读取，以及 YAML 格式的输出。通过 <code>panda install DBIish</code> 命令即可安装好 DBIish 模块。</p>
+
+<p>脚本本身修改起来难度不大，结果如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="c1">#!/usr/bin/env perl6</span>
+<span class="k">use</span> <span class="n">v6</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">DBIish</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">YAML</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$base_dir</span> <span class="o">=</span> <span class="s">"/etc/puppet/webui"</span><span class="p">;</span>
+<span class="c1"># 函数在 Perl6 中依然使用 sub 关键字定义，不过有个超酷的特性是 multi sub</span>
+<span class="c1"># 脚本中没有用到，但是在 YAML::Dumper 中遍地都是，这里也提一句。</span>
+<span class="c1"># MAIN 函数在 Perl6 里可以直接用 :$opt 命令参数起 getopt 的作用</span>
+<span class="c1"># 不过 ENC 脚本就是直接传一个主机名，用不上这个超酷的特性</span>
+<span class="k">sub </span><span class="nf">MAIN</span><span class="p">($node) {</span>
+<span class="c1"># connect 方法接收参数选项是 |%opts，所以可以把哈希直接平铺写</span>
+<span class="c1"># 这个 | 的用法一个月前在《Using Perl6》里看到过</span>
+    <span class="k">my</span> <span class="nv">$dbh</span> <span class="o">=</span> <span class="n">DBIish</span><span class="o">.</span><span class="nb">connect</span><span class="p">(</span> <span class="s">'SQLite'</span><span class="p">,</span> <span class="n">database</span> <span class="o">=&gt;</span> <span class="s">"{$base_dir}/node_info.db"</span> <span class="p">);</span>
+    <span class="k">my</span> <span class="nv">$sth</span> <span class="o">=</span> <span class="nv">$dbh</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="s">"select * from node_info where node_fqdn = ?"</span><span class="p">);</span>
+    <span class="nv">$sth</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">"$node"</span><span class="p">);</span>
+    <span class="k">my</span> <span class="nv">$ret</span> <span class="o">=</span> <span class="nv">$sth</span><span class="o">.</span><span class="n">fetchrow_hashref</span><span class="p">;</span>
+    <span class="k">my</span> <span class="nv">$res</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span> <span class="o">!</span><span class="nv">$ret</span> <span class="p">)</span> <span class="p">{</span>
+        <span class="nv">$res</span> <span class="o">=</span> <span class="p">{</span>
+<span class="c1"># Perl5 的 qw() 在 Perl6 里直接写成 &lt;&gt; 。也不用再通过 [] 来指明是引用</span>
+            <span class="n">classes</span>     <span class="o">=&gt;</span> <span class="o">&lt;</span><span class="n">puppetd</span> <span class="n">repos</span><span class="o">&gt;</span><span class="p">,</span>
+            <span class="n">environment</span> <span class="o">=&gt;</span> <span class="s">'testing'</span><span class="p">,</span>
+        <span class="p">};</span>
+    <span class="p">}</span>
+    <span class="k">else</span> <span class="p">{</span>
+        <span class="nv">$res</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">environment</span> <span class="o">=&gt;</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'environment'</span><span class="p">},</span>
+            <span class="n">parameters</span>  <span class="o">=&gt;</span> <span class="p">{</span> <span class="n">role</span> <span class="o">=&gt;</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'role'</span><span class="p">}</span> <span class="p">},</span>
+            <span class="n">classes</span>     <span class="o">=&gt;</span> <span class="p">{},</span>
+        <span class="p">};</span>
+<span class="c1"># 这个 for 的用法，在 Perl5 的 Text::Xslate 模板里就用过</span>
+        <span class="k">for</span> <span class="nb">split</span><span class="p">(</span><span class="s">','</span><span class="p">,</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'classes'</span><span class="p">})</span> <span class="o">-&gt;</span> <span class="nv">$class</span> <span class="p">{</span>
+            <span class="k">if</span> <span class="p">(</span> <span class="nv">$class</span> <span class="ow">eq</span> <span class="s">'nginx'</span> <span class="p">)</span> <span class="p">{</span>
+<span class="c1"># 这个 &lt;== 符号指明数据流方向，完全可以把数组倒过来，然后用 ==&gt; 写这行</span>
+<span class="c1"># 如果不习惯这种流向操作符的，可以用,号，反正不能跟 Perl5 那样啥都不写</span>
+<span class="c1"># 这里比较怪的一点是我试图把这么长的一句分成多行写，包括每行后面加\，我看到 YAML 代码里就用\分行了，但是我这就会报错</span>
+<span class="c1"># Perl6 的正则变化较大，这里 /^#/ 要写成 /^'#'/ 或者 /^\x23/</span>
+<span class="c1"># 正则 // 前面不加 m// 不会立刻开始匹配</span>
+<span class="c1"># 原先的 s///g 可以写作 s:g///，也可以写作对象式的 .subst(m//, '', :g)，. 前面为空就是默认的 $_</span>
+<span class="c1"># 捕获的数据存在 @() 数组里，也可以用 $/[i] 的形式获取</span>
+<span class="c1"># 字符串内插时，不再写作 ${*}，而是 {$*} 的形式</span>
+<span class="c1"># 命名捕获这里没用上，写个示例：</span>
+<span class="c1">#     $str ~~ /^(\w+?)$&lt;laststr&gt;=(\w ** 4)\w$/;</span>
+<span class="c1">#     $/&lt;laststr&gt;.chomp.say;</span>
+<span class="c1"># 注意里面的 \w{4} 变成了 \w ** 4</span>
+                <span class="k">my</span> <span class="nv">@needs</span> <span class="o">&lt;==</span> <span class="nb">map</span> <span class="p">{</span> <span class="o">.</span><span class="n">subst</span><span class="p">(</span><span class="sr">m/^(.+)\:(\d+)$/</span><span class="p">,</span> <span class="s">"{$/[0]} max_fails=30 weight={$/[1]}"</span><span class="p">,</span> <span class="p">:</span><span class="n">g</span><span class="p">)</span> <span class="p">}</span> <span class="o">&lt;==</span> <span class="nb">grep</span> <span class="p">{</span> <span class="o">!</span><span class="sr">m/^\x23/</span> <span class="p">}</span> <span class="o">&lt;==</span> <span class="nb">split</span><span class="p">(</span><span class="s">','</span><span class="p">,</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'extstr'</span><span class="p">});</span>
+                <span class="nv">$res</span><span class="p">{</span><span class="s">'classes'</span><span class="p">}{</span><span class="s">'nginx'</span><span class="p">}{</span><span class="s">'iplist'</span><span class="p">}</span> <span class="o">=</span> <span class="nv">@needs</span><span class="p">;</span>
+            <span class="p">}</span>
+            <span class="k">else</span> <span class="p">{</span>
+<span class="c1"># Perl5 的 undef 不再使用，可以使用 Nil 或者 Any 对象</span>
+                <span class="nv">$res</span><span class="p">{</span><span class="s">'classes'</span><span class="p">}{</span><span class="nv">$class</span><span class="p">}</span> <span class="o">=</span> <span class="n">Nil</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">};</span>
+    <span class="nv">$dbh</span><span class="o">.</span><span class="n">disconnect</span><span class="p">();</span>
+<span class="c1"># 这个 dump 就是 YAML 模块导出的函数</span>
+<span class="c1"># Perl6 的模块要导出函数不再需要 Exporter 那样，直接用 our sub dump($obj) {} 就可以了</span>
+    <span class="n">say</span> <span class="nb">dump</span><span class="p">(</span><span class="nv">$res</span><span class="p">);</span>
+<span class="p">};</span></code></pre></div>
+
+<p>但是麻烦的是 YAML 模块本身，这个模块是 ingydotnet 在好几年前草就，后来就没管了，实际现在压根跑不起来。花了半天时间，一边学习一边修改，总算修改正常了。主要涉及了 <code>Attribute</code> 对象，<code>Nil</code> 对象，<code>twigls</code> 前缀符，<code>:exists</code> 定义几个概念，以及 YAML 格式本身的处理逻辑。</p>
+
+<p>YAML 模块修改对比如下：</p>
+
+<pre><code>diff --git a/lib/YAML/Dumper.pm b/lib/YAML/Dumper.pm
+index d7a7981..ec47341 100644
+--- a/lib/YAML/Dumper.pm
++++ b/lib/YAML/Dumper.pm
+@@ -2,16 +2,16 @@ use v6;
+ class YAML::Dumper;
+ 
+ has $.out = [];
+-has $.seen is rw = {};
++has $.seen = {};
+ has $.tags = {};
+ has $.anchors = {};
+ has $.level is rw = 0;
+-has $.id is rw = 1;
++has $.id = 1;
+ has $.info = [];
+ 
+ method dump($object) {
+     $.prewalk($object);
+-    $.seen = {};
++    $!seen = {};
+     $.dump_document($object);
+     return $.out.join('');
+ }
+@@ -45,11 +45,11 @@ method dump_collection($node, $kind, $function) {
+ 
+ method check_special($node) {
+     my $first = 1;
+-    if $.anchors.exists($node.WHICH) {
+-    if $.anchors.exists($node.WHICH) {
++    if $.anchors{$node.WHICH}:exists {
+         push $.out, ' ', '&amp;' ~ $.anchors{$node.WHICH};
+         $first = 0;
+     }
+-    if $.tags.exists($node.WHICH) {
++    if $.tags{$node.WHICH}:exists {
+         push $.out, ' ', '!' ~ $.tags{$node.WHICH};
+         $first = 0;
+     }
+@@ -64,7 +64,7 @@ method indent($first) {
+             return;
+         }
+         if $.info[*-1]&lt;kind&gt; eq 'seq' &amp;&amp; $.info[*-2]&lt;kind&gt; eq 'map' {
+-            $seq_in_map = 1;
++            $seq_in_map = 0;
+         }
+     }
+     push $.out, "\n";
+@@ -155,7 +155,8 @@ method dump_object($node, $type) {
+     $.tags{$repr.WHICH} = $type;
+     for $node.^attributes -&gt; $a {
+         my $name = $a.name.substr(2);
+-        my $value = pir::getattribute__PPs($node, $a.name);     #RAKUDO
++        #my $value = pir::getattribute__PPs($node, $a.name);     #RAKUDO
++        my $value = $a.get_value($node);                         #for non-parrot
+         $repr{$name} = $value;
+     }
+     $.dump_node($repr);
+</code></pre>
+
+<p>这里的 <code>$.seen</code> 和 <code>$!seen</code> 是不是晕掉了？其实 <code>$.seen</code> 就相当于先声明了 <code>$!seen</code> 后再自动创建一个 <code>method seen() { return $!seen }</code>。</p>
+
+<p>另一处是 <code>pir::getattribute__PPs()</code> 函数，pir 是 parrot 上的语言，而 MoarVM 和 JVM 上都是先实现了一个 nqp 再用 nqp 写 Perl6，不巧的是这个 pir 里的 <code>getattribute__PPs()</code> 刚好至今还没有对应的 nqp 方法。(在 pir2nqp.todo 文件里可见)</p>
+
+<p>所以只能用高级的 Perl6 语言来做了。</p>
+
+<p>总的来说，这个 yaml-pm6 代码里很多地方都是试来试去，同样的效果不同的写法，又比如 <code>.WHICH</code> 和 <code>.WHAT.perl</code> 也是混用。
+而且我随手测试了一下，即使在 parrot 上，用 <code>pir::getattribute__PPs</code> 的速度也比 <code>Attribute.get_value</code> 还差点点。</p>
+
+<hr>
+
+<p>最后提一句，目前 ENC 脚本在 perl5、perl6-m、perl6-p、perl6-j 上的运行时间大概分别是 0.13、1.5、2.8、12s。MoarVM 还差 Perl5 十倍，领先 parrot 一倍。不过 JVM 本身启动时间很长，这里不好因为一个短时间脚本说它太慢。</p>
+
+<p>另外还试了一下如果把我修改过的 YAML::Dumper 类直接写在脚本里运行，也就是不编译成 moarvm 模块，时间大概是 2.5s，比 parrot 模块还快点点。</p>
+
+<p>不过如何把 perl6 脚本本身编译成 moarvm 的 bytecode 格式运行还没有研究出来，直接 <code>perl6-m --target=mbc --output=name.moarvm name.pl6</code> 得到的文件运行 <code>moar name.moarvm</code> 的结果运行会内存报错。</p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

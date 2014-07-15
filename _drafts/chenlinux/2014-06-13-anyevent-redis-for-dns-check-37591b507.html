@@ -1,0 +1,157 @@
+---
+layout: post
+title: 用 Redis 做分布式 DNS/HTTP 检测汇总系统 
+time: 2014-06-13 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/06/13/anyevent-redis-for-dns-check
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>一年前搞的一套小脚本，今天翻博客发现没发过，现在发上来好了。主要背景是这样：考虑到有 DNS 和 HTTP 劫持需要监控，但是很多 DNS 服务器对非本区域本运营商的来源请求是拒绝做出响应的，所以得把监控点分散到各地去。其实做这个事情用 nagios 的分布式就足够了，不过如果想做即时触发的紧急任务，就算在 nagios 页面上点击立刻执行，到返回全部结果也得有一阵子。所以选择了自己写一套分布式的异步系统。</p>
+
+<p>中控端脚本如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="c1">#!/usr/bin/perl</span>
+<span class="k">use</span> <span class="nn">Modern::</span><span class="n">Perl</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">AnyEvent</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">AnyEvent::Redis::</span><span class="n">RipeRedis</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">Storable</span> <span class="sx">qw/freeze thaw/</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">YAML::</span><span class="n">Syck</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">utf8</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$area</span> <span class="o">=</span> <span class="nv">$ARGV</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+<span class="k">my</span> <span class="nv">$domain</span> <span class="o">=</span> <span class="s">'fmn.xnimg.cn'</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$master</span> <span class="o">=</span> <span class="s">'10.4.1.21'</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$cv</span>     <span class="o">=</span> <span class="n">AnyEvent</span><span class="o">-&gt;</span><span class="n">condvar</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$redis</span>  <span class="o">=</span> <span class="nn">AnyEvent::Redis::</span><span class="n">RipeRedis</span><span class="o">-&gt;</span><span class="k">new</span><span class="p">(</span>
+    <span class="n">host</span>     <span class="o">=&gt;</span> <span class="nv">$master</span><span class="p">,</span>
+    <span class="n">port</span>     <span class="o">=&gt;</span> <span class="mi">6379</span><span class="p">,</span>
+    <span class="n">encoding</span> <span class="o">=&gt;</span> <span class="s">'utf8'</span><span class="p">,</span>
+<span class="p">);</span>
+<span class="k">my</span> <span class="nv">$dnslist</span> <span class="o">=</span> <span class="n">LoadFile</span><span class="p">(</span><span class="s">"DNS.yml"</span><span class="p">);</span>
+<span class="k">for</span> <span class="k">my</span> <span class="nv">$isp</span> <span class="p">(</span> <span class="nb">sort</span> <span class="nb">keys</span> <span class="nv">%$dnslist</span> <span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span> <span class="nb">defined</span> <span class="nv">$area</span> <span class="p">)</span> <span class="p">{</span>
+        <span class="k">next</span> <span class="k">unless</span> <span class="nb">defined</span> <span class="nv">$dnslist</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$isp</span><span class="p">}</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$area</span><span class="p">};</span>
+        <span class="n">say</span> <span class="nv">$area</span><span class="p">,</span> <span class="nv">$isp</span><span class="p">,</span> <span class="nb">join</span> <span class="s">", "</span><span class="p">,</span> <span class="nv">@</span><span class="p">{</span> <span class="nv">$dnslist</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$isp</span><span class="p">}</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$area</span><span class="p">}</span> <span class="p">};</span>
+        <span class="k">my</span> <span class="nv">$data</span> <span class="o">=</span> <span class="n">freeze</span><span class="p">({</span> <span class="n">domain</span> <span class="o">=&gt;</span> <span class="nv">$domain</span><span class="p">,</span> <span class="n">dnslist</span> <span class="o">=&gt;</span> <span class="nv">$dnslist</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$isp</span><span class="p">}</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$area</span><span class="p">}</span> <span class="p">});</span>
+        <span class="nv">$redis</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span> <span class="s">'task'</span><span class="p">,</span> <span class="nv">$data</span> <span class="p">);</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+        <span class="k">for</span> <span class="k">my</span> <span class="nv">$list</span> <span class="p">(</span> <span class="nb">sort</span> <span class="nb">keys</span> <span class="nv">%</span><span class="p">{</span> <span class="nv">$dnslist</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$isp</span><span class="p">}</span> <span class="p">}</span> <span class="p">)</span> <span class="p">{</span>
+            <span class="k">my</span> <span class="nv">$data</span> <span class="o">=</span> <span class="n">freeze</span><span class="p">({</span> <span class="n">domain</span> <span class="o">=&gt;</span> <span class="nv">$domain</span><span class="p">,</span> <span class="n">dnslist</span> <span class="o">=&gt;</span> <span class="nv">$dnslist</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$isp</span><span class="p">}</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$list</span><span class="p">}</span> <span class="p">});</span>
+            <span class="nv">$cv</span><span class="o">-&gt;</span><span class="n">begin</span><span class="p">;</span>
+            <span class="nv">$redis</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span> <span class="s">'task'</span><span class="p">,</span> <span class="nv">$data</span> <span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+<span class="nv">$redis</span><span class="o">-&gt;</span><span class="n">subscribe</span><span class="p">(</span>
+    <span class="sx">qw( report )</span><span class="p">,</span>
+    <span class="p">{</span>
+        <span class="n">on_done</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+            <span class="k">my</span> <span class="nv">$ch_name</span>  <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">my</span> <span class="nv">$subs_num</span> <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">print</span> <span class="s">"Subscribed: $ch_name. Active: $subs_num\n"</span><span class="p">;</span>
+        <span class="p">},</span>
+        <span class="n">on_message</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+            <span class="k">my</span> <span class="nv">$ch_name</span> <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">my</span> <span class="nv">$msg</span>     <span class="o">=</span> <span class="n">thaw</span><span class="p">(</span> <span class="nb">shift</span> <span class="p">);</span>
+            <span class="nb">printf</span> <span class="s">"%s A %s @%s in %s got %s length %s\n"</span><span class="p">,</span> <span class="nv">$domain</span><span class="p">,</span> <span class="nv">$msg</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">ip</span><span class="p">},</span> <span class="nv">$msg</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">dns</span><span class="p">},</span> <span class="nv">$msg</span><span class="o">-&gt;</span><span class="p">{</span><span class="nb">local</span><span class="p">},</span> <span class="nv">$msg</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">status</span><span class="p">},</span> <span class="nv">$msg</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">len</span><span class="p">};</span>
+            <span class="nv">$cv</span><span class="o">-&gt;</span><span class="n">end</span><span class="p">;</span>
+        <span class="p">},</span>
+        <span class="n">on_error</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+            <span class="k">print</span> <span class="nv">@_</span><span class="p">;</span>
+        <span class="p">},</span>
+    <span class="p">}</span>
+<span class="p">);</span>
+<span class="nv">$cv</span><span class="o">-&gt;</span><span class="nb">recv</span><span class="p">;</span></code></pre></div>
+
+<p>分布在各地的客户端脚本如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="c1">#!/usr/bin/perl</span>
+<span class="k">use</span> <span class="nn">Modern::</span><span class="n">Perl</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">AnyEvent</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">AnyEvent::</span><span class="n">Socket</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">AnyEvent::</span><span class="n">DNS</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">AnyEvent::Redis::</span><span class="n">RipeRedis</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">AnyEvent::</span><span class="n">HTTP</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">Storable</span> <span class="sx">qw/freeze thaw/</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">Digest::</span><span class="n">MD5</span> <span class="sx">qw/md5_hex/</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">utf8</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$master</span> <span class="o">=</span> <span class="s">'10.4.1.21'</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$local</span>  <span class="o">=</span> <span class="s">'192.168.0.2'</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$cv</span>     <span class="o">=</span> <span class="n">AnyEvent</span><span class="o">-&gt;</span><span class="n">condvar</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$redisr</span> <span class="o">=</span> <span class="nn">AnyEvent::Redis::</span><span class="n">RipeRedis</span><span class="o">-&gt;</span><span class="k">new</span><span class="p">(</span>
+    <span class="n">host</span>          <span class="o">=&gt;</span> <span class="nv">$master</span><span class="p">,</span>
+    <span class="n">port</span>          <span class="o">=&gt;</span> <span class="mi">6379</span><span class="p">,</span>
+    <span class="n">encoding</span>      <span class="o">=&gt;</span> <span class="s">'utf8'</span><span class="p">,</span>
+<span class="p">);</span>
+<span class="k">my</span> <span class="nv">$redisp</span> <span class="o">=</span> <span class="nn">AnyEvent::Redis::</span><span class="n">RipeRedis</span><span class="o">-&gt;</span><span class="k">new</span><span class="p">(</span>
+    <span class="n">host</span>          <span class="o">=&gt;</span> <span class="nv">$master</span><span class="p">,</span>
+    <span class="n">port</span>          <span class="o">=&gt;</span> <span class="mi">6379</span><span class="p">,</span>
+    <span class="n">encoding</span>      <span class="o">=&gt;</span> <span class="s">'utf8'</span><span class="p">,</span>
+<span class="p">);</span>
+<span class="nv">$redisr</span><span class="o">-&gt;</span><span class="n">subscribe</span><span class="p">(</span>
+    <span class="s">'task'</span><span class="p">,</span>
+    <span class="p">{</span>
+        <span class="n">on_done</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+            <span class="k">my</span> <span class="nv">$ch_name</span>  <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">my</span> <span class="nv">$subs_num</span> <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">print</span> <span class="s">"Subscribed: $ch_name. Active: $subs_num\n"</span><span class="p">;</span>
+        <span class="p">},</span>
+        <span class="n">on_message</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+            <span class="k">my</span> <span class="nv">$ch_name</span> <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">my</span> <span class="nv">$msg</span>     <span class="o">=</span> <span class="n">thaw</span><span class="p">(</span><span class="nb">shift</span><span class="p">);</span>
+            <span class="k">for</span> <span class="k">my</span> <span class="nv">$dns</span> <span class="p">(</span> <span class="nv">@</span><span class="p">{</span> <span class="nv">$msg</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">dnslist</span><span class="p">}</span> <span class="p">}</span> <span class="p">)</span> <span class="p">{</span>
+                <span class="n">resolv</span><span class="p">(</span> <span class="nv">$dns</span><span class="p">,</span> <span class="nv">$msg</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">domain</span><span class="p">}</span> <span class="p">);</span>
+            <span class="p">}</span>
+        <span class="p">},</span>
+        <span class="n">on_error</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+            <span class="k">my</span> <span class="nv">$err_msg</span>  <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">my</span> <span class="nv">$err_code</span> <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+            <span class="k">print</span> <span class="s">"Error: ($err_code) $err_msg\n"</span><span class="p">;</span>
+        <span class="p">},</span>
+    <span class="p">}</span>
+<span class="p">);</span>
+<span class="nv">$cv</span><span class="o">-&gt;</span><span class="nb">recv</span><span class="p">;</span>
+<span class="k">sub </span><span class="nf">resolv</span> <span class="p">{</span>
+    <span class="k">my</span> <span class="p">(</span> <span class="nv">$dns</span><span class="p">,</span> <span class="nv">$domain</span> <span class="p">)</span> <span class="o">=</span> <span class="nv">@_</span><span class="p">;</span>
+    <span class="k">return</span> <span class="k">unless</span> <span class="nv">$dns</span> <span class="o">=~</span> <span class="sr">m/^\d+/</span><span class="p">;</span>
+    <span class="k">my</span> <span class="nv">$resolver</span> <span class="o">=</span>
+      <span class="nn">AnyEvent::</span><span class="n">DNS</span><span class="o">-&gt;</span><span class="k">new</span><span class="p">(</span> <span class="n">server</span> <span class="o">=&gt;</span> <span class="p">[</span> <span class="nn">AnyEvent::Socket::</span><span class="n">parse_address</span> <span class="nv">$dns</span> <span class="p">],</span> <span class="p">);</span>
+    <span class="nv">$resolver</span><span class="o">-&gt;</span><span class="n">resolve</span><span class="p">(</span>
+        <span class="s">"$domain"</span> <span class="o">=&gt;</span> <span class="s">'a'</span><span class="p">,</span>
+        <span class="k">sub </span><span class="p">{</span>
+            <span class="n">httptest</span><span class="p">(</span><span class="nv">$dns</span><span class="p">,</span> <span class="nv">$domain</span><span class="p">,</span> <span class="nv">$_</span><span class="o">-&gt;</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="k">for</span> <span class="nv">@_</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">);</span>
+<span class="p">}</span>
+<span class="k">sub </span><span class="nf">httptest</span> <span class="p">{</span>
+    <span class="k">my</span> <span class="p">(</span><span class="nv">$dns</span><span class="p">,</span> <span class="nv">$domain</span><span class="p">,</span> <span class="nv">$ip</span><span class="p">)</span> <span class="o">=</span> <span class="nv">@_</span><span class="p">;</span>
+    <span class="k">my</span> <span class="nv">$url</span> <span class="o">=</span> <span class="s">"http://$domain/10k.html"</span><span class="p">;</span>
+    <span class="k">my</span> <span class="nv">$begin</span> <span class="o">=</span> <span class="nb">time</span><span class="p">;</span>
+    <span class="n">http_get</span> <span class="nv">$url</span><span class="p">,</span> <span class="n">proxy</span> <span class="o">=&gt;</span> <span class="p">[</span><span class="nv">$ip</span><span class="p">,</span> <span class="mi">80</span><span class="p">],</span> <span class="n">want_body_handle</span> <span class="o">=&gt;</span> <span class="mi">1</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+        <span class="k">my</span> <span class="p">(</span><span class="nv">$hdl</span><span class="p">,</span> <span class="nv">$hdr</span><span class="p">)</span> <span class="o">=</span> <span class="nv">@_</span><span class="p">;</span>
+        <span class="k">my</span> <span class="p">(</span><span class="nv">$port</span><span class="p">,</span> <span class="nv">$peer</span><span class="p">)</span> <span class="o">=</span> <span class="nn">AnyEvent::Socket::</span><span class="n">unpack_sockaddr</span> <span class="nb">getpeername</span> <span class="nv">$hdl</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'fh'</span><span class="p">};</span>
+        <span class="k">my</span> <span class="nv">$data</span> <span class="o">=</span> <span class="n">freeze</span><span class="p">(</span> <span class="p">{</span> <span class="n">dns</span> <span class="o">=&gt;</span> <span class="nv">$dns</span><span class="p">,</span> <span class="n">status</span> <span class="o">=&gt;</span> <span class="nv">$hdr</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">Status</span><span class="p">},</span> <span class="nb">local</span> <span class="o">=&gt;</span> <span class="nv">$local</span><span class="p">,</span> <span class="n">ip</span> <span class="o">=&gt;</span> <span class="nv">$peer</span><span class="p">,</span> <span class="n">len</span> <span class="o">=&gt;</span> <span class="nv">$hdr</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'content-length'</span><span class="p">}</span> <span class="p">}</span> <span class="p">);</span>
+        <span class="nv">$redisp</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="s">'report'</span><span class="p">,</span> <span class="nv">$data</span><span class="p">);</span>
+    <span class="p">};</span>
+<span class="p">}</span></code></pre></div>
+
+<p>这里需要单独建立两个 <code>$redisr</code> 和 <code>$redisp</code> ，因为前一个已经用来 subscribe 之后就不能同时用于 publish 了，会报错。从理解上这是个很扯淡的事情，不过实际运行结果就是如此。。。</p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

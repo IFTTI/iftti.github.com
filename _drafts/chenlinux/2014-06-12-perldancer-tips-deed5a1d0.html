@@ -1,0 +1,263 @@
+---
+layout: post
+title: PerlDancer 框架笔记 
+time: 2014-06-12 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/06/12/perldancer-tips
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>Dancer 是 Perl 的 web 开发框架，在 metacpan 上有 100 多个 like。其语法结构都起源自 Ruby 的 sinatra 框架，sinatra 曾经在自己官网上悬挂“perldancer is good”标语以示对 perldancer 的支持。Dancer 官网见： <a href="http://perldancer.org/">http://perldancer.org/</a> 本文系本人在部门 Wiki 上稍微写的几行介绍性质的笔记。</p>
+
+<h2 id="section">简单示例</h2>
+
+<p>Dancer 作为微框架，可以直接单文件快速运行简单的 web 功能。示例如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">use</span> <span class="n">Dancer</span><span class="p">;</span>
+    <span class="n">get</span> <span class="s">'/'</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+        <span class="k">return</span> <span class="s">"hello world"</span><span class="p">;</span>
+    <span class="p">};</span>
+    <span class="n">dance</span><span class="p">;</span></code></pre></div>
+
+<p>然后直接通过 <code>perl test.pl</code> 命令既可以在 localhost:3000 运行起来一个 hello world 页面了。</p>
+
+<h2 id="section-1">目录结构</h2>
+
+<p>完整的 Dancer 应用，可以通过 <code>dancer -a MyApp</code> 命令创建，目录结构如下：</p>
+
+<pre><code>MyApp/
+├── bin
+│   └── app.pl                    # 程序运行入口，可以直接通过./app.pl运行，也可以通过plackup -s Starman app.pl来切换其他高性能服务器
+├── config.yml                     # 主配置文件
+├── environments
+│   ├── development.yml
+│   └── production.yml
+├── lib
+│   └── MyApp.pm                  # Perl代码入口，route、controller、ORM 等都在 lib 下
+├── Makefile.PL
+├── MANIFEST
+├── MANIFEST.SKIP
+├── public                         # public/ 下的文件会直接作为静态文件发布，相当于 DocumentRoot
+│   ├── 404.html
+│   ├── 500.html
+│   ├── css
+│   │   ├── error.css
+│   │   └── style.css
+│   ├── dispatch.cgi
+│   ├── dispatch.fcgi
+│   ├── favicon.ico
+│   ├── images
+│   │   ├── perldancer-bg.jpg
+│   │   └── perldancer.jpg
+│   └── javascripts
+│       └── jquery.js
+├── t
+│   ├── 001_base.t
+│   └── 002_index_route.t
+└── views                           # views/ 下的文件是页面模板，在 lib 里通过 template('index') 方式调用
+    ├── index.tt
+    └── layouts
+        └── main.tt                 # layouts 是页面模板的底层模板，主底层模板可以在 config.yml 里指定
+</code></pre>
+
+<h2 id="section-2">常用插件</h2>
+
+<p>目前用 Dancer 写的 CdnManage 平台，用到的插件包括：</p>
+
+<ul>
+  <li>Dancer::Template::Xslate</li>
+</ul>
+
+<p>采用 Text::Xslate 作为模板引擎。xslate 引擎是用 XS 写的类 Perl6 语法模板引擎，性能很好。语法示例如下：</p>
+
+<pre><code>&lt;: $object.accessor :&gt;
+&lt;: $str :&gt;
+&lt;: $array.0 :&gt;
+&lt;: $hash.key :&gt;
+: for $arrayref -&gt; $item {
+    index: &lt;: $~item :&gt; value: &lt;: $item :&gt;
+: }
+: if ( $var == nil ) {
+: } else if ( $val == "text" ) {
+: } else {
+:     while $dbh.fetch() -&gt; $item {
+:     }
+: }
+</code></pre>
+
+<p>注意，CdnManage 中，因为是从 TT2 模板迁移到 xslate 里的，所以单独配置了 config.yml，没有用 : 号而是沿用了 % 号。</p>
+
+<ul>
+  <li>Dancer::Session::YAML</li>
+</ul>
+
+<p>采用 YAML 存储 session，这个作为内部应用足够了，升级的话应该用 mysql、mongo、elasticsearch之类的存储，都有现成插件。</p>
+
+<ul>
+  <li>Plack::Middleware::Deflater</li>
+  <li>Plack::Middleware::ETag</li>
+</ul>
+
+<p>上面两个作为给 public/ 下文件加缓存和压缩的优化。在 config.yml 里添加如下配置即可使用：</p>
+
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="l-Scalar-Plain">plack_middlewares</span><span class="p-Indicator">:</span>
+  <span class="p-Indicator">-</span>
+    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Plack::Middleware::Deflater</span>
+    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Plack::Middleware::ETag</span></code></pre></div>
+
+<ul>
+  <li>Dancer::Plugin::Auth::Extensible</li>
+</ul>
+
+<p>给 route 加认证功能，有 require_role 和 require_user 两种形式，示例如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">get</span> <span class="s">'/admin'</span> <span class="o">=&gt;</span> <span class="n">require_user</span> <span class="s">'admin'</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{};</span>
+    <span class="n">post</span> <span class="s">'/purge'</span> <span class="o">=&gt;</span> <span class="n">require_role</span> <span class="sx">qr/^purge_\w+/</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{};</span></code></pre></div>
+
+<ul>
+  <li>Dancer::Plugin::Email</li>
+</ul>
+
+<p>发邮件</p>
+
+<ul>
+  <li>Dancer::Plugin::GearmanXS</li>
+</ul>
+
+<p>将需要较长时间运行完的任务通过 gearman 分发到其他后台任务脚本上去完成。</p>
+
+<ul>
+  <li>Dancer::Plugin::Datebase</li>
+</ul>
+
+<p>数据库插件，可以直接按照 DBI 操作，也提供了简单的 quick_select/insert 等指令。示例如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">get</span> <span class="s">'/users/:id'</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+        <span class="n">template</span> <span class="s">'display_user'</span><span class="p">,</span> <span class="p">{</span>
+            <span class="n">person</span> <span class="o">=&gt;</span> <span class="n">database</span><span class="o">-&gt;</span><span class="n">quick_select</span><span class="p">(</span><span class="s">'users'</span><span class="p">,</span> <span class="p">{</span> <span class="n">id</span> <span class="o">=&gt;</span> <span class="n">params</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">id</span><span class="p">}</span> <span class="p">}),</span>
+        <span class="p">};</span>
+    <span class="p">};</span></code></pre></div>
+
+<p>如果在 config.yml 定义了多个库，则通过 <code>database('name')</code> 的方式来调用。</p>
+
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="l-Scalar-Plain">Database</span><span class="p-Indicator">:</span>
+    <span class="l-Scalar-Plain">connections</span><span class="p-Indicator">:</span>
+      <span class="l-Scalar-Plain">puppet</span><span class="p-Indicator">:</span>
+        <span class="l-Scalar-Plain">driver</span><span class="p-Indicator">:</span> <span class="s">"SQLite"</span>
+        <span class="l-Scalar-Plain">database</span><span class="p-Indicator">:</span> <span class="s">"/etc/puppet/webui/node_info.db"</span>
+      <span class="l-Scalar-Plain">cdnmanage</span><span class="p-Indicator">:</span>
+        <span class="l-Scalar-Plain">driver</span><span class="p-Indicator">:</span> <span class="s">"mysql"</span>
+        <span class="l-Scalar-Plain">database</span><span class="p-Indicator">:</span> <span class="s">"cdnmanage"</span>
+        <span class="l-Scalar-Plain">host</span><span class="p-Indicator">:</span> <span class="s">"127.0.0.1"</span>
+        <span class="l-Scalar-Plain">port</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">3306</span>
+        <span class="l-Scalar-Plain">username</span><span class="p-Indicator">:</span> <span class="s">"user"</span>
+        <span class="l-Scalar-Plain">password</span><span class="p-Indicator">:</span> <span class="s">"pass"</span>
+        <span class="l-Scalar-Plain">connection_check_threshold</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">10</span>
+        <span class="l-Scalar-Plain">on_connect_do</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="s">"SET</span><span class="nv"> </span><span class="s">NAMES</span><span class="nv"> </span><span class="s">'utf8'"</span><span class="p-Indicator">,</span> <span class="s">"SET</span><span class="nv"> </span><span class="s">CHARACTER</span><span class="nv"> </span><span class="s">SET</span><span class="nv"> </span><span class="s">'utf8'"</span> <span class="p-Indicator">]</span></code></pre></div>
+
+<p>更完善的 ORM 使用，见 Dancer::Plugin::DBIC 插件，他使用的是 DBIx::Class 框架做 ORM，示例如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">get</span> <span class="s">'/users/:user_id'</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+        <span class="k">my</span> <span class="nv">$user</span> <span class="o">=</span> <span class="n">schema</span><span class="p">(</span><span class="s">'default'</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">resultset</span><span class="p">(</span><span class="s">'User'</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">find</span><span class="p">(</span><span class="n">param</span> <span class="s">'user_id'</span><span class="p">);</span>
+        <span class="c1"># 如果只有一个默认的schema在config.yml里那么上面这行可以简写成下行</span>
+        <span class="nv">$user</span> <span class="o">=</span> <span class="n">rset</span><span class="p">(</span><span class="s">'User'</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">find</span><span class="p">(</span><span class="n">param</span> <span class="s">'user_id'</span><span class="p">);</span>
+        <span class="n">template</span> <span class="n">user_profile</span> <span class="o">=&gt;</span> <span class="p">{</span>
+            <span class="n">user</span> <span class="o">=&gt;</span> <span class="nv">$user</span>
+        <span class="p">};</span>
+    <span class="p">};</span></code></pre></div>
+
+<ul>
+  <li>Dancer::Plugin::ElasticSearch</li>
+</ul>
+
+<p>elasticsearch 插件，类似 Dancer::Plugin::Database；所以同理，也有更偏 ORM 一点的 Dancer::Plugin::ElasticModel 插件。</p>
+
+<ul>
+  <li>Dancer::Plugin::Deferred</li>
+</ul>
+
+<p>页面消息提示插件。使用示例：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">hook</span> <span class="n">before</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span>    <span class="n">request</span><span class="o">-&gt;</span><span class="n">uri</span> <span class="o">=~</span> <span class="n">m</span><span class="c1">#^/puppetdb/#</span>
+            <span class="ow">and</span> <span class="n">request</span><span class="o">-&gt;</span><span class="n">uri</span> <span class="o">!~</span> <span class="n">m</span><span class="c1">#^/puppetdb/api/#</span>
+            <span class="ow">and</span> <span class="o">!</span><span class="n">user_has_role</span><span class="p">(</span><span class="s">'SOM'</span><span class="p">)</span> <span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">deferred</span> <span class="n">error</span> <span class="o">=&gt;</span> <span class="s">'no permission'</span><span class="p">;</span>
+            <span class="n">redirect</span> <span class="s">'/'</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">};</span></code></pre></div>
+
+<p>然后在底层模板layouts/main.tt 中：</p>
+
+<pre><code>%% if $deferred.error {
+  &lt;div class="alert alert-success"&gt; [% $deferred.error %] &lt;/div&gt;
+%% }
+</code></pre>
+
+<ul>
+  <li>Dancer::Plugin::Ajax</li>
+</ul>
+
+<p>扩展默认的 get/post/delete/put 指令，提供 ajax 指令。</p>
+
+<ul>
+  <li>Dancer::Plugin::SimpleCRUD</li>
+</ul>
+
+<p>提供简便的数据库 CRUD 操作表单。目前 Puppet 的 SQLite 操作实例如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">simple_crud</span><span class="p">(</span>
+    <span class="n">db_connection_name</span> <span class="o">=&gt;</span> <span class="s">'puppet'</span><span class="p">,</span>
+    <span class="n">db_table</span>           <span class="o">=&gt;</span> <span class="s">'node_info'</span><span class="p">,</span>
+    <span class="n">key_column</span>         <span class="o">=&gt;</span> <span class="s">'id'</span><span class="p">,</span>
+    <span class="n">prefix</span>             <span class="o">=&gt;</span> <span class="s">'node_info'</span><span class="p">,</span>
+    <span class="n">record_title</span>       <span class="o">=&gt;</span> <span class="s">'Puppet Node'</span><span class="p">,</span>
+    <span class="n">deleteable</span>         <span class="o">=&gt;</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">paginate</span>           <span class="o">=&gt;</span> <span class="mi">50</span><span class="p">,</span>
+    <span class="n">validation</span>         <span class="o">=&gt;</span> <span class="p">{</span>
+        <span class="n">classes</span>     <span class="o">=&gt;</span> <span class="s">'/^(\w,?)+$/'</span><span class="p">,</span>
+        <span class="n">role</span>        <span class="o">=&gt;</span> <span class="s">'/^\w+$/'</span><span class="p">,</span>
+        <span class="n">environment</span> <span class="o">=&gt;</span> <span class="s">'/^\w+$/'</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">message</span> <span class="o">=&gt;</span> <span class="p">{</span>
+        <span class="n">classes</span> <span class="o">=&gt;</span> <span class="s">'enter like "puppetd,repos"'</span><span class="p">,</span>
+        <span class="n">role</span>    <span class="o">=&gt;</span> <span class="s">'an english word only'</span><span class="p">,</span>
+    <span class="p">},</span>
+    <span class="n">display_columns</span> <span class="o">=&gt;</span> <span class="p">[</span><span class="sx">qw(node_fqdn environment role)</span><span class="p">],</span>
+    <span class="n">custom_columns</span>  <span class="o">=&gt;</span> <span class="p">{</span>
+        <span class="n">include_classes</span> <span class="o">=&gt;</span> <span class="p">{</span>
+            <span class="n">raw_column</span> <span class="o">=&gt;</span> <span class="s">'classes'</span><span class="p">,</span>
+            <span class="n">transform</span>  <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span>
+                <span class="k">my</span> <span class="nv">@classes</span> <span class="o">=</span> <span class="nb">split</span><span class="p">(</span><span class="sr"> /,/</span><span class="p">,</span> <span class="nb">shift</span> <span class="p">);</span>
+                <span class="k">my</span> <span class="nv">$self</span>    <span class="o">=</span> <span class="nb">shift</span><span class="p">;</span>
+                <span class="k">my</span> <span class="nv">$role</span>    <span class="o">=</span> <span class="nv">$self</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'role'</span><span class="p">};</span>
+                <span class="k">my</span> <span class="nv">$env</span>     <span class="o">=</span> <span class="nv">$self</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'environment'</span><span class="p">};</span>
+                <span class="k">my</span> <span class="nv">@lines</span><span class="p">;</span>
+                <span class="nb">push</span> <span class="nv">@lines</span><span class="p">,</span> <span class="s">"&lt;a href='/puppetdb/$env/$_/$role/view'&gt;$_&lt;/a&gt;"</span>
+                  <span class="k">for</span> <span class="nv">@classes</span><span class="p">;</span>
+                <span class="k">return</span> <span class="nb">join</span><span class="p">(</span> <span class="s">" / "</span><span class="p">,</span> <span class="nv">@lines</span> <span class="p">);</span>
+            <span class="p">},</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+  <span class="p">);</span></code></pre></div>
+
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

@@ -1,0 +1,171 @@
+---
+layout: post
+title: XS 初体验 
+time: 2014-05-20 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/05/20/my-first-experience-of-perlxs
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>今天翻 ganglia 源代码发现两年前加上了 <code>perl_module</code> 的<a href="http://t.cn/Rvwav9T">支持</a>，不过跟 <code>python_module</code> 相比，<code>descriptors</code> 里的 <code>call_back</code> 不是真的写作回调函数而是写作和实际函数同名的字符串，这点让我觉得很别扭和奇怪，于是想到去看看 gmond 里内嵌的 perl 解释程序是怎么做这步的。顺带就第一次动手写了一点 XS 代码，这里一并发上来，留作存档。</p>
+
+<p>示例代码框架源自上周 Dancer 作者 SawyerX 发布的 <a href="https://github.com/xsawyerx/xs-fun">XS-Fun 项目</a>。所以这里如何使用 <code>h2xs</code> 命令创建 XS 模块文件就不讲解了。</p>
+
+<p>主要分作五个小示例，由最简单到很简单依次如下：</p>
+
+<h1 id="section">返回一个字符串</h1>
+
+<p>编辑 XSFun.xs 内容如下：</p>
+
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="cp">#include "EXTERN.h"</span>
+<span class="cp">#include "perl.h"</span>
+<span class="cp">#include "XSUB.h"</span>
+<span class="cp">#include "ppport.h"</span>
+
+<span class="cm">/* C functions */</span>
+
+<span class="n">MODULE</span> <span class="o">=</span> <span class="n">XSFun</span>		<span class="n">PACKAGE</span> <span class="o">=</span> <span class="n">XSFun</span>		
+
+<span class="cp"># XS code</span>
+
+<span class="n">SV</span> <span class="o">*</span>
+<span class="n">runcb</span><span class="p">()</span>
+    <span class="nl">CODE</span><span class="p">:</span>
+        <span class="n">STRLEN</span> <span class="n">len</span><span class="p">;</span>
+        <span class="k">const</span> <span class="kt">char</span><span class="o">*</span> <span class="n">str</span> <span class="o">=</span> <span class="s">"testsub"</span><span class="p">;</span>
+        <span class="n">SV</span><span class="o">*</span> <span class="n">val</span> <span class="o">=</span> <span class="n">newSVpv</span><span class="p">(</span><span class="n">str</span><span class="p">,</span> <span class="n">len</span><span class="p">);</span>
+        <span class="n">RETVAL</span> <span class="o">=</span> <span class="n">val</span><span class="p">;</span>
+    <span class="nl">OUTPUT</span><span class="p">:</span> <span class="n">RETVAL</span></code></pre></div>
+
+<p>这个其实就相当于 <code>sub runcb { return "testsub" }</code> 。</p>
+
+<h1 id="section-1">返回一个哈希的指定键的值</h1>
+
+<p>因为起因是 gmond 里的代码，所以这里就开始主要研究如何解析 descriptor 哈希的键值对了。下面是 <code>runcb()</code> 的代码片段：</p>
+
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="n">SV</span> <span class="o">*</span>
+<span class="nf">runcb</span><span class="p">(</span><span class="n">SV</span> <span class="o">*</span><span class="n">sref</span><span class="p">)</span>
+    <span class="nl">CODE</span><span class="p">:</span>
+        <span class="n">HV</span><span class="o">*</span> <span class="n">plhash</span> <span class="o">=</span> <span class="p">(</span><span class="n">HV</span><span class="o">*</span><span class="p">)(</span><span class="n">SvRV</span><span class="p">(</span><span class="n">sref</span><span class="p">));</span>
+
+        <span class="k">const</span> <span class="kt">char</span><span class="o">*</span> <span class="n">key</span> <span class="o">=</span> <span class="s">"call_back"</span><span class="p">;</span>
+        <span class="n">SV</span><span class="o">*</span> <span class="n">val</span> <span class="o">=</span> <span class="o">*</span><span class="n">hv_fetch</span><span class="p">(</span><span class="n">plhash</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">strlen</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="mi">0</span><span class="p">);</span>
+        <span class="n">RETVAL</span> <span class="o">=</span> <span class="n">val</span><span class="p">;</span>
+    <span class="nl">OUTPUT</span><span class="p">:</span> <span class="n">RETVAL</span></code></pre></div>
+
+<p>这里两个要点，一个是传递进来的哈希引用如何解引用(perl程序里任何时候都不应该直接传递哈希或者数组，而应该传递引用，所以这里直接就研究这步了)；一个是 <code>hv_fetch</code> 的返回值是 <code>SV**</code> 而不是 <code>SV*</code>。</p>
+
+<p>发现 XS 语法里比较有意思的一点，就是变量类型转换的时候，大小写的意义。像 <code>SvRV</code> 就是从 SV 变成 RV，而 <code>SViv</code> 就是从 IV 变成 SV，基本是谁大写就是转变成谁。</p>
+
+<h1 id="perl-">调用 Perl 函数并获取其返回值</h1>
+
+<p>刚才说到了 descriptor 里的 “call_back” 键的值其实是函数名，所以这一步就试图运行这个 Perl 函数。</p>
+
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="n">SV</span> <span class="o">*</span>
+<span class="nf">runcb</span><span class="p">(</span><span class="n">SV</span> <span class="o">*</span><span class="n">sref</span><span class="p">)</span>
+    <span class="nl">CODE</span><span class="p">:</span>
+        <span class="n">HV</span><span class="o">*</span> <span class="n">plhash</span> <span class="o">=</span> <span class="p">(</span><span class="n">HV</span><span class="o">*</span><span class="p">)(</span><span class="n">SvRV</span><span class="p">(</span><span class="n">sref</span><span class="p">));</span>
+        <span class="k">const</span> <span class="kt">char</span><span class="o">*</span> <span class="n">key</span> <span class="o">=</span> <span class="s">"call_back"</span><span class="p">;</span>
+        <span class="n">SV</span><span class="o">*</span> <span class="n">cb</span> <span class="o">=</span> <span class="o">*</span><span class="n">hv_fetch</span><span class="p">(</span><span class="n">plhash</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">strlen</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="mi">0</span><span class="p">);</span>
+        <span class="kt">int</span> <span class="n">count</span> <span class="o">=</span> <span class="n">call_sv</span><span class="p">(</span><span class="n">cb</span><span class="p">,</span> <span class="n">G_SCALAR</span><span class="p">);</span>
+        <span class="n">RETVAL</span> <span class="o">=</span> <span class="n">POPs</span><span class="p">;</span>
+    <span class="nl">OUTPUT</span><span class="p">:</span> <span class="n">RETVAL</span></code></pre></div>
+
+<p>这里的要点：</p>
+
+<ul>
+  <li>
+    <p><code>call_sv</code> 函数(传递的是函数引用)。在 gmond 源码里用的是 <code>call_pv</code> 函数(传递的是函数名字符串)。可见原来在代码层这里写起来几乎是一样的，看来定义成写字符串纯粹是作者个人偏好了。</p>
+  </li>
+  <li>
+    <p>这里要给被调用的函数设定上下文，我这里要求返回字符串，就是 <code>G_SCALAR</code>，还有 <code>G_VOID</code> 等等，详见 <a href="perldoc.perl.org/perlcall.html">perlcall文档</a>。</p>
+  </li>
+  <li>
+    <p>POPs 操作。<code>call_sv</code> 函数返回值只代表<strong>被</strong>调用的函数的返回值个数，<strong>被</strong>调用函数的返回值本身，需要另外<em>逐一</em>获取，这个获取就是通过 POPs( 这个是取SV，类似的还有 POPi 等)来完成。</p>
+  </li>
+</ul>
+
+<h1 id="perl--1">给被调用的 Perl 函数传参</h1>
+
+<p>在上面我们可以看到 <code>call_sv</code> 函数也没有传递参数的地方。那么怎么传递参数给被调用的 Perl 函数呢？</p>
+
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="n">SV</span> <span class="o">*</span>
+<span class="nf">runcb</span><span class="p">(</span><span class="n">SV</span> <span class="o">*</span><span class="n">sref</span><span class="p">,</span> <span class="n">SV</span> <span class="o">*</span><span class="n">argv</span><span class="p">)</span>
+    <span class="nl">CODE</span><span class="p">:</span>
+        <span class="n">HV</span><span class="o">*</span> <span class="n">plhash</span> <span class="o">=</span> <span class="p">(</span><span class="n">HV</span><span class="o">*</span><span class="p">)(</span><span class="n">SvRV</span><span class="p">(</span><span class="n">sref</span><span class="p">));</span>
+        <span class="k">const</span> <span class="kt">char</span><span class="o">*</span> <span class="n">key</span> <span class="o">=</span> <span class="s">"callback"</span><span class="p">;</span>
+        <span class="n">SV</span><span class="o">*</span> <span class="n">cb</span> <span class="o">=</span> <span class="o">*</span><span class="n">hv_fetch</span><span class="p">(</span><span class="n">plhash</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">strlen</span><span class="p">(</span><span class="n">key</span><span class="p">),</span> <span class="mi">0</span><span class="p">);</span>
+        <span class="n">STRLEN</span> <span class="n">len</span><span class="p">;</span>
+        <span class="n">PUSHMARK</span><span class="p">(</span><span class="n">SP</span><span class="p">);</span>
+        <span class="n">XPUSHs</span><span class="p">(</span><span class="n">sv_2mortal</span><span class="p">(</span><span class="n">argv</span><span class="p">));</span>
+        <span class="n">PUTBACK</span><span class="p">;</span>
+        <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">call_sv</span><span class="p">(</span><span class="n">cb</span><span class="p">,</span> <span class="n">G_SCALAR</span><span class="p">);</span>
+        <span class="n">SPAGAIN</span><span class="p">;</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ret</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">croak</span><span class="p">(</span><span class="s">"error"</span><span class="p">);</span>
+        <span class="p">};</span>
+        <span class="n">SV</span><span class="o">*</span> <span class="n">s</span> <span class="o">=</span> <span class="n">POPs</span><span class="p">;</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"Here: %d %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">ret</span><span class="p">,</span> <span class="n">SvPV</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">len</span><span class="p">));</span>
+        <span class="n">RETVAL</span> <span class="o">=</span> <span class="n">s</span><span class="p">;</span>
+        <span class="n">PUTBACK</span><span class="p">;</span>
+    <span class="nl">OUTPUT</span><span class="p">:</span> <span class="n">RETVAL</span></code></pre></div>
+
+<p>比较复杂啦~~</p>
+
+<p>这里需要有一系列处理 Perl 堆栈的命令来完成传参处理，命令以 <code>dSP</code> 开头，不过如果编写的是 XS 函数，这步会自动处理可以省略，所以我们这里只需要从 <code>PUSHMARK</code> 开始。</p>
+
+<p>以 <code>PUSHMARK</code> 标示开始推入参数到临时区域，然后具体的推入命令是 <code>XPUSHs</code>(多个就重复推)，最后以 <code>PUTBACK</code> 标示参数推入完成。这时候 Perl 解释器就明白，给下面的 sub 准备的 <code>@_</code> 已经完毕了，具体大小就是这么多不会再多了。</p>
+
+<p><code>SPAGAIN</code> 的作用是清理临时区域，因为说不准被调用函数里对临时区域做了什么操作。</p>
+
+<p>同样是 POPs 取出，这里如果直接在 C 代码里 printf 的话，要注意把 SV 转换成 PV，否则是看不对的。</p>
+
+<h1 id="section-2">遍历哈希和返回数组</h1>
+
+<p>前面都是单个变量操作，最后我们来试试哈希遍历，然后返回数组变量。</p>
+
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="n">AV</span> <span class="o">*</span>
+<span class="nf">runcb</span><span class="p">(</span><span class="n">SV</span> <span class="o">*</span><span class="n">href</span><span class="p">)</span>
+    <span class="nl">CODE</span><span class="p">:</span>
+        <span class="n">HV</span><span class="o">*</span> <span class="n">plhash</span> <span class="o">=</span> <span class="p">(</span><span class="n">HV</span><span class="o">*</span><span class="p">)(</span><span class="n">SvRV</span><span class="p">(</span><span class="n">href</span><span class="p">));</span>
+        <span class="kt">char</span> <span class="o">*</span><span class="n">key</span><span class="p">;</span>
+        <span class="n">SV</span><span class="o">*</span> <span class="n">sv_value</span><span class="p">;</span>
+        <span class="n">I32</span> <span class="n">ret</span><span class="p">;</span>
+        <span class="n">RETVAL</span> <span class="o">=</span> <span class="n">newAV</span><span class="p">();</span>
+ 
+        <span class="n">hv_iterinit</span><span class="p">(</span><span class="n">plhash</span><span class="p">);</span>
+        <span class="k">while</span> <span class="p">((</span><span class="n">sv_value</span> <span class="o">=</span> <span class="n">hv_iternextsv</span><span class="p">(</span><span class="n">plhash</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ret</span><span class="p">)))</span> <span class="p">{</span>
+            <span class="n">av_push</span><span class="p">(</span><span class="n">RETVAL</span><span class="p">,</span> <span class="n">sv_value</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="nl">OUTPUT</span><span class="p">:</span> <span class="n">RETVAL</span></code></pre></div>
+
+<p>这里几个要点：</p>
+
+<ul>
+  <li>
+<code>runcb()</code> 函数的返回类型要改成 <code>AV*</code> 了。</li>
+  <li>
+<code>RETVAL</code> 需要单独声明赋值才行。</li>
+</ul>
+
+<p>写到这里我顺带想到，虽然 Perl5 一直都不对函数传参做什么验证，但是其实 XS 是 C 的自定义语言，所以写 XS 的时候，传参是会自动验证的。Perl5 二十年轮回，今年终于把传参验证给加上了，只能说一代人有一代人的想法啊。。。</p>
+
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

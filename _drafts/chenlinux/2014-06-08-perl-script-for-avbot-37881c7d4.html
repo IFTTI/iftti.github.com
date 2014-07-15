@@ -1,0 +1,78 @@
+---
+layout: post
+title: 配合 avbot 的 HTTP 接口做自动应答的 Perl 脚本 
+time: 2014-06-08 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/06/08/perl-script-for-avbot
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>前两天<a href="http://chenlinux.com/2014/06/04/record-webqq-logs-by-avbot">博客里介绍了 avbot</a>，其中提到 avbot 提供了 HTTP 接口可以收发信息。那么，我们就可以自己写脚本来实现比原先的 <code>.qqbot help</code> 更详细的自动应答啦。今晚有空就写了几行 Perl ，实现了一个简单的扩展：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">use</span> <span class="n">utf8</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">strict</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">warnings</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">JSON::</span><span class="n">XS</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">AnyEvent</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">AnyEvent::</span><span class="n">HTTP</span><span class="p">;</span>
+
+<span class="k">my</span> <span class="nv">$f</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">help</span> <span class="o">=&gt;</span> <span class="s">".logstashbot support subcommand:\n\t"</span><span class="p">,</span>
+    <span class="n">grok</span> <span class="o">=&gt;</span> <span class="s">'请主动使用 http://grokdebug.herokuapp.com'</span><span class="p">,</span>
+    <span class="n">tnnd</span> <span class="o">=&gt;</span> <span class="s">'请直接说问题不要浪费口水问有人帮忙么'</span><span class="p">,</span>
+    <span class="n">book</span> <span class="o">=&gt;</span> <span class="s">'支持原作者，请购买 www.logstashbook.com 上电子版'</span><span class="p">,</span>
+<span class="p">};</span>
+<span class="nv">$f</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'help'</span><span class="p">}</span> <span class="o">.=</span> <span class="nb">join</span><span class="p">(</span><span class="s">"\n\t"</span><span class="p">,</span> <span class="nb">keys</span> <span class="nv">%$f</span><span class="p">);</span>
+
+<span class="nv">$</span><span class="nn">AnyEvent::HTTP::</span><span class="nv">TIMEOUT</span> <span class="o">=</span> <span class="mi">86400</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$url</span> <span class="o">=</span> <span class="s">'http://127.0.0.1:6176/message'</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$cv</span> <span class="o">=</span> <span class="n">AnyEvent</span><span class="o">-&gt;</span><span class="n">condvar</span><span class="p">;</span>
+
+<span class="k">my</span> <span class="nv">$ua</span><span class="p">;</span><span class="nv">$ua</span> <span class="o">=</span> <span class="k">sub </span><span class="p">{</span>
+    <span class="nv">$cv</span><span class="o">-&gt;</span><span class="n">begin</span><span class="p">;</span>
+    <span class="n">http_get</span> <span class="nv">$url</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+        <span class="k">my</span> <span class="p">(</span><span class="nv">$data</span><span class="p">,</span> <span class="nv">$header</span><span class="p">)</span> <span class="o">=</span> <span class="nv">@_</span><span class="p">;</span>
+        <span class="k">my</span> <span class="nv">$hash</span> <span class="o">=</span> <span class="n">decode_json</span> <span class="nv">$data</span><span class="p">;</span>
+        <span class="k">my</span> <span class="nv">$msg</span> <span class="o">=</span> <span class="nv">$hash</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'message'</span><span class="p">}{</span><span class="s">'text'</span><span class="p">};</span>
+        <span class="k">my</span> <span class="nv">$from</span> <span class="o">=</span> <span class="s">'@'</span> <span class="o">.</span> <span class="nv">$hash</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'who'</span><span class="p">}{</span><span class="s">'nick'</span><span class="p">}</span> <span class="o">.</span> <span class="s">'('</span> <span class="o">.</span> <span class="nv">$hash</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'who'</span><span class="p">}{</span><span class="s">'code'</span><span class="p">}</span> <span class="o">.</span> <span class="s">")\n"</span><span class="p">;</span>
+        <span class="k">if</span> <span class="p">(</span> <span class="nv">$msg</span> <span class="o">=~</span><span class="sr"> /^\.logstashbot (\w+)/</span> <span class="p">)</span> <span class="p">{</span>
+            <span class="k">my</span> <span class="nv">$body</span> <span class="o">=</span> <span class="n">encode_json</span><span class="p">({</span>
+                <span class="n">protocol</span> <span class="o">=&gt;</span> <span class="nb">delete</span> <span class="nv">$hash</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'protocol'</span><span class="p">},</span>
+                <span class="n">channel</span>  <span class="o">=&gt;</span> <span class="nb">delete</span> <span class="nv">$hash</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'channel'</span><span class="p">},</span>
+                <span class="n">message</span>  <span class="o">=&gt;</span> <span class="p">{</span>
+                    <span class="n">text</span> <span class="o">=&gt;</span> <span class="nv">$from</span> <span class="o">.</span> <span class="p">(</span> <span class="nv">$f</span><span class="o">-&gt;</span><span class="p">{</span><span class="nv">$1</span><span class="p">}</span> <span class="sr">//</span> <span class="nv">$f</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'help'</span><span class="p">}</span> <span class="p">),</span>
+                <span class="p">},</span>
+            <span class="p">});</span>
+            <span class="nv">$cv</span><span class="o">-&gt;</span><span class="n">begin</span><span class="p">;</span>
+            <span class="n">http_post</span> <span class="nv">$url</span><span class="p">,</span> <span class="nv">$body</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+                <span class="nv">$cv</span><span class="o">-&gt;</span><span class="n">end</span><span class="p">;</span>
+            <span class="p">};</span>
+        <span class="p">};</span>
+        <span class="nv">$ua</span><span class="o">-&gt;</span><span class="p">();</span>
+        <span class="nv">$cv</span><span class="o">-&gt;</span><span class="n">end</span><span class="p">;</span>
+    <span class="p">};</span>
+<span class="p">};</span>
+<span class="nv">$ua</span><span class="o">-&gt;</span><span class="p">();</span>
+
+<span class="nv">$cv</span><span class="o">-&gt;</span><span class="nb">recv</span><span class="p">;</span></code></pre></div>
+
+<p>原先是打算在回调里 <code>undef $ua</code> 然后通过 <code>AnyEvent-&gt;timer</code> 里检测 $ua 是否还在，否则再起来的方式。后来一想 <code>timer</code> 还有间隔，直接函数内部通过 <code>$cv-&gt;end</code> 控制计数，不断的重新运行 <code>$ua-&gt;()</code> 来保持持续获取，间隔更短，就改成现在这样了。</p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

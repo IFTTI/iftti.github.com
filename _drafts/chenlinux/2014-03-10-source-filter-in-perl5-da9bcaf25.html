@@ -1,0 +1,69 @@
+---
+layout: post
+title: Perl5 的 Source Filter 功能 
+time: 2014-03-10 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/03/10/source-filter-in-perl5
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>去年在 <a href="https://github.com/stevan/p5-mop-redux">p5-mop-redux</a> 项目里看到他们在 Perl5 里实现了 Perl6 的面向对象设计的很多想法，尤其下面这段示例让人印象深刻：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">use</span> <span class="n">mop</span><span class="p">;</span>
+
+    <span class="n">class</span> <span class="n">Point</span> <span class="p">{</span>
+        <span class="n">has</span> <span class="nv">$</span><span class="err">!</span><span class="nv">x</span> <span class="n">is</span> <span class="n">ro</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+        <span class="n">has</span> <span class="nv">$</span><span class="err">!</span><span class="nv">y</span> <span class="n">is</span> <span class="n">ro</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+        <span class="n">method</span> <span class="n">clear</span> <span class="p">{</span>
+            <span class="p">(</span><span class="nv">$</span><span class="err">!</span><span class="nv">x</span><span class="p">,</span> <span class="nv">$</span><span class="err">!</span><span class="nv">y</span><span class="p">)</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="n">class</span> <span class="n">Point3D</span> <span class="n">extends</span> <span class="n">Point</span> <span class="p">{</span>
+        <span class="n">has</span> <span class="nv">$</span><span class="err">!</span><span class="nv">z</span> <span class="n">is</span> <span class="n">ro</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+        <span class="n">method</span> <span class="n">clear</span> <span class="p">{</span>
+            <span class="nv">$self</span><span class="o">-&gt;</span><span class="k">next</span><span class="o">::</span><span class="n">method</span><span class="p">;</span>
+            <span class="nv">$</span><span class="err">!</span><span class="nv">z</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+
+    <span class="k">my</span> <span class="nv">$p</span> <span class="o">=</span> <span class="n">Point3D</span><span class="o">-&gt;</span><span class="k">new</span><span class="p">(</span><span class="n">x</span> <span class="o">=&gt;</span> <span class="mi">4</span><span class="p">,</span> <span class="n">y</span> <span class="o">=&gt;</span> <span class="mi">2</span><span class="p">,</span> <span class="n">z</span> <span class="o">=&gt;</span> <span class="mi">8</span><span class="p">);</span>
+    <span class="nb">printf</span><span class="p">(</span><span class="s">"x: %d, y: %d, z: %d\n"</span><span class="p">,</span> <span class="nv">$p</span><span class="o">-&gt;</span><span class="n">x</span><span class="p">,</span> <span class="nv">$p</span><span class="o">-&gt;</span><span class="n">y</span><span class="p">,</span> <span class="nv">$p</span><span class="o">-&gt;</span><span class="n">z</span><span class="p">);</span></code></pre></div>
+
+<p>这种 <code>$!x</code> 的变量是怎么实现的？最近几天，又在 CPAN 上看到另一个模块叫 <a href="https://metacpan.org/pod/Perl6::Attributes">Perl6::Attributes</a>，实现了类似的语法。于是点进去一看，实现原来如此简单！</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="nb">package</span> <span class="nn">Perl6::</span><span class="n">Attributes</span><span class="p">;</span>
+<span class="k">use</span> <span class="mf">5.006001</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">strict</span><span class="p">;</span>
+<span class="nb">no</span> <span class="n">warnings</span><span class="p">;</span>
+ 
+<span class="k">our</span> <span class="nv">$VERSION</span> <span class="o">=</span> <span class="s">'0.04'</span><span class="p">;</span>
+ 
+<span class="k">use</span> <span class="nn">Filter::</span><span class="n">Simple</span> <span class="k">sub </span><span class="p">{</span>
+    <span class="sr">s/([\$@%&amp;])\.(\w+)/</span>
+<span class="sr">        $1 eq '$' ? "\$self-&gt;{'$2'}" : "$1\{\$self-&gt;{'$2'}\}"/ge</span><span class="p">;</span>
+    <span class="sr">s[\./(\w+)][\$self-&gt;$1]g</span><span class="p">;</span>
+<span class="p">};</span></code></pre></div>
+
+<p>原来这里用到了 Perl5.7.1 以后提供的一个新特性，叫做 <a href="https://metacpan.org/pod/distribution/Filter/perlfilter.pod">Source Filters</a> 。在解释器把 file 变成 parser 的时候加一层 filter。</p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>

@@ -1,0 +1,139 @@
+---
+layout: post
+title: Serverspec 工具介绍 
+time: 2014-06-13 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/06/13/serverspec-intro
+---
+
+  
+  <div style="background-color: #FFF;">
+    <p>去年曾经写过一篇<a href="http://chenlinux.com/2013/01/10/rspec-puppet-intro">文章</a>里提到做 puppet 的测试，用的是 <a href="http://rspec-puppet.com">rspec-puppet</a> 工具。不过这个工具的作用只是能确保在 Puppet Master 上你撰写的 .pp 文件可以按照你的预期正常编译完毕，并不代表真实的节点就是按照这个状态维护的。所以今天介绍另一个工具，Serverspec，它拥有和 rspec-puppet 类似的语法(都是 Rspec 衍生品)，同时又是真的 SSH 到远程主机上去做测试！官网见：<a href="http://serverspec.org">http://serverspec.org</a>。</p>
+
+<p>安装直接通过 <code>gem install serverspec</code> 方式即可完成。然后通过 <code>serverspec-init</code> 命令可以创建处理来一个测试模板：</p>
+
+<pre><code>.
+├── Rakefile
+└── spec
+    ├── 10.4.1.21
+    │   └── puppet_spec.rb
+    ├── spec_helper.rb
+</code></pre>
+
+<p>文件其实非常简单，所以之后就可以不用命令，自己创建目录和测试文件好了。目录以远端主机 IP 命名，测试文件叫 <code>foobar_spec.rb</code> 也没关系，反正在 Rakefile 里是通过 <code>spec/*/*_spec.rb</code> 载入的。</p>
+
+<p>下面是我写的这个 <code>puppet_spec.rb</code> 实例：</p>
+
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="nb">require</span> <span class="s1">'spec_helper'</span>
+
+<span class="n">describe</span> <span class="s2">"system"</span> <span class="k">do</span>
+  <span class="c1"># TODO: bonding</span>
+  <span class="n">context</span> <span class="n">interface</span><span class="p">(</span><span class="s1">'eth2'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">have_ipv4_address</span><span class="p">(</span><span class="s2">"192.168.0.200"</span><span class="p">)</span> <span class="p">}</span>
+    <span class="n">its</span><span class="p">(</span><span class="ss">:speed</span><span class="p">)</span> <span class="p">{</span> <span class="n">should</span> <span class="n">eq</span> <span class="mi">1000</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">file</span><span class="p">(</span><span class="s1">'/data'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_mounted</span><span class="o">.</span><span class="n">with</span><span class="p">(</span> <span class="ss">:type</span> <span class="o">=&gt;</span> <span class="s1">'ext4'</span> <span class="p">)</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">linux_kernel_parameter</span><span class="p">(</span><span class="s1">'vm.swappiness'</span><span class="p">)</span> <span class="k">do</span>
+      <span class="n">its</span><span class="p">(</span><span class="ss">:value</span><span class="p">)</span> <span class="p">{</span> <span class="n">should</span> <span class="n">eq</span> <span class="mi">0</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">yumrepo</span><span class="p">(</span><span class="s1">'epel'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">exist</span> <span class="p">}</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should_not</span> <span class="n">be_enabled</span> <span class="p">}</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="n">describe</span> <span class="s2">"puppetmaster"</span> <span class="k">do</span>
+  <span class="n">context</span> <span class="n">group</span><span class="p">(</span><span class="s1">'puppet'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">exist</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">user</span><span class="p">(</span><span class="s1">'puppet'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">exist</span> <span class="p">}</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">belong_to_group</span> <span class="s1">'puppet'</span> <span class="p">}</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should_not</span> <span class="n">have_login_shell</span> <span class="s1">'/bin/sh'</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">package</span><span class="p">(</span><span class="s1">'puppet'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_installed</span><span class="o">.</span><span class="n">by</span><span class="p">(</span><span class="s1">'gem'</span><span class="p">)</span><span class="o">.</span><span class="n">with_version</span><span class="p">(</span><span class="s1">'3.6.1'</span><span class="p">)</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">package</span><span class="p">(</span><span class="s1">'nginx'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_installed</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">service</span><span class="p">(</span><span class="s1">'nginx'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_enabled</span>   <span class="p">}</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_running</span>   <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="sx">%w[8140 18140]</span><span class="o">.</span><span class="n">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">port</span><span class="o">|</span>
+    <span class="n">context</span> <span class="n">port</span><span class="p">(</span><span class="n">port</span><span class="p">)</span> <span class="k">do</span>
+      <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_listening</span> <span class="p">}</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">file</span><span class="p">(</span><span class="s1">'/etc/nginx/sites-enabled/puppet'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_linked_to</span> <span class="s1">'/etc/puppet/webui/ngx_puppetmaster.conf'</span> <span class="p">}</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_readable</span><span class="o">.</span><span class="n">by_user</span><span class="p">(</span><span class="s1">'nobody'</span><span class="p">)</span> <span class="p">}</span>
+    <span class="n">its</span><span class="p">(</span><span class="ss">:content</span><span class="p">)</span> <span class="p">{</span> <span class="n">should</span> <span class="n">match</span> <span class="sr">/\n\s*server 127.0.0.1:18140;/</span> <span class="p">}</span>
+  <span class="k">end</span>
+  <span class="n">context</span> <span class="n">command</span><span class="p">(</span><span class="s2">"nginx -t"</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">return_stderr</span> <span class="sr">/ok/</span> <span class="p">}</span>
+    <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">return_exit_status</span> <span class="mi">0</span> <span class="p">}</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="n">describe</span> <span class="n">process</span><span class="p">(</span><span class="s1">'rrdcached'</span><span class="p">)</span> <span class="k">do</span>
+  <span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_running</span> <span class="p">}</span>
+  <span class="n">its</span><span class="p">(</span><span class="ss">:args</span><span class="p">)</span> <span class="p">{</span> <span class="n">should</span> <span class="n">match</span> <span class="sr">/-j \/omd\/sites\/cdn\/var\/rrdcached/</span> <span class="p">}</span>
+<span class="k">end</span></code></pre></div>
+
+<p>基本上可以说跟 puppet 最常用的几个类型对应的测试就都在上面展示了。此外，Serverspec 与时俱进，还提供了 <code>cgroup</code> 和 <code>lxc</code> 的测试器。这里就没写了。</p>
+
+<p>这里有个注意到的问题就是网卡速度那里，是不支持测试 bonding 网卡的。它 ssh 上去后其实就是执行 ethtool 命令，ethtool 命令获取不到，自然也就没法测试，肯定会报测试失败。</p>
+
+<p>另一个问题就是文件内容匹配那块，虽然文档示例里用了 <code>/^begin/</code> 但是实测这个会把整个文本读成一个大字符串来匹配，所以单行的开头不能用 <code>^</code> 而是用 <code>\n</code> 来做。</p>
+
+<p>正常情况下，写完测试用例，就可以运行 <code>rake spec</code> 命令跑测试了。不过熟悉我的朋友都知道人人网这边服务器都是统一通过 Kerberos 认证来管理权限的，而 各种语言的 SSH 模块默认都不太支持 krb5。所以我这还需要先解决 Serverspec 的 krb5 支持问题。</p>
+
+<p>感谢 <a href="http://weibo.com/u/1653644220">@懒桃儿吃桃儿</a> 童鞋贡献的<a href="https://github.com/Lax/net-ssh-kerberos">模块</a>，部署过程如下：</p>
+
+<pre><code>$ git clone https://github.com/Lax/net-ssh-kerberos.git
+$ pushd net-ssh-kerberos
+$ gem build net-ssh-kerberos.gemspec
+$ gem install net-ssh-krb-0.3.0.gem
+$ popd
+$ diff spec/spec_helper.rb spec/spec_helper.rb.orig
+4,5d3
+&lt; require 'rubygems'
+&lt; require 'net/ssh/kerberos'
+29d26
+&lt;       options[:auth_methods] = ["gssapi-with-mic"]
+</code></pre>
+
+<p>模块文档上说可以通过 Gemfile 配合 <code>Bundler.require</code> 指令直接运行，我测试自己写脚本的话确实没有问题，但是融合到 <code>spec_helper.rb</code> 里就不行，所以只能自行编译安装，然后通过 rubygems 模块来加载了。</p>
+
+<p>最后，就可以看到下面这样的输出了：</p>
+
+<pre><code>$ rake spec
+/usr/bin/ruby -S rspec spec/10.4.1.21/nginx_spec.rb
+.......................
+
+Finished in 9.99 seconds
+23 examples, 0 failures
+</code></pre>
+
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>
