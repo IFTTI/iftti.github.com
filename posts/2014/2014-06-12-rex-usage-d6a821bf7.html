@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Rex 简明手册</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>Rex 简明手册</h1>
+    <p class="meta"><span class="time">Jun 12, 2014</span><span class="source_url"> • <a name="chenlinux.com" href="http://chenlinux.com/2014/06/12/rex-usage" target="_blank">http://chenlinux.com/2014/06/12/rex-usage</a></span></p>
+  </header>
+
+  <article class="post-content">
+    <div style="background-color: #FFF;">
+    <p>Rex 是 Perl 编写的基于 SSH 链接的集群配置管理系统，语法上类似 Puppet DSL。官网中文版见 <a href="http://rex.perl-china.com">http://rex.perl-china.com</a> 。本文仅为本人在部门 Wiki 上编写的简介性文档。</p>
+
+<h2 id="section">常用命令参数</h2>
+
+<p>rex 命令参数很多，不过因为我们的环境是 krb 认证的，所以有些参数只能写在 Rexfile 里。所以一般固定在存放了 Rexfile 的 /etc/puppet/webui 下执行命令，很多配置就自动加载了。那么还需要用到的命令参数基本就只有下面几个：</p>
+
+<p>-Tv： 查看当前 Rexfile 里定义了哪些 Task 任务，以及服务器组。</p>
+
+<p>-H： 指定 Task 将在哪些 Host 上执行。这里比较方便的地方是支持 <code>10.5.16.[95..110]</code> 这样的写法。</p>
+
+<p>-G： 指定 Task 将在哪些 Group 上执行。Group 的定义方式很多，Rex 默认支持的有直接在 Rexfile 里通过 group 指令指定，通过 ini 配置文件设定等等。目前我是实现了一个 <code>groups_db</code> 指令，来从我们的 sqlite 里获取。<code>groups_db('cdnbj::nginx')</code> 就会自动生成一个名叫 ‘cdnbj::nginx’ 的服务器组，包括 cdnbj 里所有部署了 nginx 的服务器。</p>
+
+<p>-e： 指定一个临时任务。通常是’say run “ipconfig”‘这样的简单命令形式。如果需要复杂逻辑，还是在 Rexfile 里书写 Task。</p>
+
+<p>-q：指定运行日志级别，有 -q 和 -qq。</p>
+
+<p>-d：指定运行日志级别，有 -d 和 -dd。</p>
+
+<h2 id="rexfile-">Rexfile 介绍</h2>
+
+<p>参数设置部分：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">set</span> <span class="n">connection</span> <span class="o">=&gt;</span> <span class="s">"OpenSSH"</span><span class="p">;</span>
+    <span class="n">user</span> <span class="s">"root"</span><span class="p">;</span>
+    <span class="n">krb5_auth</span><span class="p">;</span>
+    <span class="n">parallelism</span> <span class="mi">10</span><span class="p">;</span></code></pre></div>
+
+<p>这四行指定采用 kerberos 认证，并发 10 个进程执行 ssh 命令。</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">desc</span> <span class="s">"install puppet agent"</span><span class="p">;</span>
+    <span class="n">task</span> <span class="s">"puppet_install"</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+    <span class="p">}</span>
+    <span class="n">before</span> <span class="s">"puppet_install"</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+    <span class="p">}</span>
+    <span class="n">after</span> <span class="s">"puppet_install"</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+    <span class="p">}</span></code></pre></div>
+
+<p>这几行就是 Rexfile 的任务定义主体格式。task 指令定义任务，任务会在具体的 -H 或者 -G 服务器上执行。其他都是可选项，desc内容会在 -Tv 的时候显示；before 和 after 定义的任务会在执行对应 task 之前或之后，在’'’rex命令执行处，即10.4.1.21本地’'’执行。</p>
+
+<h2 id="section-1">常用指令介绍</h2>
+
+<ul>
+  <li>run</li>
+</ul>
+
+<p>运行命令。如果有回调函数，那么会把 stdout 和 stderr 传给回调函数；如果没有，直接把 stdout 作为返回值。</p>
+
+<p>比如：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">say</span> <span class="n">run</span> <span class="s">"uptime"</span><span class="p">;</span>
+    <span class="n">run</span> <span class="s">"nginx -v"</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span> <span class="k">my</span> <span class="p">(</span><span class="nv">$out</span><span class="p">,</span> <span class="nv">$err</span><span class="p">)</span> <span class="o">=</span> <span class="nv">@_</span><span class="p">;</span> <span class="n">say</span> <span class="nv">$err</span> <span class="p">};</span></code></pre></div>
+
+<ul>
+  <li>file</li>
+</ul>
+
+<p>分发文件。语法类似 Puppet 的 file。支持 source、template、ensure、on_change 等操作。注意：rex 是顺序执行 Rexfile 的，所以不用设置 Puppet 的 require 指令。</p>
+
+<p>比如：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">file</span> <span class="s">"/etc/yum.repos.d/xiaonei-private.repo"</span><span class="p">,</span>
+      <span class="n">source</span> <span class="o">=&gt;</span> <span class="s">"repos/xiaonei-private.repo"</span><span class="p">;</span>
+    <span class="n">file</span> <span class="s">"/etc/nginx/nginx.conf"</span><span class="p">,</span>
+      <span class="n">content</span> <span class="o">=&gt;</span> <span class="n">template</span><span class="p">(</span><span class="s">"templates/etc/nginx/nginx.conf.tpl"</span><span class="p">),</span>
+      <span class="n">owner</span>  <span class="o">=&gt;</span> <span class="s">"nginx"</span><span class="p">,</span>
+      <span class="n">group</span>  <span class="o">=&gt;</span> <span class="s">"nginx"</span><span class="p">,</span>
+      <span class="n">mode</span>   <span class="o">=&gt;</span> <span class="mi">644</span><span class="p">,</span>
+      <span class="n">ensure</span> <span class="o">=&gt;</span> <span class="s">'file'</span><span class="p">,</span>
+      <span class="n">on_change</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span> <span class="n">service</span> <span class="n">nginx</span> <span class="o">=&gt;</span> <span class="s">"restart"</span><span class="p">;</span> <span class="p">};</span>
+    <span class="n">file</span> <span class="s">"/etc/nginx/conf.d"</span><span class="p">,</span>
+      <span class="n">ensure</span> <span class="o">=&gt;</span> <span class="s">"directory"</span><span class="p">,</span></code></pre></div>
+
+<ul>
+  <li>pkg</li>
+</ul>
+
+<p>安装软件包，在早期版本命令写作 <code>install package =&gt; "nginx"</code> ，最近改成 <code>pkg</code> 了，更像 Puppet 语法了。</p>
+
+<p>也支持传递数组作为 pkg 内容。另外，rex 还 提供了一个 update_package_db 指令，用于执行 <code>yum clean all</code> 或者 <code>apt-get update</code> 操作。这点是 Puppet 欠缺的。</p>
+
+<p>比如：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">update_package_db</span><span class="p">();</span>
+   <span class="k">my</span> <span class="nv">$packages</span> <span class="o">=</span> <span class="k">case</span> <span class="n">operating_system</span><span class="p">,</span>
+      <span class="n">Debian</span> <span class="o">=&gt;</span> <span class="p">[</span><span class="s">"apache2"</span><span class="p">,</span> <span class="s">"libphp5-apache2"</span><span class="p">],</span>
+      <span class="n">CentOS</span> <span class="o">=&gt;</span> <span class="p">[</span><span class="s">"httpd"</span><span class="p">,</span> <span class="s">"php5"</span><span class="p">],</span>
+   <span class="n">pkg</span> <span class="nv">$packages</span><span class="p">,</span>
+     <span class="n">ensure</span> <span class="o">=&gt;</span> <span class="s">"present"</span><span class="p">;</span></code></pre></div>
+
+<p>ensure 也支持 present、absent、latest 等几种含义。同 Puppet。</p>
+
+<ul>
+  <li>account</li>
+</ul>
+
+<p>用户管理原先用 <code>create_user</code> 和 <code>create_group</code> 指令，最近把 <code>create_user</code> 更新为 <code>account</code> 指令。</p>
+
+<p>比如：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">create_group</span> <span class="s">'puppet'</span><span class="p">;</span>
+  <span class="n">account</span> <span class="s">"puppet"</span><span class="p">,</span>
+    <span class="n">ensure</span>   <span class="o">=&gt;</span> <span class="s">"present"</span><span class="p">,</span>
+    <span class="n">uid</span>      <span class="o">=&gt;</span> <span class="mi">509</span><span class="p">,</span>
+    <span class="n">home</span>     <span class="o">=&gt;</span> <span class="s">'/home/puppet'</span><span class="p">,</span>
+    <span class="n">comment</span>  <span class="o">=&gt;</span> <span class="s">'Puppet Account'</span><span class="p">,</span>
+    <span class="n">expire</span>   <span class="o">=&gt;</span> <span class="s">'2015-05-30'</span><span class="p">,</span>
+    <span class="n">groups</span>   <span class="o">=&gt;</span> <span class="p">[</span><span class="s">'puppet'</span><span class="p">],</span>
+    <span class="n">password</span> <span class="o">=&gt;</span> <span class="s">'puppet'</span><span class="p">,</span>
+    <span class="nb">system</span>   <span class="o">=&gt;</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">no_create_home</span> <span class="o">=&gt;</span> <span class="n">TRUE</span><span class="p">,</span>
+    <span class="n">ssh_key</span>        <span class="o">=&gt;</span> <span class="s">"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQChUw..."</span><span class="p">;</span></code></pre></div>
+
+<ul>
+  <li>tail</li>
+</ul>
+
+<p>用来同时观测多台主机的日志的最新追加情况。应该是比较有用的一个小功能。代码如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">tail</span> <span class="s">"/var/log/syslog"</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+     <span class="k">my</span> <span class="p">(</span><span class="nv">$data</span><span class="p">)</span> <span class="o">=</span> <span class="nv">@_</span><span class="p">;</span>
+     <span class="k">my</span> <span class="nv">$server</span> <span class="o">=</span> <span class="n">Rex</span><span class="o">-&gt;</span><span class="n">get_current_connection</span><span class="p">()</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'server'</span><span class="p">};</span>
+     <span class="k">print</span> <span class="s">"$server&gt;&gt; $data\n"</span><span class="p">;</span>
+   <span class="p">};</span></code></pre></div>
+
+<h2 id="section-2">远程主机详情相关变量</h2>
+
+<p>Puppet 有专门的 Facts 变量来判定远程主机的详情。Rex 因为走 SSH 连接，不会在远程主机上跑一个 agent 来收集这些信息，所以还是通过远程执行命令的方式来提供相关内容。目前常用的几个函数(也可以认为是变量)有：</p>
+
+<ul>
+  <li>is_redhat</li>
+</ul>
+
+<p>这个用来判断操作系统是否是 RedHat 系列。之前因为有一批 Debian 的机器，所以 Rexfile 里一直有这么个操作逻辑：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">if</span> <span class="p">(</span> <span class="n">is_debian</span> <span class="p">)</span> <span class="p">{</span>
+    <span class="p">}</span> <span class="k">elsif</span> <span class="p">(</span> <span class="n">is_redhat</span> <span class="p">)</span> <span class="p">{</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+    <span class="p">}</span></code></pre></div>
+
+<ul>
+  <li>operating_system_version</li>
+</ul>
+
+<p>这个用来判断具体的操作系统版本号。比如 CentOS5 跟 CentOS6 应该应用的操作就不一样，甚至 CentOS6.5 和 CentOS6.2 也有可能不一致。</p>
+
+<p>比如 Rexfile 里的 1w10 任务：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">if</span> <span class="p">(</span> <span class="n">is_redhat</span> <span class="ow">and</span> <span class="n">operating_system_version</span> <span class="o">&gt;=</span> <span class="mi">64</span> <span class="p">)</span>
+    <span class="p">}</span></code></pre></div>
+
+<ul>
+  <li>route</li>
+</ul>
+
+<p>rex 可以收集的信息比 puppet 要多很多，比如网络相关、sysctl 相关等等。Rexfile 里的 1w10 任务用到了 route 信息来获取默认网关和网卡接口。</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">my</span> <span class="p">(</span><span class="nv">$default_route</span><span class="p">)</span> <span class="o">=</span> <span class="nb">grep</span> <span class="p">{</span>
+      <span class="nv">$_</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">"flags"</span><span class="p">}</span> <span class="o">=~</span> <span class="sr">m/UG/</span> <span class="o">&amp;&amp;</span> <span class="p">(</span>
+        <span class="nv">$_</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">"destination"</span><span class="p">}</span> <span class="ow">eq</span> <span class="s">"0.0.0.0"</span> <span class="o">||</span>
+        <span class="nv">$_</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">"destination"</span><span class="p">}</span> <span class="ow">eq</span> <span class="s">"default"</span> <span class="p">)</span>
+      <span class="p">}</span> <span class="n">route</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nv">$default_route</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">my</span> <span class="nv">$default_gw</span> <span class="o">=</span> <span class="nv">$default_route</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">"gateway"</span><span class="p">};</span>
+        <span class="k">my</span> <span class="nv">$default_if</span> <span class="o">=</span> <span class="nv">$default_route</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">"iface"</span><span class="p">};</span>
+        <span class="n">run</span> <span class="s">"ip route change default via ${default_gw} dev ${default_if} initcwnd 10 initrwnd 10"</span><span class="p">;</span>
+    <span class="p">};</span></code></pre></div>
+
+<ul>
+  <li>connection</li>
+</ul>
+
+<p>在多台主机执行任务的时候，大多希望在输出的时候看到某条结果是哪个主机返回的。前面 tail 任务就用到了，不过写起来非常复杂的样子。其实 rex 提供给更简洁一点的写法。就是 connection-&gt;server。</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">task</span> <span class="s">'tellmewhoyouare'</span><span class="p">,</span> <span class="k">sub </span><span class="p">{</span>
+    <span class="n">say</span> <span class="n">connection</span><span class="o">-&gt;</span><span class="n">server</span><span class="p">;</span>
+  <span class="p">}</span></code></pre></div>
+
+<p>当前连接的服务器的整个信息，也可以通过 <code>get_system_information</code> 指令来获取，这两个指令其实是等同的。不过根据字面意思一般用来不同语境下。</p>
+
+<p>这些信息如果要完整查看，可以通过 <code>dump_system_information</code> 指令来查看。这个命令跟 <code>print Dumper get_system_information()</code> 不一样的是，会把每个键作为单独变量。而这些变量就是可以直接用于 rex 的 template 里的内嵌变量。比如：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="nb">listen</span> <span class="o">&lt;</span><span class="nv">%</span><span class="err">=</span> <span class="err">$</span><span class="nv">eth0_ip</span> <span class="nv">%</span><span class="err">&gt;</span><span class="nv">:80</span><span class="p">;</span>
+  <span class="n">visible_hostname</span> <span class="o">&lt;</span><span class="nv">%</span><span class="err">=</span> <span class="err">$</span><span class="nv">hostname</span> <span class="nv">%</span><span class="err">&gt;</span></code></pre></div>
+
+<p>不在 <code>dump_system_information</code> 清单里的变量，也想在 template 里使用的，就必须显式传递。这点和 Puppet 不一致，puppet 在 template 里可以通过 <code>scope.lookupvar()</code> 指令获取任意pp类里设定的变量，这一点完全无视词法作用域的存在==！</p>
+
+<p>比如：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">file</span> <span class="s">'/etc/elasticsearch/elasticsearch.yml'</span><span class="p">,</span>
+     <span class="n">content</span> <span class="o">=&gt;</span> <span class="n">template</span><span class="p">(</span><span class="s">'files/es.yml.tmpl'</span><span class="p">,</span> <span class="n">conf</span> <span class="o">=&gt;</span> <span class="p">{</span>
+       <span class="n">clustername</span> <span class="o">=&gt;</span> <span class="s">'logstash'</span>
+     <span class="p">});</span></code></pre></div>
+
+<p>对应的 es.yml.tmpl 里写作：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">clustername:</span> <span class="o">&lt;</span><span class="nv">%</span><span class="err">=</span> <span class="err">$</span><span class="nv">conf</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'clustername'</span><span class="p">}</span> <span class="nv">%</span><span class="err">&gt;</span></code></pre></div>
+
+<p>这样才行。</p>
+
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2014/2014-06-12-perldancer-tips-deed5a1d0.html" title="Previous Post: PerlDancer 框架笔记" data-instant>&laquo; PerlDancer 框架笔记</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html" title="Next Post: 用 Redis 做分布式 DNS/HTTP 检测汇总系统" data-instant>用 Redis 做分布式 DNS/HTTP 检测汇总系统 &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
+    
+      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html">Perl 编程的个人惯例</a></li>
+    
+      <li><span>07 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-07-genarate-fig-from-diagramo-83b5477c7.html">转换 diagramo 绘制的拓扑图成 fig.yml 格式</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>

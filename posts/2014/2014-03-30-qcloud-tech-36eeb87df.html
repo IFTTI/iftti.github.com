@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>腾讯云技术沙龙笔记</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-03-30-qcloud-tech-36eeb87df.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>腾讯云技术沙龙笔记</h1>
+    <p class="meta"><span class="time">Mar 30, 2014</span><span class="source_url"> • <a name="chenlinux.com" href="http://chenlinux.com/2014/03/30/qcloud-tech" target="_blank">http://chenlinux.com/2014/03/30/qcloud-tech</a></span></p>
+  </header>
+
+  <article class="post-content">
+    <div style="background-color: #FFF;">
+    <p>昨天去车库咖啡听了 InfoQ 办的腾讯云图技术沙龙，今天又听了 CSDN 办的开源技术大会上腾讯云的宣讲(没错，就是那个发明了”内部开源”概念的意思)，总的来说，幸亏去了昨天的！</p>
+
+<p>沙龙包括三个主题：</p>
+
+<h1 id="section">手机推送服务</h1>
+
+<p>手机推送其实是一个很难有亮点的服务，我之前试用过免费的 JPush 极光推送服务，应该说大家都差不多——引用SDK，通过 RESTful 接口或者网页后台发布通知。</p>
+
+<p>从业务上说，腾讯云提出一个精准投放的推送概念。
+这其实跟后面的多维度数据是联系在一起的，腾讯因为本身(可怕)的数据收集能力，可以很容易的区分几个基础维度——年龄、性别、地域。
+(今天午饭跟<a href="http://weibo.com/turingbook">@刘江总编</a>在一起，他谈到CSDN如何跟技术社区、出版社一起做技术书籍时，提到类似问题，CSDN 上也有千万级的用户，但是怎么高质量的做推荐才不透支信誉或者徒劳无功呢？)</p>
+
+<p>不过在技术周边介绍中，还是聊到了腾讯的 L5 里的技术点，在这记录一下：</p>
+
+<p>起因是说到<strong>服务扩容，新服务器上线时会自动根据响应质量动态调整其在集群中的权重</strong>。</p>
+
+<p>这里我跟<a href="http://weibo.com/liucy1983">@liu点cy</a>、<a href="http://weibo.com/opendoc">@守住每一天</a>先后猜测并推论了几种在 Nginx 的 upstream 上的实现方式及相关技术。</p>
+
+<ul>
+  <li><a href="https://github.com/yzprofile/ngx_http_dyups_module">ngx_dyups_module</a></li>
+  <li><a href="https://github.com/agentzh/lua-upstream-nginx-module">ngx_lua_upstream_module</a></li>
+  <li><a href="http://www.centurylinklabs.com/auto-loadbalancing-with-fig-haproxy-and-serf/">Serf + Shell + Haproxy</a></li>
+</ul>
+
+<p>不过这几种方案一般常见的用途都是上下线而不是权重调整(另一个需要注意的就是在线修改upstream不会同步到nginx.conf文本文件里)。</p>
+
+<p>那么就涉及到下一步问题：<strong>怎么评定响应质量</strong>？</p>
+
+<p>Nginx 里是有个 <a href="https://github.com/cep21/healthcheck_nginx_upstreams">HealthCheck</a> 模块，不过还很基础。
+于是联想到 LVS 项目中的调度算法，常见的RR、LC、LBLC和LBLCR，少见的还有NQ、SED。这都算是根据 RS 的情况智能调整流量导向。</p>
+
+<p>后来跟讲师交流，稍微了解到了 L5 内部的一点信息。</p>
+
+<ol>
+  <li>流量到应用服务之前会经过两层调度(暂称为DNS agent和local agent)；</li>
+  <li>DNS agent 负责多个 local agent 之间的流量调度；</li>
+  <li>local agent 只负责本组(原话是本机)的应用服务的流量权重调整；</li>
+  <li>一个新服务器上线，首先要经过一次镜像流量的试运行，达到5个9后才正式上线；</li>
+  <li>local agent将收到的每秒10万个请求分配 1% 给新服务器，根据平均响应延时和成功率，判定是否合格，合格就继续加流量；</li>
+  <li>如果某个服务器被判定不合格了，比如低于5个9了，也并不是直接剔除，而是减流量；除非直接成功率只有85%这样，那就是直接踢。</li>
+</ol>
+
+<p>从流程里”本机”还是”本组”的用词，很容易让我联想到类似 docker 或者说 PAAS 平台的做法。
+我个人猜测确实有可能就是一组服务器，但是同时也是在一台真实主机上的多个容器。</p>
+
+<p><em>这种做法应该适合业务运维尝试；CDN 方面，upstream 列表每次变动都会带来巨大的回源压力，反而是越少变动越好</em></p>
+
+<h1 id="section-1">多维度数据分析</h1>
+
+<p>前面提到了腾讯数据分析上最常用的几个维度就是年龄、性别和地域。但其实做数据挖掘维度是超级多的，讲师举了不少例子。</p>
+
+<p>从腾讯云的概念上来说，这个数据分析主要是几个层次。</p>
+
+<ol>
+  <li>基础的经过整理和运算得到的 TopView。这个应该就是 Hive 里的表，按照讲师所说，TopView 里有 30 个左右的维度。
+从交流来看，这个 Hive 表内容应该就是以 QQ 号为中心的用户行为数据。每天从原始数据里花点时间更新这个表。</li>
+  <li>选取需要的维度信息做 RollUp。也就是从 TopView 的30个维度数据中选取几个维度做统计分析。这个就是排列组合问题，挨个硬算了。</li>
+  <li>合作用户如果有自定义维度，并且勾选这个维度做统计分析，就要先退回到计算 TopView 这步，把自定义维度按照 TopView 的处理方式来做。</li>
+</ol>
+
+<p>因为对 Hadoop 的 Map/Reduce 稍有了解，也用过 Hive，所以这里的东西不算太难理解。
+其实整个重点是在如何用用户行为日志整理得到 TopView 这块，从讲师透露信息看，全腾讯的日志提前清洗过滤到一天只有几个 TB ，不到一百台的小集群几个小时就可以完成全部分析任务。但是这块属于纯 coding 问题，没什么太多可讲的。</p>
+
+<p>在边听演讲的时候我也边思考了一下如果这个问题用 Elasticsearch 做，会怎么样？</p>
+
+<p>由于ES不需要定义 schema，所以类似 TopView 整理这段应该更轻松一些；
+RollUp 计算就是写 <a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/query-dsl-bool-query.html">bool query</a>。
+这个效率如何我不太了解。</p>
+
+<p>(今天的会场上有介绍腾讯大数据平台的，应该跟这个多维度分析不是一个平台，今天的讲师说到他们的平台除了Hadoop这套还用到了pgsql)</p>
+
+<h1 id="section-2">移动动态加速</h1>
+
+<p>这一部分是个人比较关心的部分。移动来源占比越来越大，移动网络质量却一如既往的复杂和烂。如何有效提高移动访问质量现在也是大家都关心的问题，本周网宿也刚发布了他们的私有协议加速产品。</p>
+
+<p>腾讯的做法是也提供了 SDK，但本质上没有做完全的私有协议优化而是尽量利用可靠的自建私有网络，软件的部分应该是今天宣布开源了，地址在：<a href="https://code.csdn.net/Tencent/mna">https://code.csdn.net/Tencent/mna</a>。</p>
+
+<p>SDK 的主要工作流程如下：</p>
+
+<ol>
+  <li>APP 初次运行，正常访问流程的同时，调用 SDK 开始运作；</li>
+  <li>SDK 内置有 3 个主要运营商一共 9 个默认 ANS(应该是 application name service 的意思吧)的 IP 地址，同时向这 9 个地址发送 HTTP 请求；
+请求内容包括应用使用的域名、 SDK 获取到的本机 IP 和接入运营商(后二者如果获取不到，其实 ANS 通过 HTTP 本身也没问题)；</li>
+  <li>ANS 根据请求，返回尽量近的 OC、RS 和 TEST 三个 IP 地址信息；</li>
+  <li>SDK 根据最快返回的那个 ANS 的响应结果，开始并发测试本机到 OC 和 TEST 地址的链路情况；
+其中，OC 应该是跟 SDK 地址在同省同运营商，并且是负载最低的；TEST 应该是跟 RS 在同机房，作为 RS 的替身来参加链路测试工作；</li>
+  <li>如果 TEST 测试结果占优，那 APP 继续直连 RS，走正常访问流程就可以了；
+如果 OC 测试结果占优，那么 APP 之后的请求，将改为发往 OC 的地址，由 OC 转发给 RS；</li>
+  <li>在 APP 运行过程中，链路测试是定时每十分钟做一次；当然类似推送这样的长连接服务，不会因为链路测试结果切换而被主动断开。</li>
+</ol>
+
+<p>OC 方面的主要工作包括：</p>
+
+<h3 id="tcp-">TCP 代理</h3>
+
+<ul>
+  <li>TCP 代理就是 sock5 代理。不过针对移动环境做了一些优化，去除了sock5里的一些验证算法；</li>
+  <li>在 TCP 方面，去掉了 nagle 算法，也就是打开了 TCP_NODELAY 参数。
+nagle 算法本身是做小包合大包，提高传输效率的；不过在移动环境下，某个包的丢失或者延迟是个很常态的情况，而 nagle 算法中一个包延迟，所有包都要等在后面的情况就会被放大了，所以打开 TCP_NODELAY 应该可以避免这个情况(个人尚未测试验证过，或许可以相信腾讯)。</li>
+</ul>
+
+<h3 id="http-">HTTP 代理</h3>
+
+<p>没细说，应该就是 squid 或者 nginx 之类的。</p>
+
+<h3 id="section-3">集群层面</h3>
+
+<p>每个机房都做了集群，通过 VIP 统一发布。这方面跟<a href="http://weibo.com/opendoc">@守住每一天</a>浅聊了一下通过 MPLS 协议实现 Anycast 来在多机房间维护统一的 VIP。不过看起来大家系统运维跟精通 BGP 的网络专家联系都比较远，这方面还处于有所耳闻的状态。</p>
+
+<p>最后还有一个小问题，就是上面我们看到过好几处，提到”并发”、”同时”这样的字眼，于是当时产生一个疑问：<em>“三个演讲中，都反复强调为了手机省电我们做了这做了那的，为什么为了优化级别的测试工作，却这么频繁和高密度的做并发请求呢？比如 ANS 请求，我只给本运营商的2个ip发请求也可以接受啊？”</em></p>
+
+<p>这个问题正好被旁边围观的另一位听众解答了：手机内的 3G 通信模块，一次大批量的数据发送跟几次小批量的数据发送相比其实更省电。</p>
+
+<p>讲师则从实际效果角度证明，目前的频率和策略，从使用上看，确实看不出来对电量的影响。</p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2014/2014-03-14-%3Fp=1420-978bbb76c.html" title="Previous Post: ansible来了" data-instant>&laquo; ansible来了</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2014/2014-04-24-yaml-dump-pm6-70ae5ebb1.html" title="Next Post: Perl6 的 YAML::Dumper 模块" data-instant>Perl6 的 YAML::Dumper 模块 &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>09 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-09-thoughts-after-docker-meetup-f3ea81b84.html">Docker Meetup 参会总结</a></li>
+    
+      <li><span>17 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-17-implement-percentiles-aggregation-on-kibana-56567329d.html">给 Kibana 实现百分比统计图表</a></li>
+    
+      <li><span>11 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-11-nginx-access-log-to-elasticsearch-938e7994b.html">用 LEK 组合处理 Nginx 访问日志</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>在 Perl6 脚本中并发执行 ssh 命令</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-05-04-openssh-perl6-94df9f44f.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>在 Perl6 脚本中并发执行 ssh 命令</h1>
+    <p class="meta"><span class="time">May 4, 2014</span><span class="source_url"> • <a name="chenlinux.com" href="http://chenlinux.com/2014/05/04/openssh-perl6" target="_blank">http://chenlinux.com/2014/05/04/openssh-perl6</a></span></p>
+  </header>
+
+  <article class="post-content">
+    <div style="background-color: #FFF;">
+    <p>前几天翻 Perl6 模块清单，发现没有用作 SSH 的。虽说 Perl6 里可以很方便的用 NativeCall 包装 C/C++ 库，但是 libssh2 本身就不支持我的 kerberos5 认证环境，所以还是只能通过调用系统命令的方式来完成。</p>
+
+<h1 id="thread-">Thread 示例</h1>
+
+<p>说起来 Perl6 近年一直在宣传 Promise 啊，Supply 啊并发编程，但是 API 变化太快，2013 年中期 jnthn 演讲里演示的 <code>async</code> 用法，现在就直接报这个函数不存在了，似乎改成 <code>start</code> 了？天知道什么时候又变。所以还是用底层的 Thread 和 Channel 来写。话说其实这还是我第一次写 Thread 呢。</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">use</span> <span class="n">v6</span><span class="p">;</span>
+<span class="n">class</span> <span class="n">OpenSSH</span> <span class="p">{</span>
+    <span class="n">has</span> <span class="nv">$</span><span class="err">!</span><span class="nv">user</span> <span class="o">=</span> <span class="s">'root'</span><span class="p">;</span>
+    <span class="n">has</span> <span class="nv">$</span><span class="err">!</span><span class="nv">port</span> <span class="o">=</span> <span class="mi">22</span><span class="p">;</span>
+    <span class="n">has</span> <span class="nv">$</span><span class="err">!</span><span class="nv">ssh</span>  <span class="o">=</span> <span class="s">"ssh -oStrictHostKeyChecking=no -l{$!user} -p{$!port} "</span><span class="p">;</span>
+    <span class="n">multi</span> <span class="n">method</span> <span class="nb">exec</span><span class="p">(</span><span class="nv">$host</span><span class="p">,</span> <span class="nv">$cmd</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">my</span> <span class="nv">$out</span><span class="p">;</span>
+        <span class="k">my</span> <span class="nv">$shell</span> <span class="o">=</span> <span class="nv">$</span><span class="err">!</span><span class="nv">ssh</span> <span class="o">~</span> <span class="nv">$host</span> <span class="o">~</span> <span class="s">' '</span> <span class="o">~</span> <span class="nv">$cmd</span><span class="p">;</span>
+        <span class="n">try</span> <span class="p">{</span> <span class="nv">$out</span> <span class="o">=</span> <span class="n">qqx</span><span class="p">{</span> <span class="nv">$shell</span> <span class="p">}</span><span class="o">.</span><span class="nb">chomp</span> <span class="p">}</span>
+        <span class="n">CATCH</span> <span class="p">{</span> <span class="n">note</span><span class="p">(</span><span class="s">"Failed: $!"</span><span class="p">)</span> <span class="p">};</span>
+        <span class="k">return</span> <span class="nv">$out</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">multi</span> <span class="n">method</span> <span class="nb">exec</span><span class="p">(</span><span class="nv">@hosts</span><span class="p">,</span> <span class="nv">$cmd</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">my</span> <span class="nv">$c</span> <span class="o">=</span> <span class="n">Channel</span><span class="o">.</span><span class="k">new</span><span class="p">;</span>
+        <span class="k">my</span> <span class="nv">@t</span> <span class="o">=</span> <span class="nv">@hosts</span><span class="o">.</span><span class="nb">map</span><span class="p">({</span>
+            <span class="n">Thread</span><span class="o">.</span><span class="n">start</span><span class="p">({</span>
+                <span class="k">my</span> <span class="nv">$r</span> <span class="o">=</span> <span class="nv">$</span><span class="err">.</span><span class="nv">exec</span><span class="p">(</span><span class="nv">$_</span><span class="p">,</span> <span class="nv">$cmd</span><span class="p">);</span>
+                <span class="nv">$c</span><span class="o">.</span><span class="nb">send</span><span class="p">(</span><span class="nv">$r</span><span class="p">);</span>
+            <span class="p">})</span>
+        <span class="p">});</span>
+        <span class="nv">@t</span><span class="o">&gt;&gt;.</span><span class="n">finish</span><span class="p">;</span>
+        <span class="k">return</span> <span class="nv">@hosts</span><span class="o">.</span><span class="nb">map</span><span class="p">:</span> <span class="p">{</span> <span class="nv">$c</span><span class="o">.</span><span class="n">receive</span> <span class="p">};</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="k">my</span> <span class="nv">$ssh</span> <span class="o">=</span> <span class="n">OpenSSH</span><span class="o">.</span><span class="k">new</span><span class="p">(</span><span class="n">user</span> <span class="o">=&gt;</span> <span class="s">'root'</span><span class="p">);</span>
+<span class="n">say</span> <span class="nv">$ssh</span><span class="o">.</span><span class="nb">exec</span><span class="p">(</span><span class="s">'10.4.1.21'</span><span class="p">,</span> <span class="s">'uptime'</span><span class="p">);</span>
+<span class="k">my</span> <span class="nv">@hosts</span> <span class="o">=</span> <span class="s">'10.4.1.21'</span> <span class="n">xx</span> <span class="mi">5</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">@ret</span> <span class="o">=</span> <span class="nv">$ssh</span><span class="o">.</span><span class="nb">exec</span><span class="p">(</span><span class="nv">@hosts</span><span class="p">,</span> <span class="s">'sleep 3;echo $$'</span><span class="p">);</span>
+<span class="n">say</span> <span class="nv">@ret</span><span class="o">.</span><span class="n">perl</span><span class="p">;</span></code></pre></div>
+
+<p>很简陋的代码。首先一个是要确认 ssh 不用密码登陆，因为没有写 Expect；其次是没用 ThreadPool，所以并发操作不能太猛，会扭着腰的。</p>
+
+<p>这里演示了几个地方：</p>
+
+<ul>
+  <li>class 的定义和 attr 的定义和<a href="http://doc.perl6.org/language/classtut">用法</a>
+</li>
+  <li>
+    <p>try-catch 的用法</p>
+
+    <p>也可以不写 try，直接 <code>CATCH {}</code> </p>
+  </li>
+  <li>
+    <p>qqx{} 的用法</p>
+
+    <p>这是变动比较大的地方，<code>qqx</code> 后面只能用 <code>{}</code> 不能用其他字符对了。Perl6 提供另外的 <code>shell()</code> 指令，返回 <code>Proc::Status</code> 对象。
+  不过这个对象其实也就是个状态码，不包括标准输出、错误输出什么的。</p>
+  </li>
+  <li>字符串连接符 ~ 的用法</li>
+  <li>multi method 的定义和用法</li>
+  <li>
+<a href="http://doc.perl6.org/type/Method#signature">函数 signature</a> 的定义和用法，可选参数和命名参数的定义和用法见下一小节。</li>
+  <li>
+    <p><code>&gt;&gt;</code> 操作符的用法</p>
+
+    <p>这里其实相当于是 <code>.finish for @t</code>。这个怪怪的操作符据说可以在可能的时候自动线程化数组操作，所以返回顺序不会跟<code>.map</code>一样。</p>
+  </li>
+  <li>
+    <p>xx 操作符的用法</p>
+
+    <p>Perl5 里有 <code>x</code> 操作符，Perl6 里又增加了 <code>xx</code>、 <code>X</code> 和 <code>Z</code> 等操作符。
+  分别是<a href="http://doc.perl6.org/language/operators#infix_xx">字符扩展成数组</a>、<a href="http://doc.perl6.org/language/operators#infix_X">数组扩展成多维数组</a>和<a href="http://doc.perl6.org/language/operators#infix_Z">多数组压缩单个数组</a>(也就是zip操作)。</p>
+  </li>
+  <li>
+    <p>Channel 和 Thread 对象的用法</p>
+
+    <p>在 roast 测试集里，只有 thread 和 lock 的<a href="https://github.com/perl6/roast/blob/master/S17-lowlevel/lock.t">测试用例</a>。
+  semaphore 其实也支持(因为 MoarVM 是基于 libuv 的嘛，libuv 支持它当然也支持)，但是连测试用例都没写……</p>
+  </li>
+</ul>
+
+<p>默认的并发编程会采用 <code>ThreadPoolScheduler</code> 类，稍微看了一下，默认设置的线程数是 16。考虑下一步是仿照该类完善我的小脚本呢，还是重新学习一下 <code>Supply</code> 或者 <code>Promise</code> 看看到底怎么用。</p>
+
+<p>有兴趣用 libssh2 的童鞋，可以学习一下 <a href="https://github.com/jnthn/zavolaj">NativeCall</a> 的用法。</p>
+
+<h1 id="threadpoolscheduler-">ThreadPoolScheduler 示例</h1>
+
+<p>根据 <a href="https://github.com/perl6/specs/blob/master/S17-concurrency.pod">S17-concurrency 文档</a> 的内容，改写了几行脚本，实现了 ThreadPool 的效果：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">multi</span> <span class="n">method</span> <span class="nb">exec</span><span class="p">(</span><span class="nv">@hosts</span><span class="p">,</span> <span class="nv">$cmd</span><span class="p">,</span> <span class="p">:</span><span class="nv">$parallel</span> <span class="o">=</span> <span class="mi">16</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">my</span> <span class="nv">$c</span> <span class="o">=</span> <span class="n">Channel</span><span class="o">.</span><span class="k">new</span><span class="p">;</span>
+        <span class="k">my</span> <span class="nv">$s</span> <span class="o">=</span> <span class="n">ThreadPoolScheduler</span><span class="o">.</span><span class="k">new</span><span class="p">(</span><span class="n">max_threads</span> <span class="o">=&gt;</span> <span class="nv">$parallel</span><span class="p">);</span>
+        <span class="nv">@hosts</span><span class="o">.</span><span class="nb">map</span><span class="p">({</span>
+            <span class="nv">$s</span><span class="o">.</span><span class="n">cue</span><span class="p">({</span>
+                <span class="k">my</span> <span class="nv">$r</span> <span class="o">=</span> <span class="nv">$</span><span class="err">.</span><span class="nv">exec</span><span class="p">(</span><span class="nv">$_</span><span class="p">,</span> <span class="nv">$cmd</span><span class="p">);</span>
+                <span class="nv">$c</span><span class="o">.</span><span class="nb">send</span><span class="p">(</span><span class="nv">$r</span><span class="p">);</span>
+            <span class="p">})</span>
+        <span class="p">});</span>
+        <span class="k">return</span> <span class="nv">@hosts</span><span class="o">.</span><span class="nb">map</span><span class="p">:</span> <span class="p">{</span> <span class="nv">$c</span><span class="o">.</span><span class="n">receive</span> <span class="p">};</span>
+    <span class="p">}</span></code></pre></div>
+
+<p>这里把默认并发值改成了 16，跟 Rakudo 保持一致。如果不需要可调的话，这里其实可以直接写成 <code>$*SCHEDULER.cue({})</code>。</p>
+
+<p>然后调用方法也对应修改一下，考虑到辨识度，把并发值改成了命名参数。调用方法如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="k">my</span> <span class="nv">@hosts</span> <span class="o">=</span> <span class="n">slurp</span><span class="p">(</span><span class="s">'iplist.txt'</span><span class="p">)</span><span class="o">.</span><span class="n">lines</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">@ret</span> <span class="o">=</span> <span class="nv">$ssh</span><span class="o">.</span><span class="nb">exec</span><span class="p">(</span><span class="nv">@hosts</span><span class="p">,</span> <span class="s">'sleep 3;echo $$'</span><span class="p">,</span> <span class="p">:</span><span class="n">parallel</span><span class="p">(</span><span class="mi">5</span><span class="p">));</span></code></pre></div>
+
+<p>运行可以看到，虽然 iplist.txt 里放了 40 个ip，但是并发的 ssh 只有 5 个。</p>
+
+<h1 id="promise-">Promise 示例</h1>
+
+<p>继续，S17 内容下一节是 Promise，之前博客里已经提过几次 Perl5 的 <a href="https://metacpan.org/pod/Promises">Promises 模块</a> 或者类似的东西(比如 <a href="/2014/01/22/explain-mojo-ioloop-delay-testing">Mojo::IOLoop::Delay</a> )，包括 JavaScript 等也有一样的名字。</p>
+
+<p>不过 Perl5 的 Promises 思路参照的是 Scala，语法则偏向 nodejs 和 golang(都用一个叫 <code>defer</code> 的指令来创建 Promises 对象)，写起来跟 Perl6 的原生 Promise 差距较大。</p>
+
+<p>考虑 ssh 这个场景可能不太用的上 Promise 的 <code>.in</code>、<code>.then</code>、<code>.anyof</code> 之类的流程控制(尤其 <code>.in</code> 这个还不一定能用，因为 Promise 底层也是用的 <code>$*SCHEDULER.cue()</code>，而这个在 MoarVM 上目前还不支持 :in/:at/:every 等参数)，就直接展示最简单的并发了：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="n">multi</span> <span class="n">method</span> <span class="nb">exec</span><span class="p">(</span><span class="nv">@hosts</span><span class="p">,</span> <span class="nv">$cmd</span><span class="p">,</span> <span class="p">:</span><span class="nv">$parallel</span> <span class="o">=</span> <span class="mi">16</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nv">$</span><span class="err">*</span><span class="nv">SCHEDULER</span> <span class="o">=</span> <span class="n">ThreadPoolScheduler</span><span class="o">.</span><span class="k">new</span><span class="p">(</span><span class="n">max_threads</span> <span class="o">=&gt;</span> <span class="nv">$parallel</span><span class="p">);</span>
+        <span class="n">await</span> <span class="nv">@hosts</span><span class="o">.</span><span class="nb">map</span><span class="p">:</span> <span class="p">{</span>
+            <span class="n">start</span> <span class="p">{</span>
+                <span class="nv">$</span><span class="err">.</span><span class="nv">exec</span><span class="p">(</span><span class="nv">$_</span><span class="p">,</span> <span class="nv">$cmd</span><span class="p">);</span>
+            <span class="p">};</span>
+        <span class="p">};</span>
+    <span class="p">}</span></code></pre></div>
+
+<p>简单来说，就是每个 <code>start {&amp;c}</code> 创建一个 Promise 对象，根据 &amp;c 的返回值自动作 <code>$p.keep($result)</code> 或  <code>$p.break(Exception)</code>。然后 <code>await(*@p)</code> 回收全部 Promise 的结果。</p>
+
+<p>这里直接修改了 <code>$*SCHEDULER</code> ，这是一个全局变量，即当前进程的调度方式。Promise 类默认就采用这个变量。如果想跟上一小节一样使用 <code>$s</code>，那这里就不能用 <code>start {}</code> 而是要用 <code>Promise.start({}, $s)</code>。显然写起来不怎么漂亮。</p>
+
+<h1 id="supply-">Supply 示例</h1>
+
+<p>Supply 是响应式编程，类似 Java 里的 Reactive 概念。应该适合的是一件事情多个进程重复做。场景不太对，二来目前 S17 也不全，就不写了。</p>
+
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2014/2014-04-24-yaml-dump-pm6-70ae5ebb1.html" title="Previous Post: Perl6 的 YAML::Dumper 模块" data-instant>&laquo; Perl6 的 YAML::Dumper 模块</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2014/2014-05-17-implement-percentiles-aggregation-on-kibana-56567329d.html" title="Next Post: 给 Kibana 实现百分比统计图表" data-instant>给 Kibana 实现百分比统计图表 &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
+    
+      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html">Perl 编程的个人惯例</a></li>
+    
+      <li><span>07 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-07-genarate-fig-from-diagramo-83b5477c7.html">转换 diagramo 绘制的拓扑图成 fig.yml 格式</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>

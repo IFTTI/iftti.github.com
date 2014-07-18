@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Perl6 的 YAML::Dumper 模块</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-04-24-yaml-dump-pm6-70ae5ebb1.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>Perl6 的 YAML::Dumper 模块</h1>
+    <p class="meta"><span class="time">Apr 24, 2014</span><span class="source_url"> • <a name="chenlinux.com" href="http://chenlinux.com/2014/04/24/yaml-dump-pm6" target="_blank">http://chenlinux.com/2014/04/24/yaml-dump-pm6</a></span></p>
+  </header>
+
+  <article class="post-content">
+    <div style="background-color: #FFF;">
+    <p>这两天决定试一把 Perl6，因为<a href="http://www.php-oa.com">扶凯</a>兄已经把还没有正式发行 Rakudo Star 包的 MoarVM 编译打包好了，所以可以跳过这步直接进入模块安装。当然，源码编译本身也没有太大难度，只不过从 github 下源码本身耗时间比较久而已。</p>
+
+<p>既然木有 Star 包，那么安装好 MoarVM 上的 Rakudo 后我们就有必要先自己把 panda 之类的工具编译出来。这一步需要注意一下你的 <code>@*INC</code> 路径和实际的 <code>$PERL6LIB</code> 路径，已经编译之后的 panda 存在的 <code>$PATH</code> 是不是都正确，如果不对的修改一下 <code>~/.bashrc</code> 就好了。</p>
+
+<p>我的尝试迁移对象是一个很简单的 Puppet 的 ENC 脚本，只涉及 SQLite 的读取，以及 YAML 格式的输出。通过 <code>panda install DBIish</code> 命令即可安装好 DBIish 模块。</p>
+
+<p>脚本本身修改起来难度不大，结果如下：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="c1">#!/usr/bin/env perl6</span>
+<span class="k">use</span> <span class="n">v6</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">DBIish</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">YAML</span><span class="p">;</span>
+<span class="k">my</span> <span class="nv">$base_dir</span> <span class="o">=</span> <span class="s">"/etc/puppet/webui"</span><span class="p">;</span>
+<span class="c1"># 函数在 Perl6 中依然使用 sub 关键字定义，不过有个超酷的特性是 multi sub</span>
+<span class="c1"># 脚本中没有用到，但是在 YAML::Dumper 中遍地都是，这里也提一句。</span>
+<span class="c1"># MAIN 函数在 Perl6 里可以直接用 :$opt 命令参数起 getopt 的作用</span>
+<span class="c1"># 不过 ENC 脚本就是直接传一个主机名，用不上这个超酷的特性</span>
+<span class="k">sub </span><span class="nf">MAIN</span><span class="p">($node) {</span>
+<span class="c1"># connect 方法接收参数选项是 |%opts，所以可以把哈希直接平铺写</span>
+<span class="c1"># 这个 | 的用法一个月前在《Using Perl6》里看到过</span>
+    <span class="k">my</span> <span class="nv">$dbh</span> <span class="o">=</span> <span class="n">DBIish</span><span class="o">.</span><span class="nb">connect</span><span class="p">(</span> <span class="s">'SQLite'</span><span class="p">,</span> <span class="n">database</span> <span class="o">=&gt;</span> <span class="s">"{$base_dir}/node_info.db"</span> <span class="p">);</span>
+    <span class="k">my</span> <span class="nv">$sth</span> <span class="o">=</span> <span class="nv">$dbh</span><span class="o">.</span><span class="n">prepare</span><span class="p">(</span><span class="s">"select * from node_info where node_fqdn = ?"</span><span class="p">);</span>
+    <span class="nv">$sth</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s">"$node"</span><span class="p">);</span>
+    <span class="k">my</span> <span class="nv">$ret</span> <span class="o">=</span> <span class="nv">$sth</span><span class="o">.</span><span class="n">fetchrow_hashref</span><span class="p">;</span>
+    <span class="k">my</span> <span class="nv">$res</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span> <span class="o">!</span><span class="nv">$ret</span> <span class="p">)</span> <span class="p">{</span>
+        <span class="nv">$res</span> <span class="o">=</span> <span class="p">{</span>
+<span class="c1"># Perl5 的 qw() 在 Perl6 里直接写成 &lt;&gt; 。也不用再通过 [] 来指明是引用</span>
+            <span class="n">classes</span>     <span class="o">=&gt;</span> <span class="o">&lt;</span><span class="n">puppetd</span> <span class="n">repos</span><span class="o">&gt;</span><span class="p">,</span>
+            <span class="n">environment</span> <span class="o">=&gt;</span> <span class="s">'testing'</span><span class="p">,</span>
+        <span class="p">};</span>
+    <span class="p">}</span>
+    <span class="k">else</span> <span class="p">{</span>
+        <span class="nv">$res</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">environment</span> <span class="o">=&gt;</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'environment'</span><span class="p">},</span>
+            <span class="n">parameters</span>  <span class="o">=&gt;</span> <span class="p">{</span> <span class="n">role</span> <span class="o">=&gt;</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'role'</span><span class="p">}</span> <span class="p">},</span>
+            <span class="n">classes</span>     <span class="o">=&gt;</span> <span class="p">{},</span>
+        <span class="p">};</span>
+<span class="c1"># 这个 for 的用法，在 Perl5 的 Text::Xslate 模板里就用过</span>
+        <span class="k">for</span> <span class="nb">split</span><span class="p">(</span><span class="s">','</span><span class="p">,</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'classes'</span><span class="p">})</span> <span class="o">-&gt;</span> <span class="nv">$class</span> <span class="p">{</span>
+            <span class="k">if</span> <span class="p">(</span> <span class="nv">$class</span> <span class="ow">eq</span> <span class="s">'nginx'</span> <span class="p">)</span> <span class="p">{</span>
+<span class="c1"># 这个 &lt;== 符号指明数据流方向，完全可以把数组倒过来，然后用 ==&gt; 写这行</span>
+<span class="c1"># 如果不习惯这种流向操作符的，可以用,号，反正不能跟 Perl5 那样啥都不写</span>
+<span class="c1"># 这里比较怪的一点是我试图把这么长的一句分成多行写，包括每行后面加\，我看到 YAML 代码里就用\分行了，但是我这就会报错</span>
+<span class="c1"># Perl6 的正则变化较大，这里 /^#/ 要写成 /^'#'/ 或者 /^\x23/</span>
+<span class="c1"># 正则 // 前面不加 m// 不会立刻开始匹配</span>
+<span class="c1"># 原先的 s///g 可以写作 s:g///，也可以写作对象式的 .subst(m//, '', :g)，. 前面为空就是默认的 $_</span>
+<span class="c1"># 捕获的数据存在 @() 数组里，也可以用 $/[i] 的形式获取</span>
+<span class="c1"># 字符串内插时，不再写作 ${*}，而是 {$*} 的形式</span>
+<span class="c1"># 命名捕获这里没用上，写个示例：</span>
+<span class="c1">#     $str ~~ /^(\w+?)$&lt;laststr&gt;=(\w ** 4)\w$/;</span>
+<span class="c1">#     $/&lt;laststr&gt;.chomp.say;</span>
+<span class="c1"># 注意里面的 \w{4} 变成了 \w ** 4</span>
+                <span class="k">my</span> <span class="nv">@needs</span> <span class="o">&lt;==</span> <span class="nb">map</span> <span class="p">{</span> <span class="o">.</span><span class="n">subst</span><span class="p">(</span><span class="sr">m/^(.+)\:(\d+)$/</span><span class="p">,</span> <span class="s">"{$/[0]} max_fails=30 weight={$/[1]}"</span><span class="p">,</span> <span class="p">:</span><span class="n">g</span><span class="p">)</span> <span class="p">}</span> <span class="o">&lt;==</span> <span class="nb">grep</span> <span class="p">{</span> <span class="o">!</span><span class="sr">m/^\x23/</span> <span class="p">}</span> <span class="o">&lt;==</span> <span class="nb">split</span><span class="p">(</span><span class="s">','</span><span class="p">,</span> <span class="nv">$ret</span><span class="p">{</span><span class="s">'extstr'</span><span class="p">});</span>
+                <span class="nv">$res</span><span class="p">{</span><span class="s">'classes'</span><span class="p">}{</span><span class="s">'nginx'</span><span class="p">}{</span><span class="s">'iplist'</span><span class="p">}</span> <span class="o">=</span> <span class="nv">@needs</span><span class="p">;</span>
+            <span class="p">}</span>
+            <span class="k">else</span> <span class="p">{</span>
+<span class="c1"># Perl5 的 undef 不再使用，可以使用 Nil 或者 Any 对象</span>
+                <span class="nv">$res</span><span class="p">{</span><span class="s">'classes'</span><span class="p">}{</span><span class="nv">$class</span><span class="p">}</span> <span class="o">=</span> <span class="n">Nil</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">};</span>
+    <span class="nv">$dbh</span><span class="o">.</span><span class="n">disconnect</span><span class="p">();</span>
+<span class="c1"># 这个 dump 就是 YAML 模块导出的函数</span>
+<span class="c1"># Perl6 的模块要导出函数不再需要 Exporter 那样，直接用 our sub dump($obj) {} 就可以了</span>
+    <span class="n">say</span> <span class="nb">dump</span><span class="p">(</span><span class="nv">$res</span><span class="p">);</span>
+<span class="p">};</span></code></pre></div>
+
+<p>但是麻烦的是 YAML 模块本身，这个模块是 ingydotnet 在好几年前草就，后来就没管了，实际现在压根跑不起来。花了半天时间，一边学习一边修改，总算修改正常了。主要涉及了 <code>Attribute</code> 对象，<code>Nil</code> 对象，<code>twigls</code> 前缀符，<code>:exists</code> 定义几个概念，以及 YAML 格式本身的处理逻辑。</p>
+
+<p>YAML 模块修改对比如下：</p>
+
+<pre><code>diff --git a/lib/YAML/Dumper.pm b/lib/YAML/Dumper.pm
+index d7a7981..ec47341 100644
+--- a/lib/YAML/Dumper.pm
++++ b/lib/YAML/Dumper.pm
+@@ -2,16 +2,16 @@ use v6;
+ class YAML::Dumper;
+ 
+ has $.out = [];
+-has $.seen is rw = {};
++has $.seen = {};
+ has $.tags = {};
+ has $.anchors = {};
+ has $.level is rw = 0;
+-has $.id is rw = 1;
++has $.id = 1;
+ has $.info = [];
+ 
+ method dump($object) {
+     $.prewalk($object);
+-    $.seen = {};
++    $!seen = {};
+     $.dump_document($object);
+     return $.out.join('');
+ }
+@@ -45,11 +45,11 @@ method dump_collection($node, $kind, $function) {
+ 
+ method check_special($node) {
+     my $first = 1;
+-    if $.anchors.exists($node.WHICH) {
+-    if $.anchors.exists($node.WHICH) {
++    if $.anchors{$node.WHICH}:exists {
+         push $.out, ' ', '&amp;' ~ $.anchors{$node.WHICH};
+         $first = 0;
+     }
+-    if $.tags.exists($node.WHICH) {
++    if $.tags{$node.WHICH}:exists {
+         push $.out, ' ', '!' ~ $.tags{$node.WHICH};
+         $first = 0;
+     }
+@@ -64,7 +64,7 @@ method indent($first) {
+             return;
+         }
+         if $.info[*-1]&lt;kind&gt; eq 'seq' &amp;&amp; $.info[*-2]&lt;kind&gt; eq 'map' {
+-            $seq_in_map = 1;
++            $seq_in_map = 0;
+         }
+     }
+     push $.out, "\n";
+@@ -155,7 +155,8 @@ method dump_object($node, $type) {
+     $.tags{$repr.WHICH} = $type;
+     for $node.^attributes -&gt; $a {
+         my $name = $a.name.substr(2);
+-        my $value = pir::getattribute__PPs($node, $a.name);     #RAKUDO
++        #my $value = pir::getattribute__PPs($node, $a.name);     #RAKUDO
++        my $value = $a.get_value($node);                         #for non-parrot
+         $repr{$name} = $value;
+     }
+     $.dump_node($repr);
+</code></pre>
+
+<p>这里的 <code>$.seen</code> 和 <code>$!seen</code> 是不是晕掉了？其实 <code>$.seen</code> 就相当于先声明了 <code>$!seen</code> 后再自动创建一个 <code>method seen() { return $!seen }</code>。</p>
+
+<p>另一处是 <code>pir::getattribute__PPs()</code> 函数，pir 是 parrot 上的语言，而 MoarVM 和 JVM 上都是先实现了一个 nqp 再用 nqp 写 Perl6，不巧的是这个 pir 里的 <code>getattribute__PPs()</code> 刚好至今还没有对应的 nqp 方法。(在 pir2nqp.todo 文件里可见)</p>
+
+<p>所以只能用高级的 Perl6 语言来做了。</p>
+
+<p>总的来说，这个 yaml-pm6 代码里很多地方都是试来试去，同样的效果不同的写法，又比如 <code>.WHICH</code> 和 <code>.WHAT.perl</code> 也是混用。
+而且我随手测试了一下，即使在 parrot 上，用 <code>pir::getattribute__PPs</code> 的速度也比 <code>Attribute.get_value</code> 还差点点。</p>
+
+<hr>
+
+<p>最后提一句，目前 ENC 脚本在 perl5、perl6-m、perl6-p、perl6-j 上的运行时间大概分别是 0.13、1.5、2.8、12s。MoarVM 还差 Perl5 十倍，领先 parrot 一倍。不过 JVM 本身启动时间很长，这里不好因为一个短时间脚本说它太慢。</p>
+
+<p>另外还试了一下如果把我修改过的 YAML::Dumper 类直接写在脚本里运行，也就是不编译成 moarvm 模块，时间大概是 2.5s，比 parrot 模块还快点点。</p>
+
+<p>不过如何把 perl6 脚本本身编译成 moarvm 的 bytecode 格式运行还没有研究出来，直接 <code>perl6-m --target=mbc --output=name.moarvm name.pl6</code> 得到的文件运行 <code>moar name.moarvm</code> 的结果运行会内存报错。</p>
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2014/2014-03-30-qcloud-tech-36eeb87df.html" title="Previous Post: 腾讯云技术沙龙笔记" data-instant>&laquo; 腾讯云技术沙龙笔记</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2014/2014-05-04-openssh-perl6-94df9f44f.html" title="Next Post: 在 Perl6 脚本中并发执行 ssh 命令" data-instant>在 Perl6 脚本中并发执行 ssh 命令 &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
+    
+      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html">Perl 编程的个人惯例</a></li>
+    
+      <li><span>07 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-07-genarate-fig-from-diagramo-83b5477c7.html">转换 diagramo 绘制的拓扑图成 fig.yml 格式</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>
