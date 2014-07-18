@@ -4,11 +4,11 @@ task :gen do
   system "jekyll build --lsi"
 end
 
-desc "Deploy to github/gitcafe"
+desc "Deploy to gitcafe/github"
 task :deploy do
   puts "### Git push"
-  system "git push origin master"
-  system "git push gitcafe master:gitcafe-pages"
+  system "git push iftti-gitcafe master:gitcafe-pages"
+  system "git push iftti-github master"
 end
 
 desc "Preview drafts"
