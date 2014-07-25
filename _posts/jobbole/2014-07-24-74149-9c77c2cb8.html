@@ -1,0 +1,261 @@
+---
+layout: post
+title: '一比特之差：无需利用漏洞的DNS劫持'
+time: 2014-07-24 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/74149/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p align="left">Bitsquatting表示去注册一个域名，它和知名的域名只有一个bit的差别。这个单词源自typosquatting，意为注册一个和知名域名只有一字之差的域名。在解析域名时，bitsquatting可能通过DNS导致计算机上的硬件错误。关于bitsquatting更详细的信息，可以参看我的<a href="http://media.blackhat.com/bh-us-11/Dinaburg/BH_US_11_Dinaburg_Bitsquatting_WP.pdf">Blackhat 2011 whitepaper</a>。YouTube上有人发布了我在DEF CON 19上有关此话题的演讲<a href="http://www.youtube.com/watch?v=lZ8s1JwtNas">视频</a>，当时使用的幻灯片可以在<a href="http://dinaburg.org/data/DC19_Dinaburg_Presentation.pdf">这里下载</a>。</p>
+<h3 align="left">引言</h3>
+<p align="left">计算机常常由于一个或多比特的内存损坏出现错误，而造成这些错误的原因可能是制造上的缺陷或者宇宙射线、高温之类的环境因素。虽然单个机器中出现这样的错误的可能性是极小的，但是整个互联网上设备的总量却非常庞大：2010年时就有大约50亿个设备连接到互联网。我们可以将这种存在于各个设备上的小概率错误更加形象地描述，那就是买彩票。赢得头奖的概率是极小的，但是只要有足够多的人去买，总有人会成为赢家。</p>
+<p align="left">研究人员之前就在很多<a href="https://www.cs.princeton.edu/~appel/papers/memerr.pdf">惊人的地方</a>利用了比特错误（bit-errors）。现在，在互联网尺度上，我们又有新的办法去利用它。Bitsquatting是其中之一，也就是注册和某个常被访问的域名仅一比特之差的新域名。</p>
+<h3 align="left">工作原理</h3>
+<p align="left">当比特错误发生时，内存中的数据会被修改。计算机内存的内容可能代表各种意义，有时，它刚好就表示域名。如果程序使用这块内存，就会读取到错误的域名。</p>
+<p align="left">下面的图解能够更清楚的说明这个问题，表中是cnn.com的二进制表示方法：</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101110</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0110111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0101110</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101101</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">n</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">n</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">.</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">o</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">m</td>
+</tr>
+</tbody>
+</table>
+<p align="left">现在假设你使用的计算机含有损坏的内存模块，你打开一个包含超链接到cnn.com的网页，然后你点击了这个链接。会有多少个操作将cnn.com的二进制数据保存到你的内存？写这篇文章时，我想到了下面这些：</p>
+<ul>
+<li>TCP/IP协议栈由核心态向用户态转化时（根据操作系统的具体实现各有区别）</li>
+<li>在浏览器解析HTML时</li>
+<li>在创建DOM树的内部表示时</li>
+<li>在创建新的HTTP请求时</li>
+<li>在操作系统解析域名时</li>
+</ul>
+<p align="left">更进一步，假设其中有一次将域名写入到了损坏的内存模块，它的二进制形式被修改了1bit，现在表示为：</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0110111<span style="color: red;">1</span>
+</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0110111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0101110</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101101</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">o</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">n</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">.</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">o</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">m</td>
+</tr>
+</tbody>
+</table>
+<p align="left"> 这样一来，当你点击链接时，浏览器将会跳转到con.com，而不是cnn.com。</p>
+<h3 align="left">实验</h3>
+<p align="left">这个实验背后的概念很简单：如果比特错误确实改变了设备内存中的域名，那么这些设备会访问到和正确域名一比特之差的bitsquat域名。因此很多频繁解析的域名的bitsquat域名会被全球各地的设备访问到。</p>
+<p align="left">然而这个实验实施起来却没有那么容易，首要的问题是选择合适的域名来进行比特修改。流行的网站和常被解析的域名是不太相同的，很多鲜为人知的域名实际上会被频繁解析。这类域名一般属于内容分发网络或者广告网络，例如fbcdn.net,、2mdn.net和 akamai.com。由于很少有人实际在浏览器中输入这些域名，它们也成为本次实验中最合适的目标。还有个问题就是每次DNS查询必须有两次响应：一次是原本的域名，一次是经过比特修改的域名。因为原始的请求可能会得到正确域名的响应，而丢弃对无效域名的响应。这方面更多的信息，请参考<a href="http://media.blackhat.com/bh-us-11/Dinaburg/BH_US_11_Dinaburg_Bitsquatting_WP.pdf">白皮书</a>或者<a href="http://dinaburg.org/data/DC19_Dinaburg_Presentation.pdf">幻灯片</a>。</p>
+<p align="left">为了这次实验我注册了下面这些域名。</p>
+<p align="left">注：目前它们全都已经过期，不再属于我了。</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;"><b>Bitsquat Domain</b></td>
+<td style="padding: 0; border: 1px solid #e8e8e8;"><b>Original Domain</b></td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">ikamai.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">akamai.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">aeazon.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazon.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">a-azon.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazon.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazgn.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazon.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsmft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">micrgsoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">miarosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">iicrosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsnft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">mhcrosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">eicrosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">mic2osoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">micro3oft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">li6e.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">live.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0mdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2-dn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2edn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2ldn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mfn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mln.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2odn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">6mdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbbdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbgdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">gbcdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fjcdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">dbcdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">roop-servers.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">root-servers.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">doublechick.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">doubleclick.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">do5bleclick.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">doubleclick.net</td>
+</tr>
+</tbody>
+</table>
+<p align="left">我使用Python脚本应答DNS请求，并且使用Apache记录HTTP请求。令我惊讶的是，有设备连接了。</p>
+<h3 align="left">实验发现</h3>
+<p align="left">以下结论是基于2010年9月26日至2011年5月5日间的Apache日志得出的。由搜索引擎爬虫和Web漏洞扫描器引起的日志已经被手动过滤了。正因为是手动操作，所以最后统计时可能还有很小一部分漏网之鱼。</p>
+<p align="left"><strong>发现1：比特错误可以被利用在DNS上</strong></p>
+<p align="left">在记录日志期间总共有52317次针bitsquat域名的请求，它们来自与12949个独立IP。除去其中3次产生巨大网络流量的事件，平均每天有59个独立IP对32个bitsquat域名进行了请求。这些请求不是来自于拼写错误或者其他形式的手工输入URL，还有一部分表现出有多个比特错误的特征。以下是一些实际的例子（个人信息已经移除）：</p>
+<div style="background-color: #eeeeee;">
+<p align="left">static.ak.fjcdn.net 109.242.50.xxx “GET /rsrc.php/z67NS/hash/4ys0envq.js HTTP/1.1″ “http://www.facebook.com/profile.php?id=xxxxxxxxxx” “Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.0; WOW64; Trident/4.0; GTB6.5; SLCC1; .NET CLR 2.0.50727; Media Center PC 5.0; .NET CLR 3.0.30729; .NET CLR 3.5.30729; InfoPath.2; Hotbar 11.0.78.0; OfficeLiveConnector.1.5; OfficeLivePatch.1.3; AskTbZTV/5.8.0.12304)”</p>
+<p align="left">msgr.dlservice.mic2osoft.com 213.178.224.xxx “GET /download/A/6/1/A616CCD4-B0CA-4A3D-B975-3EDB38081B38/ar/wlsetup-cvr.exe HTTP/1.1″ 404 268 “Microsoft BITS/6.6″</p>
+<p align="left">s0.2ldn.net 66.82.9.xxx “GET /879366/flashwrite_1_2.js HTTP/1.1″ “http://webmail.satx.rr.com/_uac/adpage.html” “Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0; SLCC2; .NET CLR 2.0.50727; .NET CLR 3.5.30729; .NET CLR 3.0.30729; Media Center PC 6.0; HPNTDF; AskTB5.2)”</p>
+<p align="left">mmv.admob.com 109.175.185.xxx “GET /static/iphone/img/app@2x.png HTTP/1.1″ “Mozilla/5.0 (iPhone; U; CPU iPhone OS 4_1 like Mac OS X; HW iPhone2,1; en_gb) AppleWebKit/525.18.1 (KHTML, like Gecko) (AdMob-iSDK-20101108; iphoneos4.2)”</p>
+</div>
+<p align="left"><strong>发现2：并不是所有的比特错误都造成同等程度的影响</strong></p>
+<p align="left">有些机器相比其他而言，明显控制着更多的网络流量。当一个比特错误发生在普通PC机或者手机上时，它只会影响到一个用户。然而当它发生在代理、DNS服务器或者数据库缓存中时，将会影响到成千上万的用户。在我的实验中，已经观察到了比特错误出现在Web应用、DNS解析服务器和代理服务器中。例如，一个比特错误将fbcnd.net变为fbbdn.net，将使上千个开心农场的玩家请求到我的服务器。</p>
+<p align="left"><strong>发现3：手机和嵌入式设备可能比传统硬件受的影响更大</strong></p>
+<p align="left">我对2011年3月期间访问Wikipedia和bitsquat域名的HTTP User-Agent进行了对比，展示在下面的图例中。其中Other包括了各种手机、游戏机控制台和其他嵌入式设备，它们在对bitsquat域名的访问中，增加的幅度最大。令人好奇的是，来自MacOS针对bitsquat域名的访问相比Wikipedia有显著减少，对此我还没有一个合理的解释。（译注：这里是按两个域名各自的设备分布算的，其中有增多必然有减少，也许分别计算每种设备访问错域名的几率更加合理，即<i>访问错误域名的次数 / 对两种域名的访问总数</i>。）</p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/f435855d0cd7c34aa3ae589293727d00.png" rel="lightbox[74149]" title="一比特之差：无需利用漏洞的DNS劫持"><img class="aligncenter size-full wp-image-74152" alt="bitsquat_1" src="http://jbcdn2.b0.upaiyun.com/2014/07/f435855d0cd7c34aa3ae589293727d00.png"></a></p>
+<p align="left"><strong>发现4：对bitsquat域名的访问流量是日常网络流量的真实写照</strong></p>
+<p align="left">Bitsquat域名的访问者来自于全球各地，其使用的设备也几乎涵盖每种主流的操作系统和嵌入式平台。除使用MacOS的访问者所占的百分比在两种域名间有显著差别之外，使用Windows、Linux、Android和iPhones的百分比基本相同。另外，基于IP地理位置数据库，我们可以观察到来自于美国的访问者在一天内的流量走势。</p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/ade11df8bbcc2b7bcbd7e3564ed2cdfa.png"><br>
+</a><a href="http://jbcdn2.b0.upaiyun.com/2014/07/ade11df8bbcc2b7bcbd7e3564ed2cdfa.png" rel="lightbox[74149]" title="一比特之差：无需利用漏洞的DNS劫持"><img class="aligncenter size-full wp-image-74153" alt="bitsquat_2" src="http://jbcdn2.b0.upaiyun.com/2014/07/ade11df8bbcc2b7bcbd7e3564ed2cdfa.png"></a></p>
+<p align="left"><strong>发现5：HTTPS/TLS不会有帮助，DNSSEC可能会有一丁点</strong></p>
+<p align="left">HTTP 1.1在头中包含了一个叫Host的字段，其数值是客户端想要访问的域名。如果Host中包含着bitsquat域名，那么比特错误在域名解析前就发生了。如果Host中是原始域名，那么错误就是发生在域名解析中。我数据中96%的情况是在DNS解析前就出现了比特错误。</p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/a78196125356295d8d331b1a05dc252a.png" rel="lightbox[74149]" title="一比特之差：无需利用漏洞的DNS劫持"><img class="aligncenter size-full wp-image-74154" alt="bitsquat_3" src="http://jbcdn2.b0.upaiyun.com/2014/07/a78196125356295d8d331b1a05dc252a.png"></a></p>
+<p align="left">像SSL和TLS这种安全传输技术是用于保证两端之间数据的机密性、真实性和完整性，但是比特错误更多发生在数据在某一端还未传输的时候。DNSSEC只能解决那4%发生在域名解析过程中的比特错误。</p>
+<h2 align="left">数据</h2>
+<p align="left">DNS流量的全部PCAP在此：<a href="http://dinaburg.org/data/dnslogs.tar.7z">dnslogs.tar.7z</a>，56Mb</p>
+<p align="left">HTTP日志可能包含个人信息，因此不会公开发布。如果你有正当的研究目的需要它们，请<a href="http://dinaburg.org/about.html">联系我</a>。</p>
+<p align="left">这里有个工具可以快速识别潜在的bitsquat域名：<a href="http://dinaburg.org/data/bitsquat.py">bitsquat.py</a>，<a href="https://github.com/artemdinaburg/bitsquat-script">github</a></p>
+<h2 align="left">进一步研究</h2>
+<p align="left">来自Verisign的Duane Wessels也在DNS查询中寻找过网络级别的比特错误，他指出“<b><a href="http://www.verisigninc.com/assets/VRSN_Bitsquatting_TR_20120320.pdf">网络中比特错误相对而言是很少见的，但是有一个可预期的概率</a></b>”。他研究的主要目的，是确定那4%发生在域名解析时的比特错误是否由UDP包在传输后的损坏造成。结论是网络中传输的包不太可能被损坏，用他自己的话说：“我们相信UDP的校验和能够有效防范bitsquat攻击或者其他DNS查询时的错误。无论如何，在进入网络前发生的比特错误不会从中受益，因为在传输前计算的校验和是基于错误的数据得出的。“</p>
+<p align="left">我非常鼓励读者重复我的实验，并且分享你们的结果。如果需要更多信息，请随时<a href="http://dinaburg.org/about.html">联系我</a>。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+	
+
+
+	
+{% endraw %}

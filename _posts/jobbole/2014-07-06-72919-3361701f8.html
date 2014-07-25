@@ -1,0 +1,83 @@
+---
+layout: post
+title: 'DDoS攻防战（一）：概述'
+time: 2014-07-06 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/72919/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/c3d4416e87ddcc6d07e5c41df9163382.png" rel="lightbox[72919]" title="DDoS攻防战（一）：概述"><img class="alignnone size-full wp-image-72920" alt="031710143173700" src="http://jbcdn2.b0.upaiyun.com/2014/07/c3d4416e87ddcc6d07e5c41df9163382.png"></a></p>
+<p><strong>（此图摘自《Web脚本攻击与防御技术核心剖析》一书，作者：郝永清先生）</strong></p>
+<p>DDoS,即 Distributed Denial of Service ,可译为分散式阻断服务攻击。</p>
+<p>上图与DDoS的字面已经清楚的表述出了此类攻击的原理，勿需多言。这类攻击泛滥存在的主要原因之一是网络服务的开放性，这一特点导致了DDoS攻击无法根本杜绝，目前主要应对策略是积极防御与消极防御。</p>
+<p> </p>
+<p><strong>典型DDoS的攻击方式：</strong></p>
+<p><strong> ·死亡之Ping</strong></p>
+<p>icmp封装于IP报文之中，而IP对于很大的数据载荷采用分片传输的策略，而接收方需要对这些IP分片进行重组，如果接收方的重组算法不能很好地处理意外情况，后果会很严重，典型的意外情况包括：</p>
+<p>1.连续分片的偏移量之间不符合它们应该的逻辑关系，攻击者伪造出这样的一系列分包是很容易的；</p>
+<p>2.重组完成后的IP头与数据载荷，总长度竟超过了IP报文总长2^16字节（64kB）的限制，一个实现的例子是，前面各分片一律正常，唯有最后一个IP分片的数据载荷尽量填充到最大，如达到以太网最大传输单元MTU 1500字节上限，这样重组后的报文总长度就达到了约(64kB+1500B-20B-8B=65.44kB)的大小。</p>
+<p>这种攻击方式附加了对目标系统协议栈算法的漏洞利用。</p>
+<p><strong>·泪滴TearDrop</strong></p>
+<p>泪滴攻击指的是向目标机器发送损坏的IP包，诸如重叠的包或过大的包载荷。借由这些手段，该攻击可以通过TCP/IP协议栈中分片重组代码中的bug来瘫痪各种不同的操作系统。(此段摘自维基百科中文，实现方式可参考上死亡之Ping）</p>
+<p><strong>·UDP洪水</strong></p>
+<p>UDP是一种无连接协议，当数据包通过 UDP 发送时，所有的数据包在发送和接收时不需要进行握手验证。当大量 UDP 数据包发送给受害系统时，可能会导致带宽饱和从而使得合法服务无法请求访问受害系统。遭受 DDoS UDP 洪泛攻击时，UDP 数据包的目的端口可能是随机或指定的端口，受害系统将尝试处理接收到的数据包以确定本地运行的服务。如果没有应用程序在目标端口运行，受害系统将对源IP发出 ICMP 数据包，表明“目标端口不可达”。某些情况下，攻击者会伪造源IP地址以隐藏自己，这样从受害系统返回的数据包不会直接回到僵尸主机，而是被发送到被伪造地址的主机。有时 UDP 洪泛攻击也可能影响受害系统周围的网络连接，这可能导致受害系统附近的正常系统遇到问题。然而，这取决于网络体系结构和线速。（此段摘自维基百科中文）<strong>　</strong></p>
+<p><strong>·TCP RST 攻击</strong></p>
+<p>TCP协议存在安全漏洞，正常的TCP连接可以被非法的第三方复位，这是因为TCP连接通讯不包含认证的功能。如，在已知连接的五元组的情况下，攻击者可以伪造带有RST/SYN标志的TCP报文或普通数据报文，当其sequence number落在TCP连接的滑动窗口范围内，可能导致会话终止或者虚假数据插入。（这里仅仅提一下，详细可参考文章《<a href="../72910/" target="_blank">从TCP协议的原理来谈谈RST复位攻击</a>》、《<a href="http://www.cnblogs.com/elong2009/archive/2009/12/20/1628139.html">忆龙2009：TCP非法复位漏洞及解决方法</a>》）</p>
+<p><strong>·TCP 全连接攻击</strong></p>
+<p>庞大的攻击群同时地、不断地与目标服务器建立正常的TCP连接，从而严重影响正常用户的连接服务。</p>
+<p><strong>·Syn Flood</strong></p>
+<p>攻击者向目标服务器发送大量（伪造源IP地址、伪造源端口、正确目标IP地址、正确目标端口）tcp syn数据包，目标服务器为了维持这么大量的虚假连接，大量的tcp状态机维持在了SYN_RCVD状态，严重地影响了处理速度与消耗了系统资源，而反观攻击者，伪造并发送这些小数据包，各项资源消耗都极低，对于网络传输速度为3Mb/s的一个攻击者来说，攻击包的速率大约可达每秒(3Mb/8/40=9830)个，如果网络传输速度达到30Mb/s，单个攻击者的攻击包速率可为98300/s，如果再考虑到分布式攻击，情况将变得极为恶劣。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/3336a91c3e3f3a1347d8ed8286268fda.png" rel="lightbox[72919]" title="DDoS攻防战（一）：概述"><img class="alignnone size-full wp-image-72922" alt="031841171772165" src="http://jbcdn2.b0.upaiyun.com/2014/07/c34599f65cd86ca36c7f4bb0c1754325.png"></a></p>
+<p> </p>
+<p><strong>·CC攻击</strong></p>
+<p>CC，即 Chanllenge Collapsar ,可直译为 黑洞挑战，CC攻击是 DDoS 攻击的一种类型，使用代理服务器向受害服务器发送大量貌似合法的请求，巧妙之处在于，网络上有许多免费代理服务器，甚至很多都支持匿名代理，所以其优点为：</p>
+<p>1.攻击者事先不需要抓取攻击傀儡，但仍需得到可用的、符合要求的代理 ip:port 列表;</p>
+<p>2.匿名代理，使得追踪变得非常困难，但并非不可能！</p>
+<p> </p>
+<p><strong>四层及以下的DDoS防御：</strong></p>
+<p>新型攻击方式的产生、流行，必然导致对应防御策略的出现。</p>
+<p>而针对四层及四层以下的DDoS攻击，现在的硬件防火墙大多都能对死亡之Ping、icmp洪水、泪滴等做到很好的防御效果，所以，这里重点介绍SynFlood的若干防御策略：</p>
+<p>SynCookie：等到系统资源到达某一临界点，内核协议栈启用SynCookie机制，进行Syn包源IP:PORT验证，它本身是一种非常巧妙的实现，具体可参考文章《<a href="http://blog.csdn.net/zhangskd/article/details/16986931">SYN Cookie的原理和实现</a>》；</p>
+<p>SynProxy：即Syn代理，一般可在前端防火墙上实现，不过，淘宝开源项目ipvs维护者吴佳明先生已经在内核层实现了这一功能，可理解为SynCookie+Proxy，请访问 https://github.com/alibaba/LVS/ 获得最新源码与项目文档；</p>
+<p>SynCheck:对Syn包依据一定的规则进行检验,以过滤掉一部分不规则的包；</p>
+<p>SynFirstDrop：Syn首包丢弃策略，但如果攻击者将伪造的Syn报文发送两次，这种方法就失去了效果。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/385003ee443597add80ad22453f61bfd.png" rel="lightbox[72919]" title="DDoS攻防战（一）：概述"><img class="alignnone size-full wp-image-72923" alt="040013165994836" src="http://jbcdn2.b0.upaiyun.com/2014/07/5d1a95cba687abc9e9edd82bdf109b7f.png"></a></p>
+<p> </p>
+<p>以上的这些常见防御方法都可以分别通过硬件和软件来实现，一般来讲，硬件防火墙处理能力要比软件方法强，但价格也更加昂贵，尽管软件实现性能会有下降，但也没有太差，例如，ipvs工作于内核层，淘宝在大部分网站使用其作为Director，下面是一些官方数据：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/f3a503aea27c1ea2b280234d0537c73a.png" rel="lightbox[72919]" title="DDoS攻防战（一）：概述"><img class="alignnone size-full wp-image-72924" alt="040015450208526" src="http://jbcdn2.b0.upaiyun.com/2014/07/f3a503aea27c1ea2b280234d0537c73a.png"></a></p>
+<p> </p>
+<p>如果在上面这些数据的基础之上，前端Director实现集群以分担系统负载，性能将会更佳，可见软件防火墙在使用的得当的情况之下，能极大降低系统成本，而且性能理想，这是经过淘宝的系统实际验证了的。</p>
+<p>在完成这篇文章的两个小时之前，笔者有幸通过网络的方式观看了淘宝_吴佳明先生的讲座，题目是《<a href="http://www.osforce.cn/openclass/77/show">LVS在大规模网络环境下的应用</a>》，受益匪浅！在全国的公司中，淘宝在开源软件方面的贡献真的是首屈一指，实在令人敬佩！</p>
+<p>笔者将会在接下来的文章里讲述针对应用层的DDoS攻击的实现、防范，以及一个防火墙内核模块的实现。如有问题或者建议，欢迎留言讨论 <strong>:)</strong></p>
+<p> </p>
+<p><strong>附录：</strong></p>
+<p>参考资料：《Web脚本攻击与防御技术核心剖析》、《TCP-IP详解卷1：协议》、《LVS在淘宝环境中的应用》</p>
+<p>2004左右，Fr.Qaker先生公开了CC攻击的原理、实现代码、防范方法，结果却被恶意破坏者利用以进行大范围的互联网攻击，接着， Fr.Qaker便开源了自己开发的CC防火墙  :)</p>
+<p>这是Fr.Qaker当时一篇帖子《<a href="http://forum.eviloctal.com/read-htm-tid-22777.html">抗CC防火墙AntiAttackFireWall(AAFW)开源公告及源代码下载</a>》</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+	
+
+
+	
+{% endraw %}

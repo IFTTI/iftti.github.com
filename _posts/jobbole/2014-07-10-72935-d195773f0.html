@@ -1,0 +1,220 @@
+---
+layout: post
+title: 'DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现'
+time: 2014-07-10 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/72935/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>在上一篇文章《<a href="http://www.cnblogs.com/SwordTao/p/3767340.html">DDoS攻防战 （二） ：CC攻击工具实现与防御理论</a>》中,笔者阐述了一个防御状态机，它可用来抵御来自应用层的DDoS攻击，但是该状态机依赖一个能应对大量条目快速增删的ip黑白名单防火墙，我们目前并没有发现很好的开源实现以供我们使用。</p>
+<p> </p>
+<p><strong>·实现方案选择：</strong></p>
+<p>硬件实现或者软件实现？</p>
+<p>在面对诸如大量畸形包这样的攻击时，硬件实现将会是非常好的选择，这是因为在进行此类型的封包过滤时，系统需要记忆的状态很少（对于FPGA、ASIC诸多硬件实现方案来讲，记忆元件的成本决不可忽视，寄存器与静态RAM都非常昂贵，所以当需要记忆的信息很少时，纯硬件方案的速度优势使得其完胜软件方案）。</p>
+<p>但是，当状态机需要处理庞大的记忆信息时，我们就需要选择廉价的存储器——动态随机存储器（如SDRAM中的DDR3）来作为系统状态机的存储介质，以降低系统的成本和复杂度。这时，软件实现更胜一筹。尽管纯硬件实现的速度会比软件的方式高出很多，但我们也从第一篇文章《<a href="http://www.cnblogs.com/SwordTao/p/3766151.html">DDoS攻防战 （一） ： 概述</a>》中lvs性能的测试结果中看到，软件实现的、作为服务器前端均衡调度器的lvs，性能理想并且能胜任实际生产环境中的、庞大的用户请求处理，可见，如果设计合理，软件实现的性能无需过多担忧。</p>
+<p>最终，我们决定采用软件的方法来实现所需的ip黑白名单模块。</p>
+<p> </p>
+<p><strong>·最终系统鸟瞰：</strong></p>
+<p>笔者花费大约二十天的时间，使用C语言实现了这一模块，其中，内核空间的核心代码约2300行，用户空间管理工具的代码总行数约为700行。下为系统的鸟瞰：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/219e6104bd9573cda6d5eb910c9aaa61.png" rel="lightbox[72935]" title="DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现"><img class="alignnone size-full wp-image-72936" alt="041927426214190" src="http://jbcdn2.b0.upaiyun.com/2014/07/219e6104bd9573cda6d5eb910c9aaa61.png"></a></p>
+<p> </p>
+<p><strong> ·用户空间管理工具fripadm，通过ioctl与工作于内核态的frdev模块进行通信</strong></p>
+<p><strong>  ·frdev维护两个double_hash_table的实例，并提供了一个挂在NF_INET_PRE_ROUTING的钩子函数，其通过操作这两个double_hash_table的实例以分别实现ip黑名单、白名单的功能</strong></p>
+<p><strong>  ·frdev通过内核中设备驱动的ioctl机制，向用户空间提供这两个double_hash_table实例的操作函数，而我们的用户空间管理工具fripadm正是基于此而实现的</strong></p>
+<p>下面是内核态的主要数据结构与其对应的操作函数：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/69d337ddf8c78477c9a0ef2631d4abe5.png" rel="lightbox[72935]" title="DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现"><img class="alignnone size-full wp-image-72937" alt="041909364491925" src="http://jbcdn2.b0.upaiyun.com/2014/07/69d337ddf8c78477c9a0ef2631d4abe5.png"></a></p>
+<p> </p>
+<pre class="brush: c; gutter: true">struct fr_ip_hash_array的功能：
+  精确ip查询；
+  模糊ip查询；
+  自定义hash表的长度；
+  自定义hash function，其输入散列随机数为rnd；
+  维护精确ip的哈希表；
+  维护模糊ip的链表；
+  维护精确ip与模糊ip的诸统计信息；
+
+ip字符描述语法：
+  /* ips_syntax : RE 
+  digit  =: [0-9]
+  num    =: (digit){1,3}
+  atom   =: num | (num'-'num) | '*'
+  ip     =: atom '.' atom '.' atom '.' atom 
+  ips    =: (ip ' ')+
+  */
+  // ret 0 success,otherwise syntax error
+  // "1-220.*.100.33 1-220.*.100.33 1-220.*.100.33"
+
+struct fr_ip_hash_array的方法：
+  fr_ip_hash_array_malloc / fr_ip_hash_array_destroy
+  fr_ip_hash_array_insert_ip  ：增加一条精确ip记录
+  fr_ip_hash_array_insert_blurip_ptr  ：增加一条模糊ip记录（以指针引用的方式）
+  fr_ip_hash_array_delete_ip
+  fr_ip_hash_array_delete_blurip_ptr
+  fr_ip_hash_array_delete_ip_randomly  ：随机地删除指定数量的精确ip
+  fr_ip_hash_array_insert_ip_bystrings  ：通过字符串的表述方式，向fr_ip_hash_array增加精确ip或者模糊ip
+  fr_ip_hash_array_delete_ip_bystrings
+  fr_ip_hash_array_find_bool  ：查找给定的ip是否在已存储的模糊ip范围之内或者精确ip的哈希表之中
+  fr_ip_hash_array_find_ip_bool  ：查找给定的ip是否在精确ip的哈希表之中
+  fr_ip_hash_array_find_ip_bystrings_bool</pre>
+<p><strong>·为什么使用双哈希表缓冲？</strong></p>
+<p>请考虑如下场景：</p>
+<p>情况1：来自应用层的DDoS攻击常常是瞬间涌入大量非法ip请求，例如数万个非法ip，所以，对于防火墙黑白名单功能的要求至少有如下：能在很短的时间内更新大量数据项，且不能造成系统服务停顿。</p>
+<p>分析：如果只使用一个全局的哈希表，当在短时间内进行大量的数据项增删时，例如，成千上万个，此时，即使采用多把读写锁分割哈希表的策略，对共享资源的竞争也依然将严重影响系统响应速度，严重时系统可能会停顿或者更糟，对于生产环境中的高负载服务器，这是无法容忍的。</p>
+<p>解决：以空间换时间</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/aa638936ce768f48f83884904359bbbd.png" rel="lightbox[72935]" title="DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现"><img class="alignnone size-full wp-image-72938" alt="041910359024155" src="http://jbcdn2.b0.upaiyun.com/2014/07/aa638936ce768f48f83884904359bbbd.png"></a>\</p>
+<p>采用双哈希表缓冲的策略，将系统共享资源的竞争热点压缩至两个hash表指针主备切换的极短时间内，此方法能显著降低系统在大量数据项更新时共享资源的竞争。</p>
+<p>系统查询将会直接访问master指向的fr_ip_hash_array，而用户的更新操作将直接针对mirror所指向的另一个fr_ip_hash_array实例，直到switch_mirror_update操作的执行，master将被瞬间“更新”。这是其主要的工作特点。</p>
+<p>对于SMP与多队列网卡的系统，可采用如下策略：多数cpu核心专门负责处理内核的softirq任务，剩下的少数cpu负责进行双哈希表的更新、切换与重建等操作。这样可提高系统对攻击的快速防御响应。</p>
+<p>但此方案将使得系统需要维护两个互为镜像的哈希表，这将加重系统内存的读写负担。</p>
+<p>具体实现细节如下：</p>
+<pre class="brush: c; gutter: true">struct fr_ip_double_hash的成员：
+  struct fr_ip_hash_array * master_ptr;
+  rwlock_t master_lock;  
+  struct fr_ip_hash_array * mirror_ptr;
+  rwlock_t mirror_lock;
+
+struct fr_ip_double_hash的方法：
+  fr_ip_double_hash_malloc / fr_ip_double_hash_destroy
+  fr_ip_double_hash_mirror_insert_ip ：只针对mirror的insert ip操作
+  fr_ip_double_hash_mirror_insert_blurip_ptr
+  fr_ip_double_hash_mirror_insert_bystrings
+  fr_ip_double_hash_mirror_delete_ip
+  fr_ip_double_hash_mirror_delete_blurip_ptr
+  fr_ip_double_hash_mirror_delete_bystrings
+  fr_ip_double_hash_mirror_delete_ip_randomly
+  fr_ip_double_hash_mirror_delete_all ：删除mirror中所有的ip记录，即所有的精确ip和模糊ip记录
+  fr_ip_double_hash_switch_mirror_update ：将mirror与master互换，并更新master至mirror（此时的mirror即为之前的master）
+  fr_ip_double_hash_rebuild ：将双哈希表重建，可指定新的hash function、rnd以及hash表的长度，这将解决hash表查询效率低下的问题，以防御外界针对hash表的攻击。当然，在重建之后，原有的诸多ip条目不会丢失。
+  fr_ip_double_hash_find_bool
+  fr_ip_double_hash_find_bystrings_bool</pre>
+<p><strong>挂到协议栈上的钩子函数：</strong></p>
+<p>在模块初始化函数fr_ip_dev_init的最后，即当两个双哈希表实例（分别用作黑名单与白名单）初始化成功、fedev设备注册成功之后，其将会执行nf_register_hook，将指定的钩子函数fr_nf_hook_sample挂到NF_INET_PRE_ROUTING之上。</p>
+<p>fr_nf_hook_sample的主要处理代码如下：</p>
+<pre class="brush: c; gutter: true">if(fr_ip_double_hash_find_bool(double_hash_white_ptr,sip)) 
+　　  return NF_ACCEPT;
+   else if(fr_ip_double_hash_find_bool(double_hash_ptr,sip)) 
+　　  return NF_DROP;
+   else  
+　　  return NF_ACCEPT;</pre>
+<p>其中，double_hash_white_ptr指向白名单fr_ip_double_hash实例，double_hash_ptr则指向黑名单fr_ip_double_hash实例，由于支持模糊ip匹配，故，上述代码使得对源ip过滤的“通”、“堵”策略皆可使用。</p>
+<p> </p>
+<p><strong>内核空间frdev的ioctl处理函数：</strong></p>
+<p>目前，ioctl支持来自用户空间的如下操作：</p>
+<pre class="brush: c; gutter: true">//黑名单操作
+/* in-black ip */
+#define FR_IP_IOCTL_TYPE_FIND    1
+#define FR_IP_IOCTL_TYPE_FIND_BYSTRINGS        2    // *   输入ip字符查找
+#define FR_IP_IOCTL_TYPE_MIRROR_INSERT_IP    3    
+#define FR_IP_IOCTL_TYPE_MIRROR_INSERT_BYSTRINGS    4    // * 
+#define FR_IP_IOCTL_TYPE_MIRROR_DELETE_IP    5        // *  
+#define FR_IP_IOCTL_TYPE_MIRROR_DELETE_IP_RANDOMLY        6 //*  
+#define FR_IP_IOCTL_TYPE_MIRROR_DELETE_BYSTRINGS    7    // * 
+#define FR_IP_IOCTL_TYPE_MIRROR_DELETE_ALL        8    //*  
+#define FR_IP_IOCTL_TYPE_SWITCH_MIRROR_UPDATE    9    // *  
+#define FR_IP_IOCTL_TYPE_REBUILD    10    // *    
+#define FR_IP_IOCTL_TYPE_COPY_HASH_STRUCT     11    // *
+#define FR_IP_IOCTL_TYPE_DUMP    12    //*    输出双哈希表的分布情况与统计信息
+#define FR_IP_IOCTL_TYPE_MIRROR_INSERT_IP_BINS    13    //*   一次增加大量精确ip，以二进制的方式输入
+#define FR_IP_IOCTL_TYPE_MIRROR_DELETE_IP_BINS    14    //*  
+
+//白名单操作
+/* in-white ip */
+#define FR_IP_IOCTL_TYPE_WHITE_FIND    101
+#define FR_IP_IOCTL_TYPE_WHITE_FIND_BYSTRINGS        102  // * 
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_INSERT_IP        103
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_INSERT_BYSTRINGS    104  // * 
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_DELETE_IP        105
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_DELETE_IP_RANDOMLY        106  // * 
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_DELETE_BYSTRINGS    107    // * 
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_DELETE_ALL        108    //*  
+#define FR_IP_IOCTL_TYPE_WHITE_SWITCH_MIRROR_UPDATE    109    // *  
+#define FR_IP_IOCTL_TYPE_WHITE_REBUILD    110    // *    
+#define FR_IP_IOCTL_TYPE_WHITE_COPY_HASH_STRUCT     111    // *
+#define FR_IP_IOCTL_TYPE_WHITE_DUMP    112    //*  
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_INSERT_IP_BINS    113    //*  
+#define FR_IP_IOCTL_TYPE_WHITE_MIRROR_DELETE_IP_BINS    114    //*</pre>
+<p>上述各功能的具体实现请阅读frdev源码中的fr_ip_dev_ioctl_routine函数。</p>
+<p> </p>
+<p><strong>用户空间管理工具：fripadm</strong></p>
+<p>第一步，实现fripadm_black_in_exe与fripadm_white_in_exe，是分别管理黑白名单的工具，不过，较为简陋，第二步，使用shell脚本对其进行二次封装得到fripadm_black_in.sh与fripadm_white_in.sh这两个较用户友好的工具。</p>
+<p>fripadm为用户空间的C语言开发者们提供了如下API：</p>
+<pre class="brush: c; gutter: true">//针对ip黑名单的操作
+double_hash_find_bystrings(int fd,char * str, unsigned int size) //其中fd为frdev的fd——文件描述符
+double_hash_mirror_insert_bystrings(int fd,char * str, unsigned int size)
+double_hash_mirror_insert_bins(int fd,char * str, unsigned int size)
+double_hash_mirror_delete_bystrings(int fd,char * str, unsigned int size)
+double_hash_mirror_delete_bins(int fd,char * str, unsigned int size)
+double_hash_mirror_delete_ip_randomly(int fd,unsigned int size)
+double_hash_mirror_delete_all(int fd)
+double_hash_switch_mirror_update(int fd)
+double_hash_rebuild(int fd,unsigned int modular, unsigned int rnd)
+double_hash_dump(int fd)
+//针对ip白名单的操作
+double_hash_white_find_bystrings(int fd,char * str, unsigned int size) //其中fd为frdev的fd——文件描述符
+double_hash_white_mirror_insert_bystrings(int fd,char * str, unsigned int size)
+double_hash_white_mirror_insert_bins(int fd,char * str, unsigned int size)
+double_hash_white_mirror_delete_bystrings(int fd,char * str, unsigned int size)
+double_hash_white_mirror_delete_bins(int fd,char * str, unsigned int size)
+double_hash_white_mirror_delete_ip_randomly(int fd,unsigned int size)
+double_hash_white_mirror_delete_all(int fd)
+double_hash_white_switch_mirror_update(int fd)
+double_hash_white_rebuild(int fd,unsigned int modular, unsigned int rnd)
+double_hash_white_dump(int fd)</pre>
+<p>fripadm_black_in_exe、fripadm_white_in_exe、fripadm_black_in.sh与 fripadm_white_in.sh的具体实现请参看frdev源码。</p>
+<p> </p>
+<p><strong>最终系统测试：</strong></p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/bafa2a3553cf40af65c32be09b6c8040.png" rel="lightbox[72935]" title="DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现"><img class="alignnone size-full wp-image-72941" alt="041917316374465" src="http://jbcdn2.b0.upaiyun.com/2014/07/bafa2a3553cf40af65c32be09b6c8040.png"></a></p>
+<p> </p>
+<p>按照README所述的过程，编译、安装完毕frdev设备后，便可进行如下测试：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/40040dcaf4798222c23a7968d024dc7c.png" rel="lightbox[72935]" title="DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现"><img class="alignnone size-full wp-image-72942" alt="041937462625839" src="http://jbcdn2.b0.upaiyun.com/2014/07/40040dcaf4798222c23a7968d024dc7c.png"></a></p>
+<p> </p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/00279c2d6d4bcc2583f4241519db59b6.png" rel="lightbox[72935]" title="DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现"><img class="alignnone size-full wp-image-72943" alt="041938024021637" src="http://jbcdn2.b0.upaiyun.com/2014/07/00279c2d6d4bcc2583f4241519db59b6.png"></a></p>
+<p> </p>
+<p><strong>原本被black所DROP的数据包，在更新了white的ip条目后，被white所ACCEPT，上图红线标出了数据包被截断的icmp_seq的区间。  </strong></p>
+<p><strong>关于frdev的陈述到此为止。</strong></p>
+<p> </p>
+<p><strong>最近笔者在阅读《白帽子讲Web安全》这本书时，发现了雅虎公司用于防护应用层DDoS攻击的系统Yahoo Detecting System Abuse，yahoo为此系统申请了专利保护。下面是关于这个系统的描述： </strong></p>
+<p><strong> （Patent N0.: US 7,533,414 B1 </strong><strong>资料来源 <a href="http://patentimages.storage.googleapis.com/pdfs/US7533414.pdf">http://patentimages.storage.googleapis.com/pdfs/US7533414.pdf</a>)</strong></p>
+<p><strong> </strong>  A system continually monitors service requests and detects service abuses.</p>
+<p>First, a screening list is created to identify potential abuse events. A screening list includes event IDs and associated count values. A pointer cyclically selects entries in the table,advancing as events are received.</p>
+<p>An incoming event ID is compared with the event IDs in the table. If the incoming event ID matches an event ID in the Screening list,the associated count is incremented. Otherwise, the count of a selected table entry is decremented. If the count value of the selected entry falls to Zero, it is replaced With the incoming event.</p>
+<p>Event IDs can be based on properties of service users,such as user identifications, or of service request contents,such as a search term or message content. The screening list is analyzed to determine whether actual abuse is occurring.</p>
+<p><strong>大概思路如下：</strong></p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/372862ce489bd277c6d3da768af24458.png" rel="lightbox[72935]" title="DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现"><img class="alignnone size-full wp-image-72944" alt="041922262301198" src="http://jbcdn2.b0.upaiyun.com/2014/07/372862ce489bd277c6d3da768af24458.png"></a></p>
+<p> </p>
+<p><strong>此系统通过维护一个筛选表来得到用户的请求频率，以判断其是否存在service abuse，然采取相关措施，例如BLOCK。</strong></p>
+<p><strong>  这种防御思想，与我们之前所提出的防御状态机有着异曲同工之妙。笔者认为这是必然的。</strong></p>
+<p><strong>前面的文章已经提过，DDoS攻击存在的主要原因之一是网络服务的开放性，我们不可能从下层来解决这样的问题（因为服务的可用性是第一要求），只能从上层分析解决.</strong></p>
+<p><strong>  而应用层已经处于协议栈的最高层，所以，要防御应用层DDoS攻击，只能从应用层以上来寻找解法，故，在这种情况下，除了借助数据统计分析，难道还会有更好的方法么？</strong></p>
+<p><strong> </strong></p>
+<p>在实现frdev的过程中，借助互联网解决了很多问题，所以，<strong>如果您需要frdev的源码，请在下方留下邮箱 :)</strong></p>
+<p><strong>如果有小伙伴想要一起来增强</strong><strong>frdev的功能，热烈欢迎 :)</strong></p>
+<p>通讯邮箱：<a href="mailto:yunthanatos@163.com">yunthanatos@163.com</a></p>
+<p> </p>
+
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+	
+
+
+	
+{% endraw %}
