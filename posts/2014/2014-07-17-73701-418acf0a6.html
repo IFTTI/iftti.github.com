@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>React 的 diff 算法</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-17-73701-418acf0a6.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>React 的 diff 算法</h1>
+    <p class="meta"><span class="time">Jul 17, 2014</span><span class="source_url"> • <a name="jobbole.com" href="http://blog.jobbole.com/73701/" target="_blank">[jobbole.com]</a></span></p>
+    <p><!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+	<span class="jiathis_txt">分享到：</span>
+	<a class="jiathis_button_evernote">EverNote</a>
+	<a class="jiathis_button_pocket">Pocket</a>
+	<a class="jiathis_button_tsina">新浪微博</a>
+	<a class="jiathis_button_renren">人人网</a>
+	<a class="jiathis_button_weixin">微信</a>
+	<a class="jiathis_button_cqq">QQ好友</a>
+	<a class="jiathis_button_googleplus">Google+</a>
+	<a href="http://www.jiathis.com/share?uid=1936498" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+	<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<!-- JiaThis Button END --></p>
+  </header>
+
+  <article class="post-content">
+
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p><a href="http://facebook.github.io/react/" target="_blank" rel="nofollow">React</a> 是 Facebook 开发的构建用户界面的类库。它从设计之初就将性能作为重点。这篇文章将展示 diff 算法和渲染过程怎样工作，你可以借鉴优化自己的应用。</p>
+<h2>Diff 算法</h2>
+<p>在深入实现的细节之前，需要了解一下 React 怎样工作的。</p>
+<pre class="brush: c; gutter: true">var MyComponent = React.createClass({
+  render: function() {
+    if (this.props.first) {
+      return &lt;div className="first"&gt;&lt;span&gt;A Span&lt;/span&gt;&lt;/div&gt;;
+    } else {
+      return &lt;div className="second"&gt;&lt;p&gt;A Paragraph&lt;/p&gt;&lt;/div&gt;;
+    }
+  }
+});</pre>
+
+<p>任何时间，你描述的是你的 UI 看起来是什么样子。需要特别注意，render 执行的结果得到的不是真正的 DOM 节点。结果仅仅是轻量级的 JavaScript 对象，我们称之为 virtual DOM。</p>
+<p>React 要从这个表现形式当中尝试找到前一个渲染结果到后一个的最小步数。比如，当我们挂载了 <code>&lt;MyComponent first={true} /&gt;</code>，然后用 <code>&lt;MyComponent first={false} /&gt;</code> 替换，然后又取消挂载，这样一个过程的 DOM 的指令是这样的:</p>
+<p>从没有到第一步</p>
+<ul>
+<li>创建节点:
+<pre class="brush: html; gutter: true">&lt;div className="first"&gt;&lt;span&gt;A Span&lt;/span&gt;&lt;/div&gt;</pre>
+
+</li>
+</ul>
+<p>第一步到第二步替换属性:?<code>className="first" 到 className="second"</code><br>
+提盒节点:?<code>&lt;span&gt;A Span&lt;/span&gt;</code>?到?<code>&lt;p&gt;A Paragraph&lt;/p&gt;</code></p>
+<p>第二步到没有</p>
+<ul>
+<li>删除节点:
+<pre class="brush: c; gutter: true">&lt;div className="second"&gt;&lt;p&gt;A Paragraph&lt;/p&gt;&lt;/div&gt;</pre>
+
+</li>
+</ul>
+<h4>按照层级</h4>
+<p>找到两课任意的树之间最小的修改是一个复杂度为 <code>O(n^3)</code> 的问题。你可以想象，我们的例子里这不是容易处理的。React 用了一种简单但是强大的技巧，达到了接近 <code>O(n)</code> 的复杂度。</p>
+<p>React 仅仅是尝试把树按照层级分解。 这彻底简化了复杂度，而且也不会失去很多，因为 Web 应用很少有 component 移动到树的另一个层级去。它们大部分只是在相邻的子节点之间移动。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/5353c5a8ae864b68bae903cb71e106ce.png" rel="lightbox[73701]" title="React 的 diff 算法"><img class="alignnone size-full wp-image-73702" alt="d1" src="http://jbcdn2.b0.upaiyun.com/2014/07/5353c5a8ae864b68bae903cb71e106ce.png"></a></p>
+<h4>列表</h4>
+<p>假设我们有个 component，一个循环渲染了 5 个 component，随后又在列表中间插入一个新的 component。只知道这些信息，要弄清两个 component 的列表怎么对应很难。</p>
+<p>默认情况下，React 会将前一个列表第一个 component 和后一个第一个关联起来，后面也是。你可以写一个 <code>key</code> 属性帮助 React 来处理它们之间的对应关系。世纪钟，在子元素中找到唯一的 key 通常很容易。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/18be24308734e65e462e74629de57c95.png" rel="lightbox[73701]" title="React 的 diff 算法"><img class="alignnone size-full wp-image-73703" alt="d2" src="http://jbcdn2.b0.upaiyun.com/2014/07/18be24308734e65e462e74629de57c95.png"></a></p>
+<h4>Components</h4>
+<p>React app 通常由用户定义的 component 组合而成，通常结果是一个主要是很多 <code>div</code> 组成的树。这个信息也被 React 的 diff 算法考虑进去，React 只会匹配相同 class 的 component。</p>
+<p>比如，如果有个 <code>&lt;Header&gt;</code> 被 <code>&lt;ExampleBlock&gt;</code> 替换掉了，React 会删除掉 header 再创建一个 example block。我们不需要化宝贵的时间去匹配两个不大可能又相似之处的 component。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/8016bb213a31681fefb1236e8d74f18b.png" rel="lightbox[73701]" title="React 的 diff 算法"><img class="alignnone size-full wp-image-73704" alt="d3" src="http://jbcdn2.b0.upaiyun.com/2014/07/8016bb213a31681fefb1236e8d74f18b.png"></a></p>
+<h2>事件代理</h2>
+<p>往 DOM 节点上绑事件慢得人心碎啊，而且很费内存。</p>
+<p>作为替代，React 部署了流行的技术，叫做”事件代理”。React 走得更远，重新实现了一遍符合 W3C 规范的事件系统。意味着 IE8 事件处理的 bug 成为过去了，所有时间名称跨浏览器保持一致。</p>
+<p>这里解释一下怎么实现的。 事件 listener 被绑定到整个文档的根节点上。当事件被触发，浏览器会给出一个出发的目标的 DOM 节点。为了在 DOM 的层级传播事件，React 不会迭代 virtual DOM 的层级。而是，我们依靠每个 React component 各自独立的 id 来编码这个层级。</p>
+<p>我们能通过简单的字符串操作来获取所有父级 component 的父级内容。把事件 listener 存储在 hash map 当中，我们发现性能比放到 virtual DOM 还要好。这个例子展示了，当一个事件广播到整个 virtual DOM 时发生什么。</p>
+<pre class="brush: c; gutter: true">// dispatchEvent('click'，'a.b.c'，event)
+clickCaptureListeners['a'](event);
+clickCaptureListeners['a.b'](event);
+clickCaptureListeners['a.b.c'](event);
+clickBubbleListeners['a.b.c'](event);
+clickBubbleListeners['a.b'](event);
+clickBubbleListeners['a'](event);</pre>
+
+<p>浏览器为每个事件和每个 listener 创建一个新的事件对象。这个事件对象的属性很不错，你能获取到事件的引用，甚至修改掉。然而这也意味着高额的内存分配。</p>
+<p>React 在启动时就为那些对象分配了一个内存池。任何时候需要用到事件对象，就可以从这个内存池进行复用。这一点非常显著地减轻了垃圾回收的负担。</p>
+<h2>渲染</h2>
+<h4>批量化</h4>
+<p>你调用 component 的 <code>setState</code> 方法的时候，React 将其标记为 dirty。到每一个事件循环结束，React 检查所有标记 dirty 的 component 重新绘制。</p>
+<p>这里的”批量化”是说，在一个事件循环当中，DOM 只会被更新一次。这个特性是构建高效的 app 的关键，而且用通常的 JavaScript 代码难以实现。而在 React 应用里，你默认就实现了。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/7b7d59d08b4480b47a5b480a91f3f199.png" rel="lightbox[73701]" title="React 的 diff 算法"><img class="alignnone size-full wp-image-73705" alt="d4" src="http://jbcdn2.b0.upaiyun.com/2014/07/7b7d59d08b4480b47a5b480a91f3f199.png"></a></p>
+<p> </p>
+<h4>子树渲染</h4>
+<p>调用 <code>setState</code> 方法时，component 重新构建包括了子节点的 virtual DOM。如果你在根节点调用 <code>setState</code>，整个 React 的应用都会被重新渲染。所有的 component，即便没有更新，都会调用他们的 <code>render</code> 方法。这个听起来可怕，性能像是很低，但实际上我们不会触碰真实的 DOM，运行起来没问题。</p>
+<p>首先，我们讨论的是展示用户界面. 因为屏幕空间有限，通常你需要一次渲染成败上千条指令。JavaScript 对于能处理的整个界面，在业务逻辑上已经足够快了。</p>
+<p>另一点，在写 React 代码时，每当又数据更新，你不是都调用根节点的 <code>setState</code>。你会在需要接收对应更新的 component 上调用，或者在上面的几个 component。你很少要一直到根节点上. 就是说更新只出现在用户产生交互的局部.</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/0c946ae9ee9fffc1a8d180d618568698.png" rel="lightbox[73701]" title="React 的 diff 算法"><img class="alignnone size-full wp-image-73706" alt="d5" src="http://jbcdn2.b0.upaiyun.com/2014/07/0c946ae9ee9fffc1a8d180d618568698.png"></a></p>
+<p> </p>
+<h4>选择性子树渲染</h4>
+<p>最后，你还有可能截断一些子树的重新渲染。如果你在 component 上实现以下方法的话：</p>
+<pre class="brush: actionscript3; gutter: true">boolean shouldComponentUpdate(object nextProps， object nextState)</pre>
+
+<p>根据 component 的前一个和下一个 <code>props/state</code>，你可以告诉 React 这个 component 没有更新，也不需要重新绘制。实现得好的话，可以带来巨大的性能提升。</p>
+<p>要用这个方法，你要能够对 JavaScript Object 进行比对。这件有很多细节的因素，比如对比应该是深度的还是浅层的，如果要深的，我们是用不可变数据结构，还是进行深度拷贝。</p>
+<p>而且你要注意，真个函数每次都会被调用，所以你要确保运行起来花的事件更少，比 React 的技巧，还有比渲染 component 需要的时间，即便重新绘制并不是必要的。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/78334626370247b9ea8ed249b37a7196.png" rel="lightbox[73701]" title="React 的 diff 算法"><img class="alignnone size-full wp-image-73707" alt="d6" src="http://jbcdn2.b0.upaiyun.com/2014/07/78334626370247b9ea8ed249b37a7196.png"></a></p>
+<p> </p>
+<h2>结论</h2>
+<p>帮助 React 变快的技术并不新颖。 长久以来，我们到知道触碰 DOM 是费时的，你应该合并处理读和写的操作，事件代理会更快。</p>
+<p>人们还是会经常讨论他们，因为在实际当中用 JavaScript 进行实现很是挺难的。React 突出的一个原因是这些优化默认就启动了。这就让你避免掉不小心把 app 写得很慢。</p>
+<p>React 消耗性能的模型很简单，很好理解: 每次调用 <code>setState</code> 会重新计算整个子树。如果你想要提高性能，尽量少调用 <code>setState</code>，还有用 <code>shouldComponentUpdate</code> 减少大的子树的重新计算。</p>
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-07-17-73257-503521781.html" title="Previous Post: BASH的保护性编程技巧" data-instant>&laquo; BASH的保护性编程技巧</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-07-19-73517-816d30f94.html" title="Next Post: 击败二分检索算法——插值检索、快速检索" data-instant>击败二分检索算法——插值检索、快速检索 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>15 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-15-73611-c58e1239a.html">自动补完不算什么，一键直达目录才是终极神器！</a></li>
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>17 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-17-73257-503521781.html">BASH的保护性编程技巧</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

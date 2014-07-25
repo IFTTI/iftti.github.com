@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>击败二分检索算法——插值检索、快速检索</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-19-73517-816d30f94.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>击败二分检索算法——插值检索、快速检索</h1>
+    <p class="meta"><span class="time">Jul 19, 2014</span><span class="source_url"> • <a name="jobbole.com" href="http://blog.jobbole.com/73517/" target="_blank">[jobbole.com]</a></span></p>
+    <p><!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+	<span class="jiathis_txt">分享到：</span>
+	<a class="jiathis_button_evernote">EverNote</a>
+	<a class="jiathis_button_pocket">Pocket</a>
+	<a class="jiathis_button_tsina">新浪微博</a>
+	<a class="jiathis_button_renren">人人网</a>
+	<a class="jiathis_button_weixin">微信</a>
+	<a class="jiathis_button_cqq">QQ好友</a>
+	<a class="jiathis_button_googleplus">Google+</a>
+	<a href="http://www.jiathis.com/share?uid=1936498" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+	<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<!-- JiaThis Button END --></p>
+  </header>
+
+  <article class="post-content">
+
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>二分检索是查找有序数组最简单然而最有效的算法之一。现在的问题是，更复杂的算法能不能做的更好？我们先看一下其他方法。</p>
+<p>有些情况下，散列整个数据集是不可行的，或者要求既查找位置，又查找数据本身。这个时候，用哈希表就不能实现O(1)的运行时间了。但对有序数组， 采用分治法通常可以实现O(log(n))的最坏运行时间。</p>
+<p>在下结论前，有一点值得注意，那就是可以从很多方面“击败”一个算法：所需的空间，所需的运行时间，对底层数据结构的访问需求。接下来我们做一个运行时对比实验，实验中创建多个不同的随机数组，其元素个数均在10,000到81,920,000之间，元素均为4字节整型数据。</p>
+<p> </p>
+<p><strong>二分检索</strong></p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/28c8edde3d61a0411511d3b1866f06364.png" rel="lightbox[73517]" title="击败二分检索算法——插值检索、快速检索"><img class="alignnone size-full wp-image-73518" alt="1" src="http://jbcdn2.b0.upaiyun.com/2014/07/28c8edde3d61a0411511d3b1866f06364.png"></a></p>
+<p style="text-align: left;" align="center">二分检索算法的每一步，搜索空间总会减半，因此保证了运行时间。在数组中查找一个特定元素，可以保证在 O(log(n))时间内完成，而且如果找的正好是中间元素就更快了。也就是说，要从81,920,000个元素的数组中找某个元素的位置，只需要27个甚至更少的迭代。</p>
+<p>由于二分检索的随机跳跃性，该算法并非缓存友好的，因此只要搜索空间小于特定值（64或者更少），一些微调的二分检索算法就会切换回线性检索继续查找。然而，这个最终的空间值是极其架构相关的，因此大部分框架都没有做这个优化。</p>
+<p> </p>
+<p><strong>快速检索；最后回归到二分检索的快速检索</strong></p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/665f644e43731ff9db3d341da5c827e14.png" rel="lightbox[73517]" title="击败二分检索算法——插值检索、快速检索"><img class="alignnone size-full wp-image-73519" alt="2" src="http://jbcdn2.b0.upaiyun.com/2014/07/665f644e43731ff9db3d341da5c827e14.png"></a></p>
+<p>如果由于某些原因，数组长度未知，快速检索可以识别初始的搜索域。这个算法从第一个元素开始，一直加倍搜索域的上界，直到这个上界已经大于待查关键字。之后，根据实现不同，或者采用标准的二分检索查找，或者开始另一轮的快速检索。前者可以保证O(log(n)) 的运行时间，后者则更接近O(n)的运行时间。</p>
+<p>如果我们要找的元素比较接近数组的开头，快速检索就非常有效。</p>
+<p> </p>
+<p><strong>抽样检索</strong></p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/38026ed22fc1a91d92b5d2ef93540f204.png" rel="lightbox[73517]" title="击败二分检索算法——插值检索、快速检索"><img class="alignnone size-full wp-image-73520" alt="3" src="http://jbcdn2.b0.upaiyun.com/2014/07/38026ed22fc1a91d92b5d2ef93540f204.png"></a></p>
+<p>抽样检索有点类似二分检索，不过在确定主要搜索区域之前，它会先从数组中拿几个样例。最后，如果范围足够小，就采用标准的二分检索确定待查元素的准确位置。这个理论很有趣，不过在实践中执行效果并不好。</p>
+<p> </p>
+<p><strong>插值检索；最后回归到顺序查找的插值检索</strong></p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/011ecee7d295c066ae68d4396215c3d03.png" rel="lightbox[73517]" title="击败二分检索算法——插值检索、快速检索"><img class="alignnone size-full wp-image-73521" alt="4" src="http://jbcdn2.b0.upaiyun.com/2014/07/011ecee7d295c066ae68d4396215c3d03.png"></a></p>
+<p>在被测的算法中，插值检索可以说是“最聪明”的一个算法。它类似于人类使用电话簿的方法，它试图通过假设元素在数组中均匀分布，来猜测元素的位置。</p>
+<p>首先，它抽样选择出搜索空间的开头和结尾，然后猜测元素的位置。算法一直重复这个步骤，直到找到元素。如果猜测是准确的，比较的次数大概是O(log(log(n))，运行时间大概是O(log(n))；但如果猜测的不对，运行时间就会是O(n)了。</p>
+<p>插值检索的一个改进版本是，只要可推测我们猜测的元素位置是接近最终位置的，就开始执行顺序查找。相比二分检索，插值检索的每次迭代计算代价都很高，因此在最后一步采用顺序查找，无需猜测元素位置的复杂计算，很容易就可以从很小的区域（大概10个元素）中找到最终的元素位置。</p>
+<p>围绕插值检索的一大疑问就是，O(log(log(n))的比较次数可能产生O(log(log(n))的运行时间。这并非个案，因为存储访问时间和计算下一次猜测的CPU时间相比，这两者之间要有所权衡。如果数据量很大，而且存储访问时间也很显著，比如在一个实际的硬盘上，插值检索轻松击败二分检索。然而，实验表明，如果访问时间很短，比如说RAM，插值检索可能不会产生任何好处。</p>
+<p><b> </b></p>
+<p><strong>试验结果</strong></p>
+<p>试验中的源代码都是用Java写的；每个实验在相同的数组上运行10次；数组是随机产生的整型数组，存储在内存中。</p>
+<p>在插值检索中，首先会采用抽样检索，从检索空间拿20个样例，以确定接下来的搜索域。如果假定的域只有10个或更少的元素，就开始采用线性检索。另外，如果这个搜索域元素个数小于2000，就回退到标准的二分检索了。</p>
+<p>作为参考，java默认的Arrays.binarySearch算法也被加入实验，以同自定义的算法对比运行时间。</p>
+<div align="center">
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td> <a href="http://jbcdn2.b0.upaiyun.com/2014/07/e4da3b7fbbce2345d7772b0674a318d5.png" rel="lightbox[73517]" title="击败二分检索算法——插值检索、快速检索"><img class="alignnone size-medium wp-image-73522" alt="5" src="http://jbcdn2.b0.upaiyun.com/2014/07/4e44f1ac85cd60e3caa56bfd4afb675e1.png"></a>
+</td>
+</tr>
+<tr>
+<td>
+<p align="center">Average search time / element, given the array size</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p> </p>
+<div align="center">
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td> <a href="http://jbcdn2.b0.upaiyun.com/2014/07/1679091c5a880faf6fb5e6087eb1b2dc.png" rel="lightbox[73517]" title="击败二分检索算法——插值检索、快速检索"><img class="alignnone size-medium wp-image-73523" alt="6" src="http://jbcdn2.b0.upaiyun.com/2014/07/3d2f8900f2e49c02b481c2f717aa9020.png"></a>
+</td>
+</tr>
+<tr>
+<td>
+<p align="center">Average comparisons / search, given the array size</p>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>尽管我们对插值检索期望很高，它的实际运行时间并未击败java默认的二分检索算法。如果存储访问时间长，结合采用某些类型的哈希树和B+树可能是一个更好的选择。但值得注意的是，对均匀分布的数组，组合使用插值检索和顺序检索在比较次数上总能胜过二分检索。不过平台的二分检索已经很高效，所以很多情况下，可能不需要用更复杂的算法来代替它。</p>
+<p>原始数据 – 每个检索的平均运行时间</p>
+<table border="0" cellpadding="0">
+<tbody>
+<tr>
+<td>
+<p align="center"><b>Size</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Arrays.<br>
+</b><b>binarySearch</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Interpolation<br>
+</b><b>+Seq</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Interpolation</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Sampling</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Binary</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Gallop</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Gallop<br>
+</b><b>+Binary</b><b></b></p>
+</td>
+</tr>
+<tr>
+<td>10,000</td>
+<td>1.50E-04 ms</td>
+<td>1.60E-04 ms</td>
+<td>2.50E-04 ms</td>
+<td>3.20E-04 ms</td>
+<td>5.00E-05 ms</td>
+<td>1.50E-04 ms</td>
+<td>1.00E-04 ms</td>
+</tr>
+<tr>
+<td>20,000</td>
+<td>5.00E-05 ms</td>
+<td>5.50E-05 ms</td>
+<td>1.05E-04 ms</td>
+<td>2.35E-04 ms</td>
+<td>7.00E-05 ms</td>
+<td>1.15E-04 ms</td>
+<td>6.50E-05 ms</td>
+</tr>
+<tr>
+<td>40,000</td>
+<td>4.75E-05 ms</td>
+<td>5.00E-05 ms</td>
+<td>9.00E-05 ms</td>
+<td>1.30E-04 ms</td>
+<td>5.25E-05 ms</td>
+<td>1.33E-04 ms</td>
+<td>8.75E-05 ms</td>
+</tr>
+<tr>
+<td>80,000</td>
+<td>4.88E-05 ms</td>
+<td>5.88E-05 ms</td>
+<td>9.88E-05 ms</td>
+<td>1.95E-04 ms</td>
+<td>6.38E-05 ms</td>
+<td>1.53E-04 ms</td>
+<td>9.00E-05 ms</td>
+</tr>
+<tr>
+<td>160,000</td>
+<td>5.25E-05 ms</td>
+<td>5.94E-05 ms</td>
+<td>1.01E-04 ms</td>
+<td>2.53E-04 ms</td>
+<td>6.56E-05 ms</td>
+<td>1.81E-04 ms</td>
+<td>9.38E-05 ms</td>
+</tr>
+<tr>
+<td>320,000</td>
+<td>5.16E-05 ms</td>
+<td>6.13E-05 ms</td>
+<td>1.22E-04 ms</td>
+<td>2.19E-04 ms</td>
+<td>6.31E-05 ms</td>
+<td>2.45E-04 ms</td>
+<td>1.04E-04 ms</td>
+</tr>
+<tr>
+<td>640,000</td>
+<td>5.30E-05 ms</td>
+<td>6.06E-05 ms</td>
+<td>9.61E-05 ms</td>
+<td>2.12E-04 ms</td>
+<td>7.27E-05 ms</td>
+<td>2.31E-04 ms</td>
+<td>1.16E-04 ms</td>
+</tr>
+<tr>
+<td>1,280,000</td>
+<td>5.39E-05 ms</td>
+<td>6.06E-05 ms</td>
+<td>9.72E-05 ms</td>
+<td>2.59E-04 ms</td>
+<td>7.52E-05 ms</td>
+<td>2.72E-04 ms</td>
+<td>1.18E-04 ms</td>
+</tr>
+<tr>
+<td>2,560,000</td>
+<td>5.53E-05 ms</td>
+<td>6.40E-05 ms</td>
+<td>1.11E-04 ms</td>
+<td>2.57E-04 ms</td>
+<td>7.37E-05 ms</td>
+<td>2.75E-04 ms</td>
+<td>1.05E-04 ms</td>
+</tr>
+<tr>
+<td>5,120,000</td>
+<td>5.53E-05 ms</td>
+<td>6.30E-05 ms</td>
+<td>1.26E-04 ms</td>
+<td>2.69E-04 ms</td>
+<td>7.66E-05 ms</td>
+<td>3.32E-04 ms</td>
+<td>1.18E-04 ms</td>
+</tr>
+<tr>
+<td>10,240,000</td>
+<td>5.66E-05 ms</td>
+<td>6.59E-05 ms</td>
+<td>1.22E-04 ms</td>
+<td>2.92E-04 ms</td>
+<td>8.07E-05 ms</td>
+<td>4.27E-04 ms</td>
+<td>1.42E-04 ms</td>
+</tr>
+<tr>
+<td>20,480,000</td>
+<td>5.95E-05 ms</td>
+<td>6.54E-05 ms</td>
+<td>1.18E-04 ms</td>
+<td>3.50E-04 ms</td>
+<td>8.31E-05 ms</td>
+<td>4.88E-04 ms</td>
+<td>1.49E-04 ms</td>
+</tr>
+<tr>
+<td>40,960,000</td>
+<td>5.87E-05 ms</td>
+<td>6.58E-05 ms</td>
+<td>1.15E-04 ms</td>
+<td>3.76E-04 ms</td>
+<td>8.59E-05 ms</td>
+<td>5.72E-04 ms</td>
+<td>1.75E-04 ms</td>
+</tr>
+<tr>
+<td>81,920,000</td>
+<td>6.75E-05 ms</td>
+<td>6.83E-05 ms</td>
+<td>1.04E-04 ms</td>
+<td>3.86E-04 ms</td>
+<td>8.66E-05 ms</td>
+<td>6.89E-04 ms</td>
+<td>2.15E-04 ms</td>
+</tr>
+</tbody>
+</table>
+<p>原始数据 – 每个检索的平均比较次数</p>
+<table border="0" cellpadding="0">
+<tbody>
+<tr>
+<td>
+<p align="center"><b>Size</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Arrays.<br>
+</b><b>binarySearch</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Interpolation<br>
+</b><b>+Seq</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Interpolation</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Sampling</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Binary</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Gallop</b><b></b></p>
+</td>
+<td>
+<p align="center"><b>Gallop<br>
+</b><b>+Binary</b><b></b></p>
+</td>
+</tr>
+<tr>
+<td>10,000</td>
+<td>?</td>
+<td>10.6</td>
+<td>17.6</td>
+<td>19.0</td>
+<td>12.2</td>
+<td>58.2</td>
+<td>13.2</td>
+</tr>
+<tr>
+<td>20,000</td>
+<td>?</td>
+<td>11.3</td>
+<td>20.7</td>
+<td>19.0</td>
+<td>13.2</td>
+<td>66.3</td>
+<td>14.2</td>
+</tr>
+<tr>
+<td>40,000</td>
+<td>?</td>
+<td>11.0</td>
+<td>16.9</td>
+<td>20.9</td>
+<td>14.2</td>
+<td>74.9</td>
+<td>15.2</td>
+</tr>
+<tr>
+<td>80,000</td>
+<td>?</td>
+<td>12.1</td>
+<td>19.9</td>
+<td>38.0</td>
+<td>15.2</td>
+<td>84.0</td>
+<td>16.2</td>
+</tr>
+<tr>
+<td>160,000</td>
+<td>?</td>
+<td>11.7</td>
+<td>18.3</td>
+<td>38.0</td>
+<td>16.2</td>
+<td>93.6</td>
+<td>17.2</td>
+</tr>
+<tr>
+<td>320,000</td>
+<td>?</td>
+<td>12.4</td>
+<td>25.3</td>
+<td>38.2</td>
+<td>17.2</td>
+<td>103.8</td>
+<td>18.2</td>
+</tr>
+<tr>
+<td>640,000</td>
+<td>?</td>
+<td>12.4</td>
+<td>19.0</td>
+<td>41.6</td>
+<td>18.2</td>
+<td>114.4</td>
+<td>19.2</td>
+</tr>
+<tr>
+<td>1,280,000</td>
+<td>?</td>
+<td>12.5</td>
+<td>20.2</td>
+<td>57.0</td>
+<td>19.2</td>
+<td>125.5</td>
+<td>20.2</td>
+</tr>
+<tr>
+<td>2,560,000</td>
+<td>?</td>
+<td>12.8</td>
+<td>22.7</td>
+<td>57.0</td>
+<td>20.2</td>
+<td>137.1</td>
+<td>21.2</td>
+</tr>
+<tr>
+<td>5,120,000</td>
+<td>?</td>
+<td>12.7</td>
+<td>26.5</td>
+<td>57.5</td>
+<td>21.2</td>
+<td>149.2</td>
+<td>22.2</td>
+</tr>
+<tr>
+<td>10,240,000</td>
+<td>?</td>
+<td>13.2</td>
+<td>25.2</td>
+<td>62.1</td>
+<td>22.2</td>
+<td>161.8</td>
+<td>23.2</td>
+</tr>
+<tr>
+<td>20,480,000</td>
+<td>?</td>
+<td>13.4</td>
+<td>23.4</td>
+<td>76.0</td>
+<td>23.2</td>
+<td>175.0</td>
+<td>24.2</td>
+</tr>
+<tr>
+<td>40,960,000</td>
+<td>?</td>
+<td>13.4</td>
+<td>21.9</td>
+<td>76.1</td>
+<td>24.2</td>
+<td>188.6</td>
+<td>25.2</td>
+</tr>
+<tr>
+<td>81,920,000</td>
+<td>?</td>
+<td>14.0</td>
+<td>19.7</td>
+<td>77.0</td>
+<td>25.2</td>
+<td>202.7</td>
+<td>26.2</td>
+</tr>
+</tbody>
+</table>
+<p>源代码</p>
+<p><a href="https://github.com/adam-ho/misc/tree/master/searchPerformance/src/main/java/com/search">点此获取检索算法的完整源代码</a>。注意，代码不是产品级别的；比如，在某些例子里，可能有过多或过少的范围检查。</p>
+<p> </p>
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-07-17-73701-418acf0a6.html" title="Previous Post: React 的 diff 算法" data-instant>&laquo; React 的 diff 算法</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-07-20-ji-zhu-de-jin-hua-9c5e0c611.html" title="Next Post: 技术的进化" data-instant>技术的进化 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>24 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-24-74149-9c77c2cb8.html">一比特之差：无需利用漏洞的DNS劫持</a></li>
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>21 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-21-73930-06f292316.html">Feature Flag 功能发布控制</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

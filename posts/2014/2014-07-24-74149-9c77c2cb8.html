@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>一比特之差：无需利用漏洞的DNS劫持</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT互联网干货汇总">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-24-74149-9c77c2cb8.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT干货网</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>一比特之差：无需利用漏洞的DNS劫持</h1>
+    <p class="meta"><span class="time">Jul 24, 2014</span><span class="source_url"> • <a name="jobbole.com" href="http://blog.jobbole.com/74149/" target="_blank">[jobbole.com]</a></span></p>
+    <p><!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+	<span class="jiathis_txt">分享到：</span>
+	<a class="jiathis_button_evernote">EverNote</a>
+	<a class="jiathis_button_pocket">Pocket</a>
+	<a class="jiathis_button_tsina">新浪微博</a>
+	<a class="jiathis_button_renren">人人网</a>
+	<a class="jiathis_button_weixin">微信</a>
+	<a class="jiathis_button_cqq">QQ好友</a>
+	<a class="jiathis_button_googleplus">Google+</a>
+	<a href="http://www.jiathis.com/share?uid=1936498" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+	<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<!-- JiaThis Button END --></p>
+  </header>
+
+  <article class="post-content">
+
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p align="left">Bitsquatting表示去注册一个域名，它和知名的域名只有一个bit的差别。这个单词源自typosquatting，意为注册一个和知名域名只有一字之差的域名。在解析域名时，bitsquatting可能通过DNS导致计算机上的硬件错误。关于bitsquatting更详细的信息，可以参看我的<a href="http://media.blackhat.com/bh-us-11/Dinaburg/BH_US_11_Dinaburg_Bitsquatting_WP.pdf">Blackhat 2011 whitepaper</a>。YouTube上有人发布了我在DEF CON 19上有关此话题的演讲<a href="http://www.youtube.com/watch?v=lZ8s1JwtNas">视频</a>，当时使用的幻灯片可以在<a href="http://dinaburg.org/data/DC19_Dinaburg_Presentation.pdf">这里下载</a>。</p>
+<h3 align="left">引言</h3>
+<p align="left">计算机常常由于一个或多比特的内存损坏出现错误，而造成这些错误的原因可能是制造上的缺陷或者宇宙射线、高温之类的环境因素。虽然单个机器中出现这样的错误的可能性是极小的，但是整个互联网上设备的总量却非常庞大：2010年时就有大约50亿个设备连接到互联网。我们可以将这种存在于各个设备上的小概率错误更加形象地描述，那就是买彩票。赢得头奖的概率是极小的，但是只要有足够多的人去买，总有人会成为赢家。</p>
+<p align="left">研究人员之前就在很多<a href="https://www.cs.princeton.edu/~appel/papers/memerr.pdf">惊人的地方</a>利用了比特错误（bit-errors）。现在，在互联网尺度上，我们又有新的办法去利用它。Bitsquatting是其中之一，也就是注册和某个常被访问的域名仅一比特之差的新域名。</p>
+<h3 align="left">工作原理</h3>
+<p align="left">当比特错误发生时，内存中的数据会被修改。计算机内存的内容可能代表各种意义，有时，它刚好就表示域名。如果程序使用这块内存，就会读取到错误的域名。</p>
+<p align="left">下面的图解能够更清楚的说明这个问题，表中是cnn.com的二进制表示方法：</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101110</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0110111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0101110</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101101</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">n</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">n</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">.</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">o</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">m</td>
+</tr>
+</tbody>
+</table>
+<p align="left">现在假设你使用的计算机含有损坏的内存模块，你打开一个包含超链接到cnn.com的网页，然后你点击了这个链接。会有多少个操作将cnn.com的二进制数据保存到你的内存？写这篇文章时，我想到了下面这些：</p>
+<ul>
+<li>TCP/IP协议栈由核心态向用户态转化时（根据操作系统的具体实现各有区别）</li>
+<li>在浏览器解析HTML时</li>
+<li>在创建DOM树的内部表示时</li>
+<li>在创建新的HTTP请求时</li>
+<li>在操作系统解析域名时</li>
+</ul>
+<p align="left">更进一步，假设其中有一次将域名写入到了损坏的内存模块，它的二进制形式被修改了1bit，现在表示为：</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0110111<span style="color: red;">1</span>
+</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0110111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0101110</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01100011</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101111</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">01101101</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">o</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">n</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">.</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">c</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">o</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">m</td>
+</tr>
+</tbody>
+</table>
+<p align="left"> 这样一来，当你点击链接时，浏览器将会跳转到con.com，而不是cnn.com。</p>
+<h3 align="left">实验</h3>
+<p align="left">这个实验背后的概念很简单：如果比特错误确实改变了设备内存中的域名，那么这些设备会访问到和正确域名一比特之差的bitsquat域名。因此很多频繁解析的域名的bitsquat域名会被全球各地的设备访问到。</p>
+<p align="left">然而这个实验实施起来却没有那么容易，首要的问题是选择合适的域名来进行比特修改。流行的网站和常被解析的域名是不太相同的，很多鲜为人知的域名实际上会被频繁解析。这类域名一般属于内容分发网络或者广告网络，例如fbcdn.net,、2mdn.net和 akamai.com。由于很少有人实际在浏览器中输入这些域名，它们也成为本次实验中最合适的目标。还有个问题就是每次DNS查询必须有两次响应：一次是原本的域名，一次是经过比特修改的域名。因为原始的请求可能会得到正确域名的响应，而丢弃对无效域名的响应。这方面更多的信息，请参考<a href="http://media.blackhat.com/bh-us-11/Dinaburg/BH_US_11_Dinaburg_Bitsquatting_WP.pdf">白皮书</a>或者<a href="http://dinaburg.org/data/DC19_Dinaburg_Presentation.pdf">幻灯片</a>。</p>
+<p align="left">为了这次实验我注册了下面这些域名。</p>
+<p align="left">注：目前它们全都已经过期，不再属于我了。</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;"><b>Bitsquat Domain</b></td>
+<td style="padding: 0; border: 1px solid #e8e8e8;"><b>Original Domain</b></td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">ikamai.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">akamai.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">aeazon.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazon.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">a-azon.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazon.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazgn.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">amazon.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsmft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">micrgsoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">miarosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">iicrosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsnft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">mhcrosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">eicrosoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">mic2osoft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">micro3oft.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">microsoft.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">li6e.com</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">live.com</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">0mdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2-dn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2edn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2ldn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mfn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mln.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2odn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">6mdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">2mdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbbdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbgdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">gbcdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fjcdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">dbcdn.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">fbcdn.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">roop-servers.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">root-servers.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">doublechick.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">doubleclick.net</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 1px solid #e8e8e8;">do5bleclick.net</td>
+<td style="padding: 0; border: 1px solid #e8e8e8;">doubleclick.net</td>
+</tr>
+</tbody>
+</table>
+<p align="left">我使用Python脚本应答DNS请求，并且使用Apache记录HTTP请求。令我惊讶的是，有设备连接了。</p>
+<h3 align="left">实验发现</h3>
+<p align="left">以下结论是基于2010年9月26日至2011年5月5日间的Apache日志得出的。由搜索引擎爬虫和Web漏洞扫描器引起的日志已经被手动过滤了。正因为是手动操作，所以最后统计时可能还有很小一部分漏网之鱼。</p>
+<p align="left"><strong>发现1：比特错误可以被利用在DNS上</strong></p>
+<p align="left">在记录日志期间总共有52317次针bitsquat域名的请求，它们来自与12949个独立IP。除去其中3次产生巨大网络流量的事件，平均每天有59个独立IP对32个bitsquat域名进行了请求。这些请求不是来自于拼写错误或者其他形式的手工输入URL，还有一部分表现出有多个比特错误的特征。以下是一些实际的例子（个人信息已经移除）：</p>
+<div style="background-color: #eeeeee;">
+<p align="left">static.ak.fjcdn.net 109.242.50.xxx “GET /rsrc.php/z67NS/hash/4ys0envq.js HTTP/1.1″ “http://www.facebook.com/profile.php?id=xxxxxxxxxx” “Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.0; WOW64; Trident/4.0; GTB6.5; SLCC1; .NET CLR 2.0.50727; Media Center PC 5.0; .NET CLR 3.0.30729; .NET CLR 3.5.30729; InfoPath.2; Hotbar 11.0.78.0; OfficeLiveConnector.1.5; OfficeLivePatch.1.3; AskTbZTV/5.8.0.12304)”</p>
+<p align="left">msgr.dlservice.mic2osoft.com 213.178.224.xxx “GET /download/A/6/1/A616CCD4-B0CA-4A3D-B975-3EDB38081B38/ar/wlsetup-cvr.exe HTTP/1.1″ 404 268 “Microsoft BITS/6.6″</p>
+<p align="left">s0.2ldn.net 66.82.9.xxx “GET /879366/flashwrite_1_2.js HTTP/1.1″ “http://webmail.satx.rr.com/_uac/adpage.html” “Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0; SLCC2; .NET CLR 2.0.50727; .NET CLR 3.5.30729; .NET CLR 3.0.30729; Media Center PC 6.0; HPNTDF; AskTB5.2)”</p>
+<p align="left">mmv.admob.com 109.175.185.xxx “GET /static/iphone/img/app@2x.png HTTP/1.1″ “Mozilla/5.0 (iPhone; U; CPU iPhone OS 4_1 like Mac OS X; HW iPhone2,1; en_gb) AppleWebKit/525.18.1 (KHTML, like Gecko) (AdMob-iSDK-20101108; iphoneos4.2)”</p>
+</div>
+<p align="left"><strong>发现2：并不是所有的比特错误都造成同等程度的影响</strong></p>
+<p align="left">有些机器相比其他而言，明显控制着更多的网络流量。当一个比特错误发生在普通PC机或者手机上时，它只会影响到一个用户。然而当它发生在代理、DNS服务器或者数据库缓存中时，将会影响到成千上万的用户。在我的实验中，已经观察到了比特错误出现在Web应用、DNS解析服务器和代理服务器中。例如，一个比特错误将fbcnd.net变为fbbdn.net，将使上千个开心农场的玩家请求到我的服务器。</p>
+<p align="left"><strong>发现3：手机和嵌入式设备可能比传统硬件受的影响更大</strong></p>
+<p align="left">我对2011年3月期间访问Wikipedia和bitsquat域名的HTTP User-Agent进行了对比，展示在下面的图例中。其中Other包括了各种手机、游戏机控制台和其他嵌入式设备，它们在对bitsquat域名的访问中，增加的幅度最大。令人好奇的是，来自MacOS针对bitsquat域名的访问相比Wikipedia有显著减少，对此我还没有一个合理的解释。（译注：这里是按两个域名各自的设备分布算的，其中有增多必然有减少，也许分别计算每种设备访问错域名的几率更加合理，即<i>访问错误域名的次数 / 对两种域名的访问总数</i>。）</p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/f435855d0cd7c34aa3ae589293727d00.png" rel="lightbox[74149]" title="一比特之差：无需利用漏洞的DNS劫持"><img class="aligncenter size-full wp-image-74152" alt="bitsquat_1" src="http://jbcdn2.b0.upaiyun.com/2014/07/f435855d0cd7c34aa3ae589293727d00.png"></a></p>
+<p align="left"><strong>发现4：对bitsquat域名的访问流量是日常网络流量的真实写照</strong></p>
+<p align="left">Bitsquat域名的访问者来自于全球各地，其使用的设备也几乎涵盖每种主流的操作系统和嵌入式平台。除使用MacOS的访问者所占的百分比在两种域名间有显著差别之外，使用Windows、Linux、Android和iPhones的百分比基本相同。另外，基于IP地理位置数据库，我们可以观察到来自于美国的访问者在一天内的流量走势。</p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/ade11df8bbcc2b7bcbd7e3564ed2cdfa.png"><br>
+</a><a href="http://jbcdn2.b0.upaiyun.com/2014/07/ade11df8bbcc2b7bcbd7e3564ed2cdfa.png" rel="lightbox[74149]" title="一比特之差：无需利用漏洞的DNS劫持"><img class="aligncenter size-full wp-image-74153" alt="bitsquat_2" src="http://jbcdn2.b0.upaiyun.com/2014/07/ade11df8bbcc2b7bcbd7e3564ed2cdfa.png"></a></p>
+<p align="left"><strong>发现5：HTTPS/TLS不会有帮助，DNSSEC可能会有一丁点</strong></p>
+<p align="left">HTTP 1.1在头中包含了一个叫Host的字段，其数值是客户端想要访问的域名。如果Host中包含着bitsquat域名，那么比特错误在域名解析前就发生了。如果Host中是原始域名，那么错误就是发生在域名解析中。我数据中96%的情况是在DNS解析前就出现了比特错误。</p>
+<p align="center"><a href="http://jbcdn2.b0.upaiyun.com/2014/07/a78196125356295d8d331b1a05dc252a.png" rel="lightbox[74149]" title="一比特之差：无需利用漏洞的DNS劫持"><img class="aligncenter size-full wp-image-74154" alt="bitsquat_3" src="http://jbcdn2.b0.upaiyun.com/2014/07/a78196125356295d8d331b1a05dc252a.png"></a></p>
+<p align="left">像SSL和TLS这种安全传输技术是用于保证两端之间数据的机密性、真实性和完整性，但是比特错误更多发生在数据在某一端还未传输的时候。DNSSEC只能解决那4%发生在域名解析过程中的比特错误。</p>
+<h2 align="left">数据</h2>
+<p align="left">DNS流量的全部PCAP在此：<a href="http://dinaburg.org/data/dnslogs.tar.7z">dnslogs.tar.7z</a>，56Mb</p>
+<p align="left">HTTP日志可能包含个人信息，因此不会公开发布。如果你有正当的研究目的需要它们，请<a href="http://dinaburg.org/about.html">联系我</a>。</p>
+<p align="left">这里有个工具可以快速识别潜在的bitsquat域名：<a href="http://dinaburg.org/data/bitsquat.py">bitsquat.py</a>，<a href="https://github.com/artemdinaburg/bitsquat-script">github</a></p>
+<h2 align="left">进一步研究</h2>
+<p align="left">来自Verisign的Duane Wessels也在DNS查询中寻找过网络级别的比特错误，他指出“<b><a href="http://www.verisigninc.com/assets/VRSN_Bitsquatting_TR_20120320.pdf">网络中比特错误相对而言是很少见的，但是有一个可预期的概率</a></b>”。他研究的主要目的，是确定那4%发生在域名解析时的比特错误是否由UDP包在传输后的损坏造成。结论是网络中传输的包不太可能被损坏，用他自己的话说：“我们相信UDP的校验和能够有效防范bitsquat攻击或者其他DNS查询时的错误。无论如何，在进入网络前发生的比特错误不会从中受益，因为在传输前计算的校验和是基于错误的数据得出的。“</p>
+<p align="left">我非常鼓励读者重复我的实验，并且分享你们的结果。如果需要更多信息，请随时<a href="http://dinaburg.org/about.html">联系我</a>。</p>
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-07-23-74131-098069b71.html" title="Previous Post: 四层和七层负载均衡的区别" data-instant>&laquo; 四层和七层负载均衡的区别</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-07-24-python-%25e7%25bd%2591%25e9%25a1%25b5%25e7%2588%25ac%25e8%2599%25ab-%25e6%2596%2587%25e6%259c%25ac%25e5%25a4%2584%25e7%2590%2586-%25e7%25a7%2591%25e5%25ad%25a6%25e8%25ae%25a1%25e7%25ae%2597-%25e6%259c%25ba%25e5%2599%25a8%25e5%25ad%25a6%25e4%25b9%25a0-%25e6%2595%25b0%25e6%258d%25ae%25e6%258c%2596%25e6%258e%2598-060a30129.html" title="Next Post: Python 网页爬虫 & 文本处理 & 科学计算 & 机器学习 & 数据挖掘兵器谱" data-instant>Python 网页爬虫 & 文本处理 & 科学计算 & 机器学习 & 数据挖掘兵器谱 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>19 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-19-73517-816d30f94.html">击败二分检索算法——插值检索、快速检索</a></li>
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>21 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-21-73930-06f292316.html">Feature Flag 功能发布控制</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT干货网</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">IT互联网干货汇总</p>
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
