@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Docker Meetup 参会总结</title>
+    <title>SSH+KRB5使用IP地址登录的问题</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-03-09-thoughts-after-docker-meetup-f3ea81b84.html">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,103 +50,43 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>Docker Meetup 参会总结</h1>
-    <p class="meta"><span class="time">Mar 9, 2014</span><span class="source_url"> • <a name="chenlinux.com" href="http://chenlinux.com/2014/03/09/thoughts-after-docker-meetup" target="_blank">http://chenlinux.com/2014/03/09/thoughts-after-docker-meetup</a></span></p>
+    <h1>SSH+KRB5使用IP地址登录的问题</h1>
+    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
   </header>
 
   <article class="post-content">
-    <div style="background-color: #FFF;">
-    <p>昨天去车库咖啡参加了 Docker Meetup，一共有三位做了分享。</p>
-
-<p>第一位主要演示用法，这个基本都了解；
-第二位描述了一下相关生态圈，我自认算是对DevOps工具和动态了解比较多的人了，听完后对这位自称10年前作为运维的Rails开发者不得不说个佩服，知道的真广泛；
-第三位是BAE的技术负责人，很诚恳的介绍了自己是怎么从一抹黑的环境开始摸索着搞 PAAS 平台的，波折的选型中一些想法和顾虑也都很坦白。</p>
-
-<p>问答聊天过程中，大家主要纠结两个疑难：</p>
-
-<ol>
-  <li>docker 和 puppet 会是什么关系？</li>
-  <li>docker 和 kvm 会是什么关系？</li>
-</ol>
-
-<p>这里我个人也稍微写几句我的想法：</p>
-
-<h1 id="docker--puppet">docker 和 puppet</h1>
-
-<p>docker 无疑是一种非常干净的大规模部署方案。而 puppet 本质是一个配置管理工具（官网说法是通过简洁易懂的DSL描述服务器配置），注意：<strong>这里并没有提到是大规模部署</strong>，事实上 puppet 自己就有好几种完全不同架构设计的部署运行方式。</p>
-
-<p>所以，从概念定义上来说，我不觉得这两者会是一个替代关系。</p>
-
-<p>那么，puppet 目前的用法，如何跟 docker 一起工作呢？从当前技术点上来说有两个不适应：</p>
-
-<ol>
-  <li>
-    <p>puppet 非常强大的一件事情是 template 系统和 Facts 变量配合达到的灵活性。但是<strong>在 docker 容器里，Facts 变量是不可信的！</strong>
-刚才测试了一下，以 <code>docker -m 56m run ubuntu facter | grep memorysize</code> 得到的结果是主机原始大小512m。所以，我们原先习惯的通过 Facts 变量来自动生成最佳配置的方法失效了。
-事实上， docker 官博上关于 metrics 的获取有好几篇文章，也都很明确是从主机上来获取而不是容器内部。</p>
-  </li>
-  <li>
-    <p>puppet 的通用运行方式，是 agent 和 master 通过 SSL 加密交互，根据 agent 的 hostname 来查询对应配置。但是目前的 docker 里，hostname 设置(<code>docker run -h</code> 参数)是只对容器内部生效的，在容器外部显然无法通过 DNS 反查。
-以 docker 的愿景，一台主机上就应该运行几百个容器，在某个 master 里维护 hosts 列表显然不现实。
-而且从目前看， docker 对容器间更偏向采用 IP 的方式。比如 <code>-link</code> 设置的主机，就是在环境变量里提供对方主机 IP。</p>
-  </li>
-</ol>
-
-<p>这两个问题可能更多的不是从技术方面来追求解决它，而是在用法上规避它或者说无视它。</p>
-
-<p>首先，要习惯横向扩展而不是单机提升。
-应用压力上来了，第一反应不是“申请提高容器的 memory 限额”这样，而是“再开两个完全一样的容器加入负载均衡”。这就是 fip 工具提供 <code>fip scale web=2</code>这种命令的场景吧。
-这样就规避了 Facts 变量的问题，反正你只会有一种系统一种配置文件，压根用不上异构和模板技术。</p>
-
-<p>其次，从 Vagrant 的 provision 里学用法。
-目前 Dockerfile 的 <code>RUN</code> 指令其实很类似 Vagrant 的 provision 中的 shell 实现。而 Vagrant 的 provision 实现还包括 puppet、chef等等。所以我们或许能琢磨一种替代 RUN 的优雅的 docker 镜像构建方式。
-比如 <a href="http://librarian-puppet.com/">puppet-librarian</a> 的做法或许就是一个思路。Dockerfile 里 只需要 <code>ADD</code> 一个 Puppetfile，然后 <code>RUN</code> 一个 librarian-puppet 命令完成容器内一切配置。</p>
-
-<h1 id="docker--kvm">docker 和 kvm</h1>
-
-<p>前面提到了 docker 中系统性能数据的采集问题。这或许就是容器和虚拟化一个差别问题，即便未来大家越来越普遍采购 ops 产品而不是自己搭建监控系统，也不会完全放心的认可主机提供商的系统性能数据，至少也还有一个核算和度量问题。</p>
-
-<p>此外，容器目前比较普遍的一个用法，是一个容器里只跑一个业务进程。一个完整的业务系统的每个部分，都通过分散的各种服务相互走 API 来调用。迁移到这种环境，对传统业务显然是有重构压力的。而 kvm 虚拟机则基本没有这个问题。
-当然，最近也已经看到文章在讨论单个 docker 容器里运行多个不同业务进程的问题。这方面，如果 docker 真有心往替代 kvm 努力，除了网络方面的硬技术外，这个 PAAS 层已经养成的思维逻辑也需要改变。</p>
-
-<p>OK，说到网络问题。目前 docker 的运用，通过 <code>-link</code> 来连接，或者通过 etcd、serf 这类工具来获取想要连接的其他服务器的 IP，都是一种在相同主机上的应用。
-看 <code>pipework</code> 和相关文章，似乎 <code>openswitch</code> 也只是做单个宿主机之上的 VLAN 划分管理？ SDN 到底是怎么回事，我现在还完全不了解。</p>
-
-<p>PAAS 层的另一个习惯用法，在第三个演讲中也提到，就是一般对程序的任何更新，都是重新创建一个新容器，然后在中控转发里转移流量导向，然后删除原有容器。这个和现有 kvm 云主机的玩法也是不一样的。
-现在还不好评价哪种做法更优。不过个人有个疑惑： BAE 既然试图做到像 kvm 虚拟机一样，对一个用户长期锁定一个 docker 容器使用而不是随着更新开关新容器，那么整个平台上容器的创建删除频率就大大降低了，针对每个用户，整个生命周期里就只有一次初创建，那么他们为什么同时又还在纠结于容器创建和删除的速度太慢，要在 5s 内完成呢？</p>
-
-<p><strong>附</strong></p>
-
-<p>提到的从 warden 学来的 wsh 听起来蛮有趣～</p>
-
-    <hr>
-
-    <hr>
-
-  <!-- UY BEGIN -->
-
-<!-- UY END -->
-
-  </div>
+  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
+<p>1. 修改 hostname 导致名字不匹配<br>
+2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
+3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
+<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
+<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
+<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
+Cannot determine realm for numeric host address”</p>
+<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
+<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
+<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
+<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
+<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-03-07-howto-search-dynamic-url-in-elasticsearch-866359845.html" title="Previous Post: 如何搜索 Elasticsearch 中存储的动态请求 URL" data-instant>&laquo; 如何搜索 Elasticsearch 中存储的动态请求 URL</a>
+    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-03-10-source-filter-in-perl5-da9bcaf25.html" title="Next Post: Perl5 的 Source Filter 功能" data-instant>Perl5 的 Source Filter 功能 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2013/2013-12-12--p=1098-e4b41a3f7.html" title="Next Post: ceph VS glusterfs" data-instant>ceph VS glusterfs &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>30 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-30-qcloud-tech-36eeb87df.html">腾讯云技术沙龙笔记</a></li>
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+
+      <li><span>09 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-09-thoughts-after-docker-meetup-f3ea81b84.html">Docker Meetup 参会总结</a></li>
 
       <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
-
-      <li><span>28 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-28-stdlib-of-puppet-e6d35f10b.html">巧用 Puppet 的 stdlib 库</a></li>
 
   </ul>
 </div>
