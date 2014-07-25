@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>【科普随笔：NLP主流的傲慢与偏见】</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-06-24-%25e3%2580%2590%25e7%25a7%2591%25e6%2599%25ae%25e9%259a%258f%25e7%25ac%2594%25ef%25bc%259anlp%25e4%25b8%25bb%25e6%25b5%2581%25e7%259a%2584%25e5%2582%25b2%25e6%2585%25a2%25e4%25b8%258e%25e5%2581%258f%25e8%25a7%2581%25e3%2580%2591-d1368561d.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,62 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">[lark.net.cn]</a></span></p>
+    <h1>【科普随笔：NLP主流的傲慢与偏见】</h1>
+    <p class="meta"><span class="time">Jun 24, 2013</span><span class="source_url"> • <a name="52nlp.cn" href="http://www.52nlp.cn/%e3%80%90%e7%a7%91%e6%99%ae%e9%9a%8f%e7%ac%94%ef%bc%9anlp%e4%b8%bb%e6%b5%81%e7%9a%84%e5%82%b2%e6%85%a2%e4%b8%8e%e5%81%8f%e8%a7%81%e3%80%91" target="_blank">[52nlp.cn]</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+
+						<p>上篇博文【科普随笔：NLP的宗教战争？兼论深度学习】匆匆写就发出以后，没想到在新浪微博上一夜间有好几万点击，而平时我在新浪转发的博文最多也不到几千点击。想来一是题目比较花哨（宗教，深层学习，都是容易引起热议的 buzz words），难逃标题党嫌疑；二来内容也容易引起这个领域的争论、不屑或共鸣。</p>
+<p>需要说明一句，那篇里面关于深度学习的notes，是信口发挥，各位不要认真，因为对于这样崭新的东西我是老外，是想当然地瞎议论，难免牵强。万一从某个角度让人看出了“道理”，那也纯粹是瞎猫撞死耗子，不足采信。</p>
+<p>不过关于NLP过去20年两条路线的宗教式斗争，我和很多同时代人都是亲历者，这方面的每一句话都是有根据、负责任，经过深思熟虑的，有过惨痛的经历或胜利的喜悦。</p>
+<p>虽然统计学界有很多对传统规则系统根深蒂固的偏见和经不起推敲但非常流行的蛮横结论（以后慢慢论，血泪账一笔一笔诉 :），但是机器学习的巨大成果和效益是有目共睹无所不在的：机器翻译，语音识别/合成，搜索排序，垃圾过滤，文档分类，自动文摘，知识习得，you name it</p>
+<p>摘自【科普随笔：NLP的宗教战争？兼论深度学习】</p>
+<p>看过几篇 NLP (Natural Language Processing) 领域代表人物的综述，往往充满了主流的傲慢与偏见，让人惊诧。这些一览众山小的大牛聪明绝顶，居然如此偏见蛮横，jump to conclusions，可见宗教式思维定势的危害之深，深入骨髓，对青年学子个更是贻害无穷。（主流掌门人中也有有识之士，以后再论。）因此想到立此存照一下，以后再一条一条细论。下列傲慢之偏见随处可见，流传甚广，为免纷扰，就不列出处了，明白人自然知道这绝不是杜撰和虚立的靶子。这些偏见似是而非，经不起推敲，却被很多人视为理所当然的真理。为每一条偏见找一个相应的 crappy 系统的案例并不难，但是从一些特定系统的缺陷推广到对整个规则系统的方法学上的批判，乃是偏见之为偏见 的要害所在。</p>
+<p>【偏见一】规则系统的手工编制（hand-crafted）是其知识瓶颈，而机器学习是自动训练的（言下之意：因此没有知识瓶颈）。</p>
+<p>【偏见二】规则系统的手工编制导致其移植性差，转换领域必须重启炉灶，而机器学习没有移植性问题，因为算法和系统保持不变，只要改变训练数据即可。</p>
+<p>【偏见三】规则系统的手工编制注定其不能 scale up，无法胜任 real world application，只能做实验室里的玩具。</p>
+<p>【偏见四】规则系统只能在极狭窄的领域成事，无法做跨领域的系统。</p>
+<p>【偏见五】规则系统只能处理规范的语言（譬如说明书、天气预报、新闻等），无法应对 degraded text，如社会媒体、口语、方言、黑话、OCR 文档。</p>
+<p>【偏见六】规则系统很脆弱，遇到没有预测的语言现象系统就会 break（什么叫 break，死机？），开发不了鲁棒（robust）产品。</p>
+<p>【偏见七】由于真实世界的自然语言词汇量大，组合关系千变万化，语言学家无法编制规则系统涵盖这些词汇和语法知识来分析语言。</p>
+<p>【偏见八】规则系统的结果没有置信度，鱼龙混杂。</p>
+<p>【偏见九】规则系统的编制越来越庞杂，最终无法改进，只能报废。</p>
+<p>【偏见十】规则系统是上个世纪的技术，早已淘汰（逻辑的结论似乎是：因此不可能做出优质系统）。</p>
+<p>【偏见十一】从结果上看，机器学习总是胜过规则系统。</p>
+<p>上述每一条都可以写一大篇或一个系列来详细论证其荒谬蛮横，描述学界主流中存在的傲慢与热昏。可是不用着急，血泪账今后一笔一笔诉 :）</p>
+<p>可怕的不是偏见，偏见无处不在，是人就难免。真正可怕的是偏见的流行，而在NLP这个领域，偏见的流行到了让人瞠目结舌的程度。不假思索而认同接受这些偏见成了常态。</p>
+<p>【相关篇什】</p>
+<p>【科普随笔：NLP的宗教战争？兼论深度学习】</p>
+<p>坚持四项基本原则，开发鲁棒性NLP系统</p>
+<p>why hybrid? on machine learning vs. hand-coded rules in NLP</p>
+<p>《立委随笔：语言自动分析的两个路子》</p>
+<p>《朝华午拾：在美国写基金申请的酸甜苦辣》</p>
+<p>《立委随笔：机器学习和自然语言处理》</p>
+<p>【立委科普：从产业角度说说NLP这个行当】</p>
+<p>王伟DL<br>
+不得不承认，看完这些偏见之后，我有点乱了。我同意“每一条都可以写一大篇”都可以引起大的讨论，对于是否偏，一时还难明。有些我已经不知何时“采纳”了，有些也不接受。—究竟是正是偏，也是引领方向的大问题。一方面应深入讨论，示明于众，纠偏于正时。另一方面，应采实践检验的标准以实证。<br>
+◆<br>
+米拉宝鉴：确实应该展开讨论，不着急，慢慢来。所罗列的“偏见”有两类：一类是谬见，可以证明其荒谬，譬如说规则系统不能处理社会媒体，只能分析规范性语言。另一类就是“偏”见，盗亦有道，情有可原，虽然还是应该对其纠“正”。这类偏见主要源于不完全归纳，他们也许看到过或者尝试过规则系统某一个类型。 浅尝辄止，然后 jump to conclusion</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Previous Post: 为什么rsync能够快速删除400000文件？" data-instant>&laquo; 为什么rsync能够快速删除400000文件？</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-05-18-%25e5%25a6%2582%25e4%25bd%2595%25e8%25ae%25a1%25e7%25ae%2597%25e4%25b8%25a4%25e4%25b8%25aa%25e6%2596%2587%25e6%25a1%25a3%25e7%259a%2584%25e7%259b%25b8%25e4%25bc%25bc%25e5%25ba%25a6%25e4%25b8%2580-bf14a3b70.html" title="Next Post: 如何计算两个文档的相似度（一）" data-instant>如何计算两个文档的相似度（一） &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2013/2013-06-24-%25e3%2580%2590nlp%25e4%25b8%25bb%25e6%25b5%2581%25e6%259c%2580%25e5%25a4%25a7%25e7%259a%2584%25e5%2581%258f%25e8%25a7%2581%25ef%25bc%258c%25e8%25a7%2584%25e5%2588%2599%25e7%25b3%25bb%25e7%25bb%259f%25e7%259a%2584%25e6%2589%258b%25e5%25b7%25a5%25e6%2580%25a7%25e3%2580%2591-80ce5b21b.html" title="Next Post: 【NLP主流最大的偏见，规则系统的手工性】" data-instant>【NLP主流最大的偏见，规则系统的手工性】 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
-
       <li><span>24 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-24-python-%25e7%25bd%2591%25e9%25a1%25b5%25e7%2588%25ac%25e8%2599%25ab-%25e6%2596%2587%25e6%259c%25ac%25e5%25a4%2584%25e7%2590%2586-%25e7%25a7%2591%25e5%25ad%25a6%25e8%25ae%25a1%25e7%25ae%2597-%25e6%259c%25ba%25e5%2599%25a8%25e5%25ad%25a6%25e4%25b9%25a0-%25e6%2595%25b0%25e6%258d%25ae%25e6%258c%2596%25e6%258e%2598-060a30129.html">Python 网页爬虫 & 文本处理 & 科学计算 & 机器学习 & 数据挖掘兵器谱</a></li>
 
-      <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
+      <li><span>05 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-05-2014-07-05-startssl-in-tomcat.html-163c9be4f.html">Tomcat中配置SSL证书</a></li>
+
+      <li><span>07 Jun 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-06-07-%25e5%25a6%2582%25e4%25bd%2595%25e8%25ae%25a1%25e7%25ae%2597%25e4%25b8%25a4%25e4%25b8%25aa%25e6%2596%2587%25e6%25a1%25a3%25e7%259a%2584%25e7%259b%25b8%25e4%25bc%25bc%25e5%25ba%25a6%25e4%25b8%2589-40a882543.html">如何计算两个文档的相似度（三）</a></li>
 
   </ul>
 </div>
