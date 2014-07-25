@@ -1,0 +1,173 @@
+---
+layout: post
+title: Nginx中配置Access Control
+time: 2014-06-05 00:00:00 +0800
+site_name: liulantao.com
+source_url: http://blog.liulantao.com/blog/2014/2014-06-05-nginx-access-control-with-allow-deny.html
+---
+
+  <p>最近处理了一个<code>Nginx</code>的<code>ACL</code>问题，记录一下处理过程。</p>
+
+<p>公司线上服务使用<code>Nginx</code>做前端的负载分发。对于安全原因屏蔽客户端IP的需求，在这一个层次操作，使用<code>ngx_http_access_module</code>提供的<code>allow</code>/<code>deny</code>语法进行配置。</p>
+
+<pre><code># nginx.conf
+events {
+	use epoll;
+	worker_connections  65535;
+}
+
+http {
+	# ACL
+	include acl.conf;
+
+	# Vhost
+	include vhosts/*.conf;
+}
+</code></pre>
+
+<p>全局<code>ACL</code>配置在单独的文件<code>acl.conf</code>中。</p>
+
+<pre><code># acl.conf
+deny 123.45.67.89;
+</code></pre>
+
+<p><code>vhost</code>配置文件中没有<code>ACL</code>配置。</p>
+
+<pre><code># vhosts/www.example.com.conf
+server {
+	listen	80 default;
+	server_name	www.example.com;
+
+	location / {
+		root html/;
+	}
+}
+
+# vhosts/api.example.com.conf
+server {
+	listen	80;
+	server_name	api.example.com;
+
+	location / {
+		proxy_pass http://backend_api;
+	}
+}
+</code></pre>
+
+<p>基于这种配置模式，每当有<code>ACL</code>需求时，只要更新<code>acl.conf</code>的ip列表即可。</p>
+
+<h3 id="section">问题</h3>
+
+<p>周一上班时，前一天值班的同事提到值班时遇到一个问题，使用<code>deny</code>失效了。</p>
+
+<p>查看了值班的邮件记录及操作记录，是这样的一些情况：</p>
+
+<ol>
+  <li>安全组提出封禁IP需求。值班同事将涉事IP段（ip1）加入<code>acl.conf</code>
+</li>
+  <li>API组提出封禁IP需求，且注明只针对api域名封禁。值班同时将设施IP端（ip2）加入<code>vhost</code>配置文件，如下</li>
+</ol>
+
+<p>第2步操作如下</p>
+
+<pre><code>vhosts/api.example.com.conf
+server {
+	listen	80;
+	server_name	api.example.com;
++	deny ip2;
+	
+	location / {
+		proxy_pass http://backend_api;
+	}
+}
+</code></pre>
+
+<p>在第二步操作之后，又收到安全组提供的IP段（ip3），加入<code>acl.conf</code>后，仍然有来自ip3的请求能获得<code>200</code>返回。</p>
+
+<p>现在的配置情况简化表示为</p>
+
+<pre><code>http {
+	deny ip1;
+	server {
+		server_name api.example.com;
+		deny ip2;
+	}
+	deny ip3;
+}
+</code></pre>
+
+<p>经过测试确认，上述配置的最终现象为server <code>api.example.com</code>中只有<code>deny ip2</code>生效，<code>deny ip3</code>没有生效。</p>
+
+<h3 id="section-1">追因</h3>
+
+<p>查看<code>Nginx</code>源码<code>src/http/modules/ngx_http_access_module.c</code></p>
+
+<p>在配置文件处理阶段有两部分需要关注。</p>
+
+<h4 id="ngxhttpaccessrule">第一个关注点 <code>ngx_http_access_rule</code>函数</h4>
+
+<p>在出现<code>allow</code>/<code>deny</code>语法时执行。</p>
+
+<p>它的作用是维护每个作用域范围内的<code>alcf-&gt;rules</code>，这是一个ACL列表。</p>
+
+<pre><code>static char *
+ngx_http_access_rule(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+
+	...
+
+    default: /* AF_INET */
+
+        if (alcf-&gt;rules == NULL) {
+            alcf-&gt;rules = ngx_array_create(cf-&gt;pool, 4, sizeof(ngx_http_access_rule_t));
+            if (alcf-&gt;rules == NULL) {
+                return NGX_CONF_ERROR;
+            }
+        }
+
+        rule = ngx_array_push(alcf-&gt;rules);
+        if (rule == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
+        rule-&gt;mask = cidr.u.in.mask;
+        rule-&gt;addr = cidr.u.in.addr;
+        rule-&gt;deny = (value[0].data[0] == 'd') ? 1 : 0;
+</code></pre>
+
+<h4 id="ngxhttpaccessmergelocconf">第二个关注点 <code>ngx_http_access_merge_loc_conf</code>函数</h4>
+
+<p>在解决嵌套定义时执行。<code>parent</code>代表上一级配置，<code>child</code>代表下一级配置。</p>
+
+<p>上一级与下一级是一个相对概念，<code>http</code>相对<code>server</code>为上一级，<code>server</code>为<code>http</code>下一级；<code>server</code>相对<code>location</code>为上一级，<code>location</code>为<code>server</code>下一级。</p>
+
+<p>从下面代码可以看出，如果当前ACL(<code>child-&gt;rules</code>)为空，则继承上一级的ACL(<code>parent-&gt;rules</code>)。这解释了当<code>http</code>中定义<code>deny</code>而<code>server</code>中不定义时，<code>http</code>中的<code>deny</code>生效。</p>
+
+<p>另外也证实了一个事实，即当前级别中定义过ACL之后，不会与上一级的ACL进行列表合并，只有当前列表生效。所以会出现前文提到的现象，<code>server</code>中定义<code>deny</code>后，<code>http</code>中的<code>deny</code>规则失效了。</p>
+
+<pre><code>static char *
+ngx_http_access_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+{
+    ngx_http_access_loc_conf_t  *prev = parent;
+    ngx_http_access_loc_conf_t  *conf = child;
+
+	...
+
+    if (conf-&gt;rules == NULL) {
+        conf-&gt;rules = prev-&gt;rules;
+    }
+
+	...
+
+    return NGX_CONF_OK;
+}
+</code></pre>
+
+<h4 id="section-2">探讨</h4>
+
+<p>上面ACL中，我们按先验经验想当然认为<code>allow</code>/<code>deny</code>会如其它<code>nginx</code>语法一样，在不同级别之间有继承关系，而事实证明这种想法是错误的。</p>
+
+<p>由于不同层级之间的ACL列表独立维护，而<code>Nginx</code>在进行处理是只针对当前的rules遍历，一个不太严谨但是有助于理解的看法是可以认为在当前配置中增加了一个默认<code>allow all</code>。</p>
+
+<p>在<code>Apache</code>中也有ACL相关配置，由于配置语法格式比较清晰，一般在出现嵌套时不会出现误解。</p>
+
+  

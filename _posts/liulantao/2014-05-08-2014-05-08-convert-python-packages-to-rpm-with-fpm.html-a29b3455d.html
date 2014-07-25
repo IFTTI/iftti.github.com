@@ -1,0 +1,75 @@
+---
+layout: post
+title: 使用软件包神器fpm将Python包转为RPM包
+time: 2014-05-08 00:00:00 +0800
+site_name: liulantao.com
+source_url: http://blog.liulantao.com/blog/2014/2014-05-08-convert-python-packages-to-rpm-with-fpm.html
+---
+
+  <p>在<a href="http://mib.cc/blog/2012/2012-05-21-package-management-with-fpm.html">之前的一篇文章</a>中介绍过使用fpm制作rpm包，相信实践过的同学已经见识过fpm的威力。</p>
+
+<p>作为软件包管理工具，fpm还可以实现不同软件包类型之间的相互转换。本文将简单演示一下软件包转换的功能。</p>
+
+<p>文中用例来自于日常工作中的实际需求，需要在系统中安装Scrapy工具。写本文时scrapy的最新版本为0.22。不过业务指定的版本为0.16。</p>
+
+<p>下面我们看一下软件包准备的过程。</p>
+
+<h2 id="python">转换第一个python包</h2>
+
+<p>首先制作python-scrapy包。</p>
+
+<pre><code>fpm -s python -t rpm scrapy==0.16.5
+</code></pre>
+
+<p>说明：这里我们用到了-s参数，指定源格式。指定为python包时，fpm将使用easy_install的python源获取源文件。通过“==”来指定scrapy版本号，这与easy_install的写法完全一致。</p>
+
+<p>命令执行完毕，可以看到当前目录生成文件<code>python-scrapy-0.16.5-1.noarch.rpm</code>。</p>
+
+<h2 id="section">解决依赖</h2>
+
+<p>使用yum命令测试安装。</p>
+
+<pre><code>yum localinstall python-scrapy-0.16.5-1.noarch.rpm
+</code></pre>
+
+<p>从输出看出缺少依赖的<code>python-w3lib</code>包。</p>
+
+<pre><code>Error: Package: python-scrapy-0.16.5-1.noarch (/python-scrapy-0.16.5-1.noarch)
+       Requires: python-w3lib &gt;= 1.2
+</code></pre>
+
+<p>使用同样的方式创建这个包。</p>
+
+<pre><code>fpm -s python -t rpm w3lib==1.2
+</code></pre>
+
+<h2 id="section-1">“影子”包</h2>
+
+<p>继续使用yum命令测试安装，发现另一个依赖（<code>python-pyopenssl</code>）。</p>
+
+<pre><code>yum localinstall python-scrapy-0.16.5-1.noarch.rpm python-w3lib-1.2-1.noarch.rpm
+
+Error: Package: python-scrapy-0.16.5-1.noarch (/python-scrapy-0.16.5-1.noarch)
+       Requires: python-pyopenssl
+</code></pre>
+
+<p>在yum仓库base中，可以搜索到<code>pyOpenSSL.x86_64</code>这个包，因此可以利用已有的包，避免重复创建以及可能的文件冲突。这里创建一个叫做<code>python-pyopenssl</code>的“影子”包，通过依赖包的方式引入pyOpenSSL。</p>
+
+<pre><code>fpm -s empty -t rpm -n python-pyopenssl -v 0.10 -d 'pyOpenSSL &gt;= 0.10'
+</code></pre>
+
+<p>创建的方式与上面的有些差异。最主要的一项，将源格式指定为<code>empty</code>，意味着这个不包含文件。通过<code>-d</code>参数指定将引入的依赖包名及版本。这个rpm仅仅表示一个依赖关系。</p>
+
+<p>现在重新测试一下</p>
+
+<pre><code>yum localinstall python-scrapy-0.16.5-1.noarch.rpm python-w3lib-1.2-1.noarch.rpm python-pyopenssl-0.10-1.x86_64.rpm
+</code></pre>
+
+<p>从输出可以看到已经能完成依赖检查，引入了pyOpenSSL包，可以进行安装。
+将生成的3个rpm包放入yum仓库，方便部署系统使用。</p>
+
+<h2 id="section-2">总结</h2>
+
+<p>本文以python包转换为rpm的例子，简要演示了fpm进行package格式转换的功能。同时兼顾利用“影子”包的方式来解决仓库中已有软件包但是不同名的问题。</p>
+
+  
