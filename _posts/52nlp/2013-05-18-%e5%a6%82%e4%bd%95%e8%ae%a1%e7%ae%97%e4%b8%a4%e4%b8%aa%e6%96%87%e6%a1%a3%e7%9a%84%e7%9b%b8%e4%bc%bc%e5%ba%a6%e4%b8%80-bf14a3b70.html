@@ -1,0 +1,47 @@
+---
+layout: post
+title: '如何计算两个文档的相似度（一）'
+time: 2013-05-18
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/%e5%a6%82%e4%bd%95%e8%ae%a1%e7%ae%97%e4%b8%a4%e4%b8%aa%e6%96%87%e6%a1%a3%e7%9a%84%e7%9b%b8%e4%bc%bc%e5%ba%a6%e4%b8%80
+---
+{% raw %}
+
+						<p>前几天，我发布了一个和在线教育相关的网站：<a href="http://coursegraph.com">课程图谱</a>，这个网站的目的通过对公开课的导航、推荐和点评等功能方便大家找到感兴趣的公开课，特别是目前最火的Coursera，Udacity等公开课平台上的课程。在发布之前，遇到的一个问题是如何找到两个相关的公开课，最早的计划是通过用户对课程的关注和用户对用户的关注来做推荐，譬如“你关注的朋友也关注这些课程”，但是问题是网站发布之前，我还没有积累用户关注的数据。另外一个想法是提前给课程打好标签，通过标签来计算它门之间的相似度，不过这是一个人工标注的过程，需要一定的时间。当然，另一个很自然的想法是通过课程的文本内容来计算课程之间的相似度，公开课相对来说有很多的文本描述信息，从文本分析的角度来处理这种推荐系统的冷启动问题应该不失为一个好的处理方法。通过一些调研和之前的一些工作经验，最终考虑采用Topic model来解决这个问题，其实方案很简单，就是将两个公开课的文本内容映射到topic的维度，然后再计算其相似度。然后的然后就通过google发现了<a href="http://radimrehurek.com/gensim/">gensim</a>这个强大的Python工具包，它的简介只有一句话：topic modelling for humans, 用过之后，只能由衷的说一句：感谢上帝，感谢Google，感谢开源！</p>
+<p>当前<a href="http://coursegraph.com">课程图谱</a>中所有课程之间的相似度全部基于gensim计算，自己写的调用代码不到一百行，topic模型采用<a href="http://en.wikipedia.org/wiki/Latent_semantic_indexing">LSI</a>(Latent semantic indexing, 中文译为浅层语义索引），LSI和<a href="http://en.wikipedia.org/wiki/Latent_semantic_analysis">LSA</a>（Latent semantic analysis，中文译为浅层语义分析）这两个名词常常混在一起，事实上，在维基百科上，有建议将这两个名词合二为一。以下是<a href="http://coursegraph.com">课程图谱</a>的一个效果图，课程为著名的机器学习专家Andrew Ng教授在<a href="http://coursegraph.com/machine-learning-coursera-ml-stanford-university">Coursera的机器学习公开课</a>，图片显示的是主题模型计算后排名前10的相关课程，Andrew Ng教授同时也是Coursera的创始人之一：</p>
+<p>　　　　　<a href="http://www.52nlp.cn/wp-content/uploads/2013/05/%E5%B1%8F%E5%B9%95%E5%BF%AB%E7%85%A7-2013-05-18-%E4%B8%8B%E5%8D%887.16.33.png"><img src="http://www.52nlp.cn/wp-content/uploads/2013/05/%E5%B1%8F%E5%B9%95%E5%BF%AB%E7%85%A7-2013-05-18-%E4%B8%8B%E5%8D%887.16.33.png" alt="课程图谱机器学习公开课" width="450" height="300" class="alignnone size-full wp-image-5459"></a></p>
+<p>最后回到这篇文章的主题，我将会分3个部分介绍，首先介绍一些相关知识点，不过不会详细介绍每个知识点的细节，主要是简要的描述一下同时提供一些互联网上现有的不错的参考资料，如果读者已经很熟悉，可以直接跳过去；第二部分我会介绍gensim的安装和使用，特别是如何计算<a href="http://coursegraph.com">课程图谱</a>上课程之间的相似度的；第三部分包括如何基于全量的英文维基百科（400多万文章，压缩后9个多G的语料）在一个4g内存的macbook上训练LSI模型和LDA模型，以及如何将其应用到课程图谱上来改进课程之前的相似度的效果，注意课程图谱的课程内容主要是英文，目前的效果还是第二部分的结果，第三部分我们一起来实现。如果你的英文没问题，第二，第三部分可以直接阅读gensim的<a href="http://radimrehurek.com/gensim/tutorial.html">tutorail</a>，我所做的事情主要是基于这个tutorail在<a href="http://coursegraph.com">课程图谱</a>上做了一些验证。</p>
+<p><strong>一、相关的知识点及参考资料</strong></p>
+<p>这篇文章不会写很长，但是涉及的知识点蛮多，所以首先会在这里介绍相关的知识点，了解的同学可以一笑而过，不了解的同学最好能做一些预习，这对于你了解topic model以及gensim更有好处。如果以后时间允许，我可能会基于其中的某几个点写一篇比较详细的介绍性的文章。不过任何知识点首推维基百科，然后才是下面我所罗列的参考资料。</p>
+<p>1） TF-IDF，余弦相似度，向量空间模型<br>
+这几个知识点在信息检索中是最基本的，入门级的参考资料可以看看吴军老师在《<a href="http://book.douban.com/subject/10750155/">数学之美</a>》中第11章“如何确定网页和查询的相关性”和第14章“余弦定理和新闻的分类”中的通俗介绍或者阮一峰老师写的两篇科普文章“<a href="http://www.ruanyifeng.com/blog/2013/03/tf-idf.html">TF-IDF与余弦相似性的应用（一）：自动提取关键词</a>”和“<a href="http://www.ruanyifeng.com/blog/2013/03/cosine_similarity.html">TF-IDF与余弦相似性的应用（二）：找出相似文章</a>”。</p>
+<p>专业一点的参考资料推荐王斌老师在中科院所授的研究生课程“<a href="http://ir.ict.ac.cn/ircourse/">现代信息检索(Modern Information Retrieval)</a>”的课件，其中“第六讲向量模型及权重计算”和该主题相关。或者更详细的可参考王斌老师翻译的经典的《<a href="http://book.douban.com/subject/5252170/">信息检索导论</a>》第6章或者其它相关的信息检索书籍。</p>
+<p>2）SVD和LSI<br>
+想了解LSI一定要知道SVD（<a href="http://en.wikipedia.org/wiki/Singular_value_decomposition">Singular value decomposition</a>, 中文译为奇异值分解），而SVD的作用不仅仅局限于LSI，在很多地方都能见到其身影，SVD自诞生之后，其应用领域不断被发掘，可以不夸张的说如果学了线性代数而不明白SVD，基本上等于没学。想快速了解或复习SVD的同学可以参考这个英文tutorail: <a href="http://www.ling.ohio-state.edu/~kbaker/pubs/Singular_Value_Decomposition_Tutorial.pdf" target="_blank">Singular Value Decomposition Tutorial</a> , 当然更推荐MIT教授<a href="http://52opencourse.com/98/%E7%BA%BF%E6%80%A7%E4%BB%A3%E6%95%B0%E7%9A%84%E5%AD%A6%E4%B9%A0%E5%8F%8A%E7%9B%B8%E5%85%B3%E8%B5%84%E6%BA%90" target="_blank">Gilbert Strang的线性代数公开课</a>和相关书籍，你可以直接在网易公开课看相关章节的视频。</p>
+<p>关于LSI，简单说两句，一种情况下我们考察两个词的关系常常考虑的是它们在一个窗口长度（譬如一句话，一段话或一个文章）里的共现情况，在语料库语言学里有个专业点叫法叫<a href="http://en.wikipedia.org/wiki/Collocation">Collocation</a>，中文译为搭配或词语搭配。而LSI所做的是挖掘如下这层词语关系：<strong>A和C共现，B和C共现，目标是找到A和B的隐含关系，学术一点的叫法是second-order co-ocurrence</strong>。以下引用<a href="http://hi.baidu.com/hehehehello/item/efc527cdaacaba16b67a248b">百度空间</a>上一篇介绍相关参考资料时的简要描述：</p>
+<blockquote>
+<p>LSI本质上识别了以文档为单位的second-order co-ocurrence的单词并归入同一个子空间。因此：<br>
+1）落在同一子空间的单词不一定是同义词，甚至不一定是在同情景下出现的单词，对于长篇文档尤其如是。<br>
+2）LSI根本无法处理一词多义的单词（多义词），多义词会导致LSI效果变差。</p>
+<p>A persistent myth in search marketing circles is that LSI grants contextuality; i.e., terms occurring in the same context. This is not always the case. Consider two documents X and Y and three terms A, B and C and wherein:</p>
+<p>A and B do not co-occur.<br>
+X mentions terms A and C<br>
+Y mentions terms B and C.</p>
+<p>:. A—C—B</p>
+<p>The common denominator is C, so we define this relation as an in-transit co-occurrence since both A and B occur while in transit with C. This is called second-order co-occurrence and is a special case of high-order co-occurrence.</p>
+</blockquote>
+<p>其实我也推荐国外这篇由Dr. E. Garcia所写的SVD与LSI的通俗教程，这个系列最早是微博上有朋友推荐，不过发现英文原始网站上内容已经被其主人下架了，原因不得而知。幸好还有Google,在CSDN上我找到了这个系列“<a href="http://blog.csdn.net/zshtang/article/category/870505">SVD与LSI教程系列</a>”，不过很可惜很多图片都看不见了，如果哪位同学发现更好的版本或有原始的完整版本，可以告诉我，不甚感激！</p>
+<p>不过幸好原文作者写了两个简要的PDF Tutorail版本：</p>
+<p><a href="http://cs.fit.edu/~dmitra/SciComp/Resources/singular-value-decomposition-fast-track-tutorial.pdf" target="_blank">Singular Value Decomposition (SVD)- A Fast Track Tutorial</a><br>
+<a href="http://weibo.com/rickjin" target="_blank"></a><br>
+<a href="http://www.ce.yildiz.edu.tr/personal/banud/file/1201/latent-semantic-indexing-fast-track-tutorial.pdf" target="_blank">Latent Semantic Indexing (LSI) A Fast Track Tutorial</a></p>
+<p>这两个简明版本主要是通过简单的例子直观告诉你什么是SVD，什么是LSI，非常不错。</p>
+<p>这几个版本的pdf文件我在微盘上上传了一个打包文件，也可以从这里下载：<a href="http://vdisk.weibo.com/s/C0WzM">svd-lsi-doc.tar.gz</a></p>
+<p>3) LDA<br>
+这个啥也不说了，隆重推荐我曾经在腾讯工作时的leader <a href="http://weibo.com/rickjin">rickjin</a>的”<a href="http://www.52nlp.cn/lda-math-%E6%B1%87%E6%80%BB-lda%E6%95%B0%E5%AD%A6%E5%85%AB%E5%8D%A6">LDA数学八卦</a>“系列，通俗易懂，娓娓道来，另外rick的<a href="http://www.52nlp.cn/author/rickjin">其他系列</a>也是非常值得一读的。</p>
+<p>未完待续…</p>
+<p>注：原创文章，转载请注明出处“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/%E5%A6%82%E4%BD%95%E8%AE%A1%E7%AE%97%E4%B8%A4%E4%B8%AA%E6%96%87%E6%A1%A3%E7%9A%84%E7%9B%B8%E4%BC%BC%E5%BA%A6%E4%B8%80">http://www.52nlp.cn/如何计算两个文档的相似度一</a></p>
+
+											
+{% endraw %}

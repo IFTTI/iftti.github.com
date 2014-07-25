@@ -1,0 +1,439 @@
+---
+layout: post
+title: '中文分词入门之字标注法4'
+time: 2013-12-31
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/%e4%b8%ad%e6%96%87%e5%88%86%e8%af%8d%e5%85%a5%e9%97%a8%e4%b9%8b%e5%ad%97%e6%a0%87%e6%b3%a8%e6%b3%954
+---
+{% raw %}
+
+						<p><a href="http://www.52nlp.cn/%E4%B8%AD%E6%96%87%E5%88%86%E8%AF%8D%E5%85%A5%E9%97%A8%E4%B9%8B%E5%AD%97%E6%A0%87%E6%B3%A8%E6%B3%953">上一节</a>主要介绍的是利用最大熵工具包来做字标注<a href="http://www.52nlp.cn/category/word-segmentation">中文分词</a>，这一节我们直奔主题，借用条件随机场工具“<a href="http://crfpp.googlecode.com/svn/trunk/doc/index.html">CRF++: Yet Another CRF toolkit</a>”来完成字标注中文分词的全过程。</p>
+<p>关于条件随机场（CRF）的背景知识，推荐参考阅读一些经典的文献：《<a href="http://www.52nlp.cn/%E6%9D%A1%E4%BB%B6%E9%9A%8F%E6%9C%BA%E5%9C%BA%E6%96%87%E7%8C%AE%E9%98%85%E8%AF%BB%E6%8C%87%E5%8D%97">条件随机场文献阅读指南</a>》，另外再额外推荐一个tutorial:《<a href="http://www.scai.fraunhofer.de/fileadmin/images/bio/data_mining/paper/crf_klinger_tomanek.pdf">Classical Probabilistic Models and Conditional Random Fields</a>》, 这份关于CRF的文档分别从概率模型（NB，HMM，ME， CRF)之间的关系以及概率图模型背景来介绍条件随机场，比较清晰：</p>
+<blockquote><p>While a Hidden Markov Model is a sequential extension to the Nave Bayes Model, Conditional Random Fields can be understood as a sequential extension to the Maximum Entropy Model.</p></blockquote>
+<p>如果这些还不够过瘾，推荐<a href="http://coursegraph.com/">课程图谱</a>上收录的Coursera创始人之一Daphne Koller的“<a href="http://coursegraph.com/probabilistic-graphical-models-coursera-pgm-stanford-university">概率图模型公开课</a>”，相信拿下这门课之后，对于上述概率模型，会有一种“一览众山小”的感觉。<br>
+<span id="more-6339"></span><br>
+不过我们还是要从安装CRF++工具包说起，在Linux或者Mac OS系统下，下载C++源代码安装包(这里用的是 <a href="https://crfpp.googlecode.com/files/CRF%2B%2B-0.58.tar.gz">CRF++-0.58.tar.gz</a> ）之后，依然是 “configure &amp; make &amp; (sudo) make install”，安装完毕之后，可以cd python进入到其同样用SWIG生成的Python工具包下，安装python包：python setup.py build &amp; (sudo) python setup.py install。安装完毕之后，可以在python解释器下测试，是否能成功import CRFPP，如果ok，则准备工作就绪。</p>
+<p>上一节我们利用最大熵模型工具包里自带的词性标注工具进行的中文分词，稍微有些曲折，这一节我们依然利用CRF++ example里的样例进行测试，不过好处是，CRF++ example里有个seg目录，这个seg目录对应的是一个日文分词的样例，正好可以套用到我们的中文分词中来。在安装包目录下，cd example, cd seg目录后，有4个文件：</p>
+<blockquote><p>    exec.sh（执行脚本）<br>
+    template（特征模板）<br>
+    test.data（测试集）<br>
+    train.data（训练集)</p></blockquote>
+<p>有了这4个文件，我们可以做得事情就比较简单，只要按测试集，训练集的格式准备数据就可以了，特征模板和执行脚本可以套用，不过这里简单解读一下这几个CRF++文件。首先来看训练集：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">毎 k   B<br>
+日 k   I<br>
+新 k   I<br>
+聞 k   I<br>
+社 k   I<br>
+特 k   B<br>
+別 k   I<br>
+顧 k   B<br>
+問 k   I                                                 <br>
+４ n   B</div></td>
+</tr></tbody></table></div>
+<p>这里第一列是待分词的日文字，第二列暂且认为其是词性标记，第三列是字标注中的2-tag(B, I)标记，这个很重要，对于我们需要准备的训练集，主要是把这一列的标记做好，不过需要注意的是，其断句是靠空行来完成的。</p>
+<p>再来看测试集的格式：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">よ h   I<br>
+っ h   I<br>
+て h   I<br>
+私 k   B<br>
+た h   B<br>
+ち h   I<br>
+の h   B                                                     <br>
+世 k   B<br>
+代 k   I<br>
+が h   B</div></td>
+</tr></tbody></table></div>
+<p>同样也有3列，第一列是日文字，第二列第三列与上面是相似的，不过在测试集里第三列主要是占位作用。事实上，CRF++对于训练集和测试集文件格式的要求是比较灵活的，首先需要多列，但不能不一致，既在一个文件里有的行是两列，有的行是三列；其次第一列代表的是需要标注的“字或词”，最后一列是输出位”标记tag”，如果有额外的特征，例如词性什么的，可以加到中间列里，所以训练集或者测试集的文件最少要有两列。</p>
+<p>接下里我们再来详细的分析一下特征模板文件：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>
+</div></td>
+<td><div class="text codecolorer"># Unigram<br>
+U00:%x[-2,0]<br>
+U01:%x[-1,0]<br>
+U02:%x[0,0]<br>
+U03:%x[1,0]<br>
+U04:%x[2,0]<br>
+U05:%x[-2,0]/%x[-1,0]/%x[0,0]<br>
+U06:%x[-1,0]/%x[0,0]/%x[1,0]<br>
+U07:%x[0,0]/%x[1,0]/%x[2,0]<br>
+U08:%x[-1,0]/%x[0,0]                                          <br>
+U09:%x[0,0]/%x[1,0]<br>
+<br>
+# Bigram<br>
+B</div></td>
+</tr></tbody></table></div>
+<p>关于CRF++中特征模板的说明和举例，请大家参考官方文档上的“<a href="http://crfpp.googlecode.com/svn/trunk/doc/index.html#templ">Preparing feature templates</a>”这一节，而以下部分的说明拿上述日文分词数据举例。在特征模板文件中，每一行(如U00:%x[-2,0]）代表一个特征，而宏“%x[行位置,列位置]”则代表了相对于当前指向的token的行偏移和列的绝对位置，以上述训练集为例，如果当前扫描到“新	k	I”这一行，</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">毎 k   B<br>
+日 k   I<br>
+新 k   I   &lt;== 扫描到这一行，代表当前位置<br>
+聞 k   I<br>
+社 k   I<br>
+特 k   B<br>
+別 k   I<br>
+顧 k   B<br>
+問 k   I<br>
+４ n   B</div></td>
+</tr></tbody></table></div>
+<p>那么依据特征模板文件抽取的特征如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>
+</div></td>
+<td><div class="text codecolorer"># Unigram<br>
+U00:%x[-2,0] ==&gt; 毎<br>
+U01:%x[-1,0] ==&gt; 日<br>
+U02:%x[0,0]  ==&gt; 新<br>
+U03:%x[1,0]  ==&gt; 聞<br>
+U04:%x[2,0]  ==&gt; 社<br>
+U05:%x[-2,0]/%x[-1,0]/%x[0,0] ==&gt; 每/日/新<br>
+U06:%x[-1,0]/%x[0,0]/%x[1,0]  ==&gt; 日/新/聞<br>
+U07:%x[0,0]/%x[1,0]/%x[2,0]   ==&gt; 新/聞/社<br>
+U08:%x[-1,0]/%x[0,0]          ==&gt; 日/新<br>
+U09:%x[0,0]/%x[1,0]           ==&gt; 新/聞<br>
+<br>
+# Bigram<br>
+B</div></td>
+</tr></tbody></table></div>
+<p>CRF++里将特征分成两种类型，一种是Unigram的，“U”起头，另外一种是Bigram的，“B”起头。对于Unigram的特征，假如一个特征模板是”U01:%x[-1,0]“, CRF++会自动的生成一组特征函数(func1 … funcN) 集合:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>
+</div></td>
+<td><div class="text codecolorer">func1 = if (output = B and feature="U01:日") return 1 else return 0<br>
+func2 = if (output = I and feature="U01:日") return 1 else return 0<br>
+....<br>
+funcXX = if (output = B and feature="U01:問") return 1  else return 0<br>
+funcXY = if (output = I and feature="U01:問") return 1  else return 0</div></td>
+</tr></tbody></table></div>
+<p>生成的特征函数的数目 = (L * N)，其中L是输出的类型的个数，这里是B，I这两个tag，N是通过模板扩展出来的所有单个字符串(特征）的个数，这里指的是在扫描所有训练集的过程中找到的日文字（特征）。</p>
+<p>而Bigram特征主要是当前的token和前面一个位置token的自动组合生成的bigram特征集合。最后需要注意的是U01和U02这些标志位，与特征token组合到一起主要是区分“U01:問”和“U02:問”这类特征，虽然抽取的日文”字”特征是一样的，但是在CRF++中这是有区别的特征。</p>
+<p>最后我们再来看一下执行脚本：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>
+</div></td>
+<td><div class="text codecolorer">#!/bin/sh<br>
+../../crf_learn -f 3 -c 4.0 template train.data model<br>
+../../crf_test -m model test.data<br>
+<br>
+../../crf_learn -a MIRA -f 3 template train.data model<br>
+../../crf_test -m model test.data<br>
+rm -f model</div></td>
+</tr></tbody></table></div>
+<p>执行脚本告诉了我们如何训练一个CRF模型，以及如何利用这个模型来进行测试，执行这个脚本之后，对于输入的测试集，输出结果多了一列：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">よ h   I   B<br>
+っ h   I   I<br>
+て h   I   B<br>
+私 k   B   B<br>
+た h   B   B<br>
+ち h   I   I<br>
+の h   B   B                                      <br>
+世 k   B   B<br>
+代 k   I   I<br>
+が h   B   B</div></td>
+</tr></tbody></table></div>
+<p>而这一列才是模型预测的改字的标记tag，也正是我们所需要的结果。到此为止，关于日文分词样例的介绍已经完毕，读者应该可以猜测到接下来我们会如何做中文分词吧？</p>
+<p>和上一节利用<a href="http://www.52nlp.cn/%E4%B8%AD%E6%96%87%E5%88%86%E8%AF%8D%E5%85%A5%E9%97%A8%E4%B9%8B%E5%AD%97%E6%A0%87%E6%B3%A8%E6%B3%953">最大熵模型进行中文分词</a>相似，第一步仍然是将backoff2005里的训练数据转化为CRF++所需的训练数据格式，还是以微软亚洲研究院提供的中文分词语料为例，依然采用4-tag(B(Begin，词首), E(End，词尾), M(Middle，词中), S(Single,单字词))标记集，只处理utf-8编码文本。原始训练集./icwb2-data/training/msr_training.utf8的形式是人工分好词的中文句子形式，如：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">“  人们  常  说  生活  是  一  部  教科书  ，  而  血  与  火  的  战争  &gt;      更  是  不可多得  的  教科书  ，  她  确实  是  名副其实  的  ‘  我  的  &gt;      大学  ’  。<br>
+“  心  静  渐  知  春  似  海  ，  花  深  每  觉  影  生  香  。<br>
+“  吃  屎  的  东西  ，  连  一  捆  麦  也  铡  不  动  呀  ？<br>
+他  “  严格要求  自己  ，  从  一个  科举  出身  的  进士  成为  一个  伟&gt;      大  的  民主主义  者  ，  进而  成为  一  位  杰出  的  党外  共产主义  战 士  ，  献身  于  崇高  的  共产主义  事业  。<br>
+“  征  而  未  用  的  耕地  和  有  收益  的  土地  ，  不准  荒芜  。<br>
+“  这  首先  是  个  民族  问题  ，  民族  的  感情  问题  。<br>
+’  我  扔  了  两颗  手榴弹  ，  他  一下子  出  溜  下去  。<br>
+“  废除  先前  存在  的  所有制  关系  ，  并不是  共产主义  所  独具  的        特征  。<br>
+“  这个  案子  从  始  至今  我们  都  没有  跟  法官  接触  过  ，  也  &gt;      没有  跟  原告  、  被告  接触  过  。<br>
+“  你  只有  把  事情  做好  ，  大伙  才  服  你  。</div></td>
+</tr></tbody></table></div>
+<p>这里同样提供一个脚本 <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/CRFSegment/make_crf_train_data.py">make_crf_train_data.py</a>，将这个训练语料转换为CRF++训练用的语料格式(2列，4-tag)：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>25<br>26<br>27<br>28<br>29<br>30<br>31<br>32<br>33<br>34<br>
+</div></td>
+<td><div class="text codecolorer">#!/usr/bin/env python<br>
+# -*- coding: utf-8 -*-<br>
+# Author: 52nlpcn@gmail.com<br>
+# Copyright 2014 @ YuZhen Technology<br>
+#<br>
+# 4 tags for character tagging: B(Begin), E(End), M(Middle), S(Single)<br>
+<br>
+import codecs<br>
+import sys<br>
+<br>
+def character_tagging(input_file, output_file):<br>
+    input_data = codecs.open(input_file, 'r', 'utf-8')<br>
+    output_data = codecs.open(output_file, 'w', 'utf-8')<br>
+    for line in input_data.readlines():<br>
+        word_list = line.strip().split()<br>
+        for word in word_list:<br>
+            if len(word) == 1:<br>
+                output_data.write(word + "\tS\n")<br>
+            else:<br>
+                output_data.write(word[0] + "\tB\n")<br>
+                for w in word[1:len(word)-1]:<br>
+                    output_data.write(w + "\tM\n")<br>
+                output_data.write(word[len(word)-1] + "\tE\n")<br>
+        output_data.write("\n")<br>
+    input_data.close()<br>
+    output_data.close()<br>
+<br>
+if __name__ == '__main__':<br>
+    if len(sys.argv) != 3:<br>
+        print "pls use: python make_crf_train_data.py input output"<br>
+        sys.exit()<br>
+    input_file = sys.argv[1]<br>
+    output_file = sys.argv[2]<br>
+    character_tagging(input_file, output_file)</div></td>
+</tr></tbody></table></div>
+<p>只需要执行“python make_crf_train_data.py ./icwb2-data/training/msr_training.utf8 msr_training.tagging4crf.utf8” 即可得到CRF++要求的格式的训练文件msr_training.tagging4crf.utf8，样例如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>
+</div></td>
+<td><div class="text codecolorer">“ S<br>
+人 B<br>
+们 E<br>
+常 S<br>
+说 S<br>
+生 B<br>
+活 E<br>
+是 S                                      <br>
+一 S<br>
+部 S<br>
+...</div></td>
+</tr></tbody></table></div>
+<p>有了这份训练语料，就可以利用crf的训练工具crf_learn来训练模型了，执行如下命令即可：</p>
+<p>crf_learn -f 3 -c 4.0 template msr_training.tagging4crf.utf8 crf_model</p>
+<p>这次训练的时间稍微有些长，在我的4G内存的mac pro上跑了将近700轮，大约2个小时，最终训练的crf_model约51M。有了模型，现在我们需要做得还是准备一份CRF++用的测试语料，然后利用CRF++的测试工具crf_test进行字标注。原始的测试语料是icwb2-data/testing/msr_test.utf8 ，样例如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">扬帆远东做与中国合作的先行<br>
+希腊的经济结构较特殊。<br>
+海运业雄踞全球之首，按吨位计占世界总数的１７％。<br>
+另外旅游、侨汇也是经济收入的重要组成部分，制造业规模相对较小。<br>
+多年来，中希贸易始终处于较低的水平，希腊几乎没有在中国投资。<br>
+十几年来，改革开放的中国经济高速发展，远东在崛起。<br>
+瓦西里斯的船只中有４０％驶向远东，每个月几乎都有两三条船停靠中国港口。<br>
+他感受到了中国经济发展的大潮。<br>
+他要与中国人合作。<br>
+他来到中国，成为第一个访华的大船主。</div></td>
+</tr></tbody></table></div>
+<p>这里我们同样提供一个python脚本 <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/CRFSegment/make_crf_test_data.py">make_crf_test_data.py</a> 对测试语料进行处理，将其转换为CRF++要求的格式（2列，B作为最后一列的占位符)</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>25<br>26<br>27<br>28<br>29<br>
+</div></td>
+<td><div class="text codecolorer">#!/usr/bin/env python<br>
+# -*- coding: utf-8 -*-<br>
+# Author: 52nlpcn@gmail.com<br>
+# Copyright 2014 @ YuZhen Technology<br>
+#<br>
+# 4 tags for character tagging: B(Begin), E(End), M(Middle), S(Single)<br>
+<br>
+import codecs<br>
+import sys<br>
+<br>
+def character_split(input_file, output_file):<br>
+    input_data = codecs.open(input_file, 'r', 'utf-8')<br>
+    output_data = codecs.open(output_file, 'w', 'utf-8')<br>
+    for line in input_data.readlines():<br>
+        for word in line.strip():<br>
+            word = word.strip()<br>
+            if word:<br>
+                output_data.write(word + "\tB\n")<br>
+        output_data.write("\n")<br>
+    input_data.close()<br>
+    output_data.close()<br>
+<br>
+if __name__ == '__main__':<br>
+    if len(sys.argv) != 3:<br>
+        print "pls use: python make_crf_test_data.py input output"<br>
+        sys.exit()<br>
+    input_file = sys.argv[1]<br>
+    output_file = sys.argv[2]<br>
+    character_split(input_file, output_file)</div></td>
+</tr></tbody></table></div>
+<p>执行“python make_crf_test_data.py ./icwb2-data/testing/msr_test.utf8 msr_test4crf.utf8”即可得到可用于CRF++测试的测试语料msr_test4crf.utf8，样例如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>
+</div></td>
+<td><div class="text codecolorer">扬 B<br>
+帆 B<br>
+远 B<br>
+东 B<br>
+做 B<br>
+与 B<br>
+中 B<br>
+国 B<br>
+合 B<br>
+作 B                                                    <br>
+...</div></td>
+</tr></tbody></table></div>
+<p>现在执行crf_test即可得到字标注结果：</p>
+<p>crf_test -m crf_model msr_test4crf.utf8 &gt; msr_test4crf.tag.utf8</p>
+<p>msr_test4crf.tag.utf8即是标注结果，样例如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>
+</div></td>
+<td><div class="text codecolorer">扬 B   B<br>
+帆 B   E<br>
+远 B   B<br>
+东 B   E<br>
+做 B   S<br>
+与 B   S<br>
+中 B   B<br>
+国 B   E<br>
+合 B   B<br>
+作 B   E                                       <br>
+...</div></td>
+</tr></tbody></table></div>
+<p>最后我们还需要一个脚本，按标注的词位信息讲这份结果再转化为分词结果，这里我们仍然提供一个转换脚本 <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/CRFSegment/crf_data_2_word.py">crf_data_2_word.py</a> :</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>25<br>26<br>27<br>28<br>29<br>30<br>31<br>32<br>33<br>34<br>35<br>36<br>37<br>38<br>
+</div></td>
+<td><div class="text codecolorer">#!/usr/bin/env python<br>
+# -*- coding: utf-8 -*-<br>
+# Author: 52nlpcn@gmail.com<br>
+# Copyright 2014 @ YuZhen Technology<br>
+#<br>
+# 4 tags for character tagging: B(Begin), E(End), M(Middle), S(Single)<br>
+<br>
+import codecs<br>
+import sys<br>
+<br>
+def character_2_word(input_file, output_file):<br>
+    input_data = codecs.open(input_file, 'r', 'utf-8')<br>
+    output_data = codecs.open(output_file, 'w', 'utf-8')<br>
+    for line in input_data.readlines():<br>
+        if line == "\n":<br>
+            output_data.write("\n")<br>
+        else:<br>
+            char_tag_pair = line.strip().split('\t')<br>
+            char = char_tag_pair[0]<br>
+            tag = char_tag_pair[2]<br>
+            if tag == 'B':<br>
+                output_data.write(' ' + char)<br>
+            elif tag == 'M':<br>
+                output_data.write(char)<br>
+            elif tag == 'E':<br>
+                output_data.write(char + ' ')<br>
+            else: # tag == 'S'<br>
+                output_data.write(' ' + char + ' ')<br>
+    input_data.close()<br>
+    output_data.close()<br>
+<br>
+if __name__ == '__main__':<br>
+    if len(sys.argv) != 3:<br>
+        print "pls use: python crf_data_2_word.py input output"<br>
+        sys.exit()<br>
+    input_file = sys.argv[1]<br>
+    output_file = sys.argv[2]<br>
+    character_2_word(input_file, output_file)</div></td>
+</tr></tbody></table></div>
+<p>只需执行“python crf_data_2_word.py msr_test4crf.tag.utf8 msr_test4crf.tag2word.utf8” 即可得到合并后的分词结果文件 msr_test4crf.tag2word.utf8，样例如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>
+</div></td>
+<td><div class="text codecolorer"> 扬帆  远东  做  与  中国  合作  的  先行 <br>
+ 希腊  的  经济  结构  较  特殊  。 <br>
+ 海运  业  雄踞  全球  之  首  ，  按  吨  位  计  占  世界  总数  的  １７％  。 <br>
+ 另外  旅游  、  侨汇  也是  经济  收入  的  重要  组成部分  ，  制造业  规模  相对  较小  。 <br>
+ 多年来  ，  中  希  贸易  始终  处于  较低  的  水平  ，  希腊  几乎  没有  在  中国  投资  。 <br>
+ 十几年  来  ，  改革开放  的  中国  经济  高速  发展  ，  远东  在  崛起  。 <br>
+ 瓦西里斯  的  船只  中  有  ４０％  驶  向  远东  ，  每个  月  几乎  都  有  两三条  船  停靠  中国  港口  。 <br>
+ 他  感受  到  了  中国  经济  发展  的  大潮  。 <br>
+ 他  要  与  中国人  合作  。 <br>
+ 他  来到  中国  ，  成为  第一个  访  华  的  大船  主  。<br>
+ ...</div></td>
+</tr></tbody></table></div>
+<p>有了这个CRF字标注分词结果，我们就可以利用backoff2005的测试脚本来测一下这次分词的效果了：</p>
+<p>./icwb2-data/scripts/score ./icwb2-data/gold/msr_training_words.utf8 ./icwb2-data/gold/msr_test_gold.utf8 msr_test4crf.tag2word.utf8 &gt; msr_crf_segment.score</p>
+<p>结果如下：</p>
+<p>=== SUMMARY:<br>
+=== TOTAL INSERTIONS:	1412<br>
+=== TOTAL DELETIONS:	1305<br>
+=== TOTAL SUBSTITUTIONS:	2449<br>
+=== TOTAL NCHANGE:	5166<br>
+=== TOTAL TRUE WORD COUNT:	106873<br>
+=== TOTAL TEST WORD COUNT:	106980<br>
+=== TOTAL TRUE WORDS RECALL:	0.965<br>
+=== TOTAL TEST WORDS PRECISION:	0.964<br>
+=== F MEASURE:	0.964<br>
+=== OOV Rate:	0.026<br>
+=== OOV Recall Rate:	0.647<br>
+=== IV Recall Rate:	0.974<br>
+###	msr_test4crf.tag2word.utf8	1412	1305	2449	5166	106873	106980	0.965	0.964	0.964	0.026	0.647	0.974</p>
+<p>这次我们获得了一个准确率，召回率以及F值都在96%以上的结果，相对于前面几节的测试结果，这个CRF字标注分词结果还相对不错。不过是不是感觉上面的步骤有些繁琐，有没有一次到位的CRF分词器，这里我们同样提供一个CRF分词脚本 <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/CRFSegment/crf_segmenter.py">crf_segmenter.py</a> ，利用CRF++的python工具包，做到一次输入，一次输出：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>25<br>26<br>27<br>28<br>29<br>30<br>31<br>32<br>33<br>34<br>35<br>36<br>37<br>38<br>39<br>40<br>41<br>42<br>43<br>44<br>45<br>46<br>47<br>48<br>49<br>50<br>
+</div></td>
+<td><div class="text codecolorer">#!/usr/bin/env python<br>
+# -*- coding: utf-8 -*-<br>
+# Author: 52nlpcn@gmail.com<br>
+# Copyright 2014 @ YuZhen Technology<br>
+#<br>
+# CRF Segmenter based character tagging:<br>
+#     4 tags for character tagging: B(Begin), E(End), M(Middle), S(Single)<br>
+<br>
+import codecs<br>
+import sys<br>
+<br>
+import CRFPP<br>
+<br>
+def crf_segmenter(input_file, output_file, tagger):<br>
+    input_data = codecs.open(input_file, 'r', 'utf-8')<br>
+    output_data = codecs.open(output_file, 'w', 'utf-8')<br>
+    for line in input_data.readlines():<br>
+        tagger.clear()<br>
+        for word in line.strip():<br>
+            word = word.strip()<br>
+            if word:<br>
+                tagger.add((word + "\to\tB").encode('utf-8'))<br>
+        tagger.parse()<br>
+        size = tagger.size()<br>
+        xsize = tagger.xsize()<br>
+        for i in range(0, size):<br>
+            for j in range(0, xsize):<br>
+                char = tagger.x(i, j).decode('utf-8')<br>
+                tag = tagger.y2(i)<br>
+                if tag == 'B':<br>
+                    output_data.write(' ' + char)<br>
+                elif tag == 'M':<br>
+                    output_data.write(char)<br>
+                elif tag == 'E':<br>
+                    output_data.write(char + ' ')<br>
+                else: # tag == 'S'<br>
+                    output_data.write(' ' + char + ' ')<br>
+        output_data.write('\n')<br>
+    input_data.close()<br>
+    output_data.close()<br>
+<br>
+if __name__ == '__main__':<br>
+    if len(sys.argv) != 4:<br>
+        print "pls use: python crf_segmenter.py model input output"<br>
+        sys.exit()<br>
+    crf_model = sys.argv[1]<br>
+    input_file = sys.argv[2]<br>
+    output_file = sys.argv[3]<br>
+    tagger = CRFPP.Tagger("-m " + crf_model)<br>
+    crf_segmenter(input_file, output_file, tagger)</div></td>
+</tr></tbody></table></div>
+<p>只需执行“python crf_segmenter.py crf_model ./icwb2-data/testing/msr_test.utf8 msr_test.seg.utf8”即可得到与前面几步得到的分词结果完全一致的CRF分词结果：msr_test.seg.utf8 。</p>
+<p>好了，到此为止，关于字标注中文分词的系列终于可以画上句号了，这个系列中所举的例子以及所提供的脚本都是toy级别的中文分词工具，距离一个真正实用的中文分词器还有很多路要走，不过既然路已经打开，欢迎大家和我们一起继续探索中文分词的奥秘。</p>
+<p>最后再打个广告：今天是2013年的最后一天，这一年，我们创业了，成立了一家公司“<a href="http://www.yuzhenkeji.com/">语真科技</a>”，2014年，我们除了关注在线教育外，也致力于<a href="http://www.yuzhenkeji.com/nlpservice">NLP技术的普及，推广和应用</a>，如果您有相关的需求，欢迎和我们联系，微博 @52nlp 或者邮件联系 support@yuzhenkeji.com 都可以，最后祝大家新年顺心如意！</p>
+<p>注：原创文章，转载请注明出处“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/%E4%B8%AD%E6%96%87%E5%88%86%E8%AF%8D%E5%85%A5%E9%97%A8%E4%B9%8B%E5%AD%97%E6%A0%87%E6%B3%A8%E6%B3%954">http://www.52nlp.cn/中文分词入门之字标注法4</a></p>
+
+											
+{% endraw %}

@@ -1,0 +1,147 @@
+---
+layout: post
+title: '如何计算两个文档的相似度（三）'
+time: 2013-06-07
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/%e5%a6%82%e4%bd%95%e8%ae%a1%e7%ae%97%e4%b8%a4%e4%b8%aa%e6%96%87%e6%a1%a3%e7%9a%84%e7%9b%b8%e4%bc%bc%e5%ba%a6%e4%b8%89
+---
+{% raw %}
+
+						<p><a href="http://www.52nlp.cn/%E5%A6%82%E4%BD%95%E8%AE%A1%E7%AE%97%E4%B8%A4%E4%B8%AA%E6%96%87%E6%A1%A3%E7%9A%84%E7%9B%B8%E4%BC%BC%E5%BA%A6%E4%BA%8C">上一节</a>我们用了一个简单的例子过了一遍<a href="http://radimrehurek.com/gensim/index.html">gensim</a>的用法，这一节我们将用<a href="http://coursegraph.com">课程图谱</a>的实际数据来做一些验证和改进，同时会用到<a href="http://nltk.org/">NLTK</a>来对课程的英文数据做预处理。</p>
+<p>三、<a href="http://coursegraph.com">课程图谱</a>相关实验</p>
+<p>1、数据准备<br>
+为了方便大家一起来做验证，这里准备了一份Coursera的课程数据，可以在这里下载：<a href="http://vdisk.weibo.com/s/EOQCI" target="_blank">coursera_corpus</a>，总共379个课程，每行包括3部分内容：课程名\t课程简介\t课程详情, 已经清除了其中的html tag, 下面所示的例子仅仅是其中的课程名：</p>
+<blockquote><p>
+Writing II: Rhetorical Composing<br>
+Genetics and Society: A Course for Educators<br>
+General Game Playing<br>
+Genes and the Human Condition (From Behavior to Biotechnology)<br>
+A Brief History of Humankind<br>
+New Models of Business in Society<br>
+Analyse Numérique pour Ingénieurs<br>
+Evolution: A Course for Educators<br>
+Coding the Matrix: Linear Algebra through Computer Science Applications<br>
+The Dynamic Earth: A Course for Educators<br>
+ …
+ </p></blockquote>
+<p>好了，首先让我们打开Python, 加载这份数据：</p>
+<p>&gt;&gt;&gt; courses = [line.strip() for line in file('coursera_corpus')]<br>
+&gt;&gt;&gt; courses_name = [course.split('\t')[0] for course in courses]<br>
+&gt;&gt;&gt; print courses_name[0:10]<br>
+['Writing II: Rhetorical Composing', 'Genetics and Society: A Course for Educators', 'General Game Playing', 'Genes and the Human Condition (From Behavior to Biotechnology)', 'A Brief History of Humankind', 'New Models of Business in Society', 'Analyse Num\xc3\xa9rique pour Ing\xc3\xa9nieurs', 'Evolution: A Course for Educators', 'Coding the Matrix: Linear Algebra through Computer Science Applications', 'The Dynamic Earth: A Course for Educators']</p>
+<p>2、引入NLTK<br>
+NTLK是著名的Python自然语言处理工具包，但是主要针对的是英文处理，不过<a href="http://coursegraph.com">课程图谱</a>目前处理的课程数据主要是英文，因此也足够了。NLTK配套有文档，有语料库，有书籍，甚至国内有同学无私的翻译了这本书: <a href="http://www.52nlp.cn/%E6%8E%A8%E8%8D%90%EF%BC%8D%E7%94%A8python%E8%BF%9B%E8%A1%8C%E8%87%AA%E7%84%B6%E8%AF%AD%E8%A8%80%E5%A4%84%E7%90%86%EF%BC%8D%E4%B8%AD%E6%96%87%E7%BF%BB%E8%AF%91-nltk%E9%85%8D%E5%A5%97%E4%B9%A6">用Python进行自然语言处理</a>，有时候不得不感慨：做英文自然语言处理的同学真幸福。</p>
+<p>首先仍然是安装NLTK，在NLTK的主页详细介绍了如何在Mac, Linux和Windows下安装NLTK：<a href="http://nltk.org/install.html">http://nltk.org/install.html</a> ，最主要的还是要先装好依赖NumPy和PyYAML，其他没什么问题。安装NLTK完毕，可以import nltk测试一下，如果没有问题，还有一件非常重要的工作要做，下载NLTK官方提供的相关语料：</p>
+<p>&gt;&gt;&gt; import nltk<br>
+&gt;&gt;&gt; nltk.download()</p>
+<p>这个时候会弹出一个图形界面，会显示两份数据供你下载，分别是all-corpora和book，最好都选定下载了，这个过程需要一段时间，语料下载完毕后，NLTK在你的电脑上才真正达到可用的状态，可以测试一下<a href="http://en.wikipedia.org/wiki/Brown_Corpus">布朗语料库</a>：</p>
+<p>&gt;&gt;&gt; from nltk.corpus import brown<br>
+&gt;&gt;&gt; brown.readme()<br>
+‘BROWN CORPUS\n\nA Standard Corpus of Present-Day Edited American\nEnglish, for use with Digital Computers.\n\nby W. N. Francis and H. Kucera (1964)\nDepartment of Linguistics, Brown University\nProvidence, Rhode Island, USA\n\nRevised 1971, Revised and Amplified 1979\n\nhttp://www.hit.uib.no/icame/brown/bcm.html\n\nDistributed with the permission of the copyright holder,\nredistribution permitted.\n’<br>
+&gt;&gt;&gt; brown.words()[0:10]<br>
+['The', 'Fulton', 'County', 'Grand', 'Jury', 'said', 'Friday', 'an', 'investigation', 'of']<br>
+&gt;&gt;&gt; brown.tagged_words()[0:10]<br>
+[('The', 'AT'), ('Fulton', 'NP-TL'), ('County', 'NN-TL'), ('Grand', 'JJ-TL'), ('Jury', 'NN-TL'), ('said', 'VBD'), ('Friday', 'NR'), ('an', 'AT'), ('investigation', 'NN'), ('of', 'IN')]<br>
+&gt;&gt;&gt; len(brown.words())<br>
+1161192</p>
+<p>现在我们就来处理刚才的课程数据，如果按此前的方法仅仅对文档的单词小写化的话，我们将得到如下的结果：</p>
+<p>&gt;&gt;&gt; texts_lower = [[word for word in document.lower().split()] for document in courses]<br>
+&gt;&gt;&gt; print texts_lower[0]<br>
+['writing', 'ii:', 'rhetorical', 'composing', 'rhetorical', 'composing', 'engages', 'you', 'in', 'a', 'series', 'of', 'interactive', 'reading,', 'research,', 'and', 'composing', 'activities', 'along', 'with', 'assignments', 'designed', 'to', 'help', 'you', 'become', 'more', 'effective', 'consumers', 'and', 'producers', 'of', 'alphabetic,', 'visual', 'and', 'multimodal', 'texts.', 'join', 'us', 'to', 'become', 'more', 'effective', 'writers...', 'and', 'better', 'citizens.', 'rhetorical', 'composing', 'is', 'a', 'course', 'where', 'writers', 'exchange', 'words,', 'ideas,', 'talents,', 'and', 'support.', 'you', 'will', 'be', 'introduced', 'to', 'a', ...</p>
+<p>注意其中很多标点符号和单词是没有分离的，所以我们引入nltk的word_tokenize函数，并处理相应的数据：</p>
+<p>&gt;&gt;&gt; from nltk.tokenize import word_tokenize<br>
+&gt;&gt;&gt; texts_tokenized = [[word.lower() for word in word_tokenize(document)] for document in courses]<br>
+&gt;&gt;&gt; print texts_tokenized[0]<br>
+['writing', 'ii', ':', 'rhetorical', 'composing', 'rhetorical', 'composing', 'engages', 'you', 'in', 'a', 'series', 'of', 'interactive', 'reading', ',', 'research', ',', 'and', 'composing', 'activities', 'along', 'with', 'assignments', 'designed', 'to', 'help', 'you', 'become', 'more', 'effective', 'consumers', 'and', 'producers', 'of', 'alphabetic', ',', 'visual', 'and', 'multimodal', 'texts.', 'join', 'us', 'to', 'become', 'more', 'effective', 'writers', '...', 'and', 'better', 'citizens.', 'rhetorical', 'composing', 'is', 'a', 'course', 'where', 'writers', 'exchange', 'words', ',', 'ideas', ',', 'talents', ',', 'and', 'support.', 'you', 'will', 'be', 'introduced', 'to', 'a', ...</p>
+<p>对课程的英文数据进行tokenize之后，我们需要去停用词，幸好NLTK提供了一份英文停用词数据：</p>
+<p>&gt;&gt;&gt; from nltk.corpus import stopwords<br>
+&gt;&gt;&gt; english_stopwords = stopwords.words('english')<br>
+&gt;&gt;&gt; print english_stopwords<br>
+['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', 'should', 'now']<br>
+&gt;&gt;&gt; len(english_stopwords)<br>
+127</p>
+<p>总计127个停用词，我们首先过滤课程语料中的停用词：<br>
+&gt;&gt;&gt; texts_filtered_stopwords = [[word for word in document if not word in english_stopwords] for document in texts_tokenized]<br>
+&gt;&gt;&gt; print texts_filtered_stopwords[0]<br>
+['writing', 'ii', ':', 'rhetorical', 'composing', 'rhetorical', 'composing', 'engages', 'series', 'interactive', 'reading', ',', 'research', ',', 'composing', 'activities', 'along', 'assignments', 'designed', 'help', 'become', 'effective', 'consumers', 'producers', 'alphabetic', ',', 'visual', 'multimodal', 'texts.', 'join', 'us', 'become', 'effective', 'writers', '...', 'better', 'citizens.', 'rhetorical', 'composing', 'course', 'writers', 'exchange', 'words', ',', 'ideas', ',', 'talents', ',', 'support.', 'introduced', 'variety', 'rhetorical', 'concepts\xe2\x80\x94that', ',', 'ideas', 'techniques', 'inform', 'persuade', 'audiences\xe2\x80\x94that', 'help', 'become', 'effective', 'consumer', 'producer', 'written', ',', 'visual', ',', 'multimodal', 'texts.', 'class', 'includes', 'short', 'videos', ',', 'demonstrations', ',', 'activities.', 'envision', 'rhetorical', 'composing', 'learning', 'community', 'includes', 'enrolled', 'course', 'instructors.', 'bring', 'expertise', 'writing', ',', 'rhetoric', 'course', 'design', ',', 'designed', 'assignments', 'course', 'infrastructure', 'help', 'share', 'experiences', 'writers', ',', 'students', ',', 'professionals', 'us.', 'collaborations', 'facilitated', 'wex', ',', 'writers', 'exchange', ',', 'place', 'exchange', 'work', 'feedback']</p>
+<p>停用词被过滤了，不过发现标点符号还在，这个好办，我们首先定义一个标点符号list:<br>
+&gt;&gt;&gt; english_punctuations = [',', '.', ':', ';', '?', '(', ')', '[', ']‘, ‘&amp;’, ‘!’, ‘*’, ‘@’, ‘#’, ‘$’, ‘%’]</p>
+<p>然后过滤这些标点符号：<br>
+&gt;&gt;&gt; texts_filtered = [[word for word in document if not word in english_punctuations] for document in texts_filtered_stopwords]<br>
+&gt;&gt;&gt; print texts_filtered[0]<br>
+['writing', 'ii', 'rhetorical', 'composing', 'rhetorical', 'composing', 'engages', 'series', 'interactive', 'reading', 'research', 'composing', 'activities', 'along', 'assignments', 'designed', 'help', 'become', 'effective', 'consumers', 'producers', 'alphabetic', 'visual', 'multimodal', 'texts.', 'join', 'us', 'become', 'effective', 'writers', '...', 'better', 'citizens.', 'rhetorical', 'composing', 'course', 'writers', 'exchange', 'words', 'ideas', 'talents', 'support.', 'introduced', 'variety', 'rhetorical', 'concepts\xe2\x80\x94that', 'ideas', 'techniques', 'inform', 'persuade', 'audiences\xe2\x80\x94that', 'help', 'become', 'effective', 'consumer', 'producer', 'written', 'visual', 'multimodal', 'texts.', 'class', 'includes', 'short', 'videos', 'demonstrations', 'activities.', 'envision', 'rhetorical', 'composing', 'learning', 'community', 'includes', 'enrolled', 'course', 'instructors.', 'bring', 'expertise', 'writing', 'rhetoric', 'course', 'design', 'designed', 'assignments', 'course', 'infrastructure', 'help', 'share', 'experiences', 'writers', 'students', 'professionals', 'us.', 'collaborations', 'facilitated', 'wex', 'writers', 'exchange', 'place', 'exchange', 'work', 'feedback']</p>
+<p>更进一步，我们对这些英文单词词干化（<a href="http://en.wikipedia.org/wiki/Stemming">Stemming</a>)，NLTK提供了好几个相关工具接口可供选择，具体参考这个页面: <a href="http://nltk.org/api/nltk.stem.html">http://nltk.org/api/nltk.stem.html</a> , 可选的工具包括<a href="http://www.comp.lancs.ac.uk/computing/research/stemming/">Lancaster Stemmer</a>, <a href="http://tartarus.org/~martin/PorterStemmer/">Porter Stemmer</a>等知名的英文Stemmer。这里我们使用LancasterStemmer:</p>
+<p>&gt;&gt;&gt; from nltk.stem.lancaster import LancasterStemmer<br>
+&gt;&gt;&gt; st = LancasterStemmer()<br>
+&gt;&gt;&gt; st.stem(‘stemmed’)<br>
+‘stem’<br>
+&gt;&gt;&gt; st.stem(‘stemming’)<br>
+‘stem’<br>
+&gt;&gt;&gt; st.stem(‘stemmer’)<br>
+‘stem’<br>
+&gt;&gt;&gt; st.stem(‘running’)<br>
+‘run’<br>
+&gt;&gt;&gt; st.stem(‘maximum’)<br>
+‘maxim’<br>
+&gt;&gt;&gt; st.stem(‘presumably’)<br>
+‘presum’</p>
+<p>让我们调用这个接口来处理上面的课程数据:<br>
+&gt;&gt;&gt; texts_stemmed = [[st.stem(word) for word in docment] for docment in texts_filtered]<br>
+&gt;&gt;&gt; print texts_stemmed[0]<br>
+['writ', 'ii', 'rhet', 'compos', 'rhet', 'compos', 'eng', 'sery', 'interact', 'read', 'research', 'compos', 'act', 'along', 'assign', 'design', 'help', 'becom', 'effect', 'consum', 'produc', 'alphabet', 'vis', 'multimod', 'texts.', 'join', 'us', 'becom', 'effect', 'writ', '...', 'bet', 'citizens.', 'rhet', 'compos', 'cours', 'writ', 'exchang', 'word', 'idea', 'tal', 'support.', 'introduc', 'vary', 'rhet', 'concepts\xe2\x80\x94that', 'idea', 'techn', 'inform', 'persuad', 'audiences\xe2\x80\x94that', 'help', 'becom', 'effect', 'consum', 'produc', 'writ', 'vis', 'multimod', 'texts.', 'class', 'includ', 'short', 'video', 'demonst', 'activities.', 'envid', 'rhet', 'compos', 'learn', 'commun', 'includ', 'enrol', 'cours', 'instructors.', 'bring', 'expert', 'writ', 'rhet', 'cours', 'design', 'design', 'assign', 'cours', 'infrastruct', 'help', 'shar', 'expery', 'writ', 'stud', 'profess', 'us.', 'collab', 'facilit', 'wex', 'writ', 'exchang', 'plac', 'exchang', 'work', 'feedback']</p>
+<p>在我们引入gensim之前，还有一件事要做，去掉在整个语料库中出现次数为1的低频词，测试了一下，不去掉的话对效果有些影响：</p>
+<p>&gt;&gt;&gt; all_stems = sum(texts_stemmed, [])<br>
+&gt;&gt;&gt; stems_once = set(stem for stem in set(all_stems) if all_stems.count(stem) == 1)<br>
+&gt;&gt;&gt; texts = [[stem for stem in text if stem not in stems_once] for text in texts_stemmed]</p>
+<p>3、引入gensim<br>
+有了上述的预处理，我们就可以引入gensim，并快速的做课程相似度的实验了。以下会快速的过一遍流程，具体的可以参考<a href="http://www.52nlp.cn/%E5%A6%82%E4%BD%95%E8%AE%A1%E7%AE%97%E4%B8%A4%E4%B8%AA%E6%96%87%E6%A1%A3%E7%9A%84%E7%9B%B8%E4%BC%BC%E5%BA%A6%E4%BA%8C">上一节</a>的详细描述。</p>
+<p>&gt;&gt;&gt; from gensim import corpora, models, similarities<br>
+&gt;&gt;&gt; import logging<br>
+&gt;&gt;&gt; logging.basicConfig(format=’%(asctime)s : %(levelname)s : %(message)s’, level=logging.INFO)</p>
+<p>&gt;&gt;&gt; dictionary = corpora.Dictionary(texts)<br>
+2013-06-07 21:37:07,120 : INFO : adding document #0 to Dictionary(0 unique tokens)<br>
+2013-06-07 21:37:07,263 : INFO : built Dictionary(3341 unique tokens) from 379 documents (total 46417 corpus positions)</p>
+<p>&gt;&gt;&gt; corpus = [dictionary.doc2bow(text) for text in texts]</p>
+<p>&gt;&gt;&gt; tfidf = models.TfidfModel(corpus)<br>
+2013-06-07 21:58:30,490 : INFO : collecting document frequencies<br>
+2013-06-07 21:58:30,490 : INFO : PROGRESS: processing document #0<br>
+2013-06-07 21:58:30,504 : INFO : calculating IDF weights for 379 documents and 3341 features (29166 matrix non-zeros)</p>
+<p>&gt;&gt;&gt; corpus_tfidf = tfidf[corpus]</p>
+<p>这里我们拍脑门决定训练topic数量为10的LSI模型：<br>
+&gt;&gt;&gt; lsi = models.LsiModel(corpus_tfidf, id2word=dictionary, num_topics=10)  </p>
+<p>&gt;&gt;&gt; index = similarities.MatrixSimilarity(lsi[corpus])<br>
+2013-06-07 22:04:55,443 : INFO : scanning corpus to determine the number of features<br>
+2013-06-07 22:04:55,510 : INFO : creating matrix for 379 documents and 10 features</p>
+<p>基于LSI模型的课程索引建立完毕，我们以Andrew Ng教授的<a href="http://coursegraph.com/machine-learning-coursera-ml-stanford-university">机器学习公开课</a>为例，这门课程在我们的coursera_corpus文件的第211行，也就是：</p>
+<p>&gt;&gt;&gt; print courses_name[210]<br>
+Machine Learning</p>
+<p>现在我们就可以通过lsi模型将这门课程映射到10个topic主题模型空间上，然后和其他课程计算相似度：<br>
+&gt;&gt;&gt; ml_course = texts[210]<br>
+&gt;&gt;&gt; ml_bow = dicionary.doc2bow(ml_course)<br>
+&gt;&gt;&gt; ml_lsi = lsi[ml_bow]<br>
+&gt;&gt;&gt; print ml_lsi<br>
+[(0, 8.3270084238788673), (1, 0.91295652151975082), (2, -0.28296075112669405), (3, 0.0011599008827843801), (4, -4.1820134980024255), (5, -0.37889856481054851), (6, 2.0446999575052125), (7, 2.3297944485200031), (8, -0.32875594265388536), (9, -0.30389668455507612)]<br>
+&gt;&gt;&gt; sims = index[ml_lsi]<br>
+&gt;&gt;&gt; sort_sims = sorted(enumerate(sims), key=lambda item: -item[1])</p>
+<p>取按相似度排序的前10门课程：<br>
+&gt;&gt;&gt; print sort_sims[0:10]<br>
+[(210, 1.0), (174, 0.97812241), (238, 0.96428639), (203, 0.96283489), (63, 0.9605484), (189, 0.95390636), (141, 0.94975704), (184, 0.94269753), (111, 0.93654782), (236, 0.93601125)]</p>
+<p>第一门课程是它自己:<br>
+&gt;&gt;&gt; print courses_name[210]<br>
+Machine Learning</p>
+<p>第二门课是Coursera上另一位大牛Pedro Domingos<a href="http://coursegraph.com/machine-learning-coursera-machlearning-university-of-washington">机器学习公开课</a><br>
+&gt;&gt;&gt; print courses_name[174]<br>
+Machine Learning</p>
+<p>第三门课是Coursera的另一位创始人，同样是大牛的Daphne Koller教授的<a href="http://coursegraph.com/probabilistic-graphical-models-coursera-pgm-stanford-university">概率图模型公开课</a>：<br>
+&gt;&gt;&gt; print courses_name[238]<br>
+Probabilistic Graphical Models</p>
+<p>第四门课是另一位超级大牛Geoffrey Hinton的<a href="http://coursegraph.com/neural-networks-for-machine-learning-coursera-neuralnets-university-of-toronto">神经网络公开课</a>，有同学评价是Deep Learning的必修课。<br>
+&gt;&gt;&gt; print courses_name[203]<br>
+Neural Networks for Machine Learning</p>
+<p>感觉效果还不错，如果觉得有趣的话，也可以动手试试。</p>
+<p>好了，这个系列就到此为止了，原计划写一下在英文维基百科全量数据上的实验，因为<a href="http://coursegraph.com">课程图谱</a>目前暂时不需要，所以就到此为止，感兴趣的同学可以直接阅读gensim上的相关文档，非常详细。之后我可能更关注将NLTK应用到中文信息处理上，欢迎关注。</p>
+<p>注：原创文章，转载请注明出处“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/%E5%A6%82%E4%BD%95%E8%AE%A1%E7%AE%97%E4%B8%A4%E4%B8%AA%E6%96%87%E6%A1%A3%E7%9A%84%E7%9B%B8%E4%BC%BC%E5%BA%A6%E4%B8%89">http://www.52nlp.cn/如何计算两个文档的相似度三</a></p>
+
+											
+{% endraw %}
