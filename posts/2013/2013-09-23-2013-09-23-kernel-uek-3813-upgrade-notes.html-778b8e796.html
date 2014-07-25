@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>UEK R3升级手记</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-09-23-2013-09-23-kernel-uek-3813-upgrade-notes.html-778b8e796.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,173 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
+    <h1>UEK R3升级手记</h1>
+    <p class="meta"><span class="time">Sep 23, 2013</span><span class="source_url"> • <a name="liulantao.com" href="http://blog.liulantao.com/blog/2013/2013-09-23-kernel-uek-3813-upgrade-notes.html" target="_blank">http://blog.liulantao.com/blog/2013/2013-09-23-kernel-uek-3813-upgrade-notes.html</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+  <p>UEK是OracleLinux发布的内核版本，对内核增加了更多优化。最近发布了UEK R3。如果需要部署3.x系列内核，可以基于此版本进行测试升级了。</p>
+
+<p>主要的更新内容包括：</p>
+
+<ul>
+  <li>基于Linux主线版本3.8.13</li>
+  <li>虚拟化相关支持升级</li>
+  <li>btrfs升级（UEK R2中基于kernel 3.0，UEK R3基于kernel 3.8）</li>
+  <li>DTrace 0.4</li>
+  <li>cgroups和LXC更新。lxc-0.9.0-2.0.4同时发布</li>
+  <li>XEN改进</li>
+  <li>大量的驱动升级，涵盖存储设备、网络设备等</li>
+</ul>
+
+<p>重要改进：</p>
+
+<ul>
+  <li>ext4支持inode内存储小文件（通过-O inline_data）选项
+    mkfs.ext4 -O inline_data device
+针对已有的ext4文件系统
+    tune2fs -O inline_data device</li>
+  <li>XFS日志checksum</li>
+  <li>zero huge page以改善现有zero 4-KB page的性能</li>
+  <li>NUMA节点下内存分配的自动平衡</li>
+  <li>memory control group支持额外的参数
+    <ul>
+      <li>memory.kmem.failcnt</li>
+      <li>memory.kmem.limit_in_bytes</li>
+      <li>memory.kmem.max_usage_in_bytes</li>
+      <li>memory.kmem.usage_in_bytes</li>
+    </ul>
+  </li>
+  <li>SCSI error-handling超时值可以通过/sys/class/scsi_device/*/device/eh_timeout设置</li>
+  <li>通过mmap()的flags或shmget()的shmflg参数可以使用variable-sized huge page</li>
+  <li>TCP fast open (TFO)</li>
+  <li>watchdog定时器设备/dev/watchdog</li>
+</ul>
+
+<p>注意事项</p>
+
+<ul>
+  <li>I/O scheduler默认为deadline。RHEL中默认为cfq</li>
+</ul>
+
+<p>安装UEK R3。</p>
+
+<p>首先需要安装Oracle仓库。安装oracle仓库的方法参考<a href="http://public-yum.oracle.com">http://public-yum.oracle.com</a>。或者以root身份执行以下命令</p>
+
+<pre><code>#CentOS 5
+cd /etc/yum.repos.d
+wget https://public-yum.oracle.com/public-yum-el5.repo
+
+#CentOS 6
+cd /etc/yum.repos.d
+wget https://public-yum.oracle.com/public-yum-ol6.repo
+</code></pre>
+
+<p>由于UEK R3还没有加入到正式版本中，所有需要手工设置使用oracle的beta仓库（目前属于测试阶段，以后可能会更改）</p>
+
+<pre><code>cd /etc/yum.repos.d
+wget http://public-yum.oracle.com/beta/public-yum-ol6-beta.repo
+sed -i s/enabled=0/enabled=1/g public-yum-ol6-beta.repo 或
+cat &gt;/etc/yum.repos.d/public-yum-ol6-beta.repo&lt;&lt;EOF
+[ol6_beta]
+name=Oracle Linux \$releasever Beta (\$basearch)
+baseurl=http://public-yum.oracle.com/beta/repo/OracleLinux/OL6/uek3/\$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=0
+enabled=1
+EOF
+</code></pre>
+
+<p>现在可以通过yum来安装uek3：
+    yum install -y kernel-uek-3.8.13-13.el6uek</p>
+
+<pre><code>[root@localhost yum.repos.d]# yum install kernel-uek-3.8.13-13.el6uek -y
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.btte.net
+ * epel: mirrors.hust.edu.cn
+ * extras: mirrors.btte.net
+ * updates: mirrors.hust.edu.cn
+Setting up Install Process
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package kernel-uek.x86_64 0:3.8.13-13.el6uek will be installed
+--&gt; Processing Dependency: kernel-firmware = 3.8.13-13.el6uek for package: kernel-uek-3.8.13-13.el6uek.x86_64
+--&gt; Running transaction check
+---&gt; Package kernel-uek-firmware.noarch 0:3.8.13-13.el6uek will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+========================================================================================================================
+ Package                            Arch                  Version                         Repository               Size
+========================================================================================================================
+Installing:
+ kernel-uek                         x86_64                3.8.13-13.el6uek                ol6_beta                 36 M
+Installing for dependencies:
+ kernel-uek-firmware                noarch                3.8.13-13.el6uek                ol6_beta                1.6 M
+
+Transaction Summary
+========================================================================================================================
+Install       2 Package(s)
+
+Total download size: 37 M
+Installed size: 151 M
+Downloading Packages:
+(1/2): kernel-uek-3.8.13-13.el6uek.x86_64.rpm                                                    |  36 MB     02:22     
+(2/2): kernel-uek-firmware-3.8.13-13.el6uek.noarch.rpm                                           | 1.6 MB     00:05     
+------------------------------------------------------------------------------------------------------------------------
+Total                                                                                   256 kB/s |  37 MB     02:29     
+Running rpm_check_debug
+Running Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing : kernel-uek-firmware-3.8.13-13.el6uek.noarch                                                          1/2 
+  Installing : kernel-uek-3.8.13-13.el6uek.x86_64                                                                   2/2 
+  Verifying  : kernel-uek-firmware-3.8.13-13.el6uek.noarch                                                          1/2 
+  Verifying  : kernel-uek-3.8.13-13.el6uek.x86_64                                                                   2/2 
+
+Installed:
+  kernel-uek.x86_64 0:3.8.13-13.el6uek                                                                                  
+
+Dependency Installed:
+  kernel-uek-firmware.noarch 0:3.8.13-13.el6uek                                                                         
+
+Complete!
+</code></pre>
+
+<p>现在可以在/boot目录下和/etc/grub/menu.lst里看到3.8.13版本的内核项。重启试试。</p>
+
+<pre><code>uname -a
+Linux localhost.localdomain 3.8.13-13.el6uek.x86_64 #1 SMP Wed Aug 21 14:28:36 PDT 2013 x86_64 x86_64 x86_64 GNU/Linux
+</code></pre>
+
+<p>还可以安装其它工具</p>
+
+<pre><code># yum install dtrace-utils
+# yum install lxc
+</code></pre>
+
+<p><a href="http://linux.oracle.com/RELEASE-NOTES-UEK3-BETA-en.html">Release Notes</a></p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html" title="Previous Post: Ruby-1.9.1之后版本支持kerberos问题的解决思路" data-instant>&laquo; Ruby-1.9.1之后版本支持kerberos问题的解决思路</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Next Post: 为什么rsync能够快速删除400000文件？" data-instant>为什么rsync能够快速删除400000文件？ &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2013/2013-10-10-2013-10-10-an-example-of-map-reduce-in-ruby.html-66f70f526.html" title="Next Post: Ruby中的map方法和reduce方法" data-instant>Ruby中的map方法和reduce方法 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+      <li><span>17 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html">生产环境Puppet升级笔记（3.4.3→3.6.2）</a></li>
 
-      <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
+      <li><span>26 Jan 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-01-26-2014-01-26-graphite-setup-notes.html-491f93181.html">Graphite安装笔记</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
+      <li><span>12 Dec 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-12-12--p=1098-e4b41a3f7.html">ceph VS glusterfs</a></li>
 
   </ul>
 </div>

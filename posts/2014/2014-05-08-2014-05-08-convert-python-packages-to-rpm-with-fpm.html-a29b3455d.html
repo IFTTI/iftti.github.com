@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>使用软件包神器fpm将Python包转为RPM包</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-05-08-2014-05-08-convert-python-packages-to-rpm-with-fpm.html-a29b3455d.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,95 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
+    <h1>使用软件包神器fpm将Python包转为RPM包</h1>
+    <p class="meta"><span class="time">May 8, 2014</span><span class="source_url"> • <a name="liulantao.com" href="http://blog.liulantao.com/blog/2014/2014-05-08-convert-python-packages-to-rpm-with-fpm.html" target="_blank">http://blog.liulantao.com/blog/2014/2014-05-08-convert-python-packages-to-rpm-with-fpm.html</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+    <p>在<a href="http://mib.cc/blog/2012/2012-05-21-package-management-with-fpm.html">之前的一篇文章</a>中介绍过使用fpm制作rpm包，相信实践过的同学已经见识过fpm的威力。</p>
+
+<p>作为软件包管理工具，fpm还可以实现不同软件包类型之间的相互转换。本文将简单演示一下软件包转换的功能。</p>
+
+<p>文中用例来自于日常工作中的实际需求，需要在系统中安装Scrapy工具。写本文时scrapy的最新版本为0.22。不过业务指定的版本为0.16。</p>
+
+<p>下面我们看一下软件包准备的过程。</p>
+
+<h2 id="python">转换第一个python包</h2>
+
+<p>首先制作python-scrapy包。</p>
+
+<pre><code>fpm -s python -t rpm scrapy==0.16.5
+</code></pre>
+
+<p>说明：这里我们用到了-s参数，指定源格式。指定为python包时，fpm将使用easy_install的python源获取源文件。通过“==”来指定scrapy版本号，这与easy_install的写法完全一致。</p>
+
+<p>命令执行完毕，可以看到当前目录生成文件<code>python-scrapy-0.16.5-1.noarch.rpm</code>。</p>
+
+<h2 id="section">解决依赖</h2>
+
+<p>使用yum命令测试安装。</p>
+
+<pre><code>yum localinstall python-scrapy-0.16.5-1.noarch.rpm
+</code></pre>
+
+<p>从输出看出缺少依赖的<code>python-w3lib</code>包。</p>
+
+<pre><code>Error: Package: python-scrapy-0.16.5-1.noarch (/python-scrapy-0.16.5-1.noarch)
+       Requires: python-w3lib &gt;= 1.2
+</code></pre>
+
+<p>使用同样的方式创建这个包。</p>
+
+<pre><code>fpm -s python -t rpm w3lib==1.2
+</code></pre>
+
+<h2 id="section-1">“影子”包</h2>
+
+<p>继续使用yum命令测试安装，发现另一个依赖（<code>python-pyopenssl</code>）。</p>
+
+<pre><code>yum localinstall python-scrapy-0.16.5-1.noarch.rpm python-w3lib-1.2-1.noarch.rpm
+
+Error: Package: python-scrapy-0.16.5-1.noarch (/python-scrapy-0.16.5-1.noarch)
+       Requires: python-pyopenssl
+</code></pre>
+
+<p>在yum仓库base中，可以搜索到<code>pyOpenSSL.x86_64</code>这个包，因此可以利用已有的包，避免重复创建以及可能的文件冲突。这里创建一个叫做<code>python-pyopenssl</code>的“影子”包，通过依赖包的方式引入pyOpenSSL。</p>
+
+<pre><code>fpm -s empty -t rpm -n python-pyopenssl -v 0.10 -d 'pyOpenSSL &gt;= 0.10'
+</code></pre>
+
+<p>创建的方式与上面的有些差异。最主要的一项，将源格式指定为<code>empty</code>，意味着这个不包含文件。通过<code>-d</code>参数指定将引入的依赖包名及版本。这个rpm仅仅表示一个依赖关系。</p>
+
+<p>现在重新测试一下</p>
+
+<pre><code>yum localinstall python-scrapy-0.16.5-1.noarch.rpm python-w3lib-1.2-1.noarch.rpm python-pyopenssl-0.10-1.x86_64.rpm
+</code></pre>
+
+<p>从输出可以看到已经能完成依赖检查，引入了pyOpenSSL包，可以进行安装。
+将生成的3个rpm包放入yum仓库，方便部署系统使用。</p>
+
+<h2 id="section-2">总结</h2>
+
+<p>本文以python包转换为rpm的例子，简要演示了fpm进行package格式转换的功能。同时兼顾利用“影子”包的方式来解决仓库中已有软件包但是不同名的问题。</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-05-04-openssh-perl6-94df9f44f.html" title="Previous Post: 在 Perl6 脚本中并发执行 ssh 命令" data-instant>&laquo; 在 Perl6 脚本中并发执行 ssh 命令</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Next Post: 为什么rsync能够快速删除400000文件？" data-instant>为什么rsync能够快速删除400000文件？ &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-05-17-implement-percentiles-aggregation-on-kibana-56567329d.html" title="Next Post: 给 Kibana 实现百分比统计图表" data-instant>给 Kibana 实现百分比统计图表 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+      <li><span>26 Jan 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-01-26-2014-01-26-graphite-setup-notes.html-491f93181.html">Graphite安装笔记</a></li>
 
       <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
+      <li><span>17 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html">生产环境Puppet升级笔记（3.4.3→3.6.2）</a></li>
 
   </ul>
 </div>

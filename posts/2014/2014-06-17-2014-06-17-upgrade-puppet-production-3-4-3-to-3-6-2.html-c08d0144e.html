@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>生产环境Puppet升级笔记（3.4.3→3.6.2）</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,150 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
+    <h1>生产环境Puppet升级笔记（3.4.3→3.6.2）</h1>
+    <p class="meta"><span class="time">Jun 17, 2014</span><span class="source_url"> • <a name="liulantao.com" href="http://blog.liulantao.com/blog/2014/2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html" target="_blank">http://blog.liulantao.com/blog/2014/2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+    <p>线上Puppet部署时采用的是版本3.4.3，最近发现客户端经常有一些warning提示，从提示信息看出涉及到跨版本的功能变化，因此对版本进行了一个有计划的升级。</p>
+
+<p>puppetlabs的最新版本为3.6.2。开始升级之前参考了官方的Release Notes(<a href="http://docs.puppetlabs.com/puppet/3.5/reference/release_notes.html" title="Puppet 3.5 Release Notes">3.5</a>,<a href="http://docs.puppetlabs.com/puppet/3.6/reference/release_notes.html" title="Puppet 3.6 Release Notes">3.6</a>)和其他人的文档(<a href="http://rnelson0.com/2014/06/05/puppet-3-6-1-updates/" title="PUPPET 3.6.1 UPDATES">PUPPET 3.6.1 UPDATES</a>)。</p>
+
+<p>首先将yum仓库同步到yum.puppetlabs.com的最新状态，方便后续使用。</p>
+
+<p>升级分为master和agent两部分，分别进行调整。</p>
+
+<h2 id="master">master调整</h2>
+
+<p>master有两个明显的变化</p>
+
+<ol>
+  <li>
+<code>environmentpath</code>支持</li>
+  <li>Package模块中引入的<code>allow_virtual</code>
+</li>
+</ol>
+
+<h3 id="environmentpath">environmentpath调整</h3>
+
+<p>关于<code>environmentpath</code>，配置文件改动比较小，只需修改<code>puppet.conf</code>中的<code>[master]</code>部分</p>
+
+<pre><code>+    environmentpath = $confdir/environments
+-    modulepath = $confdir/modules:/usr/share/puppet/modules
+-    manifestdir = $confdir/manifests
+</code></pre>
+
+<p>早期版本的<code>envorinment</code>支持通过在puppet.conf中额外的<code>[production]</code>和<code>[testing]</code>部分实现。需要删除<code>puppet.conf</code>中自定义的environment部分。</p>
+
+<p>同时需要对目录进行调整，这部分工作量稍大，也在可接受的范围内。以下示例中星号(*)标记的目录对应调整即可。</p>
+
+<p>调整之前目录结构为</p>
+
+<pre><code>.
+├── auth.conf
+├── autosign.conf
+├── puppet.conf
+├── manifests
+│   ├── production   *
+│   └── testing    *
+├── modules
+│   ├── production   *
+│   └── testing    *
+├── reports
+├── ssl
+├── var
+└── yaml
+</code></pre>
+
+<p>调整之后目录结构为</p>
+
+<pre><code>.
+├── auth.conf
+├── autosign.conf
+├── puppet.conf
+├── environments
+│   ├── production
+│   │   ├── manifests *
+│   │   └── modules   *
+│   └── testing
+│       ├── manifests *
+│       └── modules   *
+├── reports
+├── ssl
+├── var
+└── yaml
+</code></pre>
+
+<h3 id="allowvirtual">allow_virtual调整</h3>
+
+<p>这是一个新增的特性，相关背景可参考<a href="https://tickets.puppetlabs.com/browse/PUP-897">PDP-897</a>。由于默认值变化，如果不配置agent会收到一个warning信息。</p>
+
+<p>修改<code>environments/production/manifests/site.pp</code>和<code>environments/testing/manifests/site.pp</code></p>
+
+<pre><code>+    Package {
++      allow_virtual =&gt; true,
++    }
+</code></pre>
+
+<h3 id="section">软件包升级</h3>
+
+<p>通过gem升级安装<code>puppet-3.6.2</code></p>
+
+<pre><code>gem install puppet --version 3.6.2
+</code></pre>
+
+<p>安装后重新启动puppet master即可。</p>
+
+<h2 id="agent">agent调整</h2>
+
+<p>master端设置的<code>allow_virtual</code>是新增的一个特性，如果agent不支持，会报错，将agent的puppet版本并重启进程即可。</p>
+
+<pre><code>Error: Failed to apply catalog: Invalid parameter allow_virtual
+</code></pre>
+
+<p>理论上直接升级客户端puppet到3.6.2版本即可完成。不过在升级后发现使用<code>puppet agent --genconfig</code>生成的配置文件仍然会有warning。</p>
+
+<pre><code>Warning: Setting manifest is deprecated in puppet.conf. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1067:in `each')
+Warning: Setting modulepath is deprecated in puppet.conf. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1067:in `each')
+Warning: Setting templatedir is deprecated. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1071:in `each')
+Warning: Setting manifestdir is deprecated. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1071:in `each')
+</code></pre>
+
+<p>直接根据提示取消指定的配置项即可消除警告。这里使用一个脚本进行修改。</p>
+
+<pre><code>#!/bin/bash
+
+for s in manifest modulepath templatedir manifestdir
+do
+	grep "^    $s = " /etc/puppet/puppet.conf
+	sed -i -e "/^    $s = /s/^/#/" /etc/puppet/puppet.conf
+done
+</code></pre>
+
+<p>使用调整后的配置文件启动<code>puppet agent -t</code>，可以看到成功运行并且不再有warning。</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html" title="Previous Post: Serverspec 工具介绍" data-instant>&laquo; Serverspec 工具介绍</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Next Post: 为什么rsync能够快速删除400000文件？" data-instant>为什么rsync能够快速删除400000文件？ &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-06-29-2014-06-29-using-jekyll-data-files.html-871861a29.html" title="Next Post: 使用Jekyll - Data Files简介" data-instant>使用Jekyll - Data Files简介 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+      <li><span>23 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-23-2013-09-23-kernel-uek-3813-upgrade-notes.html-778b8e796.html">UEK R3升级手记</a></li>
+
+      <li><span>25 Apr 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-04-25-2014-04-25-rubymotion-hello-world-app.html-08b74a115.html">5分钟开发iOS应用-使用RubyMotion</a></li>
 
       <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
-
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
 
   </ul>
 </div>

@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>Ruby中的map方法和reduce方法</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-10-10-2013-10-10-an-example-of-map-reduce-in-ruby.html-66f70f526.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,79 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
+    <h1>Ruby中的map方法和reduce方法</h1>
+    <p class="meta"><span class="time">Oct 10, 2013</span><span class="source_url"> • <a name="liulantao.com" href="http://blog.liulantao.com/blog/2013/2013-10-10-an-example-of-map-reduce-in-ruby.html" target="_blank">http://blog.liulantao.com/blog/2013/2013-10-10-an-example-of-map-reduce-in-ruby.html</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+  <p>有同学问到一个问题</p>
+
+<pre><code>1
+2
+3
+4
+5
+6
+...
+
+每3行加起来，结果为
+
+6
+15 
+...
+</code></pre>
+
+<p>这个问题，处理过程分为两步，先将输入的数字每三个分为一组，然后对每组执行累加，输出结果。</p>
+
+<p>传统面向过程的写法需要进行多次循环，有一些判断条件。读者可以自行写一下，用任何语言实现。</p>
+
+<p>这两个过程，第一步叫做分块，对每一个元素进行操作；第二步则是将结果合并后输出结果。数学上的名字叫map和reduce。看到这个名字你肯定想到了hadoop——没错，就是那个map和reduce，只不过hadoop做了一些工程上的优化。
+关于map/reduce，如果不了解，可以参考(这里)[http://www.haskell.org/haskellwiki/MapReduce_as_a_monad]和(这里)[http://en.wikipedia.org/wiki/MapReduce]。</p>
+
+<p>Ruby中有相应的方法，属于Enumerable模块，对于支持Enumerable的类（如Array）可以直接使用。</p>
+
+<p>直接写出答案如下：</p>
+
+<pre><code># 首先从分块，执行map操作；然后对每个map内部执行reduce
+num_list = (1..100)
+num_list.each_slice(3).map {|b| b.reduce(:+)}
+</code></pre>
+
+<p>细心的你会发现这与hadoop的概念有些差异，reduce方法的对象不是map的结果集。没错，这个reduce是在map内部执行的。</p>
+
+<p>其实，map和reduce对应于对数据集的两种操作，map/reduce风格只是这两种操作组合使用的一个特例，reduce是可以独立于map而单独使用的。</p>
+
+<p>再来看一个hadoop风格reduce的例子</p>
+
+<pre><code># puts是reduce执行的方法
+num_list.each_slice(3).map {|b| b.reduce(:+)}.reduce(nil, :puts)
+</code></pre>
+
+<p>体会一下差异。</p>
+
+<p>再来看一个例子：
+    # 求平方和
+    num_list = (1..100)
+    (1..100).reduce {|total, element| total += element * element}     =&gt; 338350</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2013/2013-09-23-2013-09-23-kernel-uek-3813-upgrade-notes.html-778b8e796.html" title="Previous Post: UEK R3升级手记" data-instant>&laquo; UEK R3升级手记</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Next Post: 为什么rsync能够快速删除400000文件？" data-instant>为什么rsync能够快速删除400000文件？ &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2013/2013-12-12--p=1098-e4b41a3f7.html" title="Next Post: ceph VS glusterfs" data-instant>ceph VS glusterfs &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+      <li><span>26 Jan 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-01-26-2014-01-26-graphite-setup-notes.html-491f93181.html">Graphite安装笔记</a></li>
 
-      <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
+      <li><span>25 Apr 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-04-25-2014-04-25-rubymotion-hello-world-app.html-08b74a115.html">5分钟开发iOS应用-使用RubyMotion</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
+      <li><span>17 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html">生产环境Puppet升级笔记（3.4.3→3.6.2）</a></li>
 
   </ul>
 </div>

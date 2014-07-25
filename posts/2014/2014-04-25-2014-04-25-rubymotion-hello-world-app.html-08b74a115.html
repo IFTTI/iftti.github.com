@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>5分钟开发iOS应用-使用RubyMotion</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-04-25-2014-04-25-rubymotion-hello-world-app.html-08b74a115.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,183 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
+    <h1>5分钟开发iOS应用-使用RubyMotion</h1>
+    <p class="meta"><span class="time">Apr 25, 2014</span><span class="source_url"> • <a name="liulantao.com" href="http://blog.liulantao.com/blog/2014/2014-04-25-rubymotion-hello-world-app.html" target="_blank">http://blog.liulantao.com/blog/2014/2014-04-25-rubymotion-hello-world-app.html</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+    <h2 id="section">背景</h2>
+<p>这是本人在iOS/RubyMotion开发方面的第一篇文档，作为对相关工具链的经验记录。</p>
+
+<p>我对各种新奇技术一直保持一定的兴趣，而不仅局限于工作相关的领域。移动领域在很大程度上影响了人们生活的习惯，从2012开始关注iOS开发，并且玩票做过一个简单的<a href="https://itunes.apple.com/us/app/bei-shi-da-ren-zheng-wang-guan/id591059829?ls=1&amp;mt=8">工具应用</a>。</p>
+
+<p>2013年发现了RubyMotion这个神器并持续关注，看到RM的工具链逐渐走向成熟的过程，社区也逐步壮大，目前基本进入了一个完善且稳定发展的状态。</p>
+
+<h2 id="rubymotionrm">关于RubyMotion（RM）</h2>
+
+<h3 id="section-1">优势</h3>
+
+<p>RubyMotion是一个能帮助你使用Ruby语言来替代Objective-C来开发iOS平台及OSX平台应用的工具。Ruby语言相对与Objective-C的优势是较少的代码量键入，以及动态类型系统。
+如：</p>
+
+<pre><code>UILabel *label = [[UILabel alloc] init];
+</code></pre>
+
+<p>完全等价于</p>
+
+<pre><code>label = UILabel.alloc.init
+</code></pre>
+
+<p>经过RubyMotion改进后，可以使用与Ruby常用方式相同的写法：</p>
+
+<pre><code>label = UILabel.new
+</code></pre>
+
+<h3 id="section-2">底层实现</h3>
+
+<p>这个工具在语言层面与MacRuby一脉相承，通过将Ruby代码编译为与Objective-C相同的LLVM底层代码，实现了与Objective-C/Cocoa框架的交互与统一。Cocoa的类与Ruby的类实现了对应，代码中消息传递的目标仍然是Objective-C的对象，Apple官方文档的实例代码可以经过简单的变换即可直接使用。</p>
+
+<p>采用这种方式的另一个好处是不需要维护庞大的基础代码，可以支持Apple SDK的升级。</p>
+
+<h2 id="section-3">开发环境准备</h2>
+
+<p>开发iOS App的传统工具基本都包含在Xcode套件中，包含编译器，代码编辑工具，界面工具，iOS模拟器，发布工具等。理论上使用RubyMotion只需要有编译器和模拟器即可进行开发阶段的工作。考虑到采用Xcode中优秀的工具如Interface Builder，更好的选择是仍然安装完整Xcode套件。</p>
+
+<p>Ruby运行环境。RubyMotion用到了rake等工具，推荐使用rvm来安装ruby环境，建议安装ruby-2.0.0之后的版本。（如果你用过cocoapods，可能已经安装过了）。</p>
+
+<pre><code>\curl -sSL https://get.rvm.io | bash -s stable
+source /etc/profile
+
+rvm install ruby-2
+</code></pre>
+
+<p>在RubyMotion官网购买后，你会收到证书和安装文件的下载链接。按提示安装后，可以在Shell中使用motion命令。</p>
+
+<p>之后大部分操作都在shell中使用motion命令及rake命令。</p>
+
+<h2 id="section-4">开始代码相关</h2>
+
+<h3 id="motion">初识motion命令</h3>
+
+<p>执行一条命令即可创建一个工程的代码框架。</p>
+
+<pre><code>$ motion create HelloWorld
+Create HelloWorld
+Create HelloWorld/.gitignore
+Create HelloWorld/app/app_delegate.rb
+Create HelloWorld/Gemfile
+Create HelloWorld/Rakefile
+Create HelloWorld/resources/Default-568h@2x.png
+Create HelloWorld/spec/main_spec.rb
+</code></pre>
+
+<p>创建的文件能够在输出结果看到。</p>
+
+<p>进入代码目录，初始化ruby工具：</p>
+
+<pre><code>➜  ~ $  cd HelloWorld
+➜  HelloWorld $  bundle
+Fetching gem metadata from https://rubygems.org/..
+Resolving dependencies...
+Using rake (10.3.1) 
+Using bundler (1.3.5) 
+Your bundle is complete!
+Use `bundle show [gemname]` to see where a bundled gem is installed.
+</code></pre>
+
+<p>运行这个项目</p>
+
+<pre><code>➜  HelloWorld  rake
+     Build ./build/iPhoneSimulator-7.1-Development
+   Compile ./app/app_delegate.rb
+    Create ./build/iPhoneSimulator-7.1-Development/HelloWorld.app
+      Link ./build/iPhoneSimulator-7.1-Development/HelloWorld.app/HelloWorld
+    Create ./build/iPhoneSimulator-7.1-Development/HelloWorld.app/PkgInfo
+    Create ./build/iPhoneSimulator-7.1-Development/HelloWorld.app/Info.plist
+      Copy ./resources/Default-568h@2x.png
+    Create ./build/iPhoneSimulator-7.1-Development/HelloWorld.dSYM
+  Simulate ./build/iPhoneSimulator-7.1-Development/HelloWorld.app
+(main)&gt;    
+</code></pre>
+
+<p>第一次运行会编译项目的代码，需要等待一段时间。之后能看到iOS模拟器启动。</p>
+
+<p>这时候的应用只是一个黑色的屏幕，没有任何文字说明和页面提示。Shell此时进入<a href="http://www.rubymotion.com/developer-center/articles/debugging/">交互模式</a>。</p>
+
+<p>怎么样，这种感觉，有没有想到初恋的Rails？</p>
+
+<h3 id="say-hello-world">Say “Hello World!”</h3>
+
+<p>注：本节参考<a href="http://rubymotion-tutorial.com/1-hello-motion/">RubyMotion Tutorial的例子</a></p>
+
+<p>修改<code>./app/app_delegate.rb</code>，修改后的相关内容如下。</p>
+
+<pre><code>class AppDelegate
+  def application(application, didFinishLaunchingWithOptions:launchOptions)
+    alert = UIAlertView.new
+    alert.message = "Hello World!"
+    alert.show
+
+    puts "Hello World, Again!"
+
+    true
+  end
+end
+</code></pre>
+
+<p>App初始化时创建一个UIAlertView对象，之后显示出来。</p>
+
+<p>重新执行<code>rake</code>命令，这次可以看到界面中间的提示消息。</p>
+
+<p><img src="/images/2014/rubymotion-hello-world-1-alert.png" alt="RubyMotion Hello World"></p>
+
+<p>从交互窗口可以看到输出的消息<code>Hello World, Again!</code>。</p>
+
+<pre><code>➜  HelloWorld  rake
+     Build ./build/iPhoneSimulator-7.1-Development
+    Create ./build/iPhoneSimulator-7.1-Development/HelloWorld.app/Info.plist
+  Simulate ./build/iPhoneSimulator-7.1-Development/HelloWorld.app
+(main)&gt; Hello World, Again!
+(main)&gt; 
+</code></pre>
+
+<p>这个例子使用了Cocoa的功能（UIAlertView），实现了基本的文字展示，并且还有控制台的文本输出——使用puts进行基本的辅助调试。</p>
+
+<p>既然是Hello World，细节就不解释太多了。以后的文章会关注更多方面。</p>
+
+<h2 id="section-5">总结</h2>
+<p>RubyMotion已经形成一个基本的生态圈，进行App开发的上手速度也远远超过了传统工具；配合Xcode工具链使用，大大提高开发速度，能改善代码可维护性。</p>
+
+<h2 id="reference">Reference</h2>
+
+<ol>
+  <li>
+<a href="http://www.rubymotion.com">RubyMotion Official</a>
+    <ul>
+      <li><a href="http://rubymotion-tutorial.com">RubyMotion Tutorial</a></li>
+      <li><a href="http://www.quora.com/RubyMotion">RubyMotion on Quora</a></li>
+    </ul>
+  </li>
+</ol>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-04-24-yaml-dump-pm6-70ae5ebb1.html" title="Previous Post: Perl6 的 YAML::Dumper 模块" data-instant>&laquo; Perl6 的 YAML::Dumper 模块</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Next Post: 为什么rsync能够快速删除400000文件？" data-instant>为什么rsync能够快速删除400000文件？ &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-05-04-openssh-perl6-94df9f44f.html" title="Next Post: 在 Perl6 脚本中并发执行 ssh 命令" data-instant>在 Perl6 脚本中并发执行 ssh 命令 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
-
       <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+
+      <li><span>10 Oct 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-10-10-2013-10-10-an-example-of-map-reduce-in-ruby.html-66f70f526.html">Ruby中的map方法和reduce方法</a></li>
 
   </ul>
 </div>

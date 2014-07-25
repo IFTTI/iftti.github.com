@@ -5,8 +5,8 @@
     <description>IT互联网干货汇总</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Fri, 25 Jul 2014 15:23:32 +0800</pubDate>
-    <lastBuildDate>Fri, 25 Jul 2014 15:23:32 +0800</lastBuildDate>
+    <pubDate>Fri, 25 Jul 2014 15:41:44 +0800</pubDate>
+    <lastBuildDate>Fri, 25 Jul 2014 15:41:44 +0800</lastBuildDate>
     <generator>Jekyll v2.1.0</generator>
     
       <item>
@@ -265,6 +265,322 @@
         <pubDate>Tue, 08 Jul 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-07-08-rex-test-spec-7f1d6866c.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-08-rex-test-spec-7f1d6866c.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>Tomcat中配置SSL证书</title>
+        <description>  &lt;h3 id=&quot;section&quot;&gt;背景&lt;/h3&gt;
+&lt;p&gt;由于移动设备经常访问连接各种不可靠的无线网络，用户密码被嗅探的风险比较大，因此对与敏感信息需要加密传输。 而 HTTPS 是一种相对成熟的方案。&lt;/p&gt;
+
+&lt;p&gt;使用 HTTPS 协议用于移动应用的数据传输，随着App数量越来越多而显得更强烈。&lt;/p&gt;
+
+&lt;p&gt;startssl.com 提供一个免费的 ssl 证书，个人测试使用应该没问题。&lt;/p&gt;
+
+&lt;h3 id=&quot;startssl-&quot;&gt;从 startssl 获取私钥和证书&lt;/h3&gt;
+&lt;p&gt;首先在 &lt;code&gt;startssl.com&lt;/code&gt; 注册帐号，根据提示操作，这个过程比较漫长。注意填写个人信息时要详细（至少看起来是真实的地址）。 注册的攻略在网上能看到很多。 备份个人证书，否则以后换台电脑就不能登录做管理操作了。&lt;/p&gt;
+
+&lt;p&gt;帐号 Ready 后，根据提示创建域名的证书，这个步骤可以得到两个文件，分别是以 &lt;code&gt;.key&lt;/code&gt; 结尾的私钥文件和以 &lt;code&gt;.crt&lt;/code&gt; 为结尾的证书文件。保存好这两个文件，并记住私钥文件的密码备用。&lt;/p&gt;
+
+&lt;p&gt;还需要另外两个文件分别是 &lt;a href=&quot;http://www.startssl.com/certs/ca.pem&quot;&gt;ca.pem&lt;/a&gt; 和 &lt;a href=&quot;http://www.startssl.com/certs/sub.class1.server.ca.pem&quot;&gt;sub.class1.server.ca.pem&lt;/a&gt;。下载备用。&lt;/p&gt;
+
+&lt;p&gt;注：以下以域名 api.example.com 为例，实际使用请换成你自己的域名。&lt;/p&gt;
+
+&lt;p&gt;现在的4个文件分别为：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;ssl.key&lt;/li&gt;
+  &lt;li&gt;api.example.com.crt&lt;/li&gt;
+  &lt;li&gt;ca.pem&lt;/li&gt;
+  &lt;li&gt;sub.class1.server.ca.pem&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;tomcat--keystore-&quot;&gt;生成 tomcat 使用的 keystore 文件&lt;/h3&gt;
+
+&lt;p&gt;Tomcat 支持两种模式的配置方式，分别是 &lt;code&gt;BIO&lt;/code&gt; 和 &lt;code&gt;NIO&lt;/code&gt; 使用 &lt;code&gt;JSSE&lt;/code&gt; 风格（使用 keystoreFile ）；&lt;code&gt;APR&lt;/code&gt;/&lt;code&gt;native&lt;/code&gt; 使用 &lt;code&gt;APR&lt;/code&gt; 风格（使用 SSLCertificateFile / SSLCertificateKeyFile 指定私钥和证书）。&lt;/p&gt;
+
+&lt;p&gt;因为我们使用了 &lt;code&gt;NIO&lt;/code&gt; ，所以按照 &lt;code&gt;JSSE&lt;/code&gt; 风格配置，生成 keystore 文件。&lt;/p&gt;
+
+&lt;p&gt;首先将 key 文件和 crt 文件合并导出为 &lt;code&gt;p12&lt;/code&gt; 。这个步骤需要输入私钥的密码，并指定一个新的导出密码。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;openssl pkcs12 -export -in ../api.example.com.crt -inkey ../ssl__.key \
+    -out tomcat-startssl.p12 -name api.example.com -CApath ../
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后生成 keystore 文件，需要输入上一步的导出密码，及指定新的 keystore 密码，后面几步的导入需要用到这个密码。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;keytool -importkeystore -srckeystore tomcat-startssl.p12 -srcstoretype PKCS12 \
+    -destkeystore startssl-api.example.com.jks
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;导入 startssl 的 CA&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;keytool -keystore startssl-api.example.com.jks -import -trustcacerts \
+    -alias startcom.ca -file ../ca.pem
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;导入 startssl 的 sub1&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;keytool -keystore startssl-api.example.com.jks -import -trustcacerts \
+    -alias startcom.ca.sub1 -file ../sub.class1.server.ca.pem
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;现在已经生成了一个可用的 &lt;code&gt;startssl-api.example.com.jks&lt;/code&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;tomcat&quot;&gt;配置 tomcat&lt;/h3&gt;
+
+&lt;p&gt;在 tomcat 的server.xml中找到相关的 Connector 部分，这部分默认已被注释掉，去掉注释并调整内容如下&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&amp;lt;Connector SSLEnabled=&quot;true&quot; acceptCount=&quot;100&quot; clientAuth=&quot;false&quot;
+    disableUploadTimeout=&quot;true&quot; enableLookups=&quot;false&quot; maxThreads=&quot;25&quot;
+    port=&quot;8443&quot; keystoreFile=&quot;/etc/tomcat/startssl-api.example.com.jks&quot; keystorePass=&quot;passw0rd&quot;
+    protocol=&quot;org.apache.coyote.http11.Http11NioProtocol&quot; scheme=&quot;https&quot;
+    secure=&quot;true&quot; sslProtocol=&quot;TLS&quot; /&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;重启 tomcat，访问 8443 端口试试。点击浏览器地址栏网址左侧的验证标志，可以检验证书的内容。&lt;/p&gt;
+
+&lt;h3 id=&quot;section-1&quot;&gt;总结&lt;/h3&gt;
+
+&lt;p&gt;通过简单的配置，将服务有 http 迁移到更安全的 https 服务。&lt;/p&gt;
+
+&lt;p&gt;补充1： 本文的方法因为偷懒直接使用了 startssl 来为我们管理私钥文件，从安全的角度，大部分情况下我们应该自己保管这个文件。&lt;/p&gt;
+
+&lt;p&gt;补充2： 现在部署 HTTPS 更好的方式是用 Nginx 做 &lt;code&gt;SSL offloading&lt;/code&gt; ，而实际的业务服务器仍然使用 HTTP 提供服务。&lt;/p&gt;
+
+&lt;p&gt;补充3： startssl 个人使用没问题，如果是企业使用，建议购买有商业支持的证书。&lt;/p&gt;
+
+&lt;h4 id=&quot;section-2&quot;&gt;参考文档&lt;/h4&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;http://tomcat.apache.org/tomcat-7.0-doc/ssl-howto.html&lt;/li&gt;
+&lt;/ul&gt;
+
+  
+</description>
+        <pubDate>Sat, 05 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-05-2014-07-05-startssl-in-tomcat.html-163c9be4f.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-05-2014-07-05-startssl-in-tomcat.html-163c9be4f.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>使用Jekyll - Data Files简介</title>
+        <description>  &lt;p&gt;使用 &lt;code&gt;Jekyll&lt;/code&gt; 时，经常需要保存一些常用的数据，以便在模板中的随时调用。传统方式将数据写入 _config.yml 作为 &lt;code&gt;Site Variables&lt;/code&gt; ，会造成 _config.yml 过大，而且无法将数据与配置分离，规模增长时带来管理方面的困扰。&lt;/p&gt;
+
+&lt;p&gt;Jekyll 最近引入 &lt;a href=&quot;http://jekyllrb.com/docs/datafiles/&quot; title=&quot;Data Files&quot;&gt;Data Files&lt;/a&gt; 功能，用来满足保存数据的需求。这一功能使得可以避免在模板中重复书写数据，也能避免频繁修改全局设置。插件和页面风格中也可以利用 Data Files 来保存配置。 Jekyll 支持 &lt;code&gt;YAML&lt;/code&gt; 和 &lt;code&gt;JSON&lt;/code&gt; 格式的文件，这些文件需要保存在 &lt;code&gt;_data&lt;/code&gt; 目录下（补充： &lt;code&gt;jekyll-2.1.0&lt;/code&gt; 开始， Data Files 支持在 &lt;code&gt;_data&lt;/code&gt; 目录下使用子目录来保存。）。&lt;/p&gt;
+
+&lt;p&gt;因为 Data Files 采用 &lt;code&gt;YAML&lt;/code&gt; 和 &lt;code&gt;JSON&lt;/code&gt; 格式，所以简单易上手。&lt;/p&gt;
+
+&lt;p&gt;让我们来一个网页列表的例子开始认识 Data Files 的神奇之处吧。&lt;/p&gt;
+
+&lt;p&gt;这个网页列表中保存了一些网页的名称，地址，以及可选的备注与描述；不同类型的网页保存在各个类型的子分类节点中；分类系统支持多级结构，使用 &lt;code&gt;meta: false&lt;/code&gt; 表示该节点不包含网址元数据，而是用于包含其它节点的分类容器。&lt;/p&gt;
+
+&lt;p&gt;首先初始化模板文件 &lt;a href=&quot;https://github.com/Lax/lax.github.com/blob/lax.github.com-jekyllrb/_pages/links.html&quot; title=&quot;links.html&quot;&gt;links.html&lt;/a&gt; （只展示代码部分）。&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;
+&lt;pre&gt;&lt;code class=&quot;ruby&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;%&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;data_links&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;html&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;nodes&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;site&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;nerd_urls&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;%&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;注意这段代码里的两个关键点：&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;使用 &lt;code&gt;site.data.nerd_urls&lt;/code&gt; 读取 &lt;code&gt;_data/nerd_urls.yml&lt;/code&gt; 文件中报错的 &lt;code&gt;yaml&lt;/code&gt; 数据。其中 &lt;code&gt;site.data.&lt;/code&gt; 前缀用于读取 &lt;code&gt;Data File&lt;/code&gt; ，之后的 &lt;code&gt;nerd_urls&lt;/code&gt; 为不含扩展名的文件名。&lt;/li&gt;
+  &lt;li&gt;
+&lt;code&gt;include&lt;/code&gt; 另一个模板文件，并将数据使用 &lt;code&gt;nodes&lt;/code&gt; 变量传值到模板文件中。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;再来看一下 &lt;a href=&quot;https://github.com/Lax/lax.github.com/blob/lax.github.com-jekyllrb/_includes/data_links.html&quot; title=&quot;_includes/data_links.html&quot;&gt;data_links.html&lt;/a&gt; 这个文件。&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;
+&lt;pre&gt;&lt;code class=&quot;ruby&quot;&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ul&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;%&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;node&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;nodes&lt;/span&gt; &lt;span class=&quot;sx&quot;&gt;%}&lt;/span&gt;
+&lt;span class=&quot;sx&quot;&gt;	&amp;lt;li&amp;gt;&lt;/span&gt;
+		&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;href&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;/a&amp;gt;&lt;/span&gt;
+&lt;span class=&quot;sr&quot;&gt;	&amp;lt;/&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;li&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;%&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;endfor&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;%&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;/ul&amp;gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;这里使用传入的 &lt;code&gt;nodes&lt;/code&gt; 变量（通过 &lt;code&gt;include.nodes&lt;/code&gt; ），递归构建一个 &lt;code&gt;ul&lt;/code&gt; 列表。&lt;/p&gt;
+
+&lt;p&gt;至此，这个页面的模板部分已经完成。&lt;/p&gt;
+
+&lt;p&gt;现在来补充数据文件 &lt;a href=&quot;https://github.com/Lax/lax.github.com/blob/lax.github.com-jekyllrb/_data/nerd_urls.yml&quot; title=&quot;_data/nerd_urls.yml&quot;&gt;nerd_urls.yml&lt;/a&gt; 。这是一个标准的 &lt;code&gt;YAML&lt;/code&gt; 文件。&lt;/p&gt;
+
+&lt;div class=&quot;highlight&quot;&gt;
+&lt;pre&gt;&lt;code class=&quot;ruby&quot;&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;News&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Information&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;
+  &lt;span class=&quot;ss&quot;&gt;meta&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;false&lt;/span&gt;
+  &lt;span class=&quot;ss&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;WebSites&lt;/span&gt;
+      &lt;span class=&quot;ss&quot;&gt;meta&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;false&lt;/span&gt;
+      &lt;span class=&quot;ss&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;LWN&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;net&lt;/span&gt;
+          &lt;span class=&quot;ss&quot;&gt;link&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;http&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;//&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lwn&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;net&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Lifehacker&lt;/span&gt;
+          &lt;span class=&quot;ss&quot;&gt;link&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;http&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;//&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lifehacker&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;com&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Hacker&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;News&lt;/span&gt;
+          &lt;span class=&quot;ss&quot;&gt;link&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;http&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;//ne&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ws&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ycombinator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;com&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Blogs&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;Person&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;ss&quot;&gt;meta&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;false&lt;/span&gt;
+      &lt;span class=&quot;ss&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Steve&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Souders&lt;/span&gt;
+          &lt;span class=&quot;ss&quot;&gt;link&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;http&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;//s&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;tevesouders&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;com&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Pete&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Keen&lt;/span&gt;
+          &lt;span class=&quot;ss&quot;&gt;link&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;https&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;//&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;www&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;petekeen&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;net&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Joe&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Armstrong&lt;/span&gt;
+          &lt;span class=&quot;ss&quot;&gt;link&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;http&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;//&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;joearms&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;github&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;io&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;最终生成的页面可以在 &lt;a href=&quot;http://blog.liulantao.com/links/&quot;&gt;http://blog.liulantao.com/links/&lt;/a&gt; 看到。&lt;/p&gt;
+
+&lt;p&gt;总结：本文通过简单的例子展示了 &lt;code&gt;Data Files&lt;/code&gt; 的使用方法。
+如果你有更好的想法欢迎留言交流。&lt;/p&gt;
+
+&lt;p&gt;参考文档：&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;http://jekyllrb.com/docs/datafiles/&quot;&gt;jekyll文档中关于Data Files的说明&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;https://github.com/Lax/lax.github.com/commit/3caa16daa0c258a50fcdf56c6018dfeecfa0950c&quot;&gt;文章相关源代码&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+  
+</description>
+        <pubDate>Sun, 29 Jun 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-06-29-2014-06-29-using-jekyll-data-files.html-871861a29.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-29-2014-06-29-using-jekyll-data-files.html-871861a29.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>生产环境Puppet升级笔记（3.4.3→3.6.2）</title>
+        <description>  &lt;p&gt;线上Puppet部署时采用的是版本3.4.3，最近发现客户端经常有一些warning提示，从提示信息看出涉及到跨版本的功能变化，因此对版本进行了一个有计划的升级。&lt;/p&gt;
+
+&lt;p&gt;puppetlabs的最新版本为3.6.2。开始升级之前参考了官方的Release Notes(&lt;a href=&quot;http://docs.puppetlabs.com/puppet/3.5/reference/release_notes.html&quot; title=&quot;Puppet 3.5 Release Notes&quot;&gt;3.5&lt;/a&gt;,&lt;a href=&quot;http://docs.puppetlabs.com/puppet/3.6/reference/release_notes.html&quot; title=&quot;Puppet 3.6 Release Notes&quot;&gt;3.6&lt;/a&gt;)和其他人的文档(&lt;a href=&quot;http://rnelson0.com/2014/06/05/puppet-3-6-1-updates/&quot; title=&quot;PUPPET 3.6.1 UPDATES&quot;&gt;PUPPET 3.6.1 UPDATES&lt;/a&gt;)。&lt;/p&gt;
+
+&lt;p&gt;首先将yum仓库同步到yum.puppetlabs.com的最新状态，方便后续使用。&lt;/p&gt;
+
+&lt;p&gt;升级分为master和agent两部分，分别进行调整。&lt;/p&gt;
+
+&lt;h2 id=&quot;master&quot;&gt;master调整&lt;/h2&gt;
+
+&lt;p&gt;master有两个明显的变化&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+&lt;code&gt;environmentpath&lt;/code&gt;支持&lt;/li&gt;
+  &lt;li&gt;Package模块中引入的&lt;code&gt;allow_virtual&lt;/code&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;environmentpath&quot;&gt;environmentpath调整&lt;/h3&gt;
+
+&lt;p&gt;关于&lt;code&gt;environmentpath&lt;/code&gt;，配置文件改动比较小，只需修改&lt;code&gt;puppet.conf&lt;/code&gt;中的&lt;code&gt;[master]&lt;/code&gt;部分&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;+    environmentpath = $confdir/environments
+-    modulepath = $confdir/modules:/usr/share/puppet/modules
+-    manifestdir = $confdir/manifests
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;早期版本的&lt;code&gt;envorinment&lt;/code&gt;支持通过在puppet.conf中额外的&lt;code&gt;[production]&lt;/code&gt;和&lt;code&gt;[testing]&lt;/code&gt;部分实现。需要删除&lt;code&gt;puppet.conf&lt;/code&gt;中自定义的environment部分。&lt;/p&gt;
+
+&lt;p&gt;同时需要对目录进行调整，这部分工作量稍大，也在可接受的范围内。以下示例中星号(*)标记的目录对应调整即可。&lt;/p&gt;
+
+&lt;p&gt;调整之前目录结构为&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;.
+├── auth.conf
+├── autosign.conf
+├── puppet.conf
+├── manifests
+│   ├── production   *
+│   └── testing    *
+├── modules
+│   ├── production   *
+│   └── testing    *
+├── reports
+├── ssl
+├── var
+└── yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;调整之后目录结构为&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;.
+├── auth.conf
+├── autosign.conf
+├── puppet.conf
+├── environments
+│   ├── production
+│   │   ├── manifests *
+│   │   └── modules   *
+│   └── testing
+│       ├── manifests *
+│       └── modules   *
+├── reports
+├── ssl
+├── var
+└── yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&quot;allowvirtual&quot;&gt;allow_virtual调整&lt;/h3&gt;
+
+&lt;p&gt;这是一个新增的特性，相关背景可参考&lt;a href=&quot;https://tickets.puppetlabs.com/browse/PUP-897&quot;&gt;PDP-897&lt;/a&gt;。由于默认值变化，如果不配置agent会收到一个warning信息。&lt;/p&gt;
+
+&lt;p&gt;修改&lt;code&gt;environments/production/manifests/site.pp&lt;/code&gt;和&lt;code&gt;environments/testing/manifests/site.pp&lt;/code&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;+    Package {
++      allow_virtual =&amp;gt; true,
++    }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&quot;section&quot;&gt;软件包升级&lt;/h3&gt;
+
+&lt;p&gt;通过gem升级安装&lt;code&gt;puppet-3.6.2&lt;/code&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;gem install puppet --version 3.6.2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;安装后重新启动puppet master即可。&lt;/p&gt;
+
+&lt;h2 id=&quot;agent&quot;&gt;agent调整&lt;/h2&gt;
+
+&lt;p&gt;master端设置的&lt;code&gt;allow_virtual&lt;/code&gt;是新增的一个特性，如果agent不支持，会报错，将agent的puppet版本并重启进程即可。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Error: Failed to apply catalog: Invalid parameter allow_virtual
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;理论上直接升级客户端puppet到3.6.2版本即可完成。不过在升级后发现使用&lt;code&gt;puppet agent --genconfig&lt;/code&gt;生成的配置文件仍然会有warning。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Warning: Setting manifest is deprecated in puppet.conf. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1067:in `each&#39;)
+Warning: Setting modulepath is deprecated in puppet.conf. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1067:in `each&#39;)
+Warning: Setting templatedir is deprecated. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1071:in `each&#39;)
+Warning: Setting manifestdir is deprecated. See http://links.puppetlabs.com/env-settings-deprecations
+   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1071:in `each&#39;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;直接根据提示取消指定的配置项即可消除警告。这里使用一个脚本进行修改。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+
+for s in manifest modulepath templatedir manifestdir
+do
+	grep &quot;^    $s = &quot; /etc/puppet/puppet.conf
+	sed -i -e &quot;/^    $s = /s/^/#/&quot; /etc/puppet/puppet.conf
+done
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用调整后的配置文件启动&lt;code&gt;puppet agent -t&lt;/code&gt;，可以看到成功运行并且不再有warning。&lt;/p&gt;
+
+  
+</description>
+        <pubDate>Tue, 17 Jun 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html</guid>
         
         
       </item>
@@ -1055,408 +1371,6 @@ Finished in 9.99 seconds
         <pubDate>Thu, 12 Jun 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-06-12-perldancer-tips-deed5a1d0.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-12-perldancer-tips-deed5a1d0.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>Perl 编程的个人惯例</title>
-        <description>  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;Perl 代码规范可以参考著名的《Perl 最佳实践》一书。当然，PBP 上的规定比较严格，实际生活中绝对多数 Perl 程序都无法通过以 PBP 规范编写的 Perl::Critic 模块的校验。本文仅为本人在部门 Wiki 上以部分常见用法作为示例的介绍性文档。&lt;/p&gt;
-
-&lt;h2 id=&quot;section&quot;&gt;格式化&lt;/h2&gt;
-
-&lt;p&gt;所有已经完成功能的 Perl 脚本，强烈推荐使用 Perl::Tidy 模块格式化其内容。具体命令为：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;perltidy your.pl &amp;amp;&amp;amp; mv your.pl.tdy your.pl
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&quot;section-1&quot;&gt;模板&lt;/h2&gt;
-
-&lt;p&gt;为调试和使用方便，强烈建议在所有 Perl 程序开始位置使用如下模板：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;warnings&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;strict&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;utf8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;这个模板最重要最常见的作用，就是说，程序内不允许直接使用未经初始化的变量，强制要求指定变量作用域范围，也不允许跨越词法作用域调用变量。&lt;/p&gt;
-
-&lt;p&gt;此外，考虑 CentOS6 已经成为我们线上主流操作系统，建议继续添加下行模板：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;mf&quot;&gt;5.010&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;10 版本是 Perl5 的一次重大更新，添加了 state 变量、say 指令、// 判断符、%+ 正则捕获哈希、given-when流程和 ~~ 智能匹配符，都是比较常用和好用的功能。&lt;/p&gt;
-
-&lt;h2 id=&quot;section-2&quot;&gt;注释与文档&lt;/h2&gt;
-
-&lt;p&gt;Perl 注释以 ‘#’ 号开头，但是并没有提供方便的读取注释的方法。所以如果有需要，建议书写 POD 式的文档型注释。CPAN 提供有一系列模块处理程序内部的 POD 文档，比如可以直接从 POD 生成 –help 输出，README 文本等等。&lt;/p&gt;
-
-&lt;p&gt;POD 格式包括：&lt;/p&gt;
-
-&lt;h3 id=&quot;section-3&quot;&gt;标题&lt;/h3&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;pod&lt;/span&gt;
-
-  &lt;span class=&quot;err&quot;&gt;标记文档开始&lt;/span&gt;
-
-  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;head1&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;大标题&lt;/span&gt;
-
-  &lt;span class=&quot;err&quot;&gt;标记为标题文档，类似&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;HTML&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;的&lt;/span&gt; &lt;span class=&quot;sr&quot;&gt;&amp;lt;h1&amp;gt;&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;，同理还有&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;head2&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt;/3/&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;
-
-  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;over&lt;/span&gt;
-
-  &lt;span class=&quot;err&quot;&gt;标记一段落开始&lt;/span&gt;
-
-  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;item&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;元素&lt;/span&gt;
-
-  &lt;span class=&quot;err&quot;&gt;标记该段落中某个列表元素&lt;/span&gt;
-
-  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;back&lt;/span&gt;
-
-  &lt;span class=&quot;err&quot;&gt;标记该段落结束。&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;over&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;和&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;back&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;在用&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;POD&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;书写函数注释的时候非常常见，每个函数上面一对&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;h3 id=&quot;section-4&quot;&gt;代码示例&lt;/h3&gt;
-
-&lt;p&gt;直接空四格，这点类似 markdown&lt;/p&gt;
-
-&lt;h3 id=&quot;section-5&quot;&gt;变量和链接格式的快捷书写方式&lt;/h3&gt;
-
-&lt;p&gt;C&amp;lt;code&amp;gt; 内含代码中如果本身带有符号的，可以写作 C&amp;lt;&amp;lt; code &amp;gt;&amp;gt;的形式和&amp;gt;&lt;/p&gt;
-
-&lt;p&gt;L&amp;lt;name&amp;gt; 内含name为 CPAN 模块名，自动生成该模块在 CPAN 上的 url 地址连接&lt;/p&gt;
-
-&lt;h2 id=&quot;modern-perl&quot;&gt;modern perl&lt;/h2&gt;
-
-&lt;h3 id=&quot;oop&quot;&gt;OOP&lt;/h3&gt;
-
-&lt;p&gt;Perl5 采用 bless 指令将一个数据结构跟一个类名结合到一起就成为了类，其最简写法如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;nb&quot;&gt;package&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Foo&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bless&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;但是不推荐如此构建类。强烈推荐使用 Moo 模块完成 Perl5 的 OOP。文档见： https://metacpan.org/pod/Moo&lt;/p&gt;
-
-&lt;p&gt;最常用的属性、继承和角色三大功能示例如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;nb&quot;&gt;package&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Foo&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Moo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;nb&quot;&gt;package&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Bar::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Roles&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Moo::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Role&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;requires&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;length&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;width&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;bar&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;nb&quot;&gt;package&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Foo::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Bar&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Moo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;extends&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;Foo&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;with&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;Bar::Roles&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;has&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;is&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;ro&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;default&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;foo&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;has&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;hight&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;is&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;lazy&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;_build_hight&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$self&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$self&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$self&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;width&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;length&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;hight&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$fb&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Foo::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Bar&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;myfoo&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$fb&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;length&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;                            &lt;span class=&quot;c1&quot;&gt;# myfoobar&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;h3 id=&quot;todo&quot;&gt;TODO&lt;/h3&gt;
-
-&lt;p&gt;Perl5 有独特的 TODO 语法叫 ‘…‘，在没有实现的地方，使用这个指令就可以了。不运行到这个地方就毫无影响，到这里就会直接显示“Unimplemented at line N”的返回。&lt;/p&gt;
-
-&lt;p&gt;示例如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;somthing_todo&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;h3 id=&quot;section-6&quot;&gt;正则&lt;/h3&gt;
-
-&lt;p&gt;正则式是　Perl5 最强大和头疼的地方。这里不好说太多。只能说，能找到 CPAN 模块实现的，就不要自己写正则了。。。&lt;/p&gt;
-
-&lt;p&gt;如果要写，尽量使用 ‘/x’ 开启多行模式，然后每行写注释。&lt;/p&gt;
-
-&lt;p&gt;最常用的正则模块有 Regexp::Common 和 Regexp::Log。&lt;/p&gt;
-
-&lt;p&gt;日志处理方面，对 IP 归类 建议采用 Net::IP::Match::Trie 模块。此外，前缀树优化在 Perl5.14 开始成为正则引擎默认行为，所以请尽量使用新版本。&lt;/p&gt;
-
-&lt;h3 id=&quot;section-7&quot;&gt;文件操作&lt;/h3&gt;
-
-&lt;p&gt;open指令请使用三参数结构避免歧义以及恶意文件名问题：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;nb&quot;&gt;open&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$fh&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;&amp;gt;&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;data.txt&#39;&lt;/span&gt; &lt;span class=&quot;ow&quot;&gt;or&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;die&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;$!&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;在 5.10.1 以后，autodie 模块进入 corelist，所以可以这样：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;autodie&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-   &lt;span class=&quot;nb&quot;&gt;open&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$fh&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;&amp;gt;&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;data.txt&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;更好的版本，推荐 Path::Tiny 模块，这是最近一年来在 metacpan 上多次周评分榜单第一的模块。&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Path::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Tiny&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;data.txt&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;c1&quot;&gt;# 不存在就先创建&lt;/span&gt;
-    &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;touch&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;unless&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;exists&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;c1&quot;&gt;# 读取全部内容&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;slurp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;c1&quot;&gt;# 按行读取内容&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;while&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;lines&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-    &lt;span class=&quot;c1&quot;&gt;# 写入内容&lt;/span&gt;
-    &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;spaw&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;new data&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;c1&quot;&gt;# 追加内容&lt;/span&gt;
-    &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;append&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;newer data&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;c1&quot;&gt;# 目录操作&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$d&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;/tmp&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$d&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;children&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;sx&quot;&gt;qr/^\.\w$/&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$_&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;stat&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-    &lt;span class=&quot;c1&quot;&gt;# 类似 File::Find&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$iter&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$d&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;iterator&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;recurse&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;while&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$next&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$iter&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$_&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stringify&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;而 File::Find 的 更好的替代版本，推荐 Path::Iterator::Rule 模块，速度也比上面 Path::Tiny 里的 ‘$d-&amp;gt;iterator()’ 要好。&lt;/p&gt;
-
-&lt;h3 id=&quot;section-8&quot;&gt;网络操作&lt;/h3&gt;
-
-&lt;p&gt;HTTP 客户端一直以来一般使用 LWP::UserAgent 模块，不过作为小规模应用，推荐使用 HTTP::Tiny 模块，因为该模块已经在 Perl5.14 版本进入 corelist，在简单请求下性能也比 LWP 要好，不少模块已经在迁移依赖到 HTTP::Tiny 上。&lt;/p&gt;
-
-&lt;p&gt;而对于高性能需求，推荐使用 AnyEvent::HTTP 模块，基于 EV 事件驱动库，示例如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;HTTP&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;condvar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$url&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@urls&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;http_get&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$headers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;end&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;recv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;如需并发控制，事件流程的同步控制等功能，推荐使用 Promises 或者 Future 模块。同名的相关概念目前在 JS 和 Scala 中都有。&lt;/p&gt;
-
-&lt;p&gt;对于 HTML 解析，较为规范的情况下，不要再使用正则解析，而通过 DOM 树本身来做。以 XPath 路径查询的，推荐 Web::Scraper 模块；以 CSS 选择器查询的，推荐 Mojo::UserAgent 配合 Mojo::DOM 模块完成。示例如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;n&quot;&gt;say&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Mojo::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;UserAgent&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;get&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;www.perl.org&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;res&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dom&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;html&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;head&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;非 HTTP 的网络编程，一般使用 IO::Socket::INET 模块，这里推荐继续使用 AnyEvent::Socket 模块，以利用 AnyEvent 的事件驱动性能。示例如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;n&quot;&gt;tcp_server&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;undef&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8888&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$fh&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$host&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;syswrite&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$fh&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;hello&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;tcp_connect&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;localhost&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8888&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$fh&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;sysread&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$fh&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;h3 id=&quot;web-&quot;&gt;web 编程&lt;/h3&gt;
-
-&lt;p&gt;CGI.pm 已经从 Perl5.20 开始准备移出 corelist，所以不要再使用 CGI 做 web 编程了，Plack/PSGI 才是王道。作为简单应用，推荐使用 Dancer 微框架，完整的复杂应用，可以使用 Mojolicious 框架。&lt;/p&gt;
-
-&lt;p&gt;Dancer 框架示例如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Dancer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;get&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;/:name&#39;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;hello &#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;param&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;name&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;dance&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-    
-
-
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-
-
-
-
-
-
-  &lt;/div&gt;
-</description>
-        <pubDate>Thu, 12 Jun 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>用 LEK 组合处理 Nginx 访问日志</title>
-        <description>  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;Tengine 支持通过 syslog 方式发送日志（现在 Nginx 官方也支持了），所以可以通过 syslog 发送访问日志到 logstash 平台上，这种做法相对来说对线上服务器影响最小。最近折腾这件事情，一路碰到几个难点，把解决和优化思路记录一下。&lt;/p&gt;
-
-&lt;h2 id=&quot;grok&quot;&gt;少用 Grok&lt;/h2&gt;
-
-&lt;p&gt;感谢群里 @wood 童鞋提供的信息，Grok 在高压力情况下确实比较容易率先成为瓶颈。所以在日志格式可控的情况下，最好可以想办法跳过使用 Grok 的环节。在早先的 cookbook 里，就有通过自定义 LogFormat 成 JSON 样式的做法。我前年博客上也写过 nginx 上如此做的示例：&lt;a href=&quot;http://chenlinux.com/2012/09/21/json-event-for-logstash/index.html&quot;&gt;http://chenlinux.com/2012/09/21/json-event-for-logstash/index.html&lt;/a&gt;。&lt;/p&gt;
-
-&lt;p&gt;不过这次并没有采用这种方式，而是定义日志格式成下面的样子，因为这种分割线方式对 Hive 平台同样是友好的。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;log_format syslog &#39;$remote_addr|$host|$request_uri|$status|$request_time|$body_bytes_sent|&#39;
-                  &#39;$upstream_addr|$upstream_status|$upstream_response_time|&#39;
-                  &#39;$http_referrer|$http_add_x_forwarded_for|$http_user_agent&#39;;
-access_log syslog:user:info:10.4.16.68:29125:tengine syslog ratio=0.1;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;那么不用 Grok 怎么做呢？这里有一个很炫酷的写法。下面是 logstash 配置里 filter 段的实例：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;filter {
-    ruby {
-        remove_field =&amp;gt; [&#39;@version&#39;, &#39;priority&#39;, &#39;timestamp&#39;, &#39;logsource&#39;, &#39;severity&#39;, &#39;severity_label&#39;, &#39;facility&#39;, &#39;facility_label&#39;, &#39;pid&#39;,&#39;message&#39;]
-        init =&amp;gt; &quot;@kname = [&#39;client&#39;,&#39;servername&#39;,&#39;url&#39;,&#39;status&#39;,&#39;time&#39;,&#39;size&#39;,&#39;upstream&#39;,&#39;upstreamstatus&#39;,&#39;upstreamtime&#39;,&#39;referer&#39;,&#39;xff&#39;,&#39;useragent&#39;]&quot;
-        code =&amp;gt; &quot;event.append(Hash[@kname.zip(event[&#39;message&#39;].split(&#39;|&#39;))])&quot;
-    }
-    mutate {
-        convert =&amp;gt; [&quot;size&quot;, &quot;integer&quot;, &quot;time&quot;, &quot;float&quot;, &quot;upstreamtime&quot;, &quot;float&quot;]
-    }
-    geoip {
-        source =&amp;gt; &quot;client&quot;
-        fields =&amp;gt; [&quot;country_name&quot;, &quot;region_name&quot;, &quot;city_name&quot;, &quot;real_region_name&quot;, &quot;latitude&quot;, &quot;longitude&quot;]
-        remove_field =&amp;gt; [ &quot;[geoip][longitude]&quot;, &quot;[geoip][latitude]&quot; ]
-    }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;而要达到跟这段 ruby+mutate 效果一致的 grok ，写法是这样的：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;filter {
-    grok {
-        match =&amp;gt; [&quot;message&quot;, &quot;%{IPORHOST:client}\|%{HOST:servername}\|%{URIPATHPARAM:url}\|%{NUMBER:status}\|(?:%{NUMBER:time:int}|-)\|(?:%{NUMBER:size}|-)\|(?:%{HOSTPORT:upstream}|-)\|(?:%{NUMBER:upstreamstatus}|-)\|(?:%{NUMBER:upstreamtime:int}|-)\|(?:%{URI:referer}|-)\|%{GREEDYDATA:xff}\|%{GREEDYDATA:useragent}&quot;]
-        remove_field =&amp;gt; [&#39;@version&#39;, &#39;priority&#39;, &#39;timestamp&#39;, &#39;logsource&#39;, &#39;severity&#39;, &#39;severity_label&#39;, &#39;facility&#39;, &#39;facility_label&#39;, &#39;pid&#39;,&#39;message&#39;]
-    }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&quot;syslog-&quot;&gt;syslog 瓶颈&lt;/h1&gt;
-
-&lt;p&gt;运行起来以后，通过 Kibana 看到的全网 tengine 带宽只有 60 MBps左右，这个结果跟通过 NgxAccounting 统计输出的结果差距太大了。明显是有问题。&lt;/p&gt;
-
-&lt;p&gt;首先怀疑不会是 nginx.conf 通过 Puppet 下发重启的时候有问题吧？实际当然没有。&lt;/p&gt;
-
-&lt;p&gt;这时候运行 &lt;code&gt;netstat -pln | grep 29125&lt;/code&gt; 命令，发现 &lt;code&gt;Recv-Q&lt;/code&gt; 已经达到了 228096，并且一致维持在这个数没有变化。&lt;/p&gt;
-
-&lt;p&gt;由于之前对 ES 写入速度没太大信心，所以这时候的反应就是去查看 ES 服务器的状态，结果其实服务器 idle% 在 80% 以上，各种空闲，Kibana 上搜索反应也非常快。通过 top 命令看具体的线程情况，logstash 的 output/elasticsearch worker 本身占用资源就很少。包括后来实际也尝试了加大 output 的 workers 数量，加大 bin/logstash -w 的 filter worker 数量，其实都没用。&lt;/p&gt;
-
-&lt;p&gt;那么只能是 input/syslog 就没能收进来了。&lt;/p&gt;
-
-&lt;p&gt;之前写 filter 的时候，开过 -vv 模式，所以注意到过 input/syslog 里是利用 Logstash::Filter::Grok 来判定切割 syslog 内容的。按照前一节的说法，那确实可能是在收 syslog 的时候性能跟不上啊？&lt;/p&gt;
-
-&lt;p&gt;于是去翻了一下 Logstash::Input::Syslog 的代码，主体逻辑很简单，就是 &lt;code&gt;Thread.new { UDPSocket.new }&lt;/code&gt; 这样。也就是说是一个单线程监听 UDP 端口！&lt;/p&gt;
-
-&lt;p&gt;然后我又下载了同为 Ruby 写的日志收集框架 fluentd 的 syslog 插件看看源代码，fluent-plugin-syslog 里，用的是 Cool.io 库作 UDP 异步处理。好吧，其实在此之前我只知道 EventMachine 库。。。不过由于 Logstash 是 JRuby 平台，又不清楚其 event 代码(以前基本只是看各种 plugin 的代码就够了)，担心这么把 em 加上去会不会不太好。所以在摸清 logstash 代码之前，先用自己最熟悉的手段，搞定这个问题：&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;用 Perl 的高性能 EV 库解决&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;前年我同样提到过 Perl 也有仿照 Logstash 写的框架叫 Message::Passing，这个框架就是用 AnyEvent 和 Moo 写的，性能绝对没问题。不过各种插件和文档比较潦草，要想兼容现在 logstash 1.4 的 schema 比较费劲。所以，最后我选择了自己根据 tengine 日志的情况单独写一个脚本，结果如下：&lt;/p&gt;
-
-&lt;script src=&quot;https://gist.github.com/chenryn/7c922ac424324ee0d695.js&quot;&gt;&lt;/script&gt;
-
-&lt;p&gt;80 行左右的代码，从 input 到 output 都是 anyevent 驱动。( Search::Elasticsearch::Async 默认是基于 AnyEvent::HTTP 的，不过用 Promises 模块做了封装，所以写起来好像看不太出来～)&lt;/p&gt;
-
-&lt;p&gt;最终到 elasticsearch 里的数据结构跟 logstash 一模一样，之前配置好的 Kibana 样式完全不需要变动。而实际运行起来以后，Recv-Q 虽然不是一直保持在 0，但是偶然累积的队列也肯定会在几秒钟内被读取处理完毕。完全达到了效果。Kibana 上，带宽图回复到了跟 NgxAccounting 统计结果一样的 300 MBps 。成功！&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/uploads/ngx-syslog-flow-diff.png&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-    
-
-
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-
-
-
-
-
-
-  &lt;/div&gt;
-</description>
-        <pubDate>Wed, 11 Jun 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-06-11-nginx-access-log-to-elasticsearch-938e7994b.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-11-nginx-access-log-to-elasticsearch-938e7994b.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>配合 avbot 的 HTTP 接口做自动应答的 Perl 脚本</title>
-        <description>  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;前两天&lt;a href=&quot;http://chenlinux.com/2014/06/04/record-webqq-logs-by-avbot&quot;&gt;博客里介绍了 avbot&lt;/a&gt;，其中提到 avbot 提供了 HTTP 接口可以收发信息。那么，我们就可以自己写脚本来实现比原先的 &lt;code&gt;.qqbot help&lt;/code&gt; 更详细的自动应答啦。今晚有空就写了几行 Perl ，实现了一个简单的扩展：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;utf8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;strict&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;warnings&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;JSON::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;XS&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;HTTP&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;help&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;.logstashbot support subcommand:\n\t&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;请主动使用 http://grokdebug.herokuapp.com&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;tnnd&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;请直接说问题不要浪费口水问有人帮忙么&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;book&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;支持原作者，请购买 www.logstashbook.com 上电子版&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-&lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;help&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;.=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;\n\t&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;keys&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;%$f&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-
-&lt;span class=&quot;nv&quot;&gt;$&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;AnyEvent::HTTP::&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;TIMEOUT&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;86400&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$url&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;http://127.0.0.1:6176/message&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;condvar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$ua&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$ua&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;http_get&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$header&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hash&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;decode_json&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hash&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;message&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;text&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$from&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;@&#39;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hash&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;who&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;nick&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;(&#39;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hash&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;who&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;code&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;)\n&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=~&lt;/span&gt;&lt;span class=&quot;sr&quot;&gt; /^\.logstashbot (\w+)/&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$body&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;encode_json&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt;
-                &lt;span class=&quot;n&quot;&gt;protocol&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;delete&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hash&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;protocol&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-                &lt;span class=&quot;n&quot;&gt;channel&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;delete&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hash&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;channel&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-                &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-                    &lt;span class=&quot;n&quot;&gt;text&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$from&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;sr&quot;&gt;//&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$f&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;help&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
-                &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-            &lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
-            &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;n&quot;&gt;http_post&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$body&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-                &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;end&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-        &lt;span class=&quot;nv&quot;&gt;$ua&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
-        &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;end&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-&lt;span class=&quot;nv&quot;&gt;$ua&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
-
-&lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;recv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;原先是打算在回调里 &lt;code&gt;undef $ua&lt;/code&gt; 然后通过 &lt;code&gt;AnyEvent-&amp;gt;timer&lt;/code&gt; 里检测 $ua 是否还在，否则再起来的方式。后来一想 &lt;code&gt;timer&lt;/code&gt; 还有间隔，直接函数内部通过 &lt;code&gt;$cv-&amp;gt;end&lt;/code&gt; 控制计数，不断的重新运行 &lt;code&gt;$ua-&amp;gt;()&lt;/code&gt; 来保持持续获取，间隔更短，就改成现在这样了。&lt;/p&gt;
-
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-    
-
-
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-
-
-
-
-
-
-  &lt;/div&gt;
-</description>
-        <pubDate>Sun, 08 Jun 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-06-08-perl-script-for-avbot-37881c7d4.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-08-perl-script-for-avbot-37881c7d4.html</guid>
         
         
       </item>

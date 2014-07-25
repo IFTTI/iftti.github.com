@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>Tomcat中配置SSL证书</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-05-2014-07-05-startssl-in-tomcat.html-163c9be4f.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,115 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
+    <h1>Tomcat中配置SSL证书</h1>
+    <p class="meta"><span class="time">Jul 5, 2014</span><span class="source_url"> • <a name="liulantao.com" href="http://blog.liulantao.com/blog/2014/2014-07-05-startssl-in-tomcat.html" target="_blank">http://blog.liulantao.com/blog/2014/2014-07-05-startssl-in-tomcat.html</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+    <h3 id="section">背景</h3>
+<p>由于移动设备经常访问连接各种不可靠的无线网络，用户密码被嗅探的风险比较大，因此对与敏感信息需要加密传输。 而 HTTPS 是一种相对成熟的方案。</p>
+
+<p>使用 HTTPS 协议用于移动应用的数据传输，随着App数量越来越多而显得更强烈。</p>
+
+<p>startssl.com 提供一个免费的 ssl 证书，个人测试使用应该没问题。</p>
+
+<h3 id="startssl-">从 startssl 获取私钥和证书</h3>
+<p>首先在 <code>startssl.com</code> 注册帐号，根据提示操作，这个过程比较漫长。注意填写个人信息时要详细（至少看起来是真实的地址）。 注册的攻略在网上能看到很多。 备份个人证书，否则以后换台电脑就不能登录做管理操作了。</p>
+
+<p>帐号 Ready 后，根据提示创建域名的证书，这个步骤可以得到两个文件，分别是以 <code>.key</code> 结尾的私钥文件和以 <code>.crt</code> 为结尾的证书文件。保存好这两个文件，并记住私钥文件的密码备用。</p>
+
+<p>还需要另外两个文件分别是 <a href="http://www.startssl.com/certs/ca.pem">ca.pem</a> 和 <a href="http://www.startssl.com/certs/sub.class1.server.ca.pem">sub.class1.server.ca.pem</a>。下载备用。</p>
+
+<p>注：以下以域名 api.example.com 为例，实际使用请换成你自己的域名。</p>
+
+<p>现在的4个文件分别为：</p>
+
+<ul>
+  <li>ssl.key</li>
+  <li>api.example.com.crt</li>
+  <li>ca.pem</li>
+  <li>sub.class1.server.ca.pem</li>
+</ul>
+
+<h3 id="tomcat--keystore-">生成 tomcat 使用的 keystore 文件</h3>
+
+<p>Tomcat 支持两种模式的配置方式，分别是 <code>BIO</code> 和 <code>NIO</code> 使用 <code>JSSE</code> 风格（使用 keystoreFile ）；<code>APR</code>/<code>native</code> 使用 <code>APR</code> 风格（使用 SSLCertificateFile / SSLCertificateKeyFile 指定私钥和证书）。</p>
+
+<p>因为我们使用了 <code>NIO</code> ，所以按照 <code>JSSE</code> 风格配置，生成 keystore 文件。</p>
+
+<p>首先将 key 文件和 crt 文件合并导出为 <code>p12</code> 。这个步骤需要输入私钥的密码，并指定一个新的导出密码。</p>
+
+<pre><code>openssl pkcs12 -export -in ../api.example.com.crt -inkey ../ssl__.key \
+    -out tomcat-startssl.p12 -name api.example.com -CApath ../
+</code></pre>
+
+<p>然后生成 keystore 文件，需要输入上一步的导出密码，及指定新的 keystore 密码，后面几步的导入需要用到这个密码。</p>
+
+<pre><code>keytool -importkeystore -srckeystore tomcat-startssl.p12 -srcstoretype PKCS12 \
+    -destkeystore startssl-api.example.com.jks
+</code></pre>
+
+<p>导入 startssl 的 CA</p>
+
+<pre><code>keytool -keystore startssl-api.example.com.jks -import -trustcacerts \
+    -alias startcom.ca -file ../ca.pem
+</code></pre>
+
+<p>导入 startssl 的 sub1</p>
+
+<pre><code>keytool -keystore startssl-api.example.com.jks -import -trustcacerts \
+    -alias startcom.ca.sub1 -file ../sub.class1.server.ca.pem
+</code></pre>
+
+<p>现在已经生成了一个可用的 <code>startssl-api.example.com.jks</code></p>
+
+<h3 id="tomcat">配置 tomcat</h3>
+
+<p>在 tomcat 的server.xml中找到相关的 Connector 部分，这部分默认已被注释掉，去掉注释并调整内容如下</p>
+
+<pre><code>&lt;Connector SSLEnabled="true" acceptCount="100" clientAuth="false"
+    disableUploadTimeout="true" enableLookups="false" maxThreads="25"
+    port="8443" keystoreFile="/etc/tomcat/startssl-api.example.com.jks" keystorePass="passw0rd"
+    protocol="org.apache.coyote.http11.Http11NioProtocol" scheme="https"
+    secure="true" sslProtocol="TLS" /&gt;
+</code></pre>
+
+<p>重启 tomcat，访问 8443 端口试试。点击浏览器地址栏网址左侧的验证标志，可以检验证书的内容。</p>
+
+<h3 id="section-1">总结</h3>
+
+<p>通过简单的配置，将服务有 http 迁移到更安全的 https 服务。</p>
+
+<p>补充1： 本文的方法因为偷懒直接使用了 startssl 来为我们管理私钥文件，从安全的角度，大部分情况下我们应该自己保管这个文件。</p>
+
+<p>补充2： 现在部署 HTTPS 更好的方式是用 Nginx 做 <code>SSL offloading</code> ，而实际的业务服务器仍然使用 HTTP 提供服务。</p>
+
+<p>补充3： startssl 个人使用没问题，如果是企业使用，建议购买有商业支持的证书。</p>
+
+<h4 id="section-2">参考文档</h4>
+
+<ul>
+  <li>http://tomcat.apache.org/tomcat-7.0-doc/ssl-howto.html</li>
+</ul>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-06-29-2014-06-29-using-jekyll-data-files.html-871861a29.html" title="Previous Post: 使用Jekyll - Data Files简介" data-instant>&laquo; 使用Jekyll - Data Files简介</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Next Post: 为什么rsync能够快速删除400000文件？" data-instant>为什么rsync能够快速删除400000文件？ &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-07-08-rex-test-spec-7f1d6866c.html" title="Next Post: Rex::Test::Spec 模块" data-instant>Rex::Test::Spec 模块 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+      <li><span>30 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-30-qcloud-tech-36eeb87df.html">腾讯云技术沙龙笔记</a></li>
 
-      <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
+      <li><span>05 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-05-2014-06-05-nginx-access-control-with-allow-deny.html-04ee7e887.html">Nginx中配置Access Control</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
+      <li><span>04 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-04-record-webqq-logs-by-avbot-294743f45.html">用 avbot 机器人记录 QQ 群聊天记录</a></li>
 
   </ul>
 </div>

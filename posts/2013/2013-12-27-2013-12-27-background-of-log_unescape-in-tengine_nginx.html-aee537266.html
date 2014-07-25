@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>SSH+KRB5使用IP地址登录的问题</title>
+    <title>Nginx中log变量及Tengine的log_unescape</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="IT互联网干货汇总">
-    <link rel="canonical" href="http://iftti.com/posts/2013/2013-04-06-ssh-krb5-use-ip-login-b916806be.html">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-12-27-2013-12-27-background-of-log_unescape-in-tengine_nginx.html-aee537266.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,54 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>SSH+KRB5使用IP地址登录的问题</h1>
-    <p class="meta"><span class="time">Apr 6, 2013</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/" target="_blank">http://www.lark.net.cn/2013/04/ssh-krb5-use-ip-login/</a></span></p>
+    <h1>Nginx中log变量及Tengine的log_unescape</h1>
+    <p class="meta"><span class="time">Dec 27, 2013</span><span class="source_url"> • <a name="liulantao.com" href="http://blog.liulantao.com/blog/2013/2013-12-27-background-of-log_unescape-in-tengine_nginx.html" target="_blank">http://blog.liulantao.com/blog/2013/2013-12-27-background-of-log_unescape-in-tengine_nginx.html</a></span></p>
   </header>
 
   <article class="post-content">
-  		<p>Kerberos 是一个很方便的 SSO 方案，但比较恶心的是，如果不建立一套 DNS 域名系统来做主机的正向解析和反向解析，那么 Kerberos 是用不起来的。不光如此，使用中如果不注意，修改配置时会导致无法登录。这些问题有</p>
-<p>1. 修改 hostname 导致名字不匹配<br>
-2. 目标服务器的 /etc/hosts 里含有自己 IP 的记录的第一项和 DNS 正向解析结果不一致<br>
-3. 登录源主机或服务器的 /etc/hosts 里有目标服务器的 IP 的记录，且和 DNS 正向解析结果不一致</p>
-<p>如果有很大的服务器集群，且服务器分布在多个 IDC，则要维护一套 DNS 来进行解析，并保证内网失效时还能从外网访问，管理成本很高；此外，还要不断应付各种错误配置导致无法登录的事情。如果能直接用 IP 地址登录，即使集群的 DNS 解析有问题或主机配置有问题，但因为只需要正确正向解析 kdc 即可正常登录，kerberos 客户端本身支持多 kdc，管理成本很低。</p>
-<p>在互联网上，DNS PTR 记录并不总是能受使用者的控制，无法和 A 记录一致更为常见，MIT kerberos 依赖于 DNS PTR 记录的特性限制了它的使用场景。为了解决这一实际问题，MIT kerberos 加入了 rdns 配置项，可以关闭反向解析。但这个选项似乎并不能有效工作，至少在较新的 Linux 上是如此。如果在 /etc/krb5.conf 中使用“rnds = false”，在 kinit 已经获得 k5 tgt 的情况下，形如 ssh username@hostname 的登录能成功，但是 ssh username@host_ip_address 的登录访问还是会失败，-vvv 的相关错误信息为</p>
-<p>“debug1: Unspecified GSS failure.  Minor code may provide more information<br>
-Cannot determine realm for numeric host address”</p>
-<p>粗看起来，这是反解失败造成的。但是，Windows 下 putty + kfw-3-2-2 和 OS X 10.6 下 ssh + krb5 可以正常登录，所以这个 Linux 下的反解行为不是必须的，看起来很奇怪。</p>
-<p>为了解决这个问题，起先我测试了 GSSAPI 相关的 SSH patch，发现没解决问题，跟踪后发现是 krb5 运行库的问题。在 Linux 下，resolv 库的一个实现 bug 会引起 krb5 的 rdns 设置无效，编译了 glibc 发现没解决问题。随后检查 krb5 库本身，1.10.2 试图解决但没解决干净的问题有 patch，我测试了还是不行。</p>
-<p>最终，跟踪到 krb5_get_host_realm() ，它调用 krb5int_clean_hostname() 来，在 host 为 IP 地址且关闭反解（rdns = false）时，krb5int_clean_hostname() 返回 KRB5_ERR_NUMERIC_REALM （因为无法反解到域名然后通过域名映射到 REALM）。在 MIT kerberos 1.10.x 里 krb5int_clean_hostname() 返回错误会让 krb5_get_host_realm() 直接返回错误；较旧的版本如 kfw-3-2-2 里，krb5_get_host_realm() 并不理会 krb5int_clean_hostname() 的错误，而是继续后续的流程。在 GSSAPI 的验证环节，如果有正确的 principal 且被授权，host是 IP 地址也是能通过验证的。</p>
-<p>解决方案很简单，希望官方版本能很快并入这个改动： <a href="http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html">http://mailman.mit.edu/pipermail/kerberos/2013-April/018810.html</a></p>
-<p>MIT kerberos 只支持 domain 到 REALM 的映射，而不支持 IP prefix 到 REALM 的映射，是历史遗留下来的，引起这个问题的根源问题。虽然这个问题并不大，但对于登录到多个 kerberos REALM，这些 REALM 没有交叉信任，且无法在验证时交互选择 REALM 的应用场合（比如 Linux 下的 ssh 登录），IP prefix 到 REALM 的映射能解决使用上的不便。</p>
+  <h3 id="nginx">Nginx变量</h3>
+<p>Nginx的log模块是很多人做日志输出的首选切入点。</p>
+
+<p>Nginx默认<code>access_log</code>语法写入服务器本地路径或NFS，用于以后的汇总分析；在此基础上，Tengine增强了日志目标，可以通过组合管道功能或syslog接口进行远程集中日志存储。  </p>
+
+<p>log功能的核心是变量。灵活而全面的变量定义是Nginx日志模块的优势体现。在2011年时曾经整理过一些<a href="http://mib.cc/technology/2011/10/19/nginx-log_format-abc.html"><code>核心变量的意义</code></a>，主要是第一种类型的核心变量。最近两年核心模块进行过比较大的变动，涌现出比较多的优秀第三方模块，也出现了Tengine/OpenResty这样优秀的第三方发行版，变量的定义大大丰富。</p>
+
+<p>Nginx变量包括：  </p>
+
+<ol>
+  <li>核心模块提供了足够的变量定义(<a href="http://nginx.org/en/docs/http/ngx_http_core_module.html#variables"><code>Embedded Variables</code></a>)；  </li>
+  <li>通过rewrite模块的set语法自定义变量（<a href="http://nginx.org/en/docs/http/ngx_http_rewrite_module.html#set"><code>rewrite#set</code></a>）；  </li>
+  <li>第三方模块提供额外的变量定义(使用ngx_http_add_variable设置一系列ngx_http_variable_t的变量)；  </li>
+  <li>通过第三方模块做变量内容变换/改写(如<a href="https://github.com/agentzh/set-misc-nginx-module">agentzh/set-misc-nginx-module</a>)。  </li>
+</ol>
+
+<p>在这种情况下做一个<code>变量大全</code>需要一定的工作量，根据实际使用情况去查阅各类模块的文档是个捷径。如果有人整理过也请告诉我。</p>
+
+<h3 id="logunescape">log_unescape</h3>
+<p>在实际使用中会遇到一个问题关于日志中被转义的字符，比如输出一段json数据，其中的引号会被转义。这种转义规则参考了<a href="http://httpd.apache.org/docs/2.2/mod/mod_log_config.html#format-notes">apache httpd的习惯</a>。早在2008年就有<a href="http://web.archiveorange.com/archive/v/yKUXMZ4X6eg17Nln5WJq">讨论</a>。Nginx官方社区对此问题的态度是继续保留转义。</p>
+
+<p>在实际使用中，查看和处理转义过的字符串带来一些负担，在权衡中选择不做转义也经常是<em>一种</em>选择。Tengine在2012年将<code>log_unescape</code>的功能加入，可以打开/关闭转义功能，或者仅针对ASCII字符，方便大规模日志处理。</p>
+
+<p>当然escape问题并不只出现在log阶段，比如<a href="http://trac.nginx.org/nginx/ticket/262">这里</a>，解决方法也不一定都是修改nginx代码或配置——在分析端做转义处理也是一种可行的思路。</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
+    <a class="basic-alignment left" href="/posts/2013/2013-12-23--p=1299-d06eaae02.html" title="Previous Post: multitail 监控多个文件或命令" data-instant>&laquo; multitail 监控多个文件或命令</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-06-13-2013-06-13-why-can-rsync-rapidly-delete-400000-files.html-7342f99cc.html" title="Next Post: 为什么rsync能够快速删除400000文件？" data-instant>为什么rsync能够快速删除400000文件？ &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-01-26-2014-01-26-graphite-setup-notes.html-491f93181.html" title="Next Post: Graphite安装笔记" data-instant>Graphite安装笔记 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html">Serverspec 工具介绍</a></li>
+      <li><span>29 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-29-2014-06-29-using-jekyll-data-files.html-871861a29.html">使用Jekyll - Data Files简介</a></li>
 
-      <li><span>15 Sep 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-09-15-2013-09-15-update-net-ssh-kerberos-for-ruby--191.html-f8440e6c9.html">Ruby-1.9.1之后版本支持kerberos问题的解决思路</a></li>
+      <li><span>30 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-30-qcloud-tech-36eeb87df.html">腾讯云技术沙龙笔记</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-rex-usage-d6a821bf7.html">Rex 简明手册</a></li>
+      <li><span>25 Apr 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-04-25-2014-04-25-rubymotion-hello-world-app.html-08b74a115.html">5分钟开发iOS应用-使用RubyMotion</a></li>
 
   </ul>
 </div>
