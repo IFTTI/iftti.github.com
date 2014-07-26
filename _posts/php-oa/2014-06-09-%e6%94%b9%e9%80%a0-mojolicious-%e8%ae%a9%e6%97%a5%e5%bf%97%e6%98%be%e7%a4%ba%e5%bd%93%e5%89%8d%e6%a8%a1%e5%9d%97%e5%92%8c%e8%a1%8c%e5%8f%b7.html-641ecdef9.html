@@ -1,0 +1,81 @@
+---
+layout: post
+title: '改造 Mojolicious 让日志显示当前模块和行号'
+time: 2014-06-09
+site_name: php-oa.com
+source_url: http://www.php-oa.com/2014/06/09/%e6%94%b9%e9%80%a0-mojolicious-%e8%ae%a9%e6%97%a5%e5%bf%97%e6%98%be%e7%a4%ba%e5%bd%93%e5%89%8d%e6%a8%a1%e5%9d%97%e5%92%8c%e8%a1%8c%e5%8f%b7.html
+---
+{% raw %}
+
+							<h3>
+	原始显示</h3>
+<p>本着分享的精神, 给近一二年使用 Mojolicious 的经验分享给大家. 今天要分享的是怎么加强默认 Mojo 显示日志, 让我们更加好的排错, 默认显示的时候是下面这样:</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+[Mon Jun  9 18:40:06 2014] [debug] GET "/perldoc".
+[Mon Jun  9 18:40:06 2014] [debug] Routing to a callback.
+[Mon Jun  9 18:40:06 2014] [debug] Rendering inline template "0667de3944df7624273d6f814d01f4c9".
+[Mon Jun  9 18:40:06 2014] [debug] Rendering inline template "4fcf2af99f1803a7a26c2e9b04430f8c".
+[Mon Jun  9 18:40:06 2014] [debug] 200 OK (0.169724s, 5.892/s).
+
+
+</pre>
+<h3>
+	改造</h3>
+<p>有时我非常想知道, 这行日志到底是谁, 在哪打印出来的, 现在来让我们来实现这个功能, 如果是 <a class="podlinkpod" href="http://mojo.php-oa.com/perldoc/Mojolicious/Lite">Mojolicious::Lite</a></p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+if ( app-&gt;log-&gt;is_level('debug') ) { 
+    no warnings 'redefine';
+    *Mojo::Log::_format = sub {
+        my ($self, $level, @lines) = @_; 
+        my @caller = caller(4);
+        my $caller = join ' ', $caller[0], $caller[2];
+        return '[' . localtime(time) . "][$level] [$caller] " . join("\n", @lines). "\n";
+    }   
+}
+
+</pre>
+<p>如果是 <a class="podlinkpod" href="http://mojo.php-oa.com/perldoc/Mojolicious">Mojolicious</a> 就给下列代码写到  startup 当中</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+if ( $self-&gt;app-&gt;log-&gt;is_level('debug') ) { 
+    no warnings 'redefine';
+    *Mojo::Log::_format = sub {
+        my ($self, $level, @lines) = @_; 
+        my @caller = caller(4);
+        my $caller = join ' ', $caller[0], $caller[2];
+        return '[' . localtime(time) . "][$level] [$caller] " . join("\n", @lines). "\n";
+    }   
+}
+
+</pre>
+<h3>
+	最终效果</h3>
+<p>这样日志会显示成</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+[Mon Jun  9 18:35:47 2014][debug] [Mojolicious 107] GET "/perldoc".
+[Mon Jun  9 18:35:47 2014][debug] [Mojolicious::Routes 119] Routing to a callback.
+[Mon Jun  9 18:35:48 2014][debug] [Mojolicious::Plugin::EPLRenderer 34] Rendering inline template "0667de3944df7624273d6f814d01f4c9".
+[Mon Jun  9 18:35:48 2014][debug] [Mojolicious::Plugin::EPLRenderer 34] Rendering inline template "4fcf2af99f1803a7a26c2e9b04430f8c".
+[Mon Jun  9 18:35:48 2014][debug] [Mojolicious::Controller 210] 200 OK (0.171894s, 5.818/s).
+
+</pre>
+<p>象上面, 我们这样能清楚的知道是哪行, 那个函数打印了这个日志.</p>
+
+			<!--[syntaxhighlighter]-->
+			<!--代码高亮，请勿编辑-->
+			<script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js"></script><script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js"></script>
+
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css">
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css">
+			<script type="text/javascript">
+			SyntaxHighlighter.defaults['class-name']	= '.syntaxhighlighter {     background-color: 999999 }';
+			SyntaxHighlighter.defaults['smart-tabs']	= true;
+			SyntaxHighlighter.defaults['tab-size']		= 4;
+			SyntaxHighlighter.defaults['gutter']		= true;
+			SyntaxHighlighter.defaults['quick-code']	= true;
+			SyntaxHighlighter.defaults['collapse'] 		= false;
+			SyntaxHighlighter.defaults['auto-links']	= true;
+			SyntaxHighlighter.defaults['toolbar']		= true;
+			SyntaxHighlighter.all();
+			</script>
+			<!--[/syntaxhighlighter]-->						
+{% endraw %}

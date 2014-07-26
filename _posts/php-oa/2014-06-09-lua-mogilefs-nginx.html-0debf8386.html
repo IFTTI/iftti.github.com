@@ -1,0 +1,139 @@
+---
+layout: post
+title: 'Lua 版写了个简化的 MogileFS 的 Nginx 模块配合多数据中心的地域感知功能'
+time: 2014-06-09
+site_name: php-oa.com
+source_url: http://www.php-oa.com/2014/06/09/lua-mogilefs-nginx.html
+---
+{% raw %}
+
+							<p>MogileFS 可以做多数据库中心存储, 这是象我这种方案中非常方便的. 我使用 MogileFS 在电信和联通分别做了一个源站. 我然后请求到联通的直接从联通数据中心的 MogileFS 中取文件, 电信从电信取文件.  ( 怎么样保证存储文件时是二个节点, 请参照 "<a href="http://www.php-oa.com/2011/12/13/mogilefs-and-multiple-networks-datacenters.html">为 MogileFS 配置使用多个网络段/多数据中心</a>" )</p>
+<p>默认其实使用 Multiple Networks 是可以保证不同的数据库中心各自有自己的一份文件, 但使用 MogileFS 吐出来的时候, 发现还是有可能命中其它的节点来取文件. 不单有这个问题. 前端使用 Nginx 做为前端加 MogileFS 模块的时候. 因为多数据库中心, 都是使用的公网来连接,所以吐出 500M 的流量, 就要从其它的机器取 500M 的公网流量, 为了减少这个,我需要给  Nginx 返回的取后端 MogileFS 数据的路径修改成内网.</p>
+<p>为了实现以上需求, 花了点时间研究 Lua 使用这个来实现比较简单高效. 代码如下</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+local sock = ngx.socket.tcp()
+local server_pool = { ["192.168.1.xxx"] = "7001",   ["192.168.1.xxx"] = "7001" }
+
+local ok, err = nil, nil;
+for server, port in pairs(server_pool) do
+    ok, err = sock:connect(server, port)
+    if ok then
+        break
+    end 
+end
+
+if not ok then
+    ngx.log(ngx.ERR, "failed to connect to server: ".. err)
+    return
+end
+
+sock:settimeout(5000)
+
+local get_path = "get_paths key=" .. ngx.var.key .. "&amp;domain=" .. ngx.var.domain .."&amp;noverify=1\r\n"
+local bytes, err = sock:send(get_path)
+local reader = sock:receiveuntil("\r\n")
+local data, err, partial = reader()
+if not data then
+    ngx.log(ngx.ERR, "failed to read the data stream: ".. err)
+    return
+end
+--sock:setkeepalive()
+sock:close()
+--ngx.log(ngx.ERR, ngx.var.http_host)
+
+
+function Split(szFullString, szSeparator)  
+    local nFindStartIndex = 1   
+    local nSplitIndex = 1   
+    local nSplitArray = {}  
+    while true do  
+       local nFindLastIndex = string.find(szFullString, szSeparator, nFindStartIndex)  
+       if not nFindLastIndex then  
+        nSplitArray[nSplitIndex] = string.sub(szFullString, nFindStartIndex, string.len(szFullString))  
+        break  
+       end  
+       nSplitArray[nSplitIndex] = string.sub(szFullString, nFindStartIndex, nFindLastIndex - 1)  
+       nFindStartIndex = nFindLastIndex + string.len(szSeparator)  
+       nSplitIndex = nSplitIndex + 1   
+    end  
+    return nSplitArray  
+end 
+
+function parseUrl(url)
+    local t1 = nil
+    t1 = Split(url, " ")
+    t1 = Split(t1[2],'&amp;')
+
+    local res = {}
+    for k,v in pairs(t1) do
+        t1 = Split(v,'=')
+
+        if not t1[2] or not t1[1] then
+            return
+        end
+
+        local newstr, n, err = ngx.re.sub(t1[2], "http://可用本地节点 IP 前三段", "http://192.168.1")
+        if n == 1 then
+            res["localpath"]  = newstr
+        elseif t1[1] ~= "paths" then
+            res["remotepath"] = t1[2]
+        end
+    end
+    return res
+end
+
+local res = parseUrl(data)
+if not res then
+    --ngx.log(ngx.ERR, "not find:"..data)
+    ngx.exit(ngx.HTTP_NOT_FOUND)
+    return
+end
+
+if res["localpath"] then
+    ngx.var.mogilefs_path = res["localpath"]
+else
+    ngx.var.mogilefs_path = res["remotepath"]
+    ngx.log(ngx.ERR, "file key not find local" .. ngx.var.key)
+end
+
+
+
+
+</pre>
+<p>
+因为没写过 lua , 其中的 Split 函数抄别人的. 连接本地的 tracker 直接使用那个能连接上就连接的顺序连接….判断是否本地直接使用 ngx.re.sub 来做查找, 顺便替换成本地地址, 这样就实现了我要的功能.</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+    location ~ ([^\/]+)\.\w\w\w$ { 
+        expires 365d;
+        set $domain $host;
+        set $key $1; 
+        set $mogilefs_path ''; 
+        rewrite_by_lua_file "/etc/nginx/conf.d/ngx_lua/mogilefs.lua";
+        proxy_hide_header Content-Type;
+        proxy_buffering off;
+        proxy_pass $mogilefs_path;
+    }   
+
+</pre>
+<p>
+Nginx 就象上面这样配置好了, 本来不使用 rewrite 的阶段, 使用 set_by_lua_file 会更加合适,但会不能使用 tcp:sock 所以只能使用这个. 使用 nginx 原生的 proxy_pass 对于大文件会性能更加好. 修改完后, 所有的本地请求只从本地出.并且通过内网来取真实文件.</p>
+
+			<!--[syntaxhighlighter]-->
+			<!--代码高亮，请勿编辑-->
+			<script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js"></script><script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js"></script>
+
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css">
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css">
+			<script type="text/javascript">
+			SyntaxHighlighter.defaults['class-name']	= '.syntaxhighlighter {     background-color: 999999 }';
+			SyntaxHighlighter.defaults['smart-tabs']	= true;
+			SyntaxHighlighter.defaults['tab-size']		= 4;
+			SyntaxHighlighter.defaults['gutter']		= true;
+			SyntaxHighlighter.defaults['quick-code']	= true;
+			SyntaxHighlighter.defaults['collapse'] 		= false;
+			SyntaxHighlighter.defaults['auto-links']	= true;
+			SyntaxHighlighter.defaults['toolbar']		= true;
+			SyntaxHighlighter.all();
+			</script>
+			<!--[/syntaxhighlighter]-->						
+{% endraw %}

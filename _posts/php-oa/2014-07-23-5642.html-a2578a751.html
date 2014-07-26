@@ -1,0 +1,60 @@
+---
+layout: post
+title: 'Stream 的 Perl 后端实现关键技术介绍 (Mojolicous)'
+time: 2014-07-23
+site_name: php-oa.com
+source_url: http://www.php-oa.com/2014/07/23/5642.html
+---
+{% raw %}
+
+							<p>上一个文章<a href="http://%20http://www.php-oa.com/2014/07/23/%E5%85%A8%E5%B9%B3%E5%8F%B0%E5%A4%A7%E6%96%87%E4%BB%B6%E6%96%AD%E7%82%B9%E7%BB%AD%E4%BC%A0%E4%B8%8A%E4%BC%A0%E6%8A%80%E6%9C%AF.html">全平台大文件断点续传上传技术</a>中的核心技术除了浏览器, 就是服务器端的实现了. 我在这边了简单高效, 是使用的 Mojolicious 来实现的.<br>
+ Mojolcious 有着很好的事件支持, 所以就算本身只启动一个进程的时候, 都可以接收无数用户的同时上传.<br>
+下面我来讲一下这个技术中实现的重点.<br>
+我们知道 POST 上传, 是分很多种不同的情况, 在 Stream 的项目中,  HTML5 的实现, 是使用的 POST body 的方式实现的.有关 post 上关方式的介绍, 请看: <a href="http://www.php-oa.com/2014/07/15/http-post-mojolicious.html">HTTP 的 POST 参数提交</a>.<br>
+在上面文章的例子中, 取 body 都是从使用 req-&gt;body 的方式来取, 这也就意味着, 如果上传 1G ,我们会一次给一 G 的内容都放入内存. 在 Mojolicious 中有一个叫 Mojo::Upload 的模块, 也是处理上传的, 但是它只能处理以  application/x-www-form-urlencoded 和  application/x-www-form-urlencoded 的上传. 这个处理得非常有技巧, 整个文件上传了多少, 就会给多少内容存到文件本身, 这样就不会有过大的内存占用. 并且都是事件回调, 所以可以很好的处理多用户.</p>
+<p>但这个模块并不能处理 post 一个超大 body 就是文件本身的情况. 直接取 body 又大占内存, 所以在这, 我是使用的 Mojolicous 本身提供的 hook 点, 在用户提交创建完连接后, 然后请求的 header 解析完的时候, 来做了一个事件注册.<br>
+整个核心的代码简写是:</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+hook after_build_tx =&gt; sub {
+    my $tx = shift;
+    my $app = shift;
+    weaken $tx;
+
+    $tx-&gt;req-&gt;content-&gt;on(body =&gt; sub {
+        my $single  = shift;
+
+        return unless $tx-&gt;req-&gt;url-&gt;path-&gt;contains('/upload');
+        my $file = Mojo::Asset::File-&gt;new(path =&gt; $tx-&gt;req-&gt;param('path'), cleanup =&gt; 0);
+
+        $single-&gt;unsubscribe('read')-&gt;on(read =&gt; sub {
+            my ($single, $bytes) = @_;
+            $file-&gt;add_chunk($bytes);
+        });
+    });
+};
+
+</pre>
+<p>
+这个 body 的事件是创建完连接, 并在 header 解析完, 但 body 并没有开始取的时候注册, 所以这个地方, 只针对我们上传的目录来进行实时写入的事件回调注册就行.</p>
+<p>这时我们进入 body , 然后对 body 读取的事件中的可读的时候, 进行注册, 使用 Mojo::Asset::File 来对一个文件不断的追加, 直到整个文件写入完整后.</p>
+<p>注意, Mojo::Asset::File 这个模块是在 Mojolicous 5.16 以后才支持对已存在的文件进行追加写入( 还是我好不容易向作者提交的补丁 ).</p>
+
+			<!--[syntaxhighlighter]-->
+			<!--代码高亮，请勿编辑-->
+			<script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js"></script><script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js"></script>
+
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css">
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css">
+			<script type="text/javascript">
+			SyntaxHighlighter.defaults['class-name']	= '.syntaxhighlighter {     background-color: 999999 }';
+			SyntaxHighlighter.defaults['smart-tabs']	= true;
+			SyntaxHighlighter.defaults['tab-size']		= 4;
+			SyntaxHighlighter.defaults['gutter']		= true;
+			SyntaxHighlighter.defaults['quick-code']	= true;
+			SyntaxHighlighter.defaults['collapse'] 		= false;
+			SyntaxHighlighter.defaults['auto-links']	= true;
+			SyntaxHighlighter.defaults['toolbar']		= true;
+			SyntaxHighlighter.all();
+			</script>
+			<!--[/syntaxhighlighter]-->						
+{% endraw %}

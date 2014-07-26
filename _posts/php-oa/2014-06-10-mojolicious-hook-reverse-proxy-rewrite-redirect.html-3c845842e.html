@@ -1,0 +1,65 @@
+---
+layout: post
+title: 'Mojolicious 使用反向代理到指定路径'
+time: 2014-06-10
+site_name: php-oa.com
+source_url: http://www.php-oa.com/2014/06/10/mojolicious-hook-reverse-proxy-rewrite-redirect.html
+---
+{% raw %}
+
+							<p>在 Mojo 的群中, 大家聊到, 不想新起一个域名, 希望给 Mojo 写的应用挂到一个域名指定的路径下. 来让象 Nginx 和 Apache 之类给前端的请求都调度到后端的 Mojo 的应用. 听讲 Dancer 很容易实现, Mojo 一直没找到方案.所以特地 Google 大神了所有的网站, 找到了解决方案.</p>
+<p>默认的 Nginx 放前端 , 比如域名是这样配置的.</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+    location /mojo {
+        #rewrite ^/mojo/?(.*) /$1 break;
+        proxy_pass http://127.0.0.1:3000;
+    }  
+
+
+</pre>
+<p>现在的关键是, 需要让所有的请求在 Mojo 的应用中最好都认为是绝对路径, 这个很好实现, 上面我注掉的重写也可以实现.<br>
+在这个地方麻烦的是. 如果这个地方有网页的路径输出, 这时输出的绝对路径, 并不会加上 '/mojo' 这样, 在整个 Mojo 应用中输出的路径和地址就都会变得不可用.影响所有的 redirect_to 和 url_for 的输出.</p>
+<p>在查询的文章中, 日本一个 Mojo 的玩家也有相同的问题, 并提供了完整的解决方案, 使用 Mojo 的 Hook 功能, 当检查到是使用了 reverse proxy 的时候,给 base path 进行重写. 他的方案如下:</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+$self-&gt;hook('before_dispatch' =&gt; sub {
+  my $self = shift;
+  
+  if ( $self-&gt;req-&gt;headers-&gt;header('X-Forwarded-For')) {
+    my $prefix = shift @{$self-&gt;req-&gt;url-&gt;path-&gt;parts};
+    push @{$self-&gt;req-&gt;url-&gt;base-&gt;path-&gt;parts}, $prefix;
+  }
+}
+
+</pre>
+<p>当在进入 dispatch 的时候,检查前端是否有 X-Forwarded-For 有就使用了代码, 然后对传送过的路径做为前缀输出. 这时 url_for 和 redirect_to 都正常了.</p>
+<p>这二天又认真读了一下文档, 文档 <a href="http://cpan.php-oa.com/perldoc/Mojolicious">Mojolicious</a> :: <a href="http://cpan.php-oa.com/perldoc/Mojolicious/Guides">Guides</a> :: <a href="http://cpan.php-oa.com/perldoc/Mojolicious/Guides/Cookbook">Cookbook</a> 中也有一个方案, 也很好用.</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+# Move first part and slash from path to base path in production mode
+app-&gt;hook(before_dispatch =&gt; sub {
+  my $c = shift;
+  push @{$c-&gt;req-&gt;url-&gt;base-&gt;path-&gt;trailing_slash(1)},
+    shift @{$c-&gt;req-&gt;url-&gt;path-&gt;leading_slash(0)};
+}) if app-&gt;mode eq 'production';
+
+</pre>
+<p>参考文章: <a href="http://d.hatena.ne.jp/perlcodesampleen/20110324/1305516750" name="1305516750">reverse proxy use when host name , port number , path correct </a></p>
+
+			<!--[syntaxhighlighter]-->
+			<!--代码高亮，请勿编辑-->
+			<script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js"></script><script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js"></script>
+
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css">
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css">
+			<script type="text/javascript">
+			SyntaxHighlighter.defaults['class-name']	= '.syntaxhighlighter {     background-color: 999999 }';
+			SyntaxHighlighter.defaults['smart-tabs']	= true;
+			SyntaxHighlighter.defaults['tab-size']		= 4;
+			SyntaxHighlighter.defaults['gutter']		= true;
+			SyntaxHighlighter.defaults['quick-code']	= true;
+			SyntaxHighlighter.defaults['collapse'] 		= false;
+			SyntaxHighlighter.defaults['auto-links']	= true;
+			SyntaxHighlighter.defaults['toolbar']		= true;
+			SyntaxHighlighter.all();
+			</script>
+			<!--[/syntaxhighlighter]-->						
+{% endraw %}
