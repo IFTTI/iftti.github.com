@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>术语 Tethering Hotspot 的翻译问题</title>
+    <title>Lua 版写了个简化的 MogileFS 的 Nginx 模块配合多数据中心的地域感知功能</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[科技与互联网干货]">
-    <link rel="canonical" href="http://iftti.com/posts/2011/2011-03-03-translating-tethering-hotspot-1d4b9019c.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-06-09-lua-mogilefs-nginx.html-0debf8386.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,8 +50,8 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>术语 Tethering Hotspot 的翻译问题</h1>
-    <p class="meta"><span class="time">Mar 3, 2011</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2011/03/translating-tethering-hotspot/" target="_blank">[lark.net.cn]</a></span></p>
+    <h1>Lua 版写了个简化的 MogileFS 的 Nginx 模块配合多数据中心的地域感知功能</h1>
+    <p class="meta"><span class="time">Jun 9, 2014</span><span class="source_url"> • <a name="php-oa.com" href="http://www.php-oa.com/2014/06/09/lua-mogilefs-nginx.html" target="_blank">[php-oa.com]</a></span></p>
     <p><!-- JiaThis Button BEGIN -->
 <div class="jiathis_style">
 	<span class="jiathis_txt">分享到：</span>
@@ -72,30 +72,157 @@ var jiathis_config = {data_track_clickback:'true'};
   </header>
 
   <article class="post-content">
-  		<p>Tethering Hotspot 不是一个新术语，在 iPhone 流行以前这个术语就出现了，iPhone 流行以后，这个术语被更多的人知道。</p>
-<p>Tethering Hotspot 是指用 wifi hotspot 的形式，给多个设备分享无线接入，无线接入可以是 2G 的 GPRS、CDMA，3G 的 WCDMA、CDMA2000，4G 的 LTE 等。这个术语包含显式和隐式两方面的信息。显式的是 hotspot ，是其提供服务的形式，有的时候还会显式地增加 wifi 以和其它领域（比如社会学）的 hotspot 相区分；隐式的信息是 tethering 暗示另外一端接入到移动数据网络。</p>
-<p>可惜的是，中文圈里这个术语的翻译是个看起来解决实际上没解决的问题。比如，今天从做手机软件开发的人那里看到“wifi热点发射”这个说法，虽然从上下文可以理解在说什么，但这个说法字面上是很难理解的。用 google 一查，有很多的人这么用。</p>
-<p>在翻译术语的时候，如果省掉隐含信息进行翻译，有可能会和其它术语混淆，比如 iphone 4 上提到这个功能的官方用语是“private hotspot”，仅进行字面翻译，会和家用 wifi 路由器或AP没有区别。</p>
-<p>我想到的一个“tethering hotspot”的翻译是“桥接热点”，这个翻译将 tethering 和 hotspot 两个词都翻译出来，“桥接”虽然没有说明另外一端是无线接入，但在手机、移动设备上使用这个术语时，上下文会使得其含义十分明确。最大的问题是“桥接”是个过于专业的术语，不够友好。</p>
+
+							<p>MogileFS 可以做多数据库中心存储, 这是象我这种方案中非常方便的. 我使用 MogileFS 在电信和联通分别做了一个源站. 我然后请求到联通的直接从联通数据中心的 MogileFS 中取文件, 电信从电信取文件.  ( 怎么样保证存储文件时是二个节点, 请参照 "<a href="http://www.php-oa.com/2011/12/13/mogilefs-and-multiple-networks-datacenters.html">为 MogileFS 配置使用多个网络段/多数据中心</a>" )</p>
+<p>默认其实使用 Multiple Networks 是可以保证不同的数据库中心各自有自己的一份文件, 但使用 MogileFS 吐出来的时候, 发现还是有可能命中其它的节点来取文件. 不单有这个问题. 前端使用 Nginx 做为前端加 MogileFS 模块的时候. 因为多数据库中心, 都是使用的公网来连接,所以吐出 500M 的流量, 就要从其它的机器取 500M 的公网流量, 为了减少这个,我需要给  Nginx 返回的取后端 MogileFS 数据的路径修改成内网.</p>
+<p>为了实现以上需求, 花了点时间研究 Lua 使用这个来实现比较简单高效. 代码如下</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+local sock = ngx.socket.tcp()
+local server_pool = { ["192.168.1.xxx"] = "7001",   ["192.168.1.xxx"] = "7001" }
+
+local ok, err = nil, nil;
+for server, port in pairs(server_pool) do
+    ok, err = sock:connect(server, port)
+    if ok then
+        break
+    end 
+end
+
+if not ok then
+    ngx.log(ngx.ERR, "failed to connect to server: ".. err)
+    return
+end
+
+sock:settimeout(5000)
+
+local get_path = "get_paths key=" .. ngx.var.key .. "&amp;domain=" .. ngx.var.domain .."&amp;noverify=1\r\n"
+local bytes, err = sock:send(get_path)
+local reader = sock:receiveuntil("\r\n")
+local data, err, partial = reader()
+if not data then
+    ngx.log(ngx.ERR, "failed to read the data stream: ".. err)
+    return
+end
+--sock:setkeepalive()
+sock:close()
+--ngx.log(ngx.ERR, ngx.var.http_host)
+
+
+function Split(szFullString, szSeparator)  
+    local nFindStartIndex = 1   
+    local nSplitIndex = 1   
+    local nSplitArray = {}  
+    while true do  
+       local nFindLastIndex = string.find(szFullString, szSeparator, nFindStartIndex)  
+       if not nFindLastIndex then  
+        nSplitArray[nSplitIndex] = string.sub(szFullString, nFindStartIndex, string.len(szFullString))  
+        break  
+       end  
+       nSplitArray[nSplitIndex] = string.sub(szFullString, nFindStartIndex, nFindLastIndex - 1)  
+       nFindStartIndex = nFindLastIndex + string.len(szSeparator)  
+       nSplitIndex = nSplitIndex + 1   
+    end  
+    return nSplitArray  
+end 
+
+function parseUrl(url)
+    local t1 = nil
+    t1 = Split(url, " ")
+    t1 = Split(t1[2],'&amp;')
+
+    local res = {}
+    for k,v in pairs(t1) do
+        t1 = Split(v,'=')
+
+        if not t1[2] or not t1[1] then
+            return
+        end
+
+        local newstr, n, err = ngx.re.sub(t1[2], "http://可用本地节点 IP 前三段", "http://192.168.1")
+        if n == 1 then
+            res["localpath"]  = newstr
+        elseif t1[1] ~= "paths" then
+            res["remotepath"] = t1[2]
+        end
+    end
+    return res
+end
+
+local res = parseUrl(data)
+if not res then
+    --ngx.log(ngx.ERR, "not find:"..data)
+    ngx.exit(ngx.HTTP_NOT_FOUND)
+    return
+end
+
+if res["localpath"] then
+    ngx.var.mogilefs_path = res["localpath"]
+else
+    ngx.var.mogilefs_path = res["remotepath"]
+    ngx.log(ngx.ERR, "file key not find local" .. ngx.var.key)
+end
+
+
+
+
+</pre>
+
+<p>
+因为没写过 lua , 其中的 Split 函数抄别人的. 连接本地的 tracker 直接使用那个能连接上就连接的顺序连接….判断是否本地直接使用 ngx.re.sub 来做查找, 顺便替换成本地地址, 这样就实现了我要的功能.</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+    location ~ ([^\/]+)\.\w\w\w$ { 
+        expires 365d;
+        set $domain $host;
+        set $key $1; 
+        set $mogilefs_path ''; 
+        rewrite_by_lua_file "/etc/nginx/conf.d/ngx_lua/mogilefs.lua";
+        proxy_hide_header Content-Type;
+        proxy_buffering off;
+        proxy_pass $mogilefs_path;
+    }   
+
+</pre>
+
+<p>
+Nginx 就象上面这样配置好了, 本来不使用 rewrite 的阶段, 使用 set_by_lua_file 会更加合适,但会不能使用 tcp:sock 所以只能使用这个. 使用 nginx 原生的 proxy_pass 对于大文件会性能更加好. 修改完后, 所有的本地请求只从本地出.并且通过内网来取真实文件.</p>
+
+			<!--[syntaxhighlighter]-->
+			<!--代码高亮，请勿编辑-->
+			<script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js"></script><script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js"></script>
+
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css">
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css">
+			<script type="text/javascript">
+			SyntaxHighlighter.defaults['class-name']	= '.syntaxhighlighter {     background-color: 999999 }';
+			SyntaxHighlighter.defaults['smart-tabs']	= true;
+			SyntaxHighlighter.defaults['tab-size']		= 4;
+			SyntaxHighlighter.defaults['gutter']		= true;
+			SyntaxHighlighter.defaults['quick-code']	= true;
+			SyntaxHighlighter.defaults['collapse'] 		= false;
+			SyntaxHighlighter.defaults['auto-links']	= true;
+			SyntaxHighlighter.defaults['toolbar']		= true;
+			SyntaxHighlighter.all();
+			</script>
+			<!--[/syntaxhighlighter]-->						
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2010/2010-07-05-iphone4-signal-issue-d68f40440.html" title="Previous Post: iPhone4 的信号问题" data-instant>&laquo; iPhone4 的信号问题</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-06-09-%25e6%2594%25b9%25e9%2580%25a0-mojolicious-%25e8%25ae%25a9%25e6%2597%25a5%25e5%25bf%2597%25e6%2598%25be%25e7%25a4%25ba%25e5%25bd%2593%25e5%2589%258d%25e6%25a8%25a1%25e5%259d%2597%25e5%2592%258c%25e8%25a1%258c%25e5%258f%25b7.html-641ecdef9.html" title="Previous Post: 改造 Mojolicious 让日志显示当前模块和行号" data-instant>&laquo; 改造 Mojolicious 让日志显示当前模块和行号</a>
 
-    <a class="basic-alignment right" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Next Post: Oracle Database Appliance" data-instant>Oracle Database Appliance &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-06-10-mojolicious-hook-reverse-proxy-rewrite-redirect.html-3c845842e.html" title="Next Post: Mojolicious 使用反向代理到指定路径" data-instant>Mojolicious 使用反向代理到指定路径 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>05 Jul 2010</span> &raquo; <a href="http://iftti.com/posts/2010/2010-07-05-iphone4-signal-issue-d68f40440.html">iPhone4 的信号问题</a></li>
-
       <li><span>10 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-10-mojolicious-hook-reverse-proxy-rewrite-redirect.html-3c845842e.html">Mojolicious 使用反向代理到指定路径</a></li>
 
       <li><span>23 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-23-5642.html-a2578a751.html">Stream 的 Perl 后端实现关键技术介绍 (Mojolicous)</a></li>
+
+      <li><span>15 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-15-http-post-mojolicious.html-e69430dd0.html">HTTP 的 POST 参数提交和上传的不同与 Mojolicious 的实现.</a></li>
 
   </ul>
 </div>

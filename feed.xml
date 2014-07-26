@@ -5,8 +5,8 @@
     <description>[科技与互联网干货]</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Sat, 26 Jul 2014 11:12:02 +0800</pubDate>
-    <lastBuildDate>Sat, 26 Jul 2014 11:12:02 +0800</lastBuildDate>
+    <pubDate>Sat, 26 Jul 2014 12:00:51 +0800</pubDate>
+    <lastBuildDate>Sat, 26 Jul 2014 12:00:51 +0800</lastBuildDate>
     <generator>Jekyll v2.1.0</generator>
     
       <item>
@@ -710,6 +710,169 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         <pubDate>Wed, 23 Jul 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-07-23-74109-23c6c0d86.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-23-74109-23c6c0d86.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>Stream 的 Perl 后端实现关键技术介绍 (Mojolicous)</title>
+        <description>
+
+							&lt;p&gt;上一个文章&lt;a href=&quot;http://%20http://www.php-oa.com/2014/07/23/%E5%85%A8%E5%B9%B3%E5%8F%B0%E5%A4%A7%E6%96%87%E4%BB%B6%E6%96%AD%E7%82%B9%E7%BB%AD%E4%BC%A0%E4%B8%8A%E4%BC%A0%E6%8A%80%E6%9C%AF.html&quot;&gt;全平台大文件断点续传上传技术&lt;/a&gt;中的核心技术除了浏览器, 就是服务器端的实现了. 我在这边了简单高效, 是使用的 Mojolicious 来实现的.&lt;br&gt;
+ Mojolcious 有着很好的事件支持, 所以就算本身只启动一个进程的时候, 都可以接收无数用户的同时上传.&lt;br&gt;
+下面我来讲一下这个技术中实现的重点.&lt;br&gt;
+我们知道 POST 上传, 是分很多种不同的情况, 在 Stream 的项目中,  HTML5 的实现, 是使用的 POST body 的方式实现的.有关 post 上关方式的介绍, 请看: &lt;a href=&quot;http://www.php-oa.com/2014/07/15/http-post-mojolicious.html&quot;&gt;HTTP 的 POST 参数提交&lt;/a&gt;.&lt;br&gt;
+在上面文章的例子中, 取 body 都是从使用 req-&amp;gt;body 的方式来取, 这也就意味着, 如果上传 1G ,我们会一次给一 G 的内容都放入内存. 在 Mojolicious 中有一个叫 Mojo::Upload 的模块, 也是处理上传的, 但是它只能处理以  application/x-www-form-urlencoded 和  application/x-www-form-urlencoded 的上传. 这个处理得非常有技巧, 整个文件上传了多少, 就会给多少内容存到文件本身, 这样就不会有过大的内存占用. 并且都是事件回调, 所以可以很好的处理多用户.&lt;/p&gt;
+&lt;p&gt;但这个模块并不能处理 post 一个超大 body 就是文件本身的情况. 直接取 body 又大占内存, 所以在这, 我是使用的 Mojolicous 本身提供的 hook 点, 在用户提交创建完连接后, 然后请求的 header 解析完的时候, 来做了一个事件注册.&lt;br&gt;
+整个核心的代码简写是:&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+hook after_build_tx =&amp;gt; sub {
+    my $tx = shift;
+    my $app = shift;
+    weaken $tx;
+
+    $tx-&amp;gt;req-&amp;gt;content-&amp;gt;on(body =&amp;gt; sub {
+        my $single  = shift;
+
+        return unless $tx-&amp;gt;req-&amp;gt;url-&amp;gt;path-&amp;gt;contains(&#39;/upload&#39;);
+        my $file = Mojo::Asset::File-&amp;gt;new(path =&amp;gt; $tx-&amp;gt;req-&amp;gt;param(&#39;path&#39;), cleanup =&amp;gt; 0);
+
+        $single-&amp;gt;unsubscribe(&#39;read&#39;)-&amp;gt;on(read =&amp;gt; sub {
+            my ($single, $bytes) = @_;
+            $file-&amp;gt;add_chunk($bytes);
+        });
+    });
+};
+
+&lt;/pre&gt;
+&lt;p&gt;
+这个 body 的事件是创建完连接, 并在 header 解析完, 但 body 并没有开始取的时候注册, 所以这个地方, 只针对我们上传的目录来进行实时写入的事件回调注册就行.&lt;/p&gt;
+&lt;p&gt;这时我们进入 body , 然后对 body 读取的事件中的可读的时候, 进行注册, 使用 Mojo::Asset::File 来对一个文件不断的追加, 直到整个文件写入完整后.&lt;/p&gt;
+&lt;p&gt;注意, Mojo::Asset::File 这个模块是在 Mojolicous 5.16 以后才支持对已存在的文件进行追加写入( 还是我好不容易向作者提交的补丁 ).&lt;/p&gt;
+
+			&lt;!--[syntaxhighlighter]--&gt;
+			&lt;!--代码高亮，请勿编辑--&gt;
+			&lt;script type=&quot;text/javascript&quot; src=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js&quot;&gt;&lt;/script&gt;&lt;script type=&quot;text/javascript&quot; src=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js&quot;&gt;&lt;/script&gt;
+
+			&lt;link type=&quot;text/css&quot; rel=&quot;stylesheet&quot; href=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css&quot;&gt;
+			&lt;link type=&quot;text/css&quot; rel=&quot;stylesheet&quot; href=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css&quot;&gt;
+			&lt;script type=&quot;text/javascript&quot;&gt;
+			SyntaxHighlighter.defaults[&#39;class-name&#39;]	= &#39;.syntaxhighlighter {     background-color: 999999 }&#39;;
+			SyntaxHighlighter.defaults[&#39;smart-tabs&#39;]	= true;
+			SyntaxHighlighter.defaults[&#39;tab-size&#39;]		= 4;
+			SyntaxHighlighter.defaults[&#39;gutter&#39;]		= true;
+			SyntaxHighlighter.defaults[&#39;quick-code&#39;]	= true;
+			SyntaxHighlighter.defaults[&#39;collapse&#39;] 		= false;
+			SyntaxHighlighter.defaults[&#39;auto-links&#39;]	= true;
+			SyntaxHighlighter.defaults[&#39;toolbar&#39;]		= true;
+			SyntaxHighlighter.all();
+			&lt;/script&gt;
+			&lt;!--[/syntaxhighlighter]--&gt;						
+
+</description>
+        <pubDate>Wed, 23 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-23-5642.html-a2578a751.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-23-5642.html-a2578a751.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>全平台大文件断点续传上传技术 ( 开源项目 Stream )</title>
+        <description>
+
+							&lt;p&gt;近来看了一下大文件断点续传的开源项目, 发现了 &lt;a href=&quot;http://www.twinkling.cn/&quot;&gt;Stream &lt;/a&gt;这个好项目, 非常非常感谢作者. 然后我花了点时间, 简单的使用 Perl 来实现了一下相关的接口. 这个是非常好的用来解决不同浏览器上传文件的方案.&lt;/p&gt;
+&lt;article class=&quot;markdown-body entry-content&quot; itemprop=&quot;mainContentOfPage&quot;&gt;
+&lt;h1&gt;
+	&lt;a class=&quot;anchor&quot; href=&quot;https://github.com/iakuf/mojolicious-stream-upload#stream-%E4%B8%8A%E4%BC%A0%E6%8F%92%E4%BB%B6%E4%BB%8B%E7%BB%8D&quot; name=&quot;user-content-stream-%E4%B8%8A%E4%BC%A0%E6%8F%92%E4%BB%B6%E4%BB%8B%E7%BB%8D&quot;&gt;&lt;/a&gt;Stream 上传插件介绍&lt;/h1&gt;
+&lt;p&gt;
+	Stream 这个项目主要是为了解决大文件上传, 本程序只是它的一个 Perl 后端的实现. 项目网站是: &lt;a href=&quot;http://www.twinkling.cn&quot;&gt;http://www.twinkling.cn&lt;/a&gt; 原始地址是: &lt;a href=&quot;http://git.oschina.net/jiangdx/stream/wikis/home&quot;&gt;http://git.oschina.net/jiangdx/stream/wikis/home&lt;/a&gt;. 因为它对 HTML5 和 Flash 都支持, 所以很合适做全功能的上传平台. 在这, 感谢作者为我们大家提供这么好的开源项目.&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;支持HTML5、Flash两种方式（跨域）上传
+支持多文件一起上传
+HTML5方式支持断点续传，拖拽等新特性
+兼容性好IE7+, FF3.6+, Chrome*，Safari4+，遨游等主流浏览器
+选择文件的按钮完全可以自定义
+进度条、速度、剩余时间等附属信息
+基本的自定义属性及函数，如文件多选、上传成功的响应函数等
+示例代码java实现（StreamServlet, FormDataServlet{commons-fileupload的stream api}, TokenServlet）
+
+注：Chrome没测试最低版本，不想支持IE6
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;
+	&lt;a class=&quot;anchor&quot; href=&quot;https://github.com/iakuf/mojolicious-stream-upload#stream-%E7%9A%84-perl-%E5%90%8E%E7%AB%AF&quot; name=&quot;user-content-stream-%E7%9A%84-perl-%E5%90%8E%E7%AB%AF&quot;&gt;&lt;/a&gt;Stream 的 Perl 后端&lt;/h1&gt;
+&lt;p&gt;
+	本后端是使用 Perl 中常用的框架 Mojolicious 实现. 本程序做为后端接收上传过来的大文件的时候, 完全使用的是异步流式处理, 所以就算是单进程, 也可以处理多个上传的请求. 并且不会有多少内存的占用. 因为使用 Mojolicious 实现, 所以需要安装这个框架和一些相关的模块. Perl 中模块的安装需要使用 cpanm 所以先要下载 cpanm .&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;$ wget  http://xrl.us/cpanm  --no-check-certificate -O /sbin/cpanm
+$ chmod +x  /sbin/cpanm 
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;
+	然后开始安装&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;$ cpanm Mojolicious EV Digest::MD5 
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;
+	&lt;a class=&quot;anchor&quot; href=&quot;https://github.com/iakuf/mojolicious-stream-upload#%E5%AE%89%E8%A3%85&quot; name=&quot;user-content-%E5%AE%89%E8%A3%85&quot;&gt;&lt;/a&gt;安装&lt;/h1&gt;
+&lt;p&gt;
+	这个 Perl 的后端的 stream 的实现文件都在项目 &lt;a href=&quot;https://github.com/iakuf/mojolicious-stream-upload&quot;&gt;https://github.com/iakuf/mojolicious-stream-upload&lt;/a&gt; 中. 大家需要使用到其中二个文件 stream.pl 和 StreamUpload.conf 所以可以使用任何方法下载这个项目中的文件. 其中 stream.pl 是执行文件, StreamUpload.conf 是配置文件.&lt;/p&gt;
+&lt;p&gt;
+	stream.pl 可以放在任何路径, StreamUpload.conf 请放到 &#39;/etc&#39; 的目录下.&lt;/p&gt;
+&lt;h1&gt;
+	&lt;a class=&quot;anchor&quot; href=&quot;https://github.com/iakuf/mojolicious-stream-upload#%E9%85%8D%E7%BD%AE&quot; name=&quot;user-content-%E9%85%8D%E7%BD%AE&quot;&gt;&lt;/a&gt;配置&lt;/h1&gt;
+&lt;p&gt;
+	整个配置文件如下:&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;{
+    hypnotoad =&amp;gt; {
+        listen =&amp;gt; [&#39;http://*:3008&#39;],
+            user   =&amp;gt; &#39;newupload&#39;,
+            group  =&amp;gt; &#39;newupload&#39;,
+    },
+    UploadServer   =&amp;gt; &#39;http://xxx.xxxx.com&#39;,
+    CrossOrigins   =&amp;gt; &#39;http://xxx.xxxx.com&#39;,
+    FileRepository =&amp;gt; &#39;/tmp/&#39;,
+    debug          =&amp;gt; 1,
+    log            =&amp;gt; &#39;/var/log/upload.log&#39;,
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;
+	指定用户和组&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;user   =&amp;gt; &#39;newupload&#39;
+group  =&amp;gt; &#39;newupload&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;
+	哪些域名的文件, 是可以接收并存储的&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;CrossOrigins   =&amp;gt; &#39;http://xxx.xxx.com&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;
+	文件存储的目录&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;FileRepository =&amp;gt; &#39;/tmp/&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;
+	修改服务器启动的端口&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;listen =&amp;gt; [&#39;http://*:3008&#39;]
+&lt;/code&gt;&lt;/pre&gt;
+&lt;h1&gt;
+	&lt;a class=&quot;anchor&quot; href=&quot;https://github.com/iakuf/mojolicious-stream-upload#%E5%90%AF%E5%8A%A8&quot; name=&quot;user-content-%E5%90%AF%E5%8A%A8&quot;&gt;&lt;/a&gt;启动&lt;/h1&gt;
+&lt;p&gt;
+	hyphotoad 是一个常用的 Perl 后端的 Web 异步服务器, 为 Mojolicious 的原生配置. 多进程, 为 Unix 优化过. 所以使用它来启动,&lt;/p&gt;
+&lt;pre&gt;
+&lt;code&gt;$ hypnotoad stream.pl 
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;
+	现在就可以直接打开这个服务器来进行测试了&lt;/p&gt;
+&lt;/article&gt;
+						
+
+</description>
+        <pubDate>Wed, 23 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-23-%25e5%2585%25a8%25e5%25b9%25b3%25e5%258f%25b0%25e5%25a4%25a7%25e6%2596%2587%25e4%25bb%25b6%25e6%2596%25ad%25e7%2582%25b9%25e7%25bb%25ad%25e4%25bc%25a0%25e4%25b8%258a%25e4%25bc%25a0%25e6%258a%2580%25e6%259c%25af.html-a531e7bfe.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-23-%25e5%2585%25a8%25e5%25b9%25b3%25e5%258f%25b0%25e5%25a4%25a7%25e6%2596%2587%25e4%25bb%25b6%25e6%2596%25ad%25e7%2582%25b9%25e7%25bb%25ad%25e4%25bc%25a0%25e4%25b8%258a%25e4%25bc%25a0%25e6%258a%2580%25e6%259c%25af.html-a531e7bfe.html</guid>
         
         
       </item>
@@ -3064,6 +3227,183 @@ disk_size() {
         <pubDate>Thu, 17 Jul 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-07-17-73257-503521781.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-17-73257-503521781.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>HTTP 的 POST 参数提交和上传的不同与 Mojolicious 的实现.</title>
+        <description>
+
+							&lt;p&gt;对于 HTTP 协议, 我们在使用 POST 上传的时候, 其实是有好几种不同的处理方式的, 所以对于客户端和服务器端, 也分别都有不同的处理. 正常普通的网页在提交参数上传到服务器的时候, 主要会根据内容的不同来使用不同的处理. 所体现在不同的地方在 Content-Type 的类型.&lt;br&gt;
+比如我们常常用 Mojolicious 处理这类接收到的参数和内容的时候, 会让很多人晕掉, 所以我在这, 基于协议的头, 来给大家介绍一下在参数和上传的时候有什么不同.&lt;br&gt;
+客户端, 比如浏览器网页中的 form 的表格的参数的不同, 客户端比如 Linux 命令行的 curl 的参数的不同和程序接口提交参数的不同, HTTP 协议在上传的时候, 大约会有三种不同, 这些体现在 Content-Type 的三种类型:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+		application/x-www-form-urlencoded&lt;/li&gt;
+&lt;li&gt;
+		multipart/form-data&lt;/li&gt;
+&lt;li&gt;
+		post 的 body 的内容&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;下面我们来详细介绍&lt;/p&gt;
+&lt;h3&gt;
+	1. application/x-www-form-urlencoded 默认&lt;/h3&gt;
+&lt;p&gt;&lt;strong&gt;浏览器:&lt;/strong&gt;  在 HTML 中 form 有个参数是 enctype 属性用于指定编码方式, 常用有前面讲的两种: application/x-www-form-urlencoded 和 multipart/form-data. 但默认的时候, 我们并不指定. 不指定的时候, 默认是 &quot;application/x-www-form-urlencoded&quot; , 所以其实, 我们平时都是使用的这种格式来提交数据. 因为是默认就不写出来了. 注意, 这个会对空格和特别的符号进行 url 的 encode.&lt;br&gt;
+ &lt;br&gt;
+&lt;strong&gt;程序:&lt;/strong&gt; 我们现在以 Mojo::UserAgent 这个模块为例子, 我们提交一个参数 args 值为 test.&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; form =&amp;gt; { args =&amp;gt; &#39;test&#39;});
+
+&lt;/pre&gt;
+&lt;p&gt;命令:&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+$curl -svo /dev/null -d &quot;args=test&quot; http://www.php-oa.com/a/b
+&lt;/pre&gt;
+&lt;p&gt;
+&lt;strong&gt;HTTP 协议状态&lt;/strong&gt;&lt;br&gt;
+这个时候所发送的 HTTP 的头和内容分别如下. body 中会存着参数, 会有一个特别的 Header.&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+-- Blocking request (http://www.php-oa.com/a/b)
+-- Connect (http:www.php-oa.com:80)
+-- Client &amp;gt;&amp;gt;&amp;gt; Server (http://www.php-oa.com/a/b)
+POST /a/b HTTP/1.1
+User-Agent: Mojolicious (Perl)
+Connection: keep-alive
+Content-Type: application/x-www-form-urlencoded
+Accept-Encoding: gzip
+Content-Length: 9
+Host: www.php-oa.com
+
+args=test
+&lt;/pre&gt;
+&lt;p&gt;
+&lt;strong&gt;服务端接收方式&lt;/strong&gt;&lt;br&gt;
+这个时候, 服务器会根据因为是 POST 的方法, 并且头部的 Content-Type: application/x-www-form-urlencoded 会去解析 body 的参数. 这样在 Mojolicious 服务器&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+post &#39;/a/b&#39; =&amp;gt; sub {
+  my $self = shift;
+  my $foo  = $self-&amp;gt;param(&#39;args&#39;);
+  $self-&amp;gt;render(text =&amp;gt; &quot;Hello from $foo.&quot;);
+}
+
+&lt;/pre&gt;
+&lt;h3 style=&quot;padding:0px; margin:0px; font-family:微软雅黑,Verdana,sans-serif,宋体; line-height:24px; text-align:left&quot;&gt;
+	 &lt;/h3&gt;
+&lt;h3&gt;
+	2. multipart/form-data 大文件, 媒体文件&lt;/h3&gt;
+&lt;p&gt;对于比较大的, 有一些二进制数据和象视频文件之类大文件, 建议使用这种方式上传.&lt;br&gt;
+&lt;strong&gt;浏览器:&lt;/strong&gt;&lt;br&gt;
+普通的 HTTP 的写法如果要使用 enctype 的话, 只要象下面一样就行.&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+&amp;lt;form action=&quot;/path/to/login&quot; enctype=&quot;multipart/form-data&quot;&amp;gt;
+  &amp;lt;input disabled=&quot;disabled&quot; name=&quot;first_name&quot; type=&quot;text&quot; /&amp;gt;
+  &amp;lt;input value=&quot;Ok&quot; type=&quot;submit&quot; /&amp;gt;
+&amp;lt;/form&amp;gt;
+
+&lt;/pre&gt;
+&lt;p&gt;&lt;strong&gt;客户端:&lt;/strong&gt;&lt;br&gt;
+在 Mojo::UserAgent 考虑得非常周全, 当你提交的内容中包含二进制文件之类时, 就会自动帮你转换成 &quot;multipart/form-data&quot; 格式提交. 这个格式会生成一个随机字符来分割不同参数. 区分是否使用这种格式主要是, 当你提交的参数中, 又是一个引用, 并且引中可以使用 content 来指定内容或者 file 来指定路径.&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; form =&amp;gt; { args =&amp;gt; &#39;test&#39;, args_file =&amp;gt; { file =&amp;gt; &#39;/root/.bash_history&#39; } });
+
+# or
+$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; form =&amp;gt; { args =&amp;gt; &#39;test&#39;, args_file =&amp;gt; { content =&amp;gt; &#39;test&#39; } });
+
+
+&lt;/pre&gt;
+&lt;p&gt;
+&lt;strong&gt;HTTP 协议状态&lt;/strong&gt;&lt;br&gt;
+这个地方我们可以见到 Content-Type: multipart/form-data 的请求头, 告诉文件和参数是这种格式上传过来的.并且 boundary 用于指定一个参数之间的分割符.&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+-- Blocking request (http://www.php-oa.com/a/b)
+-- Connect (http:www.php-oa.com:80)
+-- Client &amp;gt;&amp;gt;&amp;gt; Server (http://www.php-oa.com/a/b)
+POST /a/b HTTP/1.1
+User-Agent: Mojolicious (Perl)
+Content-Type: multipart/form-data; boundary=WRoHX
+Connection: keep-alive
+Accept-Encoding: gzip
+Content-Length: 14428
+Host: www.php-oa.com
+
+--WRoHX
+Content-Disposition: form-data; name=&quot;args&quot;
+test
+--WRoHX
+Content-Disposition: form-data; name=&quot;args_file&quot;; filename=&quot;.bash_history&quot;
+........文件本身
+
+
+
+
+&lt;/pre&gt;
+&lt;p&gt;
+&lt;strong&gt;服务器接收方式&lt;/strong&gt;&lt;br&gt;
+在后端的服务器接收的时候 Mojolicious 想得非常周到. 对于这种格式能自动解析, 并且全程异步.不会多占内存. 这个会自动给大的文件使用一个叫 Mojo::Upload 的对象来处理, 我们可以通过 $self-&amp;gt;req-&amp;gt;upload(&#39;args_file&#39;); 这个方法取得这个内容的对象, 这个内容的对象是Mojo::Asset::File 这个对象, 存文件和取大文件之类可以直接调用.&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+post &#39;/a/b&#39; =&amp;gt; sub {
+  my $self = shift;
+  my $upload = $self-&amp;gt;req-&amp;gt;upload(&#39;args_file&#39;);
+  my $foo  = $self-&amp;gt;param(&#39;args&#39;);
+  $self-&amp;gt;render(text =&amp;gt; &quot;Hello from $foo.&quot;);
+}
+
+
+&lt;/pre&gt;
+&lt;h3&gt;
+	&lt;br&gt;
+	3. POST 的 body 的内容&lt;/h3&gt;
+&lt;p&gt;最后一种, 是有时我们做大文件上传, 和提交内容之类.这个时候, 整个 body 都是文件本体. 参数象 get 一样通过 url 传过去.&lt;br&gt;
+这个就不用抓头了, 没任何转换, 直接整个 body 是个大文件.&lt;br&gt;
+&lt;strong&gt;客户端提交:&lt;/strong&gt;&lt;br&gt;
+我们来看看客户端在这个时候怎么上传送. 同样,  我们使用 Mojo::UserAgent 为例子.&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+my $ua = Mojo::UserAgent-&amp;gt;new;
+$ua-&amp;gt;transactor-&amp;gt;add_generator(stream =&amp;gt; sub {
+    my ($transactor, $tx, $path) = @_; 
+    $tx-&amp;gt;req-&amp;gt;content-&amp;gt;asset(Mojo::Asset::File-&amp;gt;new(path =&amp;gt; $path));
+});
+$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; stream =&amp;gt; &#39;/root/.bash_history&#39; );
+
+&lt;/pre&gt;
+&lt;p&gt;&lt;strong&gt;服务器接收&lt;/strong&gt;&lt;br&gt;
+这个时候, 在服务器端怎么接收啦?&lt;/p&gt;
+&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
+post &#39;/a/b&#39; =&amp;gt; sub {
+  my $self = shift;
+  my $body = $self-&amp;gt;req-&amp;gt;body;
+  my $foo  = $self-&amp;gt;param(&#39;args&#39;);
+  $self-&amp;gt;render(text =&amp;gt; &quot;Hello from $foo.&quot;);
+}
+
+&lt;/pre&gt;
+&lt;p&gt;这个, 我们直接取请求的 body 就可以了, 但这有个小问题, 这是这个文件上传完, 这个 body 会存着所有的文件, 比如这个上传的文件有 1G , 这个 1G 就都会占着内存. 这个情况, Mojolicious 并没有实现事件来根据块取文件. 晚点, 我有个有于大文件上传的文章, 会分享我在 Mojolicious 中实现异步以块方式存储文件. 这样用户上传多少, 我存多少, 并不会占用更多的内存.&lt;/p&gt;
+&lt;p&gt;好了整个三种方式都介绍完了, 大家一定注意区分哦 .&lt;/p&gt;
+
+			&lt;!--[syntaxhighlighter]--&gt;
+			&lt;!--代码高亮，请勿编辑--&gt;
+			&lt;script type=&quot;text/javascript&quot; src=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js&quot;&gt;&lt;/script&gt;&lt;script type=&quot;text/javascript&quot; src=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js&quot;&gt;&lt;/script&gt;
+
+			&lt;link type=&quot;text/css&quot; rel=&quot;stylesheet&quot; href=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css&quot;&gt;
+			&lt;link type=&quot;text/css&quot; rel=&quot;stylesheet&quot; href=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css&quot;&gt;
+			&lt;script type=&quot;text/javascript&quot;&gt;
+			SyntaxHighlighter.defaults[&#39;class-name&#39;]	= &#39;.syntaxhighlighter {     background-color: 999999 }&#39;;
+			SyntaxHighlighter.defaults[&#39;smart-tabs&#39;]	= true;
+			SyntaxHighlighter.defaults[&#39;tab-size&#39;]		= 4;
+			SyntaxHighlighter.defaults[&#39;gutter&#39;]		= true;
+			SyntaxHighlighter.defaults[&#39;quick-code&#39;]	= true;
+			SyntaxHighlighter.defaults[&#39;collapse&#39;] 		= false;
+			SyntaxHighlighter.defaults[&#39;auto-links&#39;]	= true;
+			SyntaxHighlighter.defaults[&#39;toolbar&#39;]		= true;
+			SyntaxHighlighter.all();
+			&lt;/script&gt;
+			&lt;!--[/syntaxhighlighter]--&gt;						
+
+</description>
+        <pubDate>Tue, 15 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-15-http-post-mojolicious.html-e69430dd0.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-15-http-post-mojolicious.html-e69430dd0.html</guid>
         
         
       </item>
@@ -6348,439 +6688,6 @@ $$ \Gamma(x+1) = \int_0^1 (-\log t)^{x}dt = \int_0^{\infty} t^{x}e^{-t}dt .$$&lt
         <pubDate>Sun, 29 Jun 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-06-29-2014-06-29-using-jekyll-data-files.html-871861a29.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-29-2014-06-29-using-jekyll-data-files.html-871861a29.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>生产环境Puppet升级笔记（3.4.3→3.6.2）</title>
-        <description>
-
-  &lt;p&gt;线上Puppet部署时采用的是版本3.4.3，最近发现客户端经常有一些warning提示，从提示信息看出涉及到跨版本的功能变化，因此对版本进行了一个有计划的升级。&lt;/p&gt;
-
-&lt;p&gt;puppetlabs的最新版本为3.6.2。开始升级之前参考了官方的Release Notes(&lt;a href=&quot;http://docs.puppetlabs.com/puppet/3.5/reference/release_notes.html&quot; title=&quot;Puppet 3.5 Release Notes&quot;&gt;3.5&lt;/a&gt;,&lt;a href=&quot;http://docs.puppetlabs.com/puppet/3.6/reference/release_notes.html&quot; title=&quot;Puppet 3.6 Release Notes&quot;&gt;3.6&lt;/a&gt;)和其他人的文档(&lt;a href=&quot;http://rnelson0.com/2014/06/05/puppet-3-6-1-updates/&quot; title=&quot;PUPPET 3.6.1 UPDATES&quot;&gt;PUPPET 3.6.1 UPDATES&lt;/a&gt;)。&lt;/p&gt;
-
-&lt;p&gt;首先将yum仓库同步到yum.puppetlabs.com的最新状态，方便后续使用。&lt;/p&gt;
-
-&lt;p&gt;升级分为master和agent两部分，分别进行调整。&lt;/p&gt;
-
-&lt;h2 id=&quot;master&quot;&gt;master调整&lt;/h2&gt;
-
-&lt;p&gt;master有两个明显的变化&lt;/p&gt;
-
-&lt;ol&gt;
-  &lt;li&gt;
-&lt;code&gt;environmentpath&lt;/code&gt;支持&lt;/li&gt;
-  &lt;li&gt;Package模块中引入的&lt;code&gt;allow_virtual&lt;/code&gt;
-&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;h3 id=&quot;environmentpath&quot;&gt;environmentpath调整&lt;/h3&gt;
-
-&lt;p&gt;关于&lt;code&gt;environmentpath&lt;/code&gt;，配置文件改动比较小，只需修改&lt;code&gt;puppet.conf&lt;/code&gt;中的&lt;code&gt;[master]&lt;/code&gt;部分&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;+    environmentpath = $confdir/environments
--    modulepath = $confdir/modules:/usr/share/puppet/modules
--    manifestdir = $confdir/manifests
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;早期版本的&lt;code&gt;envorinment&lt;/code&gt;支持通过在puppet.conf中额外的&lt;code&gt;[production]&lt;/code&gt;和&lt;code&gt;[testing]&lt;/code&gt;部分实现。需要删除&lt;code&gt;puppet.conf&lt;/code&gt;中自定义的environment部分。&lt;/p&gt;
-
-&lt;p&gt;同时需要对目录进行调整，这部分工作量稍大，也在可接受的范围内。以下示例中星号(*)标记的目录对应调整即可。&lt;/p&gt;
-
-&lt;p&gt;调整之前目录结构为&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;.
-├── auth.conf
-├── autosign.conf
-├── puppet.conf
-├── manifests
-│   ├── production   *
-│   └── testing    *
-├── modules
-│   ├── production   *
-│   └── testing    *
-├── reports
-├── ssl
-├── var
-└── yaml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;调整之后目录结构为&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;.
-├── auth.conf
-├── autosign.conf
-├── puppet.conf
-├── environments
-│   ├── production
-│   │   ├── manifests *
-│   │   └── modules   *
-│   └── testing
-│       ├── manifests *
-│       └── modules   *
-├── reports
-├── ssl
-├── var
-└── yaml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h3 id=&quot;allowvirtual&quot;&gt;allow_virtual调整&lt;/h3&gt;
-
-&lt;p&gt;这是一个新增的特性，相关背景可参考&lt;a href=&quot;https://tickets.puppetlabs.com/browse/PUP-897&quot;&gt;PDP-897&lt;/a&gt;。由于默认值变化，如果不配置agent会收到一个warning信息。&lt;/p&gt;
-
-&lt;p&gt;修改&lt;code&gt;environments/production/manifests/site.pp&lt;/code&gt;和&lt;code&gt;environments/testing/manifests/site.pp&lt;/code&gt;&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;+    Package {
-+      allow_virtual =&amp;gt; true,
-+    }
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h3 id=&quot;section&quot;&gt;软件包升级&lt;/h3&gt;
-
-&lt;p&gt;通过gem升级安装&lt;code&gt;puppet-3.6.2&lt;/code&gt;&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;gem install puppet --version 3.6.2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;安装后重新启动puppet master即可。&lt;/p&gt;
-
-&lt;h2 id=&quot;agent&quot;&gt;agent调整&lt;/h2&gt;
-
-&lt;p&gt;master端设置的&lt;code&gt;allow_virtual&lt;/code&gt;是新增的一个特性，如果agent不支持，会报错，将agent的puppet版本并重启进程即可。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;Error: Failed to apply catalog: Invalid parameter allow_virtual
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;理论上直接升级客户端puppet到3.6.2版本即可完成。不过在升级后发现使用&lt;code&gt;puppet agent --genconfig&lt;/code&gt;生成的配置文件仍然会有warning。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;Warning: Setting manifest is deprecated in puppet.conf. See http://links.puppetlabs.com/env-settings-deprecations
-   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1067:in `each&#39;)
-Warning: Setting modulepath is deprecated in puppet.conf. See http://links.puppetlabs.com/env-settings-deprecations
-   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1067:in `each&#39;)
-Warning: Setting templatedir is deprecated. See http://links.puppetlabs.com/env-settings-deprecations
-   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1071:in `each&#39;)
-Warning: Setting manifestdir is deprecated. See http://links.puppetlabs.com/env-settings-deprecations
-   (at /usr/lib/ruby/site_ruby/1.8/puppet/settings.rb:1071:in `each&#39;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;直接根据提示取消指定的配置项即可消除警告。这里使用一个脚本进行修改。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;#!/bin/bash
-
-for s in manifest modulepath templatedir manifestdir
-do
-	grep &quot;^    $s = &quot; /etc/puppet/puppet.conf
-	sed -i -e &quot;/^    $s = /s/^/#/&quot; /etc/puppet/puppet.conf
-done
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;使用调整后的配置文件启动&lt;code&gt;puppet agent -t&lt;/code&gt;，可以看到成功运行并且不再有warning。&lt;/p&gt;
-
-  
-
-</description>
-        <pubDate>Tue, 17 Jun 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-17-2014-06-17-upgrade-puppet-production-3-4-3-to-3-6-2.html-c08d0144e.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>Serverspec 工具介绍</title>
-        <description>  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;去年曾经写过一篇&lt;a href=&quot;http://chenlinux.com/2013/01/10/rspec-puppet-intro&quot;&gt;文章&lt;/a&gt;里提到做 puppet 的测试，用的是 &lt;a href=&quot;http://rspec-puppet.com&quot;&gt;rspec-puppet&lt;/a&gt; 工具。不过这个工具的作用只是能确保在 Puppet Master 上你撰写的 .pp 文件可以按照你的预期正常编译完毕，并不代表真实的节点就是按照这个状态维护的。所以今天介绍另一个工具，Serverspec，它拥有和 rspec-puppet 类似的语法(都是 Rspec 衍生品)，同时又是真的 SSH 到远程主机上去做测试！官网见：&lt;a href=&quot;http://serverspec.org&quot;&gt;http://serverspec.org&lt;/a&gt;。&lt;/p&gt;
-
-&lt;p&gt;安装直接通过 &lt;code&gt;gem install serverspec&lt;/code&gt; 方式即可完成。然后通过 &lt;code&gt;serverspec-init&lt;/code&gt; 命令可以创建处理来一个测试模板：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;.
-├── Rakefile
-└── spec
-    ├── 10.4.1.21
-    │   └── puppet_spec.rb
-    ├── spec_helper.rb
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;文件其实非常简单，所以之后就可以不用命令，自己创建目录和测试文件好了。目录以远端主机 IP 命名，测试文件叫 &lt;code&gt;foobar_spec.rb&lt;/code&gt; 也没关系，反正在 Rakefile 里是通过 &lt;code&gt;spec/*/*_spec.rb&lt;/code&gt; 载入的。&lt;/p&gt;
-
-&lt;p&gt;下面是我写的这个 &lt;code&gt;puppet_spec.rb&lt;/code&gt; 实例：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ruby&quot; data-lang=&quot;ruby&quot;&gt;&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;spec_helper&#39;&lt;/span&gt;
-
-&lt;span class=&quot;n&quot;&gt;describe&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;system&quot;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-  &lt;span class=&quot;c1&quot;&gt;# TODO: bonding&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;interface&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;eth2&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;have_ipv4_address&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;192.168.0.200&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;its&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:speed&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;eq&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1000&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;/data&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_mounted&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;with&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;ext4&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;linux_kernel_parameter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;vm.swappiness&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-      &lt;span class=&quot;n&quot;&gt;its&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;eq&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;yumrepo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;epel&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;exist&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should_not&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_enabled&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-
-&lt;span class=&quot;n&quot;&gt;describe&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;puppetmaster&quot;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;group&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;puppet&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;exist&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;user&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;puppet&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;exist&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;belong_to_group&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;puppet&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should_not&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;have_login_shell&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;/bin/sh&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;package&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;puppet&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_installed&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;by&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;gem&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;with_version&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;3.6.1&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;package&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;nginx&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_installed&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;service&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;nginx&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_enabled&lt;/span&gt;   &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_running&lt;/span&gt;   &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;sx&quot;&gt;%w[8140 18140]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;each&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-      &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_listening&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;/etc/nginx/sites-enabled/puppet&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_linked_to&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;/etc/puppet/webui/ngx_puppetmaster.conf&#39;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_readable&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;by_user&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;nobody&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;its&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:content&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;match&lt;/span&gt; &lt;span class=&quot;sr&quot;&gt;/\n\s*server 127.0.0.1:18140;/&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;context&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;command&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;nginx -t&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;return_stderr&lt;/span&gt; &lt;span class=&quot;sr&quot;&gt;/ok/&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;return_exit_status&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-
-&lt;span class=&quot;n&quot;&gt;describe&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;process&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;rrdcached&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;it&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;be_running&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;its&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:args&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;should&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;match&lt;/span&gt; &lt;span class=&quot;sr&quot;&gt;/-j \/omd\/sites\/cdn\/var\/rrdcached/&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;基本上可以说跟 puppet 最常用的几个类型对应的测试就都在上面展示了。此外，Serverspec 与时俱进，还提供了 &lt;code&gt;cgroup&lt;/code&gt; 和 &lt;code&gt;lxc&lt;/code&gt; 的测试器。这里就没写了。&lt;/p&gt;
-
-&lt;p&gt;这里有个注意到的问题就是网卡速度那里，是不支持测试 bonding 网卡的。它 ssh 上去后其实就是执行 ethtool 命令，ethtool 命令获取不到，自然也就没法测试，肯定会报测试失败。&lt;/p&gt;
-
-&lt;p&gt;另一个问题就是文件内容匹配那块，虽然文档示例里用了 &lt;code&gt;/^begin/&lt;/code&gt; 但是实测这个会把整个文本读成一个大字符串来匹配，所以单行的开头不能用 &lt;code&gt;^&lt;/code&gt; 而是用 &lt;code&gt;\n&lt;/code&gt; 来做。&lt;/p&gt;
-
-&lt;p&gt;正常情况下，写完测试用例，就可以运行 &lt;code&gt;rake spec&lt;/code&gt; 命令跑测试了。不过熟悉我的朋友都知道人人网这边服务器都是统一通过 Kerberos 认证来管理权限的，而 各种语言的 SSH 模块默认都不太支持 krb5。所以我这还需要先解决 Serverspec 的 krb5 支持问题。&lt;/p&gt;
-
-&lt;p&gt;感谢 &lt;a href=&quot;http://weibo.com/u/1653644220&quot;&gt;@懒桃儿吃桃儿&lt;/a&gt; 童鞋贡献的&lt;a href=&quot;https://github.com/Lax/net-ssh-kerberos&quot;&gt;模块&lt;/a&gt;，部署过程如下：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ git clone https://github.com/Lax/net-ssh-kerberos.git
-$ pushd net-ssh-kerberos
-$ gem build net-ssh-kerberos.gemspec
-$ gem install net-ssh-krb-0.3.0.gem
-$ popd
-$ diff spec/spec_helper.rb spec/spec_helper.rb.orig
-4,5d3
-&amp;lt; require &#39;rubygems&#39;
-&amp;lt; require &#39;net/ssh/kerberos&#39;
-29d26
-&amp;lt;       options[:auth_methods] = [&quot;gssapi-with-mic&quot;]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;模块文档上说可以通过 Gemfile 配合 &lt;code&gt;Bundler.require&lt;/code&gt; 指令直接运行，我测试自己写脚本的话确实没有问题，但是融合到 &lt;code&gt;spec_helper.rb&lt;/code&gt; 里就不行，所以只能自行编译安装，然后通过 rubygems 模块来加载了。&lt;/p&gt;
-
-&lt;p&gt;最后，就可以看到下面这样的输出了：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ rake spec
-/usr/bin/ruby -S rspec spec/10.4.1.21/nginx_spec.rb
-.......................
-
-Finished in 9.99 seconds
-23 examples, 0 failures
-&lt;/code&gt;&lt;/pre&gt;
-
-
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-    
-
-
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-
-
-
-
-
-
-  &lt;/div&gt;
-</description>
-        <pubDate>Fri, 13 Jun 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-13-serverspec-intro-3a5f17fda.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>用 Redis 做分布式 DNS/HTTP 检测汇总系统</title>
-        <description>  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;一年前搞的一套小脚本，今天翻博客发现没发过，现在发上来好了。主要背景是这样：考虑到有 DNS 和 HTTP 劫持需要监控，但是很多 DNS 服务器对非本区域本运营商的来源请求是拒绝做出响应的，所以得把监控点分散到各地去。其实做这个事情用 nagios 的分布式就足够了，不过如果想做即时触发的紧急任务，就算在 nagios 页面上点击立刻执行，到返回全部结果也得有一阵子。所以选择了自己写一套分布式的异步系统。&lt;/p&gt;
-
-&lt;p&gt;中控端脚本如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;c1&quot;&gt;#!/usr/bin/perl&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Modern::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Perl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::Redis::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;RipeRedis&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Storable&lt;/span&gt; &lt;span class=&quot;sx&quot;&gt;qw/freeze thaw/&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;YAML::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Syck&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;utf8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$area&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$ARGV&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$domain&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;fmn.xnimg.cn&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$master&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;10.4.1.21&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;     &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;condvar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$redis&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::Redis::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;RipeRedis&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;     &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$master&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;     &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;6379&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;encoding&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;utf8&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dnslist&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;LoadFile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;DNS.yml&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$isp&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;sort&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;keys&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;%$dnslist&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;defined&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$area&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;next&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;unless&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;defined&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dnslist&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$isp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$area&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;say&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$area&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$isp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;join&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;, &quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dnslist&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$isp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$area&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;freeze&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;domain&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$domain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dnslist&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dnslist&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$isp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$area&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
-        &lt;span class=&quot;nv&quot;&gt;$redis&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;publish&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;task&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$list&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;sort&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;keys&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;%&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dnslist&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$isp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;freeze&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;domain&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$domain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dnslist&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dnslist&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$isp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$list&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
-            &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;begin&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;nv&quot;&gt;$redis&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;publish&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;task&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;nv&quot;&gt;$redis&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;subscribe&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
-    &lt;span class=&quot;sx&quot;&gt;qw( report )&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;on_done&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$ch_name&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$subs_num&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;Subscribed: $ch_name. Active: $subs_num\n&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;on_message&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$ch_name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;     &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;thaw&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-            &lt;span class=&quot;nb&quot;&gt;printf&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;%s A %s @%s in %s got %s length %s\n&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$domain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ip&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dns&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;local&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;len&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-            &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;end&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;on_error&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;recv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;分布在各地的客户端脚本如下：&lt;/p&gt;
-
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-perl&quot; data-lang=&quot;perl&quot;&gt;&lt;span class=&quot;c1&quot;&gt;#!/usr/bin/perl&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Modern::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Perl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Socket&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;DNS&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::Redis::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;RipeRedis&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;HTTP&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Storable&lt;/span&gt; &lt;span class=&quot;sx&quot;&gt;qw/freeze thaw/&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Digest::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;MD5&lt;/span&gt; &lt;span class=&quot;sx&quot;&gt;qw/md5_hex/&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;utf8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$master&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;10.4.1.21&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$local&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;192.168.0.2&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;     &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AnyEvent&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;condvar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$redisr&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::Redis::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;RipeRedis&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;          &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$master&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;          &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;6379&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;encoding&lt;/span&gt;      &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;utf8&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$redisp&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::Redis::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;RipeRedis&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;          &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$master&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;          &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;6379&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;encoding&lt;/span&gt;      &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;utf8&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;nv&quot;&gt;$redisr&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;subscribe&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
-    &lt;span class=&quot;s&quot;&gt;&#39;task&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;on_done&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$ch_name&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$subs_num&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;Subscribed: $ch_name. Active: $subs_num\n&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;on_message&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$ch_name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;     &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;thaw&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dnslist&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-                &lt;span class=&quot;n&quot;&gt;resolv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$msg&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;domain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-            &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;on_error&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$err_msg&lt;/span&gt;  &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$err_code&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;shift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-            &lt;span class=&quot;k&quot;&gt;print&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;Error: ($err_code) $err_msg\n&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;nv&quot;&gt;$cv&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;recv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;resolv&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$domain&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;unless&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=~&lt;/span&gt; &lt;span class=&quot;sr&quot;&gt;m/^\d+/&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$resolver&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;
-      &lt;span class=&quot;nn&quot;&gt;AnyEvent::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;DNS&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;server&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::Socket::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;parse_address&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;nv&quot;&gt;$resolver&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;resolve&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
-        &lt;span class=&quot;s&quot;&gt;&quot;$domain&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;a&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-            &lt;span class=&quot;n&quot;&gt;httptest&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$domain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$_&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;httptest&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$domain&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$ip&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$url&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;http://$domain/10k.html&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$begin&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;time&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;http_get&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$url&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;proxy&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$ip&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;80&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;want_body_handle&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;sub &lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$hdl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hdr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;@_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;$port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$peer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;AnyEvent::Socket::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;unpack_sockaddr&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;getpeername&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hdl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;fh&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;my&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;freeze&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dns&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$dns&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;status&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hdr&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Status&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;local&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$local&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ip&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$peer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;len&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$hdr&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;content-length&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-        &lt;span class=&quot;nv&quot;&gt;$redisp&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;publish&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&#39;report&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;$data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-
-&lt;p&gt;这里需要单独建立两个 &lt;code&gt;$redisr&lt;/code&gt; 和 &lt;code&gt;$redisp&lt;/code&gt; ，因为前一个已经用来 subscribe 之后就不能同时用于 publish 了，会报错。从理解上这是个很扯淡的事情，不过实际运行结果就是如此。。。&lt;/p&gt;
-
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-    
-
-
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-
-
-
-
-
-
-  &lt;/div&gt;
-</description>
-        <pubDate>Fri, 13 Jun 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html</guid>
         
         
       </item>

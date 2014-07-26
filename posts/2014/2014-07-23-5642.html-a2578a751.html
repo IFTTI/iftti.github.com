@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>术语 Tethering Hotspot 的翻译问题</title>
+    <title>Stream 的 Perl 后端实现关键技术介绍 (Mojolicous)</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[科技与互联网干货]">
-    <link rel="canonical" href="http://iftti.com/posts/2011/2011-03-03-translating-tethering-hotspot-1d4b9019c.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-23-5642.html-a2578a751.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,8 +50,8 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>术语 Tethering Hotspot 的翻译问题</h1>
-    <p class="meta"><span class="time">Mar 3, 2011</span><span class="source_url"> • <a name="lark.net.cn" href="http://www.lark.net.cn/2011/03/translating-tethering-hotspot/" target="_blank">[lark.net.cn]</a></span></p>
+    <h1>Stream 的 Perl 后端实现关键技术介绍 (Mojolicous)</h1>
+    <p class="meta"><span class="time">Jul 23, 2014</span><span class="source_url"> • <a name="php-oa.com" href="http://www.php-oa.com/2014/07/23/5642.html" target="_blank">[php-oa.com]</a></span></p>
     <p><!-- JiaThis Button BEGIN -->
 <div class="jiathis_style">
 	<span class="jiathis_txt">分享到：</span>
@@ -72,30 +72,77 @@ var jiathis_config = {data_track_clickback:'true'};
   </header>
 
   <article class="post-content">
-  		<p>Tethering Hotspot 不是一个新术语，在 iPhone 流行以前这个术语就出现了，iPhone 流行以后，这个术语被更多的人知道。</p>
-<p>Tethering Hotspot 是指用 wifi hotspot 的形式，给多个设备分享无线接入，无线接入可以是 2G 的 GPRS、CDMA，3G 的 WCDMA、CDMA2000，4G 的 LTE 等。这个术语包含显式和隐式两方面的信息。显式的是 hotspot ，是其提供服务的形式，有的时候还会显式地增加 wifi 以和其它领域（比如社会学）的 hotspot 相区分；隐式的信息是 tethering 暗示另外一端接入到移动数据网络。</p>
-<p>可惜的是，中文圈里这个术语的翻译是个看起来解决实际上没解决的问题。比如，今天从做手机软件开发的人那里看到“wifi热点发射”这个说法，虽然从上下文可以理解在说什么，但这个说法字面上是很难理解的。用 google 一查，有很多的人这么用。</p>
-<p>在翻译术语的时候，如果省掉隐含信息进行翻译，有可能会和其它术语混淆，比如 iphone 4 上提到这个功能的官方用语是“private hotspot”，仅进行字面翻译，会和家用 wifi 路由器或AP没有区别。</p>
-<p>我想到的一个“tethering hotspot”的翻译是“桥接热点”，这个翻译将 tethering 和 hotspot 两个词都翻译出来，“桥接”虽然没有说明另外一端是无线接入，但在手机、移动设备上使用这个术语时，上下文会使得其含义十分明确。最大的问题是“桥接”是个过于专业的术语，不够友好。</p>
+
+							<p>上一个文章<a href="http://%20http://www.php-oa.com/2014/07/23/%E5%85%A8%E5%B9%B3%E5%8F%B0%E5%A4%A7%E6%96%87%E4%BB%B6%E6%96%AD%E7%82%B9%E7%BB%AD%E4%BC%A0%E4%B8%8A%E4%BC%A0%E6%8A%80%E6%9C%AF.html">全平台大文件断点续传上传技术</a>中的核心技术除了浏览器, 就是服务器端的实现了. 我在这边了简单高效, 是使用的 Mojolicious 来实现的.<br>
+ Mojolcious 有着很好的事件支持, 所以就算本身只启动一个进程的时候, 都可以接收无数用户的同时上传.<br>
+下面我来讲一下这个技术中实现的重点.<br>
+我们知道 POST 上传, 是分很多种不同的情况, 在 Stream 的项目中,  HTML5 的实现, 是使用的 POST body 的方式实现的.有关 post 上关方式的介绍, 请看: <a href="http://www.php-oa.com/2014/07/15/http-post-mojolicious.html">HTTP 的 POST 参数提交</a>.<br>
+在上面文章的例子中, 取 body 都是从使用 req-&gt;body 的方式来取, 这也就意味着, 如果上传 1G ,我们会一次给一 G 的内容都放入内存. 在 Mojolicious 中有一个叫 Mojo::Upload 的模块, 也是处理上传的, 但是它只能处理以  application/x-www-form-urlencoded 和  application/x-www-form-urlencoded 的上传. 这个处理得非常有技巧, 整个文件上传了多少, 就会给多少内容存到文件本身, 这样就不会有过大的内存占用. 并且都是事件回调, 所以可以很好的处理多用户.</p>
+<p>但这个模块并不能处理 post 一个超大 body 就是文件本身的情况. 直接取 body 又大占内存, 所以在这, 我是使用的 Mojolicous 本身提供的 hook 点, 在用户提交创建完连接后, 然后请求的 header 解析完的时候, 来做了一个事件注册.<br>
+整个核心的代码简写是:</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+hook after_build_tx =&gt; sub {
+    my $tx = shift;
+    my $app = shift;
+    weaken $tx;
+
+    $tx-&gt;req-&gt;content-&gt;on(body =&gt; sub {
+        my $single  = shift;
+
+        return unless $tx-&gt;req-&gt;url-&gt;path-&gt;contains('/upload');
+        my $file = Mojo::Asset::File-&gt;new(path =&gt; $tx-&gt;req-&gt;param('path'), cleanup =&gt; 0);
+
+        $single-&gt;unsubscribe('read')-&gt;on(read =&gt; sub {
+            my ($single, $bytes) = @_;
+            $file-&gt;add_chunk($bytes);
+        });
+    });
+};
+
+</pre>
+
+<p>
+这个 body 的事件是创建完连接, 并在 header 解析完, 但 body 并没有开始取的时候注册, 所以这个地方, 只针对我们上传的目录来进行实时写入的事件回调注册就行.</p>
+<p>这时我们进入 body , 然后对 body 读取的事件中的可读的时候, 进行注册, 使用 Mojo::Asset::File 来对一个文件不断的追加, 直到整个文件写入完整后.</p>
+<p>注意, Mojo::Asset::File 这个模块是在 Mojolicous 5.16 以后才支持对已存在的文件进行追加写入( 还是我好不容易向作者提交的补丁 ).</p>
+
+			<!--[syntaxhighlighter]-->
+			<!--代码高亮，请勿编辑-->
+			<script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js"></script><script type="text/javascript" src="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js"></script>
+
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css">
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css">
+			<script type="text/javascript">
+			SyntaxHighlighter.defaults['class-name']	= '.syntaxhighlighter {     background-color: 999999 }';
+			SyntaxHighlighter.defaults['smart-tabs']	= true;
+			SyntaxHighlighter.defaults['tab-size']		= 4;
+			SyntaxHighlighter.defaults['gutter']		= true;
+			SyntaxHighlighter.defaults['quick-code']	= true;
+			SyntaxHighlighter.defaults['collapse'] 		= false;
+			SyntaxHighlighter.defaults['auto-links']	= true;
+			SyntaxHighlighter.defaults['toolbar']		= true;
+			SyntaxHighlighter.all();
+			</script>
+			<!--[/syntaxhighlighter]-->						
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2010/2010-07-05-iphone4-signal-issue-d68f40440.html" title="Previous Post: iPhone4 的信号问题" data-instant>&laquo; iPhone4 的信号问题</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-07-23-%25e5%2585%25a8%25e5%25b9%25b3%25e5%258f%25b0%25e5%25a4%25a7%25e6%2596%2587%25e4%25bb%25b6%25e6%2596%25ad%25e7%2582%25b9%25e7%25bb%25ad%25e4%25bc%25a0%25e4%25b8%258a%25e4%25bc%25a0%25e6%258a%2580%25e6%259c%25af.html-a531e7bfe.html" title="Previous Post: 全平台大文件断点续传上传技术 ( 开源项目 Stream )" data-instant>&laquo; 全平台大文件断点续传上传技术 ( 开源项目 Stream )</a>
 
-    <a class="basic-alignment right" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Next Post: Oracle Database Appliance" data-instant>Oracle Database Appliance &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-07-23-74109-23c6c0d86.html" title="Next Post: 关于字符编码，你所需要知道的" data-instant>关于字符编码，你所需要知道的 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>05 Jul 2010</span> &raquo; <a href="http://iftti.com/posts/2010/2010-07-05-iphone4-signal-issue-d68f40440.html">iPhone4 的信号问题</a></li>
+      <li><span>15 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-15-http-post-mojolicious.html-e69430dd0.html">HTTP 的 POST 参数提交和上传的不同与 Mojolicious 的实现.</a></li>
+
+      <li><span>09 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-09-%25e6%2594%25b9%25e9%2580%25a0-mojolicious-%25e8%25ae%25a9%25e6%2597%25a5%25e5%25bf%2597%25e6%2598%25be%25e7%25a4%25ba%25e5%25bd%2593%25e5%2589%258d%25e6%25a8%25a1%25e5%259d%2597%25e5%2592%258c%25e8%25a1%258c%25e5%258f%25b7.html-641ecdef9.html">改造 Mojolicious 让日志显示当前模块和行号</a></li>
 
       <li><span>10 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-10-mojolicious-hook-reverse-proxy-rewrite-redirect.html-3c845842e.html">Mojolicious 使用反向代理到指定路径</a></li>
-
-      <li><span>23 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-23-5642.html-a2578a751.html">Stream 的 Perl 后端实现关键技术介绍 (Mojolicous)</a></li>
 
   </ul>
 </div>
