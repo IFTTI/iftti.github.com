@@ -43,13 +43,13 @@ end
 desc "Push"
 task :push do
   puts "Push"
-  system "git push origin master"
+  system "git push origin jekyll/iftti.com"
 end
 
 desc "Pull"
 task :pull do
   puts "Pull"
-  system "git pull origin master"
+  system "git pull origin jekyll/iftti.com"
 end
 
 desc "RAW, Drafts, Push"
