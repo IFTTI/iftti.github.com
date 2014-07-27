@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>动手编写Node的C++模块</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-01-18-head-first-with-the-cpp-module-of-node.js.html-7bd50a0b0.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>动手编写Node的C++模块</h1>
+    <p class="meta"><span class="time">Jan 18, 2014</span><span class="source_url"> • [来自 <a name="weizhifeng.net" href="http://weizhifeng.net/head-first-with-the-cpp-module-of-node.js.html" target="_blank">weizhifeng.net</a>]</span></p>
+  </header>
+
+  <article class="post-content">
+
+	<h1>介绍</h1>
+
+<p>Node(或者Node.js)作为一门新兴的技术已经被越来越多的企业所使用，事件驱动的开发模式也为服务器端的开发注入了新的力量，Node很容易上手，只要你拥有JavaScript的基础和服务器端的开发经验。Node为开发者提供了两种方式来对其进行扩展：一种是通过JavaScript，一种是通过C/C++。在Node中使用JavaScript来编写模块是非常容易，也是最常用的方式，但是在一些场景中JavaScript的执行性能可能达不到要求（比如大量的位运算），不用发愁，Node还提供了C++的模块扩展接口，以提高执行的性能，本文就简要介绍下Node中C++模块的开发。</p>
+
+<h1>目标</h1>
+
+<p>本文我们创建一个名为<code>hello</code>的模块，其包含一个名为<code>sayHello</code>的方法，如果用JavaScript来表示的话，可能是这样：</p>
+
+<pre><code>exports.sayHello = function() {
+    return "Hello World!";
+}
+</code></pre>
+
+<h1>概念</h1>
+
+<p>Node的JavaScript引擎用的是Google开源的<a href="https://developers.google.com/v8/">V8</a> JavaScript引擎(Chrome浏览器所用的引擎)，所以简单介绍下v8中的一些概念：</p>
+
+<ol>
+<li>Handle：一个handle就是指向一个对象的指针。v8中所有的对象都是使用handle来进行访问，之所以用它是因为v8的垃圾回收器需要。</li>
+<li>HandleScope：可以把它想象成是多个Handle的一个容器。</li>
+</ol>
+
+<p>除了v8之外，这里还要说明一下，用C++编写的模块和用JavaScript编写的模块在使用方式上并无区别，都是通过<code>require(...)</code>来进行调用，区别在于C++模块是系统编译好的二进制模块（在*nix下是<code>.so</code>，在win下是<code>dll</code>），并且扩展名为<code>.node</code>。在require<code>.node</code>模块的时候，系统通过<code>dlopen</code>函数来加载模块，不需要像JavaScript模块那样再进行编译，而是直接加载运行，这加快了执行的速度。</p>
+
+<h1>编写</h1>
+
+<p>首先创建模块需要的目录<code>src</code>和源文件<code>hello.cc</code></p>
+
+<pre><code>$ mkdir -p hello/src &amp;&amp; cd hello/src
+$ touch hello.cc
+</code></pre>
+
+<p>hello.cc的内容如下：</p>
+
+<pre><code>#include &lt;node.h&gt;
+#include &lt;v8.h&gt;
+
+// 引入v8命名空间
+using namespace v8;
+
+// sayHello方法的具体逻辑
+Handle&lt;Value&gt; Method(const Arguments&amp; args) {
+    HandleScope scope;
+    // 返回一个"Hello World!"字符串
+    return scope.Close(String::New("Hello World!"));
+}
+
+// 初始化模块
+void init(Handle&lt;Object&gt; target) {　
+    // 定义模块中的sayHello方法
+    NODE_SET_METHOD(target, "sayHello", Method);
+}
+
+// 定义"hello"模块
+NODE_MODULE(hello, init);
+</code></pre>
+
+<p>以上就是模块的所有代码，还是比较容易理解的，其中的<code>NODE_SET_METHOD</code>和<code>NODE_MODULE</code>是node.h中定义的宏，具体如下：</p>
+
+<p>Node模块的数据结构定义：</p>
+
+<pre><code>struct node_module_struct {
+  int version;
+  void *dso_handle;
+  const char *filename;
+  node::addon_register_func register_func;
+  node::addon_context_register_func register_context_func;
+  const char *modname;
+};
+</code></pre>
+
+<p><code>NODE_SET_METHOD</code>定义：</p>
+
+<pre><code>template &lt;typename TypeName&gt;
+inline void NODE_SET_METHOD(const TypeName&amp; recv,
+                            const char* name,
+                            v8::FunctionCallback callback) {
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+  v8::HandleScope handle_scope(isolate);
+  v8::Local&lt;v8::FunctionTemplate&gt; t = v8::FunctionTemplate::New(callback);
+  v8::Local&lt;v8::Function&gt; fn = t-&gt;GetFunction();
+  v8::Local&lt;v8::String&gt; fn_name = v8::String::NewFromUtf8(isolate, name);
+  fn-&gt;SetName(fn_name);
+  recv-&gt;Set(fn_name, fn);
+}
+</code></pre>
+
+<p><code>NODE_MODULE</code>定义：</p>
+
+<pre><code>#define NODE_MODULE(modname, regfunc)                                 \
+  extern "C" {                                                        \
+    NODE_MODULE_EXPORT node::node_module_struct modname ## _module =  \
+    {                                                                 \
+      NODE_STANDARD_MODULE_STUFF,                                     \
+      (node::addon_register_func) (regfunc),                          \
+      NULL,                                                           \
+      NODE_STRINGIFY(modname)                                         \
+    };                                                                \
+  }
+</code></pre>
+
+<p>更加详细的内容，可以查看Node的<a href="https://github.com/joyent/node/blob/master/src/node.h">源码</a>。</p>
+
+<h1>编译</h1>
+
+<p>Node为了实现跨平台的编译，采用了Google的<a href="https://code.google.com/p/gyp/">GYP</a>(Generate Your Projects)来对项目进行管理。为了能够编译我们的项目，我们需要安装<code>node-gyp</code>：</p>
+
+<pre><code>$ npm install -g node-gyp
+</code></pre>
+
+<p>安装完成之后，进入到源码目录，并且创建<code>binding.gyp</code>文件，因为<code>binding.gyp</code>是默认的项目定义文件。</p>
+
+<pre><code>$ cd hello
+$ touch binding.gyp
+</code></pre>
+
+<p>并且<code>binding.gyp</code>的内容为：</p>
+
+<pre><code>{
+  'targets': [
+    {
+      'target_name': 'hello',
+      'sources': [
+        'src/hello.cc'
+      ],
+      'dependencies': [
+      ]
+    }
+  ]
+}
+</code></pre>
+
+<p>之后我们以<code>binding.gyp</code>文件来生成<code>Makefile</code>等编译所需的文件：</p>
+
+<pre><code>$ node-gyp configure
+</code></pre>
+
+<p>执行完成之后，在项目目录下会生成一个<code>build</code>目录，里边是gyp自动生成的一些编译所需文件。这一步完成之后，我们来进行编译操作：</p>
+
+<pre><code>$ node-gyp build
+</code></pre>
+
+<p>如果执行没有问题的话，在<code>build/Release</code>目录下会生成<code>hello.node</code>文件，即我们创建的hello模块。</p>
+
+<h1>运行</h1>
+
+<p>模块编译成功之后，我们来测试测试模块的功能。在项目目录下创建一个<code>test.js</code>文件，内容如下：</p>
+
+<pre><code>var hello = require('./build/Release/hello.node');
+console.log(hello.sayHello());
+</code></pre>
+
+<p>执行此文件</p>
+
+<pre><code>$ node test.js
+$ Hello World!
+</code></pre>
+
+<h1>总结</h1>
+
+<p>本文简要介绍了Node中C++模块的开发方式，v8中Handle和HandleScope的概念，以及gyp工具的使用，并实现了一个hello扩展模块。本文部分内容来自于<a href="http://book.douban.com/subject/25768396/">《深入浅出Node.js》</a>。</p>
+
+<p>更多内容可以查看Node源码： <br>
+<a href="https://github.com/joyent/node/blob/master/src/node.h">https://github.com/joyent/node/blob/master/src/node.h</a> <br>
+<a href="https://github.com/joyent/node/blob/master/src/node.cc">https://github.com/joyent/node/blob/master/src/node.cc</a></p>
+
+	(完)
+
+	<div class="post-info">
+		18 Jan 2014  
+
+	</div>
+
+	<!-- disqus start -->
+
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+
+	<!-- disqus end -->
+
+	<!-- related start -->
+
+	<!-- related end -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2013/2013-12-31-%25e4%25b8%25ad%25e6%2596%2587%25e5%2588%2586%25e8%25af%258d%25e5%2585%25a5%25e9%2597%25a8%25e4%25b9%258b%25e5%25ad%2597%25e6%25a0%2587%25e6%25b3%25a8%25e6%25b3%25954-f26a414eb.html" title="Previous Post: 中文分词入门之字标注法4" data-instant>&laquo; 中文分词入门之字标注法4</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-01-26-2014-01-26-graphite-setup-notes.html-491f93181.html" title="Next Post: Graphite安装笔记" data-instant>Graphite安装笔记 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>29 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-29-node-version-management-via-n-and-nvm.html-87d7d1ad2.html">利用n和nvm管理Node的版本</a></li>
+
+      <li><span>27 Oct 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-10-27-immediately-invoked-function-expression.html-410c6719c.html">JavaScript中的立即执行函数表达式</a></li>
+
+      <li><span>26 Apr 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-04-26-how-to-publish-a-node-module.html-c100ede78.html">如何发布Node模块到NPM社区</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

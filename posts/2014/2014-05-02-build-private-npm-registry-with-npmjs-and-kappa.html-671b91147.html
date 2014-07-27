@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>利用kappa搭建私有NPM仓库</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-05-02-build-private-npm-registry-with-npmjs-and-kappa.html-671b91147.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>利用kappa搭建私有NPM仓库</h1>
+    <p class="meta"><span class="time">May 2, 2014</span><span class="source_url"> • [来自 <a name="weizhifeng.net" href="http://weizhifeng.net/build-private-npm-registry-with-npmjs-and-kappa.html" target="_blank">weizhifeng.net</a>]</span></p>
+  </header>
+
+  <article class="post-content">
+
+	<p><img src="/images/weizhifeng.net/05b32ef38d8d2bd1f926538c3cb9275a.jpg" title="NPM" alt="NPM"></p>
+
+<h1>写在前面</h1>
+
+<p>采用Node.js开发私有或者商业项目的时候，我们需要创建一些内部使用的module供多个项目之间共用，这些module显然你不想发布到社区，默认情况下<code>npm publish</code>和<code>npm install</code>都是对<a href="https://registry.npmjs.org/">registry.npmjs.org</a>进行操作，而我们需要的是这样一种仓库：对于一个module，首先操作私有仓库，如果私有仓库中不存在此module，则操作官方的仓库，架构大致如下：</p>
+
+<pre><code>                          +--+
++------------+            |p |
+| client     |   'foo'?   |r |          +------------+
+|            |  --------&gt; |o |  'foo'?  |            |
+|            |            |x |  ------&gt; | private    |
+|            |            |y | &lt;------  | registry   |
+|            |            |  |    404   +------------+
+|            |            |  |
+|            |            |  |          'foo'?     +---------------+
+|            |            |  |  -----------------&gt; |               |
+|            |            |  | &lt;-----------------  |  public       |
+|            | &lt;--------  |  |         'foo'       |  registry     |
++------------+    'foo'   +--+                     +---------------+
+</code></pre>
+
+<p>本文采用eBay开源的<a href="https://github.com/krakenjs/kappa">kappa</a>代理和<a href="https://github.com/npm/npm-registry-couchapp">NPM官方registry</a>来实现以上架构。</p>
+
+<h1>CouchDB</h1>
+
+<p><a href="http://docs.couchdb.org/en/latest/intro/index.html">CouchDB</a>是专门为Web而生的数据库，它以JSON的格式对数据进行存储，数据库的操作是通过HTTP REST方法进行。CouchDB需要的版本为1.5.0及以上。（以下是在Mac上安装CouchDB的方法，其他系统安装方法见<a href="http://docs.couchdb.org/en/latest/install/index.html">官方文档</a>）</p>
+
+<pre><code>$ brew install automake libtool erlang icu4c spidermonkey 
+$ brew link icu4c
+$ brew link erlang
+$ brew install couchdb
+</code></pre>
+
+<p>编辑配置文件<code>local.ini</code>（/usr/local/etc/couchdb/local.ini），添加如下内容：</p>
+
+<pre><code>[couch_httpd_auth]
+public_fields = appdotnet, avatar, avatarMedium, avatarLarge, date, email, fields, freenode, fullname, github, homepage, name, roles, twitter, type, _id, _rev
+users_db_public = true
+
+[httpd]
+secure_rewrites = false
+
+[couchdb]
+delayed_commits = false
+</code></pre>
+
+<p>之后，部署自启动脚本并启动CouchDB</p>
+
+<pre><code>$ ln -sfv /usr/local/opt/couchdb/*.plist ~/Library/LaunchAgents
+$ launchctl load ~/Library/LaunchAgents/homebrew.mxcl.couchdb.plist
+</code></pre>
+
+<p>创建数据库<code>registry</code></p>
+
+<pre><code>$ curl -X PUT http://localhost:5984/registry
+</code></pre>
+
+<p>添加管理员<code>admin</code>，密码为<code>admin</code>：</p>
+
+<pre><code>$ HOST="http://127.0.0.1:5984"
+$ curl -X PUT $HOST/_config/admins/admin -d '"admin"'
+</code></pre>
+
+<h1>NPM Registry</h1>
+
+<p>接下来我们来安装NPM Registry应用</p>
+
+<pre><code>$ git clone git://github.com/npm/npm-registry-couchapp
+$ cd npm-registry-couchapp
+$ npm install
+</code></pre>
+
+<p>之后，同步<code>ddoc</code>到<code>_design/scratch</code></p>
+
+<pre><code>$ echo "_npm-registry-couchapp:couch=http://admin:admin@localhost:5984/registry" &gt;&gt; ~/.npmrc
+$ npm start
+</code></pre>
+
+<p>确认views已经load：</p>
+
+<pre><code>$ npm run load
+LOADING: fieldsInUse
+HTTP/1.1 200 OK
+Server: CouchDB/1.5.0 (Erlang OTP/R16B03)
+ETag: "DPBK9T7XVY4LAM7S6CS2G2JLZ"
+Date: Thu, 01 May 2014 06:06:01 GMT
+Content-Type: text/plain; charset=utf-8
+Content-Length: 0
+Cache-Control: must-revalidate
+</code></pre>
+
+<p>把ddoc从<code>_design/scratch</code>copy到<code>_design/app</code>：</p>
+
+<pre><code>$ npm run copy
+&gt; npm-registry-couchapp@2.1.4 copy /Users/weizhifeng/dev/node/npm-registry-couchapp
+&gt; bash ./copy.sh
+
+Did you already run the load-views.sh script? (type 'yes')
+yes
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    41  100    41    0     0  10408      0 --:--:-- --:--:-- --:--:-- 13666
+{"ok":true,"id":"_design/app","rev":"1-36f4a9b735467b7817ae26b547524fd2"}
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  4869  100  4869    0     0  1051k      0 --:--:-- --:--:-- --:--:-- 1188k
+{"ok":true,"id":"_design/_auth","rev":"2-ebde50b9ecf5a06240c0e3c4166c847f"}
+</code></pre>
+
+<p>以上完成之后，我们就可以把npm的仓库指向自己刚搭建的仓库：</p>
+
+<pre><code>$ echo "registry = http://admin:admin@localhost:5984/registry/_design/app/_rewrite" &gt;&gt; ~/.npmrc
+</code></pre>
+
+<p>为了能发布module，需要添加npm用户：</p>
+
+<pre><code>$ npm adduser
+</code></pre>
+
+<p>用户添加完成之后，可以把私有module进行发布：</p>
+
+<pre><code>$ cd your-own-package
+$ npm publish
+</code></pre>
+
+<p>发布完成之后，可以在CouchDB的<a href="http://127.0.0.1:5984/_utils/database.html?registry">管理界面</a>中找到module的信息。</p>
+
+<p>这样，我们就搭建好了私有的npm仓库，并且已经可以向其中发布module了。那么接下来我们要实现架构图中的<code>Proxy</code>。</p>
+
+<h1>Kappa</h1>
+
+<p><a href="https://github.com/krakenjs/kappa">Kappa</a>是由eBay创建的一个基于<a href="https://npmjs.org/package/npm-delegate">npm-delegate</a>和<a href="https://github.com/spumko/hapi">hapi</a>的npm代理，通过kappa我们不需要复制整个公共的仓库数据就能创建自己的私有仓库。</p>
+
+<p>安装kappa</p>
+
+<pre><code>$ npm install -g kappa
+</code></pre>
+
+<p>下载<a href="https://github.com/JeremyWei/npm-proxy">npm-proxy</a>应用：</p>
+
+<pre><code>$ git clone https://github.com/JeremyWei/npm-proxy.git
+$ cd npm-proxy &amp;&amp; npm install
+</code></pre>
+
+<p>修改config.json文件：</p>
+
+<pre><code>{
+    "servers": [
+        {
+            "host": "localhost",
+            "port": 8100
+        },
+        {
+            "host": "localhost",
+            "port": 8143,
+            "tls": {
+                "requestCert": true,
+                "rejectUnauthorized": true,
+                "key": "file:./key.pem",
+                "cert": "file:./cert.pem"
+            }
+        }
+    ],
+    "plugins": {
+        "kappa": {
+            "vhost": "npm.myorg.com",
+            "paths": [
+                "http://admin:admin@localhost:5984/registry/_design/app/_rewrite/",
+                "https://registry.npmjs.org/"
+            ]
+        }
+    }
+}
+</code></pre>
+
+<ul>
+<li>
+<code>vhost</code>是虚拟主机，可以修改成自己需要的，但是要注意与下面的内容保持一致。</li>
+<li>
+<code>paths</code>数组第一个元素是本地私有仓库，第二个元素是公共仓库。</li>
+</ul>
+
+<p>之后添加<code>npm.myorg.com</code>到hosts</p>
+
+<pre><code>$ echo "127.0.0.1 npm.myorg.com" &gt;&gt; /etc/hosts
+</code></pre>
+
+<p>在启动proxy之前需要<code>npm cache clean</code>清除一下缓存，否则很有可能在<code>npm start</code>时候出现以下错误：</p>
+
+<pre><code>2013-12-02T23:19:33.688Z HAPI,HANDLER,ERROR {"msec":0.15241800248622894}
+2013-12-02T23:19:33.689Z HAPI,RESPONSE,ERROR unspecified
+</code></pre>
+
+<p>启动proxy：</p>
+
+<pre><code>$ npm start
+&gt; kappa -c config.json
+
+Kappa listening on localhost:8100
+Kappa listening on localhost:8143
+</code></pre>
+
+<p>启动成功之后就可以把registry地址换成代理地址：</p>
+
+<pre><code>echo "registry = http://npm.myorg.com:8100" &gt;&gt; ~/.npmrc
+</code></pre>
+
+<p>完成之后，我们在自己的项目中测试代理是否工作正常：</p>
+
+<pre><code>$ npm install 
+npm http GET http://npm.myorg.com:8100/mongodb
+npm http GET http://npm.myorg.com:8100/mocha
+</code></pre>
+
+<p>如果以上没有问题，那么恭喜你终于有了自己的私有npm仓库。</p>
+
+<h1>参考</h1>
+
+<ul>
+<li><a href="https://github.com/npm/npm-registry-couchapp">https://github.com/npm/npm-registry-couchapp</a></li>
+<li><a href="https://github.com/krakenjs/kappa">https://github.com/krakenjs/kappa</a></li>
+<li><a href="http://clock.co.uk/blog/how-to-create-a-private-npmjs-repository">http://clock.co.uk/blog/how-to-create-a-private-npmjs-repository</a></li>
+<li><a href="http://stackoverflow.com/questions/10386310/how-to-install-a-private-npm-module-without-my-own-registry">http://stackoverflow.com/questions/10386310/how-to-install-a-private-npm-module-without-my-own-registry</a></li>
+</ul>
+
+	(完)
+
+	<div class="post-info">
+		02 May 2014  
+
+	</div>
+
+	<!-- disqus start -->
+
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+
+	<!-- disqus end -->
+
+	<!-- related start -->
+
+	<!-- related end -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-04-26-how-to-publish-a-node-module.html-c100ede78.html" title="Previous Post: 如何发布Node模块到NPM社区" data-instant>&laquo; 如何发布Node模块到NPM社区</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-05-04-openssh-perl6-94df9f44f.html" title="Next Post: 在 Perl6 脚本中并发执行 ssh 命令" data-instant>在 Perl6 脚本中并发执行 ssh 命令 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>26 Apr 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-04-26-how-to-publish-a-node-module.html-c100ede78.html">如何发布Node模块到NPM社区</a></li>
+
+      <li><span>29 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-29-node-version-management-via-n-and-nvm.html-87d7d1ad2.html">利用n和nvm管理Node的版本</a></li>
+
+      <li><span>23 Sep 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-09-23-ruby-on-rails.html-6d77c5f50.html">Ruby On Rails环境搭建</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
