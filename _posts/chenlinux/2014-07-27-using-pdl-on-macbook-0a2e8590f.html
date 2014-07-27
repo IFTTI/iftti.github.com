@@ -1,0 +1,174 @@
+---
+layout: post
+title: '在 MacBook 上使用 PDL 绘图 '
+time: 2014-07-27 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/07/27/using-pdl-on-macbook
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>之前在 Linux 服务器上使用 PDL，主要是一些矩阵函数，这次准备在个人电脑上使用 PDL，尤其是本身的绘图功能，其一目的就是导出 zabbix 中存储的监控数据，通过 PDL 绘图观察其季节性分布情况。</p>
+
+<p>不过在使用的时候，发现在 MacBook 上跑 PDL 还是有点上手难度的。和 pylab 不同，PDL 是使用了 X11 的，而 MacBook 最新的版本里，X11 已经不再是自带的了。所以需要单独去下载 <a href="https://www.macupdate.com/app/mac/26593/xquartz">XQuartz</a> 安装包来提供 X11 支持。</p>
+
+<p>安装好了 XQuartz 以后，再安装 PDL::Graphics:: 名字空间下的几个模块就好办了。</p>
+
+<ul>
+  <li>PDL::Graphics::Simple</li>
+  <li>PDL::Graphics::Gnuplot</li>
+  <li>PDL::Graphics::PGPLOT</li>
+  <li>PDL::Graphics::Prima</li>
+</ul>
+
+<p>另外还有 PDL::Graphics::PLplot 等，不过通过 <code>port install plplot</code> 安装的 plplot 没有 header 文件，所以 PDL::Graphics::PLplot 是安装不上的，既然前面已经有了不少，这里也就不再追求自己下载 plplot 源代码来安装了。</p>
+
+<p>PDL::Graphics::Simple 是 《PDL Book》开篇第一个示例就使用的模块，其实际就是按顺序尝试加载 <code>::Gnuplot</code>、<code>::PGPLOT</code>、<code>::PLplot</code> 和 <code>::Prima</code>。所以，保证有一个可用就好了。</p>
+
+<p>不过在我的 air 上实际的效果来看，perldl 命令在使用 子进程跟 gnuplot 交互的时候<strong>非常非常非常的慢！</strong></p>
+
+<p>好了，现在就可以运行程序了：</p>
+
+<div class="highlight"><pre><code class="language-perl" data-lang="perl"><span class="c1">#!/usr/bin/env perl</span>
+<span class="k">use</span> <span class="n">strict</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">warnings</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">utf8</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">feature</span> <span class="s">':5.16'</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">Path::</span><span class="n">Tiny</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">YAML</span><span class="p">;</span>
+<span class="k">use</span> <span class="n">PDL</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">PDL::Graphics::</span><span class="n">PGPLOT</span><span class="p">;</span>
+<span class="k">use</span> <span class="nn">Zabbix2::</span><span class="n">API</span><span class="p">;</span>
+
+<span class="k">my</span> <span class="nv">$config</span> <span class="o">=</span> <span class="n">Load</span><span class="p">(</span> <span class="n">path</span><span class="p">(</span><span class="s">'config.yml'</span><span class="p">)</span><span class="o">-&gt;</span><span class="n">slurp</span> <span class="p">);</span>
+<span class="k">my</span> <span class="nv">$zbconf</span> <span class="o">=</span> <span class="nv">$config</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'zabbix'</span><span class="p">};</span>
+<span class="k">my</span> <span class="nv">$zabbix</span> <span class="o">=</span>
+  <span class="nn">Zabbix2::</span><span class="n">API</span><span class="o">-&gt;</span><span class="k">new</span><span class="p">(</span>
+    <span class="n">server</span> <span class="o">=&gt;</span> <span class="s">"http://$zbconf-&gt;{'addr'}/zabbix/api_jsonrpc.php"</span> <span class="p">);</span>
+
+<span class="nb">eval</span> <span class="p">{</span>
+    <span class="nv">$zabbix</span><span class="o">-&gt;</span><span class="n">login</span><span class="p">(</span>
+        <span class="n">user</span>     <span class="o">=&gt;</span> <span class="nv">$zbconf</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'user'</span><span class="p">},</span>
+        <span class="n">password</span> <span class="o">=&gt;</span> <span class="nv">$zbconf</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'pass'</span><span class="p">}</span>
+    <span class="p">);</span>
+<span class="p">};</span>
+<span class="k">if</span> <span class="p">(</span><span class="vg">$@</span><span class="p">)</span> <span class="p">{</span> <span class="nb">die</span> <span class="s">'could not authenticate'</span> <span class="p">}</span>
+
+<span class="k">my</span> <span class="nv">$items</span> <span class="o">=</span> <span class="nv">$zabbix</span><span class="o">-&gt;</span><span class="n">fetch</span><span class="p">(</span>
+    <span class="s">'Item'</span><span class="p">,</span>
+    <span class="n">params</span> <span class="o">=&gt;</span> <span class="p">{</span>
+        <span class="n">groupids</span> <span class="o">=&gt;</span> <span class="mi">21</span><span class="p">,</span>
+        <span class="n">hostids</span>  <span class="o">=&gt;</span> <span class="mi">11036</span><span class="p">,</span>
+        <span class="n">graphids</span> <span class="o">=&gt;</span> <span class="mi">1824829</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">);</span>
+<span class="k">for</span> <span class="k">my</span> <span class="nv">$item</span> <span class="p">(</span><span class="nv">@$items</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">say</span> <span class="nv">$item</span><span class="o">-&gt;</span><span class="n">data</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'name'</span><span class="p">};</span>
+    <span class="k">my</span> <span class="nv">$itemid</span> <span class="o">=</span> <span class="nv">$item</span><span class="o">-&gt;</span><span class="n">data</span><span class="o">-&gt;</span><span class="p">{</span><span class="s">'itemid'</span><span class="p">};</span>
+    <span class="n">say</span> <span class="nv">$itemid</span><span class="p">;</span>
+    <span class="k">my</span> <span class="nv">$sitems</span> <span class="o">=</span> <span class="nv">$zabbix</span><span class="o">-&gt;</span><span class="n">fetch_single</span><span class="p">(</span>
+        <span class="s">'Item'</span><span class="p">,</span>
+        <span class="n">params</span> <span class="o">=&gt;</span> <span class="p">{</span>
+            <span class="n">itemids</span> <span class="o">=&gt;</span> <span class="nv">$itemid</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="p">);</span>
+    <span class="k">my</span> <span class="nv">$pdl</span> <span class="o">=</span> <span class="n">pdl</span><span class="p">(</span><span class="nb">map</span> <span class="p">{</span><span class="nv">$_</span><span class="o">-&gt;</span><span class="p">{</span><span class="n">value</span><span class="p">}}</span> <span class="nv">@</span><span class="p">{</span> <span class="nv">$sitems</span><span class="o">-&gt;</span><span class="n">history</span><span class="p">(</span> <span class="n">time_from</span> <span class="o">=&gt;</span> <span class="nb">time</span><span class="p">()</span> <span class="o">-</span> <span class="mi">24</span> <span class="o">*</span> <span class="mi">3600</span> <span class="p">)</span> <span class="p">});</span>
+    <span class="n">bin</span><span class="p">(</span><span class="n">hist</span><span class="p">(</span><span class="nv">$pdl</span><span class="p">));</span>
+<span class="p">}</span></code></pre></div>
+
+<p>这里使用了 <a href="https://metacpan.org/pod/Zabbix2::API">Zabbix2::API</a> 模块，相对比 <a href="http://blog.zabbix.com/getting-started-with-zabbix-api/1381/">zabbix 官方博客示例</a>直接使用 <a href="https://metacpan.org/pod/JSON::RPC">JSON::RPC</a> 模块，以及 python 的 pyzabbix 模块来说，Zabbix2::API 模块封装的非常好，history 是作为 item 对象的属性出现，而不是单独再请求一次 <code>history.get</code>。</p>
+
+<p>另外，不知道为什么，使用 pyzabbix 模块就一直无法正常使用，而自己写 requests 和 json 却没问题。上面的 perl 脚本用 python 改写就是下面这样：</p>
+
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c">#!/usr/bin/env python</span>
+<span class="sd">"""</span>
+<span class="sd">Read item history from zabbix, and plot as histogram</span>
+<span class="sd">"""</span>
+<span class="kn">import</span> <span class="nn">matplotlib</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="kn">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">matplotlib.mlab</span> <span class="kn">as</span> <span class="nn">mlab</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="kn">as</span> <span class="nn">plt</span>
+<span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">from</span> <span class="nn">datetime</span> <span class="kn">import</span> <span class="n">datetime</span>
+
+<span class="n">ZABBIX_URI</span> <span class="o">=</span> <span class="s">'http://test.zabbix.com/zabbix/api_jsonrpc.php'</span>
+<span class="n">ZABBIX_USR</span> <span class="o">=</span> <span class="s">'user'</span>
+<span class="n">ZABBIX_PWD</span> <span class="o">=</span> <span class="s">'pass'</span>
+<span class="n">HOURS</span> <span class="o">=</span> <span class="mi">24</span> <span class="o">*</span> <span class="mi">1</span>
+
+<span class="k">def</span> <span class="nf">zabbixLogin</span><span class="p">(</span><span class="n">user</span><span class="p">,</span> <span class="n">passwd</span><span class="p">):</span>
+  <span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">'user'</span><span class="p">:</span><span class="n">user</span><span class="p">,</span>
+    <span class="s">'password'</span><span class="p">:</span><span class="n">passwd</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="n">zabbixCall</span><span class="p">(</span><span class="s">'user.login'</span><span class="p">,</span> <span class="n">params</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">zabbixCall</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s">''</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="p">{},</span> <span class="n">auth</span><span class="o">=</span><span class="s">''</span><span class="p">):</span>
+  <span class="n">data</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">'jsonrpc'</span><span class="p">:</span><span class="s">'2.0'</span><span class="p">,</span>
+    <span class="s">'method'</span><span class="p">:</span><span class="n">method</span><span class="p">,</span>
+    <span class="s">'params'</span><span class="p">:</span><span class="n">params</span><span class="p">,</span>
+    <span class="s">'id'</span><span class="p">:</span><span class="mi">1</span>
+  <span class="p">}</span>
+  <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">auth</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+    <span class="n">data</span><span class="p">[</span><span class="s">'auth'</span><span class="p">]</span> <span class="o">=</span> <span class="n">auth</span>
+  <span class="n">r</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">ZABBIX_URI</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">data</span><span class="p">),</span> <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s">'content-type'</span><span class="p">:</span><span class="s">'application/json-rpc'</span><span class="p">})</span>
+  <span class="k">return</span> <span class="n">r</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s">'result'</span><span class="p">]</span>
+
+<span class="n">authId</span> <span class="o">=</span> <span class="n">zabbixLogin</span><span class="p">(</span><span class="n">ZABBIX_USR</span><span class="p">,</span> <span class="n">ZABBIX_PWD</span><span class="p">)</span>
+<span class="k">print</span><span class="p">(</span><span class="s">'Get Auth ID: '</span> <span class="o">+</span> <span class="n">authId</span><span class="p">)</span>
+<span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="s">'groupids'</span><span class="p">:</span><span class="mi">21</span><span class="p">,</span>
+  <span class="s">'hostids'</span><span class="p">:</span><span class="mi">11036</span><span class="p">,</span>
+  <span class="s">'graphids'</span><span class="p">:</span><span class="mi">1824829</span>
+<span class="p">}</span>
+<span class="n">items</span> <span class="o">=</span> <span class="n">zabbixCall</span><span class="p">(</span><span class="s">'item.get'</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">authId</span><span class="p">)</span>
+
+<span class="n">begin</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">mktime</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">timetuple</span><span class="p">())</span> <span class="o">-</span> <span class="mi">3600</span> <span class="o">*</span> <span class="n">HOURS</span>
+<span class="k">print</span><span class="p">(</span><span class="s">'Begin loop for history...'</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+  <span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">'output'</span><span class="p">:</span><span class="s">'extend'</span><span class="p">,</span>
+    <span class="s">'history'</span><span class="p">:</span><span class="mi">0</span><span class="p">,</span>
+    <span class="s">'itemids'</span><span class="p">:</span><span class="n">item</span><span class="p">[</span><span class="s">'itemid'</span><span class="p">],</span>
+    <span class="s">'time_from'</span><span class="p">:</span><span class="n">begin</span>
+  <span class="p">}</span>
+  <span class="n">ret</span> <span class="o">=</span> <span class="n">zabbixCall</span><span class="p">(</span><span class="s">'history.get'</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">authId</span><span class="p">)</span>
+  <span class="n">history</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="s">'value'</span><span class="p">]),</span> <span class="n">ret</span><span class="p">)</span>
+  <span class="n">v</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">history</span><span class="p">)</span>
+
+  <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">()</span>
+  <span class="n">plt</span><span class="o">.</span><span class="n">hist</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">normed</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+  <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">'item: '</span> <span class="o">+</span> <span class="n">item</span><span class="p">[</span><span class="s">'itemid'</span><span class="p">])</span>
+
+<span class="c">#  lline = numpy.percentile(v, 25)</span>
+<span class="c">#  uline = numpy.percentile(v, 75)</span>
+<span class="c">#  low = 2 * lline - uline</span>
+<span class="c">#  up = 2 * uline - lline</span>
+  <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">()</span>
+  <span class="n">plt</span><span class="o">.</span><span class="n">boxplot</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="n">sym</span><span class="o">=</span><span class="s">'+'</span><span class="p">,</span> <span class="n">notch</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+  <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s">'item: '</span> <span class="o">+</span> <span class="n">item</span><span class="p">[</span><span class="s">'itemid'</span><span class="p">])</span>
+  <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></code></pre></div>
+
+
+    <hr>
+    
+    <hr>
+    
+
+
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+
+
+
+
+
+
+  </div>
+{% endraw %}
