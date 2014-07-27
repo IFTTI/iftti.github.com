@@ -1,0 +1,115 @@
+---
+layout: post
+title: '整形数据转换为字符串的研究'
+time: 2014-07-26 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/73979/
+images:
+  ecbb24c54a151c9301fb6ad3fbeab730: http://jbcdn2.b0.upaiyun.com/2014/07/518b3804e42dfec09dc928ef21a38739.png
+  f87cb7aa8b121de8ca5b0c94ae8ef0cd: http://jbcdn2.b0.upaiyun.com/2014/07/531f1ea7fff6273f70d391ccff0af298.png
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>目前已经有多种将整形数据转换为字符串表达式的方法。虽然这些转换方法很少会遇到什么瓶颈，但是在分析特定应用的时候就有可能了。比如，在<a title="Lawn" href="http://lwan.ws/" target="_blank">Lwan</a>里面构建响应头部的时候就经常会出现。</p>
+<p>就拿Lwan来说吧，最初是用snprintf()函数来转换数字。虽然在表面上这确实能起作用，但是却太没劲了。</p>
+<p>第二种方法是使用朴素算法：将原数连续与10相除，每次都把模转换成一个字符加在字符串后，当除到最后的余数为0时就停止并将字符串倒序得到最后的字符串。</p>
+<pre class="brush: c; gutter: false">// Code based on https://code.google.com/p/stringencoders/
+size_t naive_uint32_to_str(uint32_t value, char *str) {
+    char *wstr = str;
+    // Conversion. Number is reversed.
+    do
+       *wstr++ = (char) decimal_digits[uvalue % 10];
+    while (uvalue /= 10);
+    *wstr = '';
+    // Reverse string
+    strreverse(str, wstr - 1);
+    return wstr - str;
+}</pre>
+<p>这在一般情况下还是可以的，但倒转字符串的那一步总是令我困扰，为什么不直接向后写字符串呢?</p>
+<p>之后我就把Lawn的代码改写成了如下代码段。需要注意的是，无论sizeof(int32_t)是多少，我都把数字的最大的字节大小(包括终止符)设置成了MAX_INT的3倍。</p>
+<pre class="brush: c; gutter: false">#define INT_TO_STR_BUFFER_SIZE (3 * sizeof(int32_t))
+
+char *lwan_uint32_to_str(uint32_t value,
+            char buffer[static INT_TO_STR_BUFFER_SIZE],
+            size_t *len) {
+    char *p = buffer + INT_TO_STR_BUFFER_SIZE - 1;
+
+    *p = '';
+    do {
+        *--p = "0123456789"[value % 10];
+    } while (value /= 10);
+
+    size_t difference = (size_t)(p - buffer);
+    *len = (size_t)(INT_TO_STR_BUFFER_SIZE - difference - 1;
+
+    return p;
+}</pre>
+<p>减少数组的写入操作使得算法速度明显加快。然而，在我修补刚才那个算法的时候我却犯了一个很多人都会尽量避免的错误：我让数组进行了额外的查询工作，在没有测试它的表现是否会更好的情况下就不管三七二十一提交了代码。如果使用查表法会比这快9%，噢！</p>
+<p>就在去年，Facebook的工程团队发布了一个更快的将整数转换成字符串的<a title="函数" href="https://www.facebook.com/notes/facebook-engineering/three-optimization-tips-for-c/10151361643253920" target="_blank">函数</a>。他们同样避免了将各个数字转换后形成的字符串转置的操作，并且他们把查表法运用得很好。</p>
+<p>这里的技巧就是，他们把这张表做成了从00到99的数值对，而不是简单的10个数字。这样就把除法运算的数量减少了一半，算法的性能得到很大的提升：比上面的代码段快了大概31%：</p>
+<pre class="brush: c; gutter: false">size_t facebook_uint32_to_str(uint32_t value, char *dst)
+{
+    static const char digits[201] =
+        "0001020304050607080910111213141516171819"
+        "2021222324252627282930313233343536373839"
+        "4041424344454647484950515253545556575859"
+        "6061626364656667686970717273747576777879"
+        "8081828384858687888990919293949596979899";
+    size_t const length = digits10(value);
+    size_t next = length - 1;
+    while (value &gt;= 100) {
+        auto const i = (value % 100) * 2;
+        value /= 100;
+        dst[next] = digits[i + 1];
+        dst[next - 1] = digits[i];
+        next -= 2;
+    }
+    // Handle last 1-2 digits
+    if (value &lt; 10) {
+        dst[next] = '0' + uint32_t(value);
+    } else {
+        auto i = uint32_t(value) * 2;
+        dst[next] = digits[i + 1];
+        dst[next - 1] = digits[i];
+    }
+    return length;
+}</pre>
+<p>digits10()函数是另外一个使用特殊方式计算数字里面数字个数的函数。即使是高性能，我们也得想法防止一起调用这些东西：使用一个像numeric_limits&lt;uint32_t&gt;::digits10的常量来保持接口的一致性。这是可以实现的，因为dst缓存应该有足够的大小去容纳最大32位的无符号整型数据。</p>
+<p>这个函数基本上都是在把数字和10的次方相比较，并且当数字的位数超过了他们要比较的数的最大次方时就递归。由于这种实现细节，对于一个很小的数使用一个不变的长度并不会使速度得到显著的提升(比如一位或两位数字)；但如果你是出于优化的角度讲，那么使用一个常量并无大碍。如此，在我的机器上(一款搭载酷睿i7 2640M装有最新64位Arch Linux系统的笔记本)，它始终都会执行得更快：</p>
+<div id="attachment_73982" class="wp-caption alignnone" style="width: 610px">
+<a href="http://jbcdn2.b0.upaiyun.com/2014/07/518b3804e42dfec09dc928ef21a38739.png" rel="lightbox[73979]" title="facebook_unit32_to_str()函数使用digits10()和常量值的相对速度"><img class="size-full wp-image-73982" title="facebook_unit32_to_str()函数使用digits10()和常量值的相对速度" alt="9V0PsPK" src="/images/jobbole.com/ecbb24c54a151c9301fb6ad3fbeab730.jpg" width="600" height="371"></a>
+<p class="wp-caption-text">facebook_unit32_to_str()函数使用digits10()和常量值的相对速度</p>
+</div>
+<p> </p>
+<p>上面这张图来源于我自己写的一个能够测试上面所有的整型转字符串方法的一个标准的程序。下面是一更完整的表，里面还和其它的一些方法进行了对比。</p>
+<div id="attachment_73985" class="wp-caption alignnone" style="width: 610px">
+<a href="http://jbcdn2.b0.upaiyun.com/2014/07/531f1ea7fff6273f70d391ccff0af298.png" rel="lightbox[73979]" title="整形数据转换为字符串的研究"><img class="size-full wp-image-73985" alt="b2enLNt" src="/images/jobbole.com/f87cb7aa8b121de8ca5b0c94ae8ef0cd.jpg" width="600" height="371"></a>
+<p class="wp-caption-text">省去了较大偏差的snprintf()函数，PS：它太慢了</p>
+</div>
+<p>不幸的是，本文存在这一个许可问题，它并不允许我使用Lawn的代码。这篇博客文章并没有提到这个许可。我是在《<a title="https://mail-archives.apache.org/mod_mbox/apr-dev/200704.mbox/%3C344-65769@sneakemail.com%3E" href="https://mail-archives.apache.org/mod_mbox/apr-dev/200704.mbox/%3C344-65769@sneakemail.com%3E" target="_blank">two-digit lookup table in places unrelated to Facebook</a>》发现这个算法的，所以我并不确定到底是谁最先提出的。上面这些问题的很大的一个来源是<a href="http://www.hackersdelight.org/" target="_blank">Hacker’s Delight</a>网站，但是现在在那里却找不到了。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+	
+
+
+	
+{% endraw %}
