@@ -15,6 +15,7 @@ end
 desc "Deploy to gitcafe/github"
 task :deploy do
   puts "### Git push"
+  system "cd ./_site && git add . && git commit -am 'Deploy at #{Time.now}'"
   system "cd _site && git push iftti-gitcafe master:gitcafe-pages"
   system "cd _site && git push iftti-github master"
 end
