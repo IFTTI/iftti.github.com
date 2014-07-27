@@ -1,0 +1,110 @@
+---
+layout: post
+title: '将博客从GitHub迁移到GitCafe'
+time: 2014-06-02 00:00:00 +0800
+site_name: devtang.com
+source_url: http://blog.devtang.com/blog/2014/06/02/use-gitcafe-to-host-blog/
+images:
+  d9632347fc371b1c2990b79c39b0e366: /images/gitcafe-ping.jpg
+  56029aac5452982fe72b1b8f6aa4b02a: /images/gitcafe-jiankong.jpg
+  b3be4a8c65c7433cf879093ec86a23bd: /images/gitcafe-create-page.jpg
+  5db6f14454a06d8a06a9cd4d349f7f3a: /images/gitcafe-edit-rakefile.jpg
+  3535e01008a10422ee24cc0b2cb9182e: /images/gitcafe-set-domain.jpg
+---
+{% raw %}
+<p>我之前一直使用<a href="https://pages.github.com/">Github Pages功能</a>以及<a href="http://octopress.org/">Octopress</a>来搭建个人博客，我也写了一篇文章<a href="http://blog.devtang.com/blog/2012/02/10/setup-blog-based-on-github/">《象写程序一样写博客：搭建基于github的博客》</a>来分享博客搭建的技术细节。</p>
+
+<p>但是自从我的博客每天访问量超过2000次以后，我就发现博客的访问速度还是一个不可忽视的问题。通过<a href="http://www.jiankongbao.com/">监控宝</a>和<a href="http://www.google.com/analytics/">Google Analytics</a>，我发现有些博客文章的平均打开时间长达4秒钟。于是我开始考虑将博客搭建在更快的服务器上面。</p>
+
+<p>我的首先考虑是购买独立的VPS，<a href="https://www.linode.com/pricing">Linode</a>每月30$的价格还是略贵，于是我买的是 <a href="https://www.digitalocean.com/?refcode=f54eef197afd">DigitalOcean</a>，<a href="https://www.digitalocean.com/?refcode=f54eef197afd">DigitalOcean</a>算下来每月只需要5$。于是在一个周末，我花时间购买了DigitalOcean家的VPS，安装了Nginx，然后在上面运行了一个脚本，定时将我github博客的内容自动更新过来（其实就是定期<code>git pull</code>一下我博客的repo）。</p>
+
+<p>就这样运行了一个月，我发现虽然<a href="https://www.digitalocean.com/?refcode=f54eef197afd">DigitalOcean</a>服务器的ping值相比github要快一些。但是从监控数据上看，整体的网页访问速度并没有什么提高。就在我在微博上抱怨的时候，一个朋友推荐我试试<a href="http://gitcafe.com/signup?invited_by=tangqiaoboy">GitCafe</a>。于是我就尝试了一下，结果你猜怎么着？我被吓坏了。</p>
+
+<p>ping值直接从200ms左右减少到3ms左右，如下图所示：</p>
+
+<p><img src="/images/devtang.com/d9632347fc371b1c2990b79c39b0e366.jpg"></p>
+
+<p>监控宝的统计显示，首页平均打开时间从原来的1800ms减少到350ms左右，快了5倍，如下图所示：</p>
+
+<p><img src="/images/devtang.com/56029aac5452982fe72b1b8f6aa4b02a.jpg"></p>
+
+<p>所以我强烈建议各位基于Github Pages功能来搭建个人博客的朋友，将博客内容镜像到<a href="http://gitcafe.com/signup?invited_by=tangqiaoboy">GitCafe</a>上。如果你有个人的独立域名，那么镜像之后就可以随时将博客地址在Github和Gitcafe之间切换了。对于各位博主来说，这样做没有任何风险，因为你可以随时再切换回去。当然，免费用了人家的服务，如果你能像我这样，在网站的底部附上感谢内容，那是再好不过的了。</p>
+
+<p>以下为大家介绍详细的迁移过程。</p>
+
+<h2>迁移教程</h2>
+
+<h3>注册</h3>
+
+<p>如果你还没有注册过<a href="http://gitcafe.com/signup?invited_by=tangqiaoboy">GitCafe</a>，首先需要<a href="https://gitcafe.com/signup">点这里</a>注册一下。</p>
+
+<p>注册完成之后，去<a href="https://gitcafe.com/account/public_keys">公钥管理</a>那儿添加一下你的ssh公钥，这样以后提交代码会方便很多。当然你也可以不设置这一步，每次提交通过密码来验证。</p>
+
+<h3>在GitCafe上新建一个博客项目</h3>
+
+<p>然后我们需要先在GitCafe上新建一个博客项目。GitCafe的博客搭建官方教程藏得比较深，所以我第一次还没有找到，教程地址在<a href="https://gitcafe.com/GitCafe/Help/wiki/Pages-%E7%9B%B8%E5%85%B3%E5%B8%AE%E5%8A%A9#wiki">这里</a>。具体来说，就是创建一个与用户名(如果是组织，就是组织名)相同名称的项目。如果你创建的项目名与用户名相同，GitCafe会自动识别成这是一个Page项目，如下所示：</p>
+
+<p><img src="/images/devtang.com/b3be4a8c65c7433cf879093ec86a23bd.jpg"></p>
+
+<h3>设置多个Git Remote源</h3>
+
+<p>接下来我们需要将原本提交到Github上的博客内容同步提交到GitCafe。因为我的博客是基于<a href="http://octopress.org/">Octopress</a>的，我介绍一下Octopress的做法，其它博客引擎的做法类似。</p>
+
+<p>对于Octopress，我们只需要每次提交网站内容时，执行完 <code>rake deploy</code>之后，再执行以下脚本即可（你可以将该脚本中的代码仓库地址换成你的，然后将其保存成一个脚 本文件，需要时执行一下即可）：</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+<span class="line-number">3</span>
+<span class="line-number">4</span>
+<span class="line-number">5</span>
+<span class="line-number">6</span>
+<span class="line-number">7</span>
+</pre></td>
+<td class="code"><pre><code class="bash"><span class="line"><span class="nb">cd </span>_deploy
+</span><span class="line"><span class="c"># 添加 gitcafe 源</span>
+</span><span class="line">git remote add gitcafe git@gitcafe.com:tangqiaoboy/tangqiaoboy.git &gt;&gt; /dev/null 2&gt;&amp;1
+</span><span class="line"><span class="c"># 提交博客内容</span>
+</span><span class="line"><span class="nb">echo</span> <span class="s2">"### Pushing to GitCafe..."</span>
+</span><span class="line">git push -u gitcafe master:gitcafe-pages
+</span><span class="line"><span class="nb">echo</span> <span class="s2">"### Done"</span>%
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>大概解释一下以上内容，Octopress在发布时会将自己的 <code>_delpoy</code>目录切换到master分支，然后将生成的博客内容放到<code>_delpoy</code>目录中，然后执行<code>git push</code>操作。正常情况下，默认内容是push到github上的。我们执行的以上脚本，就是为该项目增加了一个名为<code>gitcafe</code>的远程仓库，然后将master分支push到<code>gitcafe</code>的<code>gitcafe-pages</code>分支。</p>
+
+<h3>修改Rakefile (可选)</h3>
+
+<p>除了以上方法外，你也可以直接修改<code>Rakefile</code>。在其第269行后增加如下代码，也可以达到同样的目的，这样你每次就仍然只需要执行<code>rake deploy</code>即可同时将博客同步到github和gitcafe：</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+</pre></td>
+<td class="code"><pre><code class="ruby"><span class="line"><span class="nb">system</span> <span class="s2">"git remote add gitcafe git@gitcafe.com:tangqiaoboy/tangqiaoboy.git &gt;&gt; /dev/null 2&gt;&amp;1"</span>
+</span><span class="line"><span class="nb">system</span> <span class="s2">"git push -u gitcafe master:gitcafe-pages"</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>插入代码的示例位置如下：</p>
+
+<p><img src="/images/devtang.com/5db6f14454a06d8a06a9cd4d349f7f3a.jpg"></p>
+
+<h3>设置域名</h3>
+
+<p>GitCafe的自定义域名设置比github要友好得多，它不但提供了图形界面设置，并且支持同时设置多个域名。在<code>项目管理</code>–&gt;<code>域名管理</code>中，我们可以找到相应的设置项，如下所示：</p>
+
+<p><img src="/images/devtang.com/3535e01008a10422ee24cc0b2cb9182e.jpg"></p>
+
+<p>在设置完之后，我们需要去域名解析的服务商那儿，将对应的域名用<code>A记录</code>类型，解析到<code>117.79.146.98</code>即可。</p>
+
+<h3>添加对GitCafe的感谢(可选)</h3>
+
+<p>如果你也想像我一样，想在博客底部添加对GitCafe的感谢，可以参考<a href="https://github.com/tangqiaoboy/tangqiaoboy.github.com/commit/a8ff6914d6fca786baf5702de3da01d408bd7b43">这个提交</a>。它通过修改Octopress的<code>source/_includes/custom/footer.html</code>模版文件完成。</p>
+
+<h2>感谢</h2>
+
+<p>最后再次感谢GitCafe，上个月在QCon大会上了解到他们的发展思路和Github很不一样。虽然它还是一家创业公司，但是我期待看到它最终能够推动国内开源和技术社区的发展。</p>
+{% endraw %}

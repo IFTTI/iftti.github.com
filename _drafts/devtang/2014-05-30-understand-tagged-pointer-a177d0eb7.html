@@ -1,0 +1,152 @@
+---
+layout: post
+title: '深入理解Tagged Pointer'
+time: 2014-05-30 00:00:00 +0800
+site_name: devtang.com
+source_url: http://blog.devtang.com/blog/2014/05/30/understand-tagged-pointer/
+images:
+  952e66371c2e71e297cb9710b3030087: /images/tagged_pointer_before.jpg
+  edc675e9df1dcdd97667ae6523de3502: /images/tagged_pointer_after.jpg
+  f6f29f07237726fe91dab779de23b2fb: /images/tagged_pointer_switch_64bit_simulator.jpg
+  21aa501ae5d1372b34f0a97bc34b5d6a: /images/tagged_pointer_isa_forbidden.jpg
+---
+{% raw %}
+<h3>版权说明</h3>
+
+<p>本文为InfoQ中文站特供稿件，首发地址为：<a href="http://www.infoq.com/cn/articles/deep-understanding-of-tagged-pointer">文章链接</a>。如需转载，请与InfoQ中文站联系。</p>
+
+<p>【摘要】：为了节省内存和提高执行效率，苹果提出了<code>Tagged Pointer</code>的概念。对于64位程序，引入Tagged Pointer后，相关逻辑能减少一半的内存占用，以及3倍的访问速度提升，100倍的创建、销毁速度提升。本文从<code>Tagged Pointer</code>试图解决的问题入手，带领读者理解<code>Tagged Pointer</code>的实现细节和优势，最后指出了使用时的注意事项。</p>
+
+<h2>前言</h2>
+
+<p>在2013年9月，苹果推出了<a href="http://en.wikipedia.org/wiki/IPhone_5S">iPhone5s</a>，与此同时，iPhone5s配备了首个采用64位架构的<a href="http://en.wikipedia.org/wiki/Apple_A7">A7双核处理器</a>，为了节省内存和提高执行效率，苹果提出了<code>Tagged Pointer</code>的概念。对于64位程序，引入Tagged Pointer后，相关逻辑能减少一半的内存占用，以及3倍的访问速度提升，100倍的创建、销毁速度提升。本文从<code>Tagged Pointer</code>试图解决的问题入手，带领读者理解<code>Tagged Pointer</code>的实现细节和优势，最后指出了使用时的注意事项。</p>
+
+<h2>问题</h2>
+
+<p>我们先看看原有的对象为什么会浪费内存。假设我们要存储一个NSNumber对象，其值是一个整数。正常情况下，如果这个整数只是一个NSInteger的普通变量，那么它所占用的内存是与CPU的位数有关，在32位CPU下占4个字节，在64位CPU下是占8个字节的。而指针类型的大小通常也是与CPU位数相关，一个指针所占用的内存在32位CPU下为4个字节，在64位CPU下也是8个字节。</p>
+
+<p>所以一个普通的iOS程序，如果没有<code>Tagged Pointer</code>对象，从32位机器迁移到64位机器中后，虽然逻辑没有任何变化，但这种NSNumber、NSDate一类的对象所占用的内存会翻倍。如下图所示：</p>
+
+<p><img src="/images/devtang.com/952e66371c2e71e297cb9710b3030087.jpg"></p>
+
+<p>我们再来看看效率上的问题，为了存储和访问一个NSNumber对象，我们需要在堆上为其分配内存，另外还要维护它的引用计数，管理它的生命期。这些都给程序增加了额外的逻辑，造成运行效率上的损失。</p>
+
+<h2>Tagged Pointer</h2>
+
+<p>为了改进上面提到的内存占用和效率问题，苹果提出了<code>Tagged Pointer</code>对象。由于NSNumber、NSDate一类的变量本身的值需要占用的内存大小常常不需要8个字节，拿整数来说，4个字节所能表示的有符号整数就可以达到20多亿（注：2<sup>31</sup>=2147483648，另外1位作为符号位)，对于绝大多数情况都是可以处理的。</p>
+
+<p>所以我们可以将一个对象的指针拆成两部分，一部分直接保存数据，另一部分作为特殊标记，表示这是一个特别的指针，不指向任何一个地址。所以，引入了<code>Tagged Pointer</code>对象之后，64位CPU下NSNumber的内存图变成了以下这样：</p>
+
+<p><img src="/images/devtang.com/edc675e9df1dcdd97667ae6523de3502.jpg"></p>
+
+<p>对此，我们也可以用 Xcode做实验来验证。我们的实验代码如下：</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+<span class="line-number">3</span>
+<span class="line-number">4</span>
+<span class="line-number">5</span>
+<span class="line-number">6</span>
+<span class="line-number">7</span>
+<span class="line-number">8</span>
+<span class="line-number">9</span>
+<span class="line-number">10</span>
+<span class="line-number">11</span>
+<span class="line-number">12</span>
+<span class="line-number">13</span>
+<span class="line-number">14</span>
+<span class="line-number">15</span>
+</pre></td>
+<td class="code"><pre><code class="objc"><span class="line"><span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span> <span class="n">argv</span><span class="p">[])</span>
+</span><span class="line"><span class="p">{</span>
+</span><span class="line">    <span class="err">@</span><span class="n">autoreleasepool</span> <span class="p">{</span>
+</span><span class="line">        <span class="n">NSNumber</span> <span class="o">*</span><span class="n">number1</span> <span class="o">=</span> <span class="err">@</span><span class="mi">1</span><span class="p">;</span>
+</span><span class="line">        <span class="n">NSNumber</span> <span class="o">*</span><span class="n">number2</span> <span class="o">=</span> <span class="err">@</span><span class="mi">2</span><span class="p">;</span>
+</span><span class="line">        <span class="n">NSNumber</span> <span class="o">*</span><span class="n">number3</span> <span class="o">=</span> <span class="err">@</span><span class="mi">3</span><span class="p">;</span>
+</span><span class="line">        <span class="n">NSNumber</span> <span class="o">*</span><span class="n">numberFFFF</span> <span class="o">=</span> <span class="err">@</span><span class="p">(</span><span class="mh">0xFFFF</span><span class="p">);</span>
+</span><span class="line">
+</span><span class="line">        <span class="n">NSLog</span><span class="p">(</span><span class="s">@"number1 pointer is %p"</span><span class="p">,</span> <span class="n">number1</span><span class="p">);</span>
+</span><span class="line">        <span class="n">NSLog</span><span class="p">(</span><span class="s">@"number2 pointer is %p"</span><span class="p">,</span> <span class="n">number2</span><span class="p">);</span>
+</span><span class="line">        <span class="n">NSLog</span><span class="p">(</span><span class="s">@"number3 pointer is %p"</span><span class="p">,</span> <span class="n">number3</span><span class="p">);</span>
+</span><span class="line">        <span class="n">NSLog</span><span class="p">(</span><span class="s">@"numberffff pointer is %p"</span><span class="p">,</span> <span class="n">numberFFFF</span><span class="p">);</span>
+</span><span class="line">        <span class="k">return</span> <span class="n">UIApplicationMain</span><span class="p">(</span><span class="n">argc</span><span class="p">,</span> <span class="n">argv</span><span class="p">,</span> <span class="nb">nil</span><span class="p">,</span> <span class="n">NSStringFromClass</span><span class="p">([</span><span class="n">AppDelegate</span> <span class="n">class</span><span class="p">]));</span>
+</span><span class="line">    <span class="p">}</span>
+</span><span class="line"><span class="p">}</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>在该代码中，我们将几个Number类型的指针的值直接输出。需要注意的是，我们需要将模拟器切换成 64位的CPU来测试，如下图所示：</p>
+
+<p><img src="/images/devtang.com/f6f29f07237726fe91dab779de23b2fb.jpg"></p>
+
+<p>运行之后，我们得到的结果如下，可以看到，除去最后的数字最末尾的2以及最开头的0xb，其它数字刚好表示了相应NSNumber的值。</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+<span class="line-number">3</span>
+<span class="line-number">4</span>
+</pre></td>
+<td class="code"><pre><code class="objc"><span class="line"><span class="n">number1</span> <span class="n">pointer</span> <span class="n">is</span> <span class="mh">0xb000000000000012</span>
+</span><span class="line"><span class="n">number2</span> <span class="n">pointer</span> <span class="n">is</span> <span class="mh">0xb000000000000022</span>
+</span><span class="line"><span class="n">number3</span> <span class="n">pointer</span> <span class="n">is</span> <span class="mh">0xb000000000000032</span>
+</span><span class="line"><span class="n">numberFFFF</span> <span class="n">pointer</span> <span class="n">is</span> <span class="mh">0xb0000000000ffff2</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>可见，苹果确实是将值直接存储到了指针本身里面。我们还可以猜测，数字最末尾的2以及最开头的0xb是否就是苹果对于<code>Tagged Pointer</code>的特殊标记呢？我们尝试放一个8字节的长的整数到<code>NSNumber</code>实例中，对于这样的实例，由于<code>Tagged Pointer</code>无法将其按上面的压缩方式来保存，那么应该就会以普通对象的方式来保存，我们的实验代码如下：</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+</pre></td>
+<td class="code"><pre><code class="objc"><span class="line"><span class="n">NSNumber</span> <span class="o">*</span><span class="n">bigNumber</span> <span class="o">=</span> <span class="err">@</span><span class="p">(</span><span class="mh">0xEFFFFFFFFFFFFFFF</span><span class="p">);</span>
+</span><span class="line"><span class="n">NSLog</span><span class="p">(</span><span class="s">@"bigNumber pointer is %p"</span><span class="p">,</span> <span class="n">bigNumber</span><span class="p">);</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>运行之后，结果如下，验证了我们的猜测，<code>bigNumber</code>的地址更像是一个普通的指针地址，和它本身的值看不出任何关系：</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+</pre></td>
+<td class="code"><pre><code class="objc"><span class="line"><span class="n">bigNumber</span> <span class="n">pointer</span> <span class="n">is</span> <span class="mh">0x10921ecc0</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>可见，当8字节可以承载用于表示的数值时，系统就会以<code>Tagged Pointer</code>的方式生成指针，如果8字节承载不了时，则又用以前的方式来生成普通的指针。关于以上关于<code>Tag Pointer</code>的存储细节，我们也可以在<a href="https://www.mikeash.com/pyblog/friday-qa-2012-07-27-lets-build-tagged-pointers.html">这里</a>找到相应的讨论，但是其中关于<code>Tagged Pointer</code>的实现细节与我们的实验并不相符，笔者认为可能是苹果更改了具体的实现细节，并且这并不影响<code>Tagged Pointer</code>我们讨论<code>Tagged Pointer</code>本身的优点。</p>
+
+<h2>特点</h2>
+
+<p>我们也可以在WWDC2013的《Session 404 Advanced in Objective-C》视频中，看到苹果对于<code>Tagged Pointer</code>特点的介绍：</p>
+
+<ol>
+<li>
+<code>Tagged Pointer</code>专门用来存储小的对象，例如<code>NSNumber</code>和<code>NSDate</code>
+</li>
+<li>
+<code>Tagged Pointer</code>指针的值不再是地址了，而是真正的值。所以，实际上它不再是一个对象了，它只是一个披着对象皮的普通变量而已。所以，它的内存并不存储在堆中，也不需要malloc和free。</li>
+<li>在内存读取上有着3倍的效率，创建时比以前快106倍。</li>
+</ol>
+
+
+<p>由此可见，苹果引入<code>Tagged Pointer</code>，不但减少了64位机器下程序的内存占用，还提高了运行效率。完美地解决了小内存对象在存储和访问效率上的问题。</p>
+
+<h2>isa指针</h2>
+
+<p><code>Tagged Pointer</code>的引入也带来了问题，即<code>Tagged Pointer</code>因为并不是真正的对象，而是一个伪对象，所以你如果完全把它当成对象来使，可能会让它露马脚。比如我在<a href="http://blog.devtang.com/blog/2013/10/15/objective-c-object-model/">《Objective-C对象模型及应用》</a>一文中就写道，所有对象都有 <code>isa</code> 指针，而<code>Tagged Pointer</code>其实是没有的，因为它不是真正的对象。
+因为不是真正的对象，所以如果你直接访问<code>Tagged Pointer</code>的<code>isa</code>成员的话，在编译时将会有如下警告：</p>
+
+<p><img src="/images/devtang.com/21aa501ae5d1372b34f0a97bc34b5d6a.jpg"></p>
+
+<p>对于上面的写法，应该换成相应的方法调用，如 <code>isKindOfClass</code> 和 <code>object_getClass</code>。只要避免在代码中直接访问对象的isa变量，即可避免这个问题。</p>
+
+<h2>总结</h2>
+
+<p>苹果将<code>Tagged Pointer</code>引入，给64位系统带来了内存的节省和运行效率的提高。<code>Tagged Pointer</code>通过在其最后一个bit位设置一个特殊标记，用于将数据直接保存在指针本身中。因为<code>Tagged Pointer</code>并不是真正的对象，我们在使用时需要注意不要直接访问其isa变量。</p>
+{% endraw %}

@@ -29,7 +29,7 @@ end
 desc "Drafts"
 task :drafts do
   puts "### cd _drafts; git commit"
-  system "git add _drafts && git commit -am 'Update _drafts at #{Time.now}'"
+  system "git add _drafts/ images/ && git commit -am 'Update _drafts at #{Time.now}'"
 end
 
 desc "Commit RAW"
