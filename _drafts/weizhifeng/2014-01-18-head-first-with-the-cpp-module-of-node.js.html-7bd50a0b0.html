@@ -1,0 +1,201 @@
+---
+layout: post
+title: '动手编写Node的C++模块'
+time: 2014-01-18 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/head-first-with-the-cpp-module-of-node.js.html
+---
+{% raw %}
+
+	
+	
+
+	<h1>介绍</h1>
+
+<p>Node(或者Node.js)作为一门新兴的技术已经被越来越多的企业所使用，事件驱动的开发模式也为服务器端的开发注入了新的力量，Node很容易上手，只要你拥有JavaScript的基础和服务器端的开发经验。Node为开发者提供了两种方式来对其进行扩展：一种是通过JavaScript，一种是通过C/C++。在Node中使用JavaScript来编写模块是非常容易，也是最常用的方式，但是在一些场景中JavaScript的执行性能可能达不到要求（比如大量的位运算），不用发愁，Node还提供了C++的模块扩展接口，以提高执行的性能，本文就简要介绍下Node中C++模块的开发。</p>
+
+<h1>目标</h1>
+
+<p>本文我们创建一个名为<code>hello</code>的模块，其包含一个名为<code>sayHello</code>的方法，如果用JavaScript来表示的话，可能是这样：</p>
+
+<pre><code>exports.sayHello = function() {
+    return "Hello World!";
+}
+</code></pre>
+
+<h1>概念</h1>
+
+<p>Node的JavaScript引擎用的是Google开源的<a href="https://developers.google.com/v8/">V8</a> JavaScript引擎(Chrome浏览器所用的引擎)，所以简单介绍下v8中的一些概念：</p>
+
+<ol>
+<li>Handle：一个handle就是指向一个对象的指针。v8中所有的对象都是使用handle来进行访问，之所以用它是因为v8的垃圾回收器需要。</li>
+<li>HandleScope：可以把它想象成是多个Handle的一个容器。</li>
+</ol>
+
+
+<p>除了v8之外，这里还要说明一下，用C++编写的模块和用JavaScript编写的模块在使用方式上并无区别，都是通过<code>require(...)</code>来进行调用，区别在于C++模块是系统编译好的二进制模块（在*nix下是<code>.so</code>，在win下是<code>dll</code>），并且扩展名为<code>.node</code>。在require<code>.node</code>模块的时候，系统通过<code>dlopen</code>函数来加载模块，不需要像JavaScript模块那样再进行编译，而是直接加载运行，这加快了执行的速度。</p>
+
+<h1>编写</h1>
+
+<p>首先创建模块需要的目录<code>src</code>和源文件<code>hello.cc</code></p>
+
+<pre><code>$ mkdir -p hello/src &amp;&amp; cd hello/src
+$ touch hello.cc
+</code></pre>
+
+<p>hello.cc的内容如下：</p>
+
+<pre><code>#include &lt;node.h&gt;
+#include &lt;v8.h&gt;
+
+// 引入v8命名空间
+using namespace v8;
+
+// sayHello方法的具体逻辑
+Handle&lt;Value&gt; Method(const Arguments&amp; args) {
+    HandleScope scope;
+    // 返回一个"Hello World!"字符串
+    return scope.Close(String::New("Hello World!"));
+}
+
+// 初始化模块
+void init(Handle&lt;Object&gt; target) {　
+    // 定义模块中的sayHello方法
+    NODE_SET_METHOD(target, "sayHello", Method);
+}
+
+// 定义"hello"模块
+NODE_MODULE(hello, init);
+</code></pre>
+
+<p>以上就是模块的所有代码，还是比较容易理解的，其中的<code>NODE_SET_METHOD</code>和<code>NODE_MODULE</code>是node.h中定义的宏，具体如下：</p>
+
+<p>Node模块的数据结构定义：</p>
+
+<pre><code>struct node_module_struct {
+  int version;
+  void *dso_handle;
+  const char *filename;
+  node::addon_register_func register_func;
+  node::addon_context_register_func register_context_func;
+  const char *modname;
+};
+</code></pre>
+
+<p><code>NODE_SET_METHOD</code>定义：</p>
+
+<pre><code>template &lt;typename TypeName&gt;
+inline void NODE_SET_METHOD(const TypeName&amp; recv,
+                            const char* name,
+                            v8::FunctionCallback callback) {
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+  v8::HandleScope handle_scope(isolate);
+  v8::Local&lt;v8::FunctionTemplate&gt; t = v8::FunctionTemplate::New(callback);
+  v8::Local&lt;v8::Function&gt; fn = t-&gt;GetFunction();
+  v8::Local&lt;v8::String&gt; fn_name = v8::String::NewFromUtf8(isolate, name);
+  fn-&gt;SetName(fn_name);
+  recv-&gt;Set(fn_name, fn);
+}
+</code></pre>
+
+<p><code>NODE_MODULE</code>定义：</p>
+
+<pre><code>#define NODE_MODULE(modname, regfunc)                                 \
+  extern "C" {                                                        \
+    NODE_MODULE_EXPORT node::node_module_struct modname ## _module =  \
+    {                                                                 \
+      NODE_STANDARD_MODULE_STUFF,                                     \
+      (node::addon_register_func) (regfunc),                          \
+      NULL,                                                           \
+      NODE_STRINGIFY(modname)                                         \
+    };                                                                \
+  }
+</code></pre>
+
+<p>更加详细的内容，可以查看Node的<a href="https://github.com/joyent/node/blob/master/src/node.h">源码</a>。</p>
+
+<h1>编译</h1>
+
+<p>Node为了实现跨平台的编译，采用了Google的<a href="https://code.google.com/p/gyp/">GYP</a>(Generate Your Projects)来对项目进行管理。为了能够编译我们的项目，我们需要安装<code>node-gyp</code>：</p>
+
+<pre><code>$ npm install -g node-gyp
+</code></pre>
+
+<p>安装完成之后，进入到源码目录，并且创建<code>binding.gyp</code>文件，因为<code>binding.gyp</code>是默认的项目定义文件。</p>
+
+<pre><code>$ cd hello
+$ touch binding.gyp
+</code></pre>
+
+<p>并且<code>binding.gyp</code>的内容为：</p>
+
+<pre><code>{
+  'targets': [
+    {
+      'target_name': 'hello',
+      'sources': [
+        'src/hello.cc'
+      ],
+      'dependencies': [
+      ]
+    }
+  ]
+}
+</code></pre>
+
+<p>之后我们以<code>binding.gyp</code>文件来生成<code>Makefile</code>等编译所需的文件：</p>
+
+<pre><code>$ node-gyp configure
+</code></pre>
+
+<p>执行完成之后，在项目目录下会生成一个<code>build</code>目录，里边是gyp自动生成的一些编译所需文件。这一步完成之后，我们来进行编译操作：</p>
+
+<pre><code>$ node-gyp build
+</code></pre>
+
+<p>如果执行没有问题的话，在<code>build/Release</code>目录下会生成<code>hello.node</code>文件，即我们创建的hello模块。</p>
+
+<h1>运行</h1>
+
+<p>模块编译成功之后，我们来测试测试模块的功能。在项目目录下创建一个<code>test.js</code>文件，内容如下：</p>
+
+<pre><code>var hello = require('./build/Release/hello.node');
+console.log(hello.sayHello());
+</code></pre>
+
+<p>执行此文件</p>
+
+<pre><code>$ node test.js
+$ Hello World!
+</code></pre>
+
+<h1>总结</h1>
+
+<p>本文简要介绍了Node中C++模块的开发方式，v8中Handle和HandleScope的概念，以及gyp工具的使用，并实现了一个hello扩展模块。本文部分内容来自于<a href="http://book.douban.com/subject/25768396/">《深入浅出Node.js》</a>。</p>
+
+<p>更多内容可以查看Node源码： <br>
+<a href="https://github.com/joyent/node/blob/master/src/node.h">https://github.com/joyent/node/blob/master/src/node.h</a> <br>
+<a href="https://github.com/joyent/node/blob/master/src/node.cc">https://github.com/joyent/node/blob/master/src/node.cc</a></p>
+
+	(完)
+
+	<div class="post-info">
+		18 Jan 2014  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

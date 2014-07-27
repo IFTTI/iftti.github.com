@@ -1,0 +1,263 @@
+---
+layout: post
+title: '利用kappa搭建私有NPM仓库'
+time: 2014-05-02 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/build-private-npm-registry-with-npmjs-and-kappa.html
+images:
+  05b32ef38d8d2bd1f926538c3cb9275a: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/npm.png
+---
+{% raw %}
+
+	
+	
+
+	<p><img src="/images/weizhifeng.net/05b32ef38d8d2bd1f926538c3cb9275a.jpg" title="NPM" alt="NPM"></p>
+
+<h1>写在前面</h1>
+
+<p>采用Node.js开发私有或者商业项目的时候，我们需要创建一些内部使用的module供多个项目之间共用，这些module显然你不想发布到社区，默认情况下<code>npm publish</code>和<code>npm install</code>都是对<a href="https://registry.npmjs.org/">registry.npmjs.org</a>进行操作，而我们需要的是这样一种仓库：对于一个module，首先操作私有仓库，如果私有仓库中不存在此module，则操作官方的仓库，架构大致如下：</p>
+
+<pre><code>                          +--+
++------------+            |p |
+| client     |   'foo'?   |r |          +------------+
+|            |  --------&gt; |o |  'foo'?  |            |
+|            |            |x |  ------&gt; | private    |
+|            |            |y | &lt;------  | registry   |
+|            |            |  |    404   +------------+
+|            |            |  |
+|            |            |  |          'foo'?     +---------------+
+|            |            |  |  -----------------&gt; |               |
+|            |            |  | &lt;-----------------  |  public       |
+|            | &lt;--------  |  |         'foo'       |  registry     |
++------------+    'foo'   +--+                     +---------------+
+</code></pre>
+
+<p>本文采用eBay开源的<a href="https://github.com/krakenjs/kappa">kappa</a>代理和<a href="https://github.com/npm/npm-registry-couchapp">NPM官方registry</a>来实现以上架构。</p>
+
+<h1>CouchDB</h1>
+
+<p><a href="http://docs.couchdb.org/en/latest/intro/index.html">CouchDB</a>是专门为Web而生的数据库，它以JSON的格式对数据进行存储，数据库的操作是通过HTTP REST方法进行。CouchDB需要的版本为1.5.0及以上。（以下是在Mac上安装CouchDB的方法，其他系统安装方法见<a href="http://docs.couchdb.org/en/latest/install/index.html">官方文档</a>）</p>
+
+<pre><code>$ brew install automake libtool erlang icu4c spidermonkey 
+$ brew link icu4c
+$ brew link erlang
+$ brew install couchdb
+</code></pre>
+
+<p>编辑配置文件<code>local.ini</code>（/usr/local/etc/couchdb/local.ini），添加如下内容：</p>
+
+<pre><code>[couch_httpd_auth]
+public_fields = appdotnet, avatar, avatarMedium, avatarLarge, date, email, fields, freenode, fullname, github, homepage, name, roles, twitter, type, _id, _rev
+users_db_public = true
+
+[httpd]
+secure_rewrites = false
+
+[couchdb]
+delayed_commits = false
+</code></pre>
+
+<p>之后，部署自启动脚本并启动CouchDB</p>
+
+<pre><code>$ ln -sfv /usr/local/opt/couchdb/*.plist ~/Library/LaunchAgents
+$ launchctl load ~/Library/LaunchAgents/homebrew.mxcl.couchdb.plist
+</code></pre>
+
+<p>创建数据库<code>registry</code></p>
+
+<pre><code>$ curl -X PUT http://localhost:5984/registry
+</code></pre>
+
+<p>添加管理员<code>admin</code>，密码为<code>admin</code>：</p>
+
+<pre><code>$ HOST="http://127.0.0.1:5984"
+$ curl -X PUT $HOST/_config/admins/admin -d '"admin"'
+</code></pre>
+
+<h1>NPM Registry</h1>
+
+<p>接下来我们来安装NPM Registry应用</p>
+
+<pre><code>$ git clone git://github.com/npm/npm-registry-couchapp
+$ cd npm-registry-couchapp
+$ npm install
+</code></pre>
+
+<p>之后，同步<code>ddoc</code>到<code>_design/scratch</code></p>
+
+<pre><code>$ echo "_npm-registry-couchapp:couch=http://admin:admin@localhost:5984/registry" &gt;&gt; ~/.npmrc
+$ npm start
+</code></pre>
+
+<p>确认views已经load：</p>
+
+<pre><code>$ npm run load
+LOADING: fieldsInUse
+HTTP/1.1 200 OK
+Server: CouchDB/1.5.0 (Erlang OTP/R16B03)
+ETag: "DPBK9T7XVY4LAM7S6CS2G2JLZ"
+Date: Thu, 01 May 2014 06:06:01 GMT
+Content-Type: text/plain; charset=utf-8
+Content-Length: 0
+Cache-Control: must-revalidate
+</code></pre>
+
+<p>把ddoc从<code>_design/scratch</code>copy到<code>_design/app</code>：</p>
+
+<pre><code>$ npm run copy
+&gt; npm-registry-couchapp@2.1.4 copy /Users/weizhifeng/dev/node/npm-registry-couchapp
+&gt; bash ./copy.sh
+
+Did you already run the load-views.sh script? (type 'yes')
+yes
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    41  100    41    0     0  10408      0 --:--:-- --:--:-- --:--:-- 13666
+{"ok":true,"id":"_design/app","rev":"1-36f4a9b735467b7817ae26b547524fd2"}
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  4869  100  4869    0     0  1051k      0 --:--:-- --:--:-- --:--:-- 1188k
+{"ok":true,"id":"_design/_auth","rev":"2-ebde50b9ecf5a06240c0e3c4166c847f"}
+</code></pre>
+
+<p>以上完成之后，我们就可以把npm的仓库指向自己刚搭建的仓库：</p>
+
+<pre><code>$ echo "registry = http://admin:admin@localhost:5984/registry/_design/app/_rewrite" &gt;&gt; ~/.npmrc
+</code></pre>
+
+<p>为了能发布module，需要添加npm用户：</p>
+
+<pre><code>$ npm adduser
+</code></pre>
+
+<p>用户添加完成之后，可以把私有module进行发布：</p>
+
+<pre><code>$ cd your-own-package
+$ npm publish
+</code></pre>
+
+<p>发布完成之后，可以在CouchDB的<a href="http://127.0.0.1:5984/_utils/database.html?registry">管理界面</a>中找到module的信息。</p>
+
+<p>这样，我们就搭建好了私有的npm仓库，并且已经可以向其中发布module了。那么接下来我们要实现架构图中的<code>Proxy</code>。</p>
+
+<h1>Kappa</h1>
+
+<p><a href="https://github.com/krakenjs/kappa">Kappa</a>是由eBay创建的一个基于<a href="https://npmjs.org/package/npm-delegate">npm-delegate</a>和<a href="https://github.com/spumko/hapi">hapi</a>的npm代理，通过kappa我们不需要复制整个公共的仓库数据就能创建自己的私有仓库。</p>
+
+<p>安装kappa</p>
+
+<pre><code>$ npm install -g kappa
+</code></pre>
+
+<p>下载<a href="https://github.com/JeremyWei/npm-proxy">npm-proxy</a>应用：</p>
+
+<pre><code>$ git clone https://github.com/JeremyWei/npm-proxy.git
+$ cd npm-proxy &amp;&amp; npm install
+</code></pre>
+
+<p>修改config.json文件：</p>
+
+<pre><code>{
+    "servers": [
+        {
+            "host": "localhost",
+            "port": 8100
+        },
+        {
+            "host": "localhost",
+            "port": 8143,
+            "tls": {
+                "requestCert": true,
+                "rejectUnauthorized": true,
+                "key": "file:./key.pem",
+                "cert": "file:./cert.pem"
+            }
+        }
+    ],
+    "plugins": {
+        "kappa": {
+            "vhost": "npm.myorg.com",
+            "paths": [
+                "http://admin:admin@localhost:5984/registry/_design/app/_rewrite/",
+                "https://registry.npmjs.org/"
+            ]
+        }
+    }
+}
+</code></pre>
+
+<ul>
+<li>
+<code>vhost</code>是虚拟主机，可以修改成自己需要的，但是要注意与下面的内容保持一致。</li>
+<li>
+<code>paths</code>数组第一个元素是本地私有仓库，第二个元素是公共仓库。</li>
+</ul>
+
+
+<p>之后添加<code>npm.myorg.com</code>到hosts</p>
+
+<pre><code>$ echo "127.0.0.1 npm.myorg.com" &gt;&gt; /etc/hosts
+</code></pre>
+
+<p>在启动proxy之前需要<code>npm cache clean</code>清除一下缓存，否则很有可能在<code>npm start</code>时候出现以下错误：</p>
+
+<pre><code>2013-12-02T23:19:33.688Z HAPI,HANDLER,ERROR {"msec":0.15241800248622894}
+2013-12-02T23:19:33.689Z HAPI,RESPONSE,ERROR unspecified
+</code></pre>
+
+<p>启动proxy：</p>
+
+<pre><code>$ npm start
+&gt; kappa -c config.json
+
+Kappa listening on localhost:8100
+Kappa listening on localhost:8143
+</code></pre>
+
+<p>启动成功之后就可以把registry地址换成代理地址：</p>
+
+<pre><code>echo "registry = http://npm.myorg.com:8100" &gt;&gt; ~/.npmrc
+</code></pre>
+
+<p>完成之后，我们在自己的项目中测试代理是否工作正常：</p>
+
+<pre><code>$ npm install 
+npm http GET http://npm.myorg.com:8100/mongodb
+npm http GET http://npm.myorg.com:8100/mocha
+</code></pre>
+
+<p>如果以上没有问题，那么恭喜你终于有了自己的私有npm仓库。</p>
+
+<h1>参考</h1>
+
+<ul>
+<li><a href="https://github.com/npm/npm-registry-couchapp">https://github.com/npm/npm-registry-couchapp</a></li>
+<li><a href="https://github.com/krakenjs/kappa">https://github.com/krakenjs/kappa</a></li>
+<li><a href="http://clock.co.uk/blog/how-to-create-a-private-npmjs-repository">http://clock.co.uk/blog/how-to-create-a-private-npmjs-repository</a></li>
+<li><a href="http://stackoverflow.com/questions/10386310/how-to-install-a-private-npm-module-without-my-own-registry">http://stackoverflow.com/questions/10386310/how-to-install-a-private-npm-module-without-my-own-registry</a></li>
+</ul>
+
+
+	(完)
+
+	<div class="post-info">
+		02 May 2014  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

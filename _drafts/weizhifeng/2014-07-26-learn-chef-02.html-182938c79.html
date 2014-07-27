@@ -1,0 +1,224 @@
+---
+layout: post
+title: 'Chef入门（二）'
+time: 2014-07-26 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/learn-chef-02.html
+images:
+  a21eddb15b6ddbe9e395938fd299dee1: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/chef.png
+  96c74b6968085a0b965e264aa5580207: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/chef02-01.png
+  102b02c4239de93eb603a4c0cedeacba: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/chef02-02.png
+---
+{% raw %}
+
+	
+	
+
+	<p><img src="/images/weizhifeng.net/a21eddb15b6ddbe9e395938fd299dee1.jpg" title="Chef" alt="Chef"></p>
+
+<p>上一篇文章<a href="/learn-chef-01.html">Chef入门（一）</a>我们介绍了Chef是什么、以及如何搭建Chef环境。这篇文章，我们介绍一下Chef中的一些概念以及如何编写<a href="http://docs.getchef.com/chef_overview_cookbooks.html">cookbook</a>，并在此过程中部署一个Apache环境，通过本文你可以学到：</p>
+
+<ul>
+<li>创建一个cookbook，并在其中添加recipe</li>
+<li>上传你的cookbook到Chef server</li>
+<li>配置node的run list</li>
+<li>在你的目标node上运行chef-client，执行cookbook中定义的操作。</li>
+</ul>
+
+
+<h1>一些概念</h1>
+
+<h2>cookbook</h2>
+
+<p>cookbook是配置和策略的集合单元，它定义了一个场景，比如部署Apache环境。一个cookbook包含了很多组件来支持实现这个场景，以下是一个cookbook的目录：</p>
+
+<pre><code>-rw-r--r--  1 weizhifeng  staff   495 Jul 21 11:01 CHANGELOG.md
+-rw-r--r--@ 1 weizhifeng  staff  1536 Jul 21 11:01 README.md
+drwxr-xr-x  2 weizhifeng  staff    68 Jul 21 11:01 attributes
+drwxr-xr-x  2 weizhifeng  staff    68 Jul 21 11:01 definitions
+drwxr-xr-x  3 weizhifeng  staff   102 Jul 21 11:01 files
+drwxr-xr-x  2 weizhifeng  staff    68 Jul 21 11:01 libraries
+-rw-r--r--@ 1 weizhifeng  staff   298 Jul 21 11:01 metadata.rb
+drwxr-xr-x  2 weizhifeng  staff    68 Jul 21 11:01 providers
+drwxr-xr-x  3 weizhifeng  staff   102 Jul 26 11:05 recipes
+drwxr-xr-x  2 weizhifeng  staff    68 Jul 21 11:01 resources
+drwxr-xr-x  3 weizhifeng  staff   102 Jul 21 11:01 templates
+</code></pre>
+
+<ul>
+<li>attributes：用来设置node的属性</li>
+<li>definitions：用来创建可以重用的resource集合</li>
+<li>files：一些需要的文件</li>
+<li>libraries：用来扩展chef-client或者添加一些helper到Ruby中</li>
+<li>metadata.rb：包含一些元数据，比如cookbook的名字、版本、支持的平台等等</li>
+<li>recipes：存储recipe，每个recipe指定了需要的resource以及这些resource执行的顺序</li>
+<li>resources：存储自定义的resource</li>
+<li>providers：存储自定义的provider</li>
+<li>templates：存储ruby模板语言描述的文件，用来解决复杂的配置场景</li>
+</ul>
+
+
+<h2>recipe</h2>
+
+<p>每个cookbook都会包含一到多个recipe（默认是default.rb）。一个recipe就是实现cookbook所描述场景的步骤。看以下这个简单的recipe：</p>
+
+<pre><code>package 'apache2' do
+  action :install
+end
+
+service 'apache2' do
+  action [ :enable, :start ]
+end
+
+cookbook_file '/var/www/index.html' do
+  source 'index.html'
+  mode '0644'
+end
+</code></pre>
+
+<p>可以看出这个recipe分为三个步骤，分别是安装apache2、启动apache2、拷贝文件。</p>
+
+<h2>resource和provider</h2>
+
+<p><a href="http://docs.getchef.com/chef/resources.html">resource</a>就是recipe中的配置项，可以是package、service、bash等等。provider就是为这些resource提供实现的程序。以编程语言来描述的话，resource定义了接口，provider提供了不同平台的实现。</p>
+
+<h1>实战</h1>
+
+<p>说了那么多概念，我们接下来在ubuntu上安装并配置Apache。</p>
+
+<h2>第一步：创建cookbook</h2>
+
+<p>在workstation中，我们通过<a href="http://docs.opscode.com/knife.html">knife</a>来和Chef server进行交互。执行以下命令来创建一个cookbook。</p>
+
+<pre><code>$ cd ~/chef-repo
+$ knife cookbook create apache-tutorial-1
+</code></pre>
+
+<p>执行完成之后，在<code>~/chef-repo/cookbooks</code>目录下会生成名为<code>apache-tutorial-1</code>的cookbook。不过cookbook都是在本地的，还没有上传到Chef server。</p>
+
+<h2>第二步：编写recipe</h2>
+
+<p>当你创建了一个cookbook，Chef会帮你创建一个默认的recipe。用你的编辑器打开<code>~/chef-repo/cookbooks/apache-tutorial-1/recipes/default.rb</code>。现在让我们来写一些ruby代码来执行以下的动作：</p>
+
+<ul>
+<li>安装Apache</li>
+<li>启动Apache并且添加到开机启动</li>
+<li>配置home page</li>
+</ul>
+
+
+<p>把以下代码添加到recipe中。</p>
+
+<pre><code>package 'apache2' do
+  action :install
+end
+
+service 'apache2' do
+  action [ :enable, :start ]
+end
+
+cookbook_file '/var/www/index.html' do
+  source 'index.html'
+  mode '0644'
+end
+</code></pre>
+
+<h2>第三步：添加文件资源</h2>
+
+<p>recipe的最后一步我们使用了<a href="http://docs.opscode.com/resource_cookbook_file.html">cookbook_file</a>来拷贝home page。把以下内容添加到文件<code>~/chef-repo/cookbooks/apache-tutorial-1/files/default/index.html</code>中。</p>
+
+<pre><code>&lt;html&gt;
+&lt;body&gt;
+  &lt;h1&gt;Hello, world!&lt;/h1&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+<h2>第四步：上传cookbook</h2>
+
+<p>在你的chef-repo目录中执行以下命令来上传cookbook。</p>
+
+<pre><code>$ knife cookbook upload apache-tutorial-1
+</code></pre>
+
+<h2>第五步：创建run list</h2>
+
+<p><a href="http://learn.getchef.com/concepts/run-lists/">run list</a>定义了recipe的执行顺序，当前的例子中我们的run list中只有一个recipe。打开<a href="http://manage.opscode.com">manage.opscode.com</a>，我们来配置run list。</p>
+
+<p><img src="/images/weizhifeng.net/96c74b6968085a0b965e264aa5580207.jpg" title="Chef" alt="Chef"></p>
+
+<p>然后从<code>Available Recipes</code>中拖拽recipe到<code>Current Run List</code>之中。然后点击<code>Save Run List</code>。</p>
+
+<p><img src="/images/weizhifeng.net/102b02c4239de93eb603a4c0cedeacba.jpg" title="Chef" alt="Chef"></p>
+
+<h2>第六步：运行chef-client</h2>
+
+<p>接下来你需要执行<a href="http://docs.opscode.com/essentials_chef_client.html">chef-client</a>来从Chef server获取最新的cookbook，并且在目标node上执行。你可以自己登录到node上，然后手动执行。</p>
+
+<pre><code>$ ssh chef@your.host
+$ ssh sudo chef-client
+</code></pre>
+
+<p>或者使用knife。</p>
+
+<pre><code>$ knife ssh your.host 'sudo chef-client' -m -x chef -P chef
+</code></pre>
+
+<p><code>-x</code>表示username，<code>-P</code>表示password。</p>
+
+<p>如果你使用的是vagrant，则执行如下命令。</p>
+
+<pre><code>$ knife ssh localhost 'sudo chef-client' -m -x vagrant -P vagrant --ssh-port 2200
+Starting Chef Client, version 11.12.8
+resolving cookbooks for run list: ["apache-tutorial-1"]
+Synchronizing Cookbooks:
+  - apache-tutorial-1
+Compiling Cookbooks...
+Converging 3 resources
+Recipe: apache-tutorial-1::default
+  * package[apache2] action install (up to date)
+  * service[apache2] action enable (up to date)
+  * service[apache2] action start (up to date)
+  * cookbook_file[/var/www/index.html] action create (up to date)
+
+Running handlers:
+Running handlers complete
+
+Chef Client finished, 0/4 resources updated in 19.554803129 seconds
+</code></pre>
+
+<p>等chef-client执行完成之后，你会发现Apache已经配置好并且运行了，并且把home page拷贝到了<code>/var/www/index.html</code>，访问80端口应该可以看到home page的输出。</p>
+
+<p>至此我们已经创建了自己的cookbook，并在目标node上执行，更多的内容可以查看<a href="http://docs.opscode.com/">官方文档</a>。</p>
+
+<h1>参考</h1>
+
+<ul>
+<li><a href="http://docs.getchef.com/chef_overview_cookbooks.html">http://docs.getchef.com/chef_overview_cookbooks.html</a></li>
+<li><a href="http://learn.getchef.com/legacy/tutorials/create-your-first-cookbook/">http://learn.getchef.com/legacy/tutorials/create-your-first-cookbook/</a></li>
+<li><a href="http://docs.getchef.com/chef/resources.html">http://docs.getchef.com/chef/resources.html</a></li>
+</ul>
+
+
+	(完)
+
+	<div class="post-info">
+		26 Jul 2014  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

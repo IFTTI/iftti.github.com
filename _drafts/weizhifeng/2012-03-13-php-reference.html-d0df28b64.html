@@ -1,0 +1,209 @@
+---
+layout: post
+title: 'PHP引用以及误区'
+time: 2012-03-13 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/php-reference.html
+---
+{% raw %}
+
+	
+	
+
+	<h3>什么是引用</h3>
+
+<p>PHP中的引用可以理解成变量的别名。由于PHP的变量名是存储在符号表(symbol table)中的，变量内容是存储在堆中，引用就是用符号表中的不同符号(symbol)名称来访问同一存储内容，和Unix文件系统中的<a href="http://en.wikipedia.org/wiki/Hard_link" title="Hard link">hardlink</a>是同一个概念，比如：</p>
+
+<pre><code>&lt;?php
+$a = 1;
+$b = &amp;$a; //$a与$b指向同一内容
+$b = 2;
+echo $b; //2
+echo $a; //2
+</code></pre>
+
+<h3>传递引用</h3>
+
+<p>引用传递很简单，就是一个「&amp;」符号，比如：</p>
+
+<pre><code>&lt;?php
+function foo(&amp;$a) {
+  $a = 2;
+}
+
+$b = 1;
+foo($b);
+echo $b; //2
+</code></pre>
+
+<h3>返回引用</h3>
+
+<p>大多数情况下并不需要返回引用来提高性能，zend引擎会自己进行优化，但是如果你非得返回引用得话，可以按照以下方式来返回引用：</p>
+
+<pre><code>&lt;?php
+class foo {
+    public $value = 42;
+
+    public function &amp;getValue() { // 需要一个"&amp;"
+        return $this-&gt;value;
+    }
+}
+
+$obj = new foo;
+$myValue = &amp;$obj-&gt;getValue(); // 还需要一个"&amp;"，$myValue是对class foo中的$value的引用
+$obj-&gt;value = 2;              // 修改对象的$value属性
+echo $myValue;                // 输出2，$myValue与class foo中的$value值相同
+</code></pre>
+
+<h3>与指针的区别</h3>
+
+<p>引用与指针很像，但是其并不是指针，看如下的代码：</p>
+
+<pre><code>&lt;?php
+    $a = 0;
+    $b = &amp;a;
+    echo $a; //0
+    unset($b);
+    echo $a; //0
+</code></pre>
+
+<p>由于$b只是$a的别名，所以即使$b被释放了，$a没有任何影响，但是指针可不是这样的，看如下代码：</p>
+
+<pre><code>#include &lt;stdio.h&gt;
+int main(int argc, char const *argv[]) {
+    int a = 0;
+    int* b = &amp;a;
+
+    printf("%i\n", a); //0
+    free(b);
+    printf("%i\n", a); //*** error for object 0x7fff6350da08: pointer being freed was not allocated
+}
+</code></pre>
+
+<p>由于b是指向a的指针，所以释放了b的内存之后，再访问a就会出现错误，比较明显的说明了PHP引用与C指针的区别。</p>
+
+<h3>对象与引用</h3>
+
+<p>在PHP中使用对象的时候，大家总是被告知“对象是按照引用传递的”，其实这是个误区。PHP的对象变量存储的是此对象的一个标示符，在传递对象的时候，其实传递的就是这个标示符，而并不是引用，看如下代码：</p>
+
+<pre><code>&lt;?php
+$a = new A;
+$b = $a;    
+$b-&gt;testA = 2;
+
+/*
+ * 此时$a,$b的关系：
+ *        +-----------+      +-----------------+
+ * $a --&gt; | object id | ---&gt; | object(Class A) |
+ *        +-----------+      +-----------------+
+ *                               ^
+ *        +-----------+          |
+ * $b --&gt; | object id | ---------+
+ *        +-----------+    
+ *
+ *
+ */
+
+$c = new B;
+$a = $c;
+$a-&gt;testB = "Changed Class B";
+
+/*
+ * 此时$a,$b,$c的关系：
+ *        +-----------+      +-----------------+
+ * $b --&gt; | object id | ---&gt; | object(Class A) |
+ *        +-----------+      +-----------------+
+ *                               
+ *        +------------+          
+ * $a --&gt; | object id2 | -------------+
+ *        +------------+              |
+ *                                    v
+ *        +------------+      +-----------------+
+ * $c --&gt; | object id2 | ---&gt; | object(Class B) |
+ *        +------------+      +-----------------+
+ */
+
+echo "object a: "; var_dump($a); //["testB"]=&gt; string(15) "Changed Class B"
+echo "object b: "; var_dump($b); //["testA"] =&gt; int(2)
+echo "object c: "; var_dump($c); //["testB"]=&gt; string(15) "Changed Class B"
+</code></pre>
+
+<p>如果对象是按照引用传递的，那么$a, $b, $c输出的内容应该一样，事实上结果并非如此。 看下面通过引用传递对象的列子：</p>
+
+<pre><code>&lt;?php
+$aa = new A;
+$bb = &amp;$aa;  // 引用 
+$bb-&gt;testA = 2;
+
+/*
+ * 此时$aa, $bb的关系：
+ *
+ *         +-----------+      +-----------------+
+ * $bb --&gt; | object id | ---&gt; | object(Class A) |
+ *         +-----------+      +-----------------+
+ *              ^                  
+ *              |
+ * $aa ---------+ 
+ *
+ *
+ */
+
+$cc = new B;
+$aa = $cc;
+$aa-&gt;testB = "Changed Class B";
+
+/*
+ * 此时$aa, $bb, $cc的关系：
+ *
+ *         +-----------+      +-----------------+
+ *         | object id | ---&gt; | object(Class A) |
+ *         +-----------+      +-----------------+
+ *              
+ * $bb ----&gt;-----+      
+ *               |
+ * $aa ----&gt;-----+
+ *               |  
+ *               v   
+ *         +------------+      
+ *         | object id2 | --------------+ 
+ *         +------------+               |
+ *                                      v
+ *         +------------+      +-----------------+
+ * $cc --&gt; | object id2 | ---&gt; | object(Class B) |
+ *         +------------+      +-----------------+
+ */
+
+echo "object aa: "; var_dump($aa); //["testB"]=&gt;string(15) "Changed Class B"
+echo "object bb: "; var_dump($bb); //["testB"]=&gt;string(15) "Changed Class B"
+echo "object cc: "; var_dump($cc); //["testB"]=&gt;string(15) "Changed Class B"
+</code></pre>
+
+<p>此时$aa，$bb，$cc三者内容完全一样，所以可以看出对象并不是按照引用传递，要尽快走出这个误区。</p>
+
+<p>参考：</p>
+
+<p><a href="http://www.php.net/manual/en/language.references.php">http://www.php.net/manual/en/language.references.php</a>
+<a href="http://www.php.net/manual/en/language.oop5.references.php">http://www.php.net/manual/en/language.oop5.references.php</a></p>
+
+	(完)
+
+	<div class="post-info">
+		13 Mar 2012  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

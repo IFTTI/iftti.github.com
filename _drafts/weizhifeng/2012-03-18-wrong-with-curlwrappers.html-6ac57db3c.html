@@ -1,0 +1,212 @@
+---
+layout: post
+title: 'PHP –with-curlwrappers 导致的问题'
+time: 2012-03-18 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/wrong-with-curlwrappers.html
+---
+{% raw %}
+
+	
+	
+
+	<p>有如下代码：</p>
+
+<pre><code>$opts = array(
+  'http' =&gt; array(
+    'method' =&gt; "GET",
+    'header' =&gt; "Accept-language: en\r\n" . 
+                "Cookie: foo=bar\r\n" . 
+                "User-Agent: MyAgent/1.0\r\n"
+  )
+);
+
+$context = stream_context_create($opts);
+$result = file_get_contents('http://www.example.com/', false, $context);
+var_dump($result);
+</code></pre>
+
+<p>正常情况下以上应该输出www.example.com返回的内容，但是实际上得到的结果是空字符串，遂进行如下测试：</p>
+
+<pre><code>$file = fopen('http://www.example.com/', 'rb');
+var_dump(stream_get_meta_data($file));
+
+/*
+输出结果：
+array(10) {
+  ["wrapper_data"]=&gt;
+  array(2) {
+    ["headers"]=&gt;
+    array(0) {
+    }
+    ["readbuf"]=&gt;
+    resource(38) of type (stream)
+  }
+
+  ["wrapper_type"]=&gt;
+  string(4) "cURL"
+
+  ["stream_type"]=&gt;
+  string(4) "cURL"
+
+  ["mode"]=&gt;
+  string(2) "rb"
+
+  ["unread_bytes"]=&gt;
+  int(0)
+
+  ["seekable"]=&gt;
+  bool(false)
+
+  ["uri"]=&gt;
+  string(23) "http://www.example.com/"
+
+  ["timed_out"]=&gt;
+  bool(false)
+
+  ["blocked"]=&gt;
+  bool(true)
+
+  ["eof"]=&gt;
+  bool(false)
+
+}*/
+</code></pre>
+
+<p>输出的结果中，wrapper_type为cURL，而且wrapper_data为空，这是不正常的，正常情况下wrapper_type应为http，wrapper_data数组中应该包含响应头信息。google之，发现这个现象与<code>--with-curlwrappers</code>这个编译选项有关，遂查看PHP编译参数：</p>
+
+<pre><code>$ php -i | grep configure
+
+Configure Command =&gt;  './configure' '--prefix=/usr/local/php' '--with-config-file-path=/usr/local/php/etc' '--with-mysql=/usr/local/mysql' '--with-mysqli=/usr/local/mysql/bin/mysql_config' '--with-iconv-dir=/usr/local' '--with-zlib' '--with-libxml-dir=/usr' '--enable-xml' '--enable-bcmath' '--enable-shmop' '--enable-sysvsem' '--enable-inline-optimization' '--with-curl' '--with-curlwrappers' '--enable-mbregex' '--enable-fpm' '--enable-mbstring' '--with-mcrypt' '--with-openssl' '--with-mhash' '--enable-pcntl' '--enable-sockets' '--with-xmlrpc' '--enable-zip' '--enable-soap' '--enable-bcmath'
+</code></pre>
+
+<p><code>--with-curlwrappers</code>被启用了，问题应该出在这里，查看一下这个编译选项的用处：</p>
+
+<pre><code>$ ./configure --help | grep curlwrappers
+  --with-curlwrappers     EXPERIMENTAL: Use cURL for url streams
+</code></pre>
+
+<p>看来<code>--with-curlwrappers</code>这个编译选项是用来处理url stream的，不过前面有个硕大的<code>EXPERIMENTAL</code>字样，还在试验中。 现有的解决方法是重新编译PHP，去掉「--with-curlwrappers」：</p>
+
+<pre><code>$ cd /path/to/php-5.3.6
+$ make clean
+$ ./configure --prefix=/usr/local/php --with-config-file-path=/usr/local/php/etc --with-mysql=/usr/local/mysql \
+--with-mysqli=/usr/local/mysql/bin/mysql_config --with-iconv-dir=/usr/local --with-zlib \
+--with-libxml-dir=/usr --enable-xml --enable-bcmath --enable-shmop --enable-sysvsem \
+--enable-inline-optimization --with-curl --enable-mbregex --enable-fpm  --enable-mbstring --with-mcrypt \
+--with-openssl --with-mhash --enable-pcntl --enable-sockets --with-xmlrpc --enable-zip \
+--enable-soap --enable-bcmath -with-gd --with-jpeg-dir=/usr --with-png-dir=/usr --enable-gd-native-ttf
+
+$ make &amp;&amp; make install
+$ cd /usr/local/php/bin
+# 删除旧的PHP binary文件，并用新的进行替换，Mac下重新编译后会产生php.dSYM文件，其他Linux系统请自行处理
+$ rm php &amp;&amp; mv php.dSYM php 
+</code></pre>
+
+<p>完成后，再做个测试：</p>
+
+<pre><code>$file = fopen('http://www.example.com/', 'rb');
+var_dump(stream_get_meta_data($file));
+
+/*
+结果如下：
+array(10) {
+  ["wrapper_data"]=&gt;
+  array(12) {
+    [0]=&gt;
+    string(18) "HTTP/1.0 302 Found"
+
+    [1]=&gt;
+    string(46) "Location: http://www.iana.org/domains/example/"
+
+    [2]=&gt;
+    string(13) "Server: BigIP"
+
+    [3]=&gt;
+    string(17) "Connection: close"
+
+    [4]=&gt;
+    string(17) "Content-Length: 0"
+
+    [5]=&gt;
+    string(15) "HTTP/1.1 200 OK"
+
+    [6]=&gt;
+    string(35) "Date: Sun, 18 Mar 2012 06:12:27 GMT"
+
+    [7]=&gt;
+    string(29) "Server: Apache/2.2.3 (CentOS)"
+
+    [8]=&gt;
+    string(44) "Last-Modified: Wed, 09 Feb 2011 17:13:15 GMT"
+
+    [9]=&gt;
+    string(21) "Vary: Accept-Encoding"
+
+    [10]=&gt;
+    string(17) "Connection: close"
+
+    [11]=&gt;
+    string(38) "Content-Type: text/html; charset=UTF-8"
+
+  }
+
+  ["wrapper_type"]=&gt;
+  string(4) "http"
+
+  ["stream_type"]=&gt;
+  string(14) "tcp_socket/ssl"
+
+  ["mode"]=&gt;
+  string(2) "rb"
+
+  ["unread_bytes"]=&gt;
+  int(1225)
+
+  ["seekable"]=&gt;
+  bool(false)
+
+  ["uri"]=&gt;
+  string(23) "http://www.example.com/"
+
+  ["timed_out"]=&gt;
+  bool(false)
+
+  ["blocked"]=&gt;
+  bool(true)
+
+  ["eof"]=&gt;
+  bool(false)
+}
+*/
+</code></pre>
+
+<p>wrapper_type变成了http，wrapper_data也被填充了，一切恢复正常。所以一条结论：慎用<code>--with-curlwrappers</code></p>
+
+<p>参考：</p>
+
+<p><a href="http://cn.php.net/manual/en/function.stream-context-create.php#99353">http://cn.php.net/manual/en/function.stream-context-create.php#99353</a>
+<a href="https://www.facebook.com/note.php?note_id=290180466652">https://www.facebook.com/note.php?note_id=290180466652</a></p>
+
+	(完)
+
+	<div class="post-info">
+		18 Mar 2012  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

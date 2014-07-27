@@ -1,0 +1,234 @@
+---
+layout: post
+title: '使用Gitosis搭建Git服务器'
+time: 2012-06-16 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/build-git-server-with-gitosis.html
+images:
+  6918da8ea368cc748bf9097ee81a401d: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/git.jpg
+---
+{% raw %}
+
+	
+	
+
+	<p><img src="/images/weizhifeng.net/6918da8ea368cc748bf9097ee81a401d.jpg" title="Git" alt="Git"></p>
+
+<h3>1.安装gitosis</h3>
+
+<p>首先是获取gitosis（这里假设你已经安装过git）：</p>
+
+<pre><code>git clone git://github.com/res0nat0r/gitosis.git
+</code></pre>
+
+<p>接下来安装gitosis：</p>
+
+<pre><code>sudo python setup.py install
+</code></pre>
+
+<p>如果出现以下错误：</p>
+
+<pre><code>Traceback (most recent call last):
+ File "setup.py", line 2, in ?
+ from setuptools import setup, find_packages
+ ImportError: No module named setuptools
+</code></pre>
+
+<p>或者
+    -bash: python: command not found</p>
+
+<p>那么你还需要安装python-setuptools：</p>
+
+<pre><code>sudo yum install python-setuptools
+</code></pre>
+
+<p>接下来添加用来管理仓库的用户，用户名任意，我们这里使用git：</p>
+
+<pre><code>useradd git
+</code></pre>
+
+<p>Mac用户在「系统偏好设置　»　用户与群组 」中添加。</p>
+
+<p>修改PATH，使git用户可以调用git：</p>
+
+<pre><code>vi /home/git/.bashrc
+PATH=/usr/local/bin:/usr/local/git/bin:$PATH
+</code></pre>
+
+<p>创建key pair，并拷贝public key到/tmp下，这样可以确保gitosis-init命令对其有读取权限：</p>
+
+<pre><code>ssh-keygen -t rsa
+cp ~/.ssh/id_rsa.pub /tmp/id_rsa.pub
+</code></pre>
+
+<p>以git用户来执行gitosis-init命令：</p>
+
+<pre><code>sudo -H -u git gitosis-init &amp;lt; /tmp/id_rsa.pub
+</code></pre>
+
+<p>此时/home/git下增加了两个目录：</p>
+
+<pre><code>gitosis
+repositories
+</code></pre>
+
+<p>其中gitosis是gitosis的根目录，repositories是仓库存放目录。</p>
+
+<p>如果出现以下错误：</p>
+
+<pre><code>if install git from source, otherwise:
+raise child_exception
+OSError: [Errno 2] No such file or directory
+</code></pre>
+
+<p>那么做个symlink：</p>
+
+<pre><code>ln -s /usr/local/bin/git /usr/bin/git
+</code></pre>
+
+<p>给脚本post-update赋予可执行权限：</p>
+
+<pre><code>sudo chmod 755 /home/git/repositories/gitosis-admin.git/hooks/post-update
+</code></pre>
+
+<h3>2. 添加新仓库</h3>
+
+<p>gitosis的管理是通过git来管理的，clone一下：</p>
+
+<pre><code>git clone git@localhost:gitosis-admin.git
+</code></pre>
+
+<p>如果出现以下错误：</p>
+
+<pre><code>Cloning into gitosis-admin...
+ssh: connect to host 192.168.1.30 port 22: Connection refused
+fatal: The remote end hung up unexpectedly 
+</code></pre>
+
+<p>那么确认当前机器openssh是否已经启动，Mac用户通过”系统偏好　-&gt;　共享　-&gt;　远程登录”进行设置。</p>
+
+<pre><code>cd gitosis-admin
+ls -l
+-rw-r--r--  1 weizhifeng  staff  124  6 14 13:45 gitosis.conf
+drwxr-xr-x  3 weizhifeng  staff  102  6 14 13:46 keydir
+</code></pre>
+
+<p>keydir目录用来存放用户的public key(.pub文件)，gitosis.conf为配置文件。</p>
+
+<p>看一下配置文件：</p>
+
+<pre><code>cat gitosis.conf
+[gitosis]
+
+[group gitosis-admin]
+    members = Mac
+    writable = gitosis-admin
+</code></pre>
+
+<p>其中group代表一个组，writable是仓库名，members是此仓库的成员，可以有多个成员，用空格进行分割。</p>
+
+<p>添加一个新仓库：</p>
+
+<pre><code>[group test]
+    members = Mac
+    writable = test
+</code></pre>
+
+<p>把更改提交并push到git@localhost:gitosis-admin.git：</p>
+
+<pre><code>git commit -a -m "添加新仓库test"
+git push
+</code></pre>
+
+<p>在本地创建一个仓库，并push到git@localhost:test.git，gitosis会在/home/git/repositories自动创建test.git这个仓库：</p>
+
+<pre><code>mkdir test
+cd test 
+touch README
+git init
+git remote add origin git@localhost:test.git
+git push origin master
+</code></pre>
+
+<h3>3. 添加用户</h3>
+
+<p>假设我们要添加的用户为jeremy，那么需要创建key pair：</p>
+
+<pre><code>ssh-keygen -t rsa
+</code></pre>
+
+<p>假设生成的public key为~/.ssh/jeremy.pub</p>
+
+<pre><code>cd gitosis-admin
+</code></pre>
+
+<p>修改gitosis.conf，修改后为如下：</p>
+
+<pre><code>[group test]
+members = Mac jeremy
+writable = test
+</code></pre>
+
+<p>注意.pub文件名和你要在members中添加的用户名要完全一样。</p>
+
+<p>拷贝jeremy.pub到keydir中：</p>
+
+<pre><code>cp　~/.ssh/jeremy.pub keydir/
+</code></pre>
+
+<p>把更改push到gitosis-admin.git：</p>
+
+<pre><code>git commit -a -m "添加jeremy到test仓库"
+git push
+</code></pre>
+
+<p>接下来把private key分发给jeremy，然后他就可以从自己的机器上进行clone了：</p>
+
+<pre><code>git clone git@SERVER_HOSTNAME:test.git
+</code></pre>
+
+<p>如果出现以下错误：</p>
+
+<pre><code>ERROR:gitosis.serve.main:Repository read access denied
+fatal: The remote end hung up unexpectedly
+</code></pre>
+
+<p>是因为使用了内容相同，名字不同的public key(.pub)。</p>
+
+<h3>4.其他</h3>
+
+<p>如果SSH使用的不是22端口，那么请如下修改：</p>
+
+<pre><code>vi ~/.ssh/config
+Host myserver.com
+Port 2345      
+</code></pre>
+
+<h3>5. 参考</h3>
+
+<p><a href="http://scie.nti.st/2007/11/14/hosting-git-repositories-the-easy-and-secure-way/%22">http://scie.nti.st/2007/11/14/hosting-git-repositories-the-easy-and-secure-way/</a>  <br>
+<a href="http://lukhnos.org/blog/en/archives/162/">http://lukhnos.org/blog/en/archives/162/</a> <br>
+<a href="http://blog.longwin.com.tw/2011/03/linux-gitosis-git-server-2011/">http://blog.longwin.com.tw/2011/03/linux-gitosis-git-server-2011/</a></p>
+
+	(完)
+
+	<div class="post-info">
+		16 Jun 2012  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

@@ -1,0 +1,252 @@
+---
+layout: post
+title: '如何发布Node模块到NPM社区'
+time: 2014-04-26 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/how-to-publish-a-node-module.html
+images:
+  3de6fd95070124642efe170ad9e5ddc1: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/nodejs.jpg
+  86b9635f334045a48a9378db64feff77: https://travis-ci.org/JeremyWei/easy_mongo.svg?branch=master
+---
+{% raw %}
+
+	
+	
+
+	<p><img src="/images/weizhifeng.net/3de6fd95070124642efe170ad9e5ddc1.jpg" title="Node.js" alt="Node.js"></p>
+
+<p>"学骑自行车最快的方式就是先骑上去"</p>
+
+<h1>安装node和npm</h1>
+
+<p>安装node(注意：需要Python 2.6或2.7已经安装)</p>
+
+<pre><code>$ wget http://nodejs.org/dist/v0.10.26/node-v0.10.26.tar.gz
+$ tar -zxvf node-v0.10.26.tar.gz
+$ make &amp;&amp; make install 
+</code></pre>
+
+<p>成功安装node之后，<code>npm</code>(node package manager)已经包含在内了，不需要独立安装，可以执行一下<code>npm</code>检查是否安装好。</p>
+
+<pre><code>$ npm 
+Usage: npm &lt;command&gt;
+</code></pre>
+
+<h1>创建repository</h1>
+
+<p>接下来我们需要创建module所需的repository，默认你拥有一个github账号（如果没有自行解决），这个repository用来托管我们module的代码，并方便用户报告bug，最重要的是可以让其他开发者向module贡献代码，这也是乐趣所在。</p>
+
+<h1>初始化package.json</h1>
+
+<p>接下来我们创建<code>package.json</code>文件，这个文件包含了module的所有信息，比如名称、版本、描述、依赖、作者、license等。笔者以自己的easy_mongo(注意：npm要求项目的名称必须为小写字母)项目为例，看如何创建<code>package.json</code>。</p>
+
+<p>首先创建我们module的目录</p>
+
+<pre><code>$ mkdir easy_mongo &amp;&amp; cd easy_mongo
+</code></pre>
+
+<p>之后执行<code>npm init</code>，系统会提示你输入所需的信息，不想输入的直接输入<code>Enter</code>可以跳过。</p>
+
+<pre><code>$ npm init
+
+This utility will walk you through creating a package.json file.
+It only covers the most common items, and tries to guess sane defaults.
+
+See `npm help json` for definitive documentation on these fields
+and exactly what they do.
+
+Use `npm install &lt;pkg&gt; --save` afterwards to install a package and
+save it as a dependency in the package.json file.
+
+Press ^C at any time to quit.
+name: (node) easy_mongo
+version: (0.0.0) 0.1.0
+description: An easy mongodb client for node.js based on native mongodb driver.
+entry point: (index.js) 
+test command: make test
+git repository: https://github.com/JeremyWei/easy_mongo.git
+keywords: Mongodb node easy 
+author: JeremyWei
+license: (BSD-2-Clause) MIT
+</code></pre>
+
+<p>输入完成之后，系统会要你确认文件的内容是否有误，如果没有问题直接输入<code>yes</code>，那么<code>package.json</code>就创建好了。</p>
+
+<pre><code>About to write to /Users/weizhifeng/dev/node/package.json:
+
+{
+  "name": "easy_mongo",
+  "version": "0.1.0",
+  "description": "An easy mongodb client for node.js based on native mongodb driver.",
+  "main": "index.js",
+  "directories": {
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "make test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JeremyWei/easy_mongo.git"
+  },
+  "keywords": [
+    "Mongodb",
+    "node",
+    "easy"
+  ],
+  "author": "JeremyWei",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/JeremyWei/easy_mongo/issues"
+  }
+}
+
+Is this ok? (yes) 
+</code></pre>
+
+<p><code>npm init</code>创建的<code>package.json</code>文件只包含了基本的信息，我们还需要加入对其他module的依赖关系：</p>
+
+<pre><code>"dependencies": {
+    "mocha" : "1.18.2",
+    "should" : "3.3.0",
+    "mongodb" : "1.3.19"
+}
+</code></pre>
+
+<h1>项目结构</h1>
+
+<p><code>package.json</code>文件只是第一步，要完成一个module，我们还需要许多其他文件，整体的文件夹结构如下：</p>
+
+<pre><code>easy_mongo
+├─┬ lib
+│ └── easy_mongo.js
+├─┬ test
+│ └── all.js
+├── .gitignore
+├── .npmignore
+├── .travis.yml
+├── index.js
+├── LICENSE
+├── makefile
+├── package.json
+├── README.md
+</code></pre>
+
+<p>这些文件的作用是：</p>
+
+<ul>
+<li>lib目录下存放业务逻辑文件</li>
+<li>test目录下存放单元测试用例</li>
+<li>.npmignore记录哪些文件不需要被发布到npmjs.org</li>
+<li>.travis.yml是持续集成服务<a href="https://travis-ci.org/">travis</a>的描述文件</li>
+<li>index.js是入口文件</li>
+<li>makefile方便我们用<code>make test</code>进行测试</li>
+<li>
+<code>README.md</code>是此module的描述和使用方法</li>
+</ul>
+
+
+<h1>持续集成</h1>
+
+<p>开源项目多如牛毛，从中找出靠谱的项目需要花费一定的精力，开发者都会对持续更新，并且经过测试（很多公司采用）的项目更加的信赖，对于刚上线并且用户数量很少的项目开发者都会有个疑虑：这项目靠谱吗？所以你需要对自己的项目打上一个标识：老子的项目靠谱。如何做？持续集成。</p>
+
+<p>目前Github已经整合了持续集成服务<a href="https://travis-ci.org/">travis</a>，我们只需要在项目中添加<code>.travis.yml</code>文件，在下一次push之后，travis就会定时执行<code>npm test</code>来测试你的项目，并且会在测试失败的时候通知到你，你也可以把项目当前的状态显示在<code>README.md</code>中，让人一目了然，比如：</p>
+
+<p><a href="https://travis-ci.org/JeremyWei/easy_mongo"><img src="/images/weizhifeng.net/86b9635f334045a48a9378db64feff77.jpg" alt="Build Status"></a></p>
+
+<p><code>.travis.yml</code>是一个YAML文件，关于node.js相关的配置见<a href="http://docs.travis-ci.com/user/languages/javascript-with-nodejs/">这里</a>，例子如下：</p>
+
+<pre><code>language: node_js
+node_js:
+   - "0.10"
+   - "0.8"
+   - "0.6"   
+services:
+    - mongodb
+</code></pre>
+
+<p>这个例子的是让travis在node.js的0.6.x，0.8.x，0.10.x三个版本下对项目进行测试，并且需要mongodb的服务。</p>
+
+<h1>发布</h1>
+
+<p>完成了上面的步骤之后，我们接下来要在www.npmjs.org注册一个账号，这个账号会被添加到npm本地的配置中，用来发布module用。</p>
+
+<pre><code>$ npm adduser   
+Username: your name
+Password: your password
+Email: yourmail@gmail.com
+</code></pre>
+
+<p>如果出现以下错误，可能是你的npm版本太低，通过<code>sudo npm install -g npm</code>升级一下。</p>
+
+<pre><code>npm WARN adduser Incorrect username or password
+npm WARN adduser You can reset your account by visiting:
+npm WARN adduser 
+npm WARN adduser     http://admin.npmjs.org/reset
+npm WARN adduser 
+npm ERR! Error: forbidden may not mix password_sha and pbkdf2
+npm ERR! You may need to upgrade your version of npm:
+npm ERR!   npm install npm -g
+npm ERR! Note that this may need to be run as root/admin (sudo, etc.)
+</code></pre>
+
+<p>成功之后，npm会把认证信息存储在<code>~/.npmrc</code>中，并且可以通过以下命令查看npm当前使用的用户：</p>
+
+<pre><code>$ npm whoami 
+</code></pre>
+
+<p>以上完成之后，我们终于可以发布自己的module了：</p>
+
+<pre><code>$ npm publish --tag 0.1.0
+npm http PUT https://registry.npmjs.org/easy_mongo
+npm http 201 https://registry.npmjs.org/easy_mongo
++ easy_mongo@0.1.0
+</code></pre>
+
+<p>npm社区版本号规则采用的是<a href="http://semver.org/">semver</a>(语义化版本)，主要规则如下：</p>
+
+<pre><code>版本格式：主版号.次版号.修订号，版号递增规则如下：
+    主版号：当你做了不相容的 API 修改，
+    次版号：当你做了向下相容的功能性新增，
+    修订号：当你做了向下相容的问题修正。
+    先行版号及版本编译资讯可以加到「主版号.次版号.修订号」的后面，作为延伸。
+</code></pre>
+
+<p>至此，我们已经成功把module发布到了npmjs.org，是不是很简单，快动手把自己的module也贡献出来吧。</p>
+
+<p>Have fun :)</p>
+
+<h1>参考</h1>
+
+<ul>
+<li><a href="https://github.com/npm/npm">https://github.com/npm/npm</a></li>
+<li><a href="https://www.npmjs.org/doc/api/npm-publish.html">https://www.npmjs.org/doc/api/npm-publish.html</a></li>
+<li><a href="https://www.npmjs.org/doc/cli/npm-adduser.html">https://www.npmjs.org/doc/cli/npm-adduser.html</a></li>
+<li><a href="http://docs.travis-ci.com/user/languages/javascript-with-nodejs/">http://docs.travis-ci.com/user/languages/javascript-with-nodejs/</a></li>
+<li><a href="http://docs.travis-ci.com/user/database-setup/">http://docs.travis-ci.com/user/database-setup/</a></li>
+<li><a href="http://semver.org/">http://semver.org/</a></li>
+</ul>
+
+
+	(完)
+
+	<div class="post-info">
+		26 Apr 2014  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
+</noscript>
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}
