@@ -57,6 +57,10 @@ desc "RAW, Drafts, Push"
 task :raw_drafts_push => [:raw, :add_raw, :drafts, :push] do
 end
 
+desc "Generate, Deploy, Commit, Push"
+task :gen_deploy_push => [:gen, :deploy, :push] do
+end
+
 desc "Preview drafts"
 task :drafts_preview do
   system "jekyll serve --drafts --lsi"
