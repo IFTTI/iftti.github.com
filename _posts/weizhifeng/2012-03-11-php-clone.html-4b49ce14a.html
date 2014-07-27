@@ -1,0 +1,214 @@
+---
+layout: post
+title: 'PHP克隆'
+time: 2012-03-11 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/php-clone.html
+---
+{% raw %}
+
+	
+	
+
+	<h3>什么是克隆</h3>
+
+<p><a href="http://en.wikipedia.org/wiki/Clone_(computing)" title="clone">克隆</a>就是完全复制另一个对象，二者独立，互不影响。你可能说直接用变量赋值不就完了吗？但是对于对象来说，简单的赋值并不能实现克隆了，因为对象是通过<a href="http://weizhifeng.net/php-reference.html" title="PHP引用误区">伪引用</a>传递的，比如：</p>
+
+<pre><code>&lt;?php
+class Sample {
+    private $a = 1;
+
+    public function plus() {
+        $this-&gt;a ++;
+    }
+
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+}
+
+$obj = new Sample();
+$obj-&gt;foo(); // 输出a=1
+
+$obj2 = $obj;
+$obj2-&gt;plus(); // +1
+$obj2-&gt;foo(); // 输出a=2
+$obj-&gt;foo(); // 输出a=2，说明$obj也发生了变化，显然这不是我们想看到的
+?&gt;
+</code></pre>
+
+<h3>克隆</h3>
+
+<p>PHP提供了<strong>clone</strong>关键字来实现对象的克隆，比如：</p>
+
+<pre><code>&lt;?php
+$obj = new Sample();
+$obj2 = clone $obj; // 克隆一个$obj，赋值给$obj2
+
+$obj-&gt;foo(); // 输出a=1
+
+$obj2-&gt;plus(); //+1
+$obj2-&gt;foo(); // 输出a=2
+
+$obj-&gt;foo(); // 输出a=1，$obj没有发生变化，即$obj与$obj2没有任何联系
+?&gt;
+</code></pre>
+
+<p>当复制完成时, 如果定义了<strong>__clone()</strong>方法， 则新创建的对象（复制生成的对象）中的<strong>__clone()</strong>方法会被调用， 可用于修改属性的值（如果有必要的话），比如：</p>
+
+<pre><code>&lt;?php
+class Sample {    
+    private $a = 1;
+    private $instance_no; // instance编号
+    static public $all = 0;    // instance总数
+
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+
+    public function bar() {
+        echo "instance={$this-&gt;instance_no}";
+    }
+
+    public function __construct() {
+        // 实例号＋1
+        $this-&gt;instance_no = ++self::$all;
+    }
+
+    public function __clone() {
+        // 实例号＋1
+        $this-&gt;instance_no = ++self::$all;
+    }
+}
+
+$obj = new Sample();
+$obj-&gt;foo(); // 输出a=1
+$obj-&gt;bar(); // 输出instance=1 实例编号为1
+
+$obj2 = clone $obj;
+$obj2-&gt;foo(); // 输出a=1 没变
+$obj2-&gt;bar(); // 输出instance=2 实例编号为2
+?&gt;
+</code></pre>
+
+<h3>深浅复制</h3>
+
+<p>在PHP中，克隆会把对象的所有属性进行复制，但是如果一个对象中包含引用属性，那么克隆之后，在新生成的对象中这个属性仍然是指向原来变量的引用，这个称为浅复制(shallow copy)。比如：</p>
+
+<pre><code>&lt;?php
+class Sample {
+    private $a = 1;
+
+    public function plus() {
+        $this-&gt;a ++;
+    }
+
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+}
+
+class Sample2 {
+    public $b = 1;
+    public $obj;
+
+    public function plus() {
+        $this-&gt;b ++;
+    }
+
+    public function foo() {
+        echo "b={$this-&gt;b}";
+    }
+}
+
+$obj = new Sample2();
+$obj-&gt;obj = new Sample();
+$obj2 = clone $obj; // clone 
+
+// 修改对象的普通属性
+$obj-&gt;plus(); // $b + 1
+$obj-&gt;foo(); // 输出b=2
+$obj2-&gt;foo(); // 输出b=1，克隆的对象没有发生变化，因此普通属性克隆没有问题
+
+// 修改对象的引用属性
+$obj-&gt;obj-&gt;plus(); // $a+1
+$obj-&gt;obj-&gt;foo(); // 输出a=2
+$obj2-&gt;obj-&gt;foo(); // 输出a=2 克隆对象中的引用属性也发生了变化，这个不是我们想要的结果
+?&gt;
+</code></pre>
+
+<p>以上的列子说明了浅复制导致的问题，我们要自己实现对引用属性的完全复制，术语叫作深复制(deep copy)，示例如下：</p>
+
+<pre><code>&lt;?php
+class Sample {
+    private $a = 1;
+
+    public function plus() {
+        $this-&gt;a ++;
+    }
+
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+}
+
+class Sample2 {
+    public $b = 1;
+    public $obj;
+
+    public function plus() {
+        $this-&gt;b ++;
+    }
+
+    public function foo() {
+        echo "b={$this-&gt;b}";
+    }
+
+    function __clone() {
+        $this-&gt;obj = clone $this-&gt;obj;
+
+        // 当存在对象数组的时候，可以使用以下代码实现深复制
+        /*foreach ($this as $key =&gt; $val) {
+            if (is_object($val) || (is_array($val))) {
+                $this-&gt;{$key} = unserialize(serialize($val));
+            }
+        }*/
+    }
+}
+
+$obj = new Sample2();
+$obj-&gt;obj = new Sample();
+$obj2 = clone $obj; // clone 
+
+// 修改对象的引用属性
+$obj-&gt;obj-&gt;plus(); // $a+1
+$obj-&gt;obj-&gt;foo(); // 输出a=2
+$obj2-&gt;obj-&gt;foo(); // 输出a=1 克隆对象中的引用属性没有发生变化，bingo.
+?&gt;
+</code></pre>
+
+<p>参考：</p>
+
+<p><a href="http://www.php.net/manual/zh/language.oop5.cloning.php">http://www.php.net/manual/zh/language.oop5.cloning.php</a></p>
+
+	(完)
+
+	<div class="post-info">
+		11 Mar 2012  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}
