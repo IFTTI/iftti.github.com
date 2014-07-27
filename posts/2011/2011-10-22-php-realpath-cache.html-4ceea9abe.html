@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>如何搜索 Elasticsearch 中存储的动态请求 URL</title>
+    <title>PHP的Realpath Cache</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-03-07-howto-search-dynamic-url-in-elasticsearch-866359845.html">
+    <link rel="canonical" href="http://iftti.com/posts/2011/2011-10-22-php-realpath-cache.html-4ceea9abe.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,84 +50,126 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>如何搜索 Elasticsearch 中存储的动态请求 URL</h1>
-    <p class="meta"><span class="time">Mar 7, 2014</span><span class="source_url"> • [来自 <a name="chenlinux.com" href="http://chenlinux.com/2014/03/07/howto-search-dynamic-url-in-elasticsearch" target="_blank">chenlinux.com</a>]</span></p>
+    <h1>PHP的Realpath Cache</h1>
+    <p class="meta"><span class="time">Oct 22, 2011</span><span class="source_url"> • [来自 <a name="weizhifeng.net" href="http://weizhifeng.net/php-realpath-cache.html" target="_blank">weizhifeng.net</a>]</span></p>
   </header>
 
   <article class="post-content">
-    <div style="background-color: #FFF;">
-    <p>当我们用 logstash 处理 WEB 服务器访问日志的时候，肯定就涉及到一个后期查询的问题。</p>
 
-<p>可能一般我们在 Kibana 上更多的是针对响应时间做数值统计，针对来源IP、域名或者客户端情况做分组统计。但是如果碰到这么个问题的时候呢——<strong>过滤所有动态请求的响应时间</strong>。</p>
+	<h3>前言</h3>
 
-<p>这时候你可能会发现一个问题：我们肯定都是用 URL 里带有问号? 来作为过滤条件。但是实际是 Kibana 里一条数据都过滤不出来。</p>
+<p>PHP的缓存有很多种，包括输出缓冲(<a href="http://cn.php.net/manual/en/ref.outcontrol.php" title="outcontrol">ob系列函数</a>)，opcode缓存(<a href="http://php.net/manual/en/book.apc.php" title="apc">APC</a>，<a href="http://sourceforge.net/projects/eaccelerator/" title="eaccelerator">eAccelerator</a>，<a href="http://xcache.lighttpd.net/" title="xcache">XCache</a>等扩展实现)，这些大家已经很熟悉了，接下来介绍一下一个不太被人注意的PHP缓存机制：Realpath Cache。</p>
 
-<p>于是我开测试库模拟了一下：</p>
+<h3>介绍</h3>
 
-<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># 插入两条数据</span>
-curl http://localhost:9200/test/log/1 -d <span class="s1">'{"url":"http://locahost/index.html"}'</span>
-curl http://localhost:9200/test/log/2 -d <span class="s1">'{"url":"http://locahost/index.php?key=value"}'</span>
-<span class="c"># 搜索显示全部数据</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":".*"}}}}'</span>
-<span class="c"># 搜索返回请求格式解析失败</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":"\?.*"}}}}'</span>
-<span class="c"># 搜索返回空数据</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":".*\\?.*"}}}}'</span></code></pre>
-</div>
+<p><strong>require</strong>，<strong>require_once</strong>，<strong>include</strong>，<strong>include_once</strong>这四个语句(并非函数)大家经常会用到，如果用这类语句去包含文件(相对路径)的话，那么PHP会去<a href="http://cn2.php.net/manual/zh/ini.core.php#ini.include-path" title="include path">include_path</a>所指定的路径中去查找相关文件。一个应用中会存在大量的require_once语句调用，如果每次调用都去include_path中查找相应的文件，势必会对应用的性能产生负面影响。为了避免这种负面效应产生的影响，PHPER们会使用文件的绝对路径来包含所需的文件，这样就减少了查询include_path的次数。 其实，PHP自5.1.0起，就引入了<a href="http://php.net/manual/en/ini.core.php#ini.sect.performance" title="Real path Cache">RealpathCache</a>。RealpathCache可以把PHP所用到文件的<a href="http://cn2.php.net/manual/en/function.realpath.php" title="realpath">realpath</a>进行缓存，以便PHP再使用这些文件的时候不需要再去include_path中查找，加快PHP的执行速度。</p>
 
-<p>后来发现问题出在分词上面。</p>
+<h3>配置</h3>
 
-<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># 删除之前的测试数据和索引</span>
-curl -XDELETE http://localhost:9200/test/log
-<span class="c"># 预定义索引类型的映射，url字段在索引的时候不分词</span>
-curl http://localhost:9200/test/log/_mapping -d <span class="s1">'{"log":{"properties":{"url":{"index":"not_analyzed","type":"string"}}}}'</span>
-<span class="c"># 还是插入两条数据</span>
-curl http://localhost:9200/test/log/1 -d <span class="s1">'{"url":"http://locahost/index.html"}'</span>
-curl http://localhost:9200/test/log/2 -d <span class="s1">'{"url":"http://locahost/index.php?key=value"}'</span>
-<span class="c"># 同样的搜索请求，返回了一条结果(index.php?这条)</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":".*\\?.*"}}}}'</span></code></pre>
-</div>
+<p>realpath cache的<a href="http://us2.php.net/manual/en/ini.core.php#ini.realpath-cache-size" title="realpath cache 配置">配置项</a>有两个，分别为<strong>realpath_cache_size</strong>和<strong>realpath_cache_ttl</strong>，可以在php.ini中进行修改：</p>
 
-<p>上面这个搜索还可以简写成 Query DSL 的样式：</p>
+<pre><code>; Determines the size of the realpath cache to be used by PHP. This value should
+; be increased on systems where PHP opens many files to reflect the quantity of
+; the file operations performed.
+; http://php.net/realpath-cache-size
+;realpath_cache_size = 16k
 
-<p><code>
-curl 'http://localhost:9200/test/log/_search?q=url:/.*\\?.*/&amp;pretty=1'
-</code></p>
+; Duration of time, in seconds for which to cache realpath information for a given
+; file or directory. For systems with rarely changing files, consider increasing this
+; value.
+; http://php.net/realpath-cache-ttl
+;realpath_cache_ttl = 120
+</code></pre>
 
-<p>而在 Logstash 比较新的 1.3.3 版本之后，有自带的 template 定义，会对每个 fields 采用 <a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/_multi_fields.html">multi-fields</a> 特性，也就是除了默认分词的 <code>URL</code> 字段以外，还有一个 <code>URL.raw</code> 字段都是不分词的。所以只要过滤这个字段就可以了。</p>
+<p>其中realpath_cache_size指定了realpath cache的大小，默认为16k，如果你觉得这个容量太小，可以适当增加；realpath_cache_ttl指定了缓存的过期时间，默认为120秒，对于不经常修改的生产环境来说，这个数字可以调整的更大些。</p>
 
-<p>(<em>注意，ES1.0版的multi-fields的template写法完全不一样了，所以要用这个特性的童鞋还是谨慎测试logstash和es的版本配套</em>)</p>
+<h3>问题</h3>
 
-<p>Medcl 大神提示我：<strong>不指定 mapping 的情况下，ES 默认采用 unigram 分词</strong>。也就是切成尽可能小的单词。</p>
+<p>由于realpath会展开symlink(即软连接)，所以如果你使用修改symlink目标这种方式发布应用的新版本的话，realpath cache会导致一些问题的出现：当你修改symlink使其指向一个新的release目录时候，由于realpath cache所缓存内容还没有过期，于是就会出现应用使用的还是旧的release，直到realpath cache所缓存内容过期失效为止(默认120秒)，或者重启php-fpm。</p>
 
-    <hr>
+<p>看个例子：
+基础环境：nginx + fastcgi + php-fpm  <br>
+应用环境：/var/www/app是一个symlink，并做为document_root，在/var/www下存在version0.1，version0.2两个版本的release。   <br>
+初始情况下/var/www/app指向version0.1</p>
 
-    <hr>
+<pre><code>lrwxr-xr-x    1 weizhifeng  staff    10 10 22 16:41 app -&gt; version0.1
+drwxr-xr-x    3 weizhifeng  staff   102 10 22 16:43 version0.1
+drwxr-xr-x    3 weizhifeng  staff   102 10 22 16:43 version0.2
+</code></pre>
 
-  <!-- UY BEGIN -->
+<p>version0.1，version0.2内部各有一个hello.php</p>
 
-<!-- UY END -->
+<pre><code>$ cat version0.1/hello.php 
+&lt;?php 
+echo 'in version0.1';
+?&gt;
 
-  </div>
+$ cat version0.2/hello.php 
+&lt;?php 
+echo 'in version0.2';
+?&gt;
+</code></pre>
+
+<p>nginx配置文件片段：</p>
+
+<pre><code>location / {
+    root /var/www/app;   #app为symlink
+    index  index.php index.html index.htm;
+}
+
+location ~ .php$ {
+    root /var/www/app; #app为symlink
+    fastcgi_pass   127.0.0.1:9000;
+    fastcgi_index  index.php;
+    include        fastcgi_params;
+}
+</code></pre>
+
+<p>此时通过HTTP访问hello.php，得到的内容是「in version0.1」；修改/var/www/app，使其指向version0.2</p>
+
+<pre><code>$ rm -f app &amp;&amp; ln -s version0.2 app
+</code></pre>
+
+<p>修改完成之后通过HTTP访问hello.php，得到的内容仍旧是「in version0.1」，可见是realpath cache在作祟了，此时你可以重启php-fpm或者等待120秒钟让realpath cache失效。 你可以使用<a href="http://us3.php.net/clearstatcache" title="clearstatcache">clearstatcache</a>来清除realpath cache，但是这个只对当前调用clearstatcache函数的PHP进程有效，而其他的PHP进程还是无效，由于PHP进程池（php-fpm生成，或者Apache在prefork模式下产生的N个httpd子进程）的存在，这个方法不是很适用。</p>
+
+<p>参考：</p>
+
+<p><a href="http://php.net/manual/en/ini.core.php#ini.sect.performance">http://php.net/manual/en/ini.core.php#ini.sect.performance</a>
+<a href="http://sixohthree.com/1517/php-and-the-realpath-cache">http://sixohthree.com/1517/php-and-the-realpath-cache</a></p>
+
+	(完)
+
+	<div class="post-info">
+		22 Oct 2011  
+
+	</div>
+
+	<!-- disqus start -->
+
+	<!-- disqus end -->
+
+	<!-- related start -->
+
+	<!-- related end -->
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-03-07-genarate-fig-from-diagramo-83b5477c7.html" title="Previous Post: 转换 diagramo 绘制的拓扑图成 fig.yml 格式" data-instant>&laquo; 转换 diagramo 绘制的拓扑图成 fig.yml 格式</a>
+    <a class="basic-alignment left" href="/posts/2011/2011-09-27-oracle-database-appliance.html-e73d38f23.html" title="Previous Post: Oracle Database Appliance" data-instant>&laquo; Oracle Database Appliance</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-03-09-thoughts-after-docker-meetup-f3ea81b84.html" title="Next Post: Docker Meetup 参会总结" data-instant>Docker Meetup 参会总结 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2011/2011-11-06-HA-with-HAProxy-and-KeepAlived.html-872dfef92.html" title="Next Post: 用HAProxy和KeepAlived构建高可用的反向代理系统" data-instant>用HAProxy和KeepAlived构建高可用的反向代理系统 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>27 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-27-using-pdl-on-macbook-0a2e8590f.html">在 MacBook 上使用 PDL 绘图 </a></li>
+      <li><span>26 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-26-learn-chef-02.html-182938c79.html">Chef入门（二）</a></li>
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
+      <li><span>23 Sep 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-09-23-ruby-on-rails.html-6d77c5f50.html">Ruby On Rails环境搭建</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html">Perl 编程的个人惯例</a></li>
+      <li><span>05 Apr 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-04-05-manage-php-dependency-with-composer.html-d25cc705d.html">PHP依赖管理工具Composer入门</a></li>
 
   </ul>
 </div>

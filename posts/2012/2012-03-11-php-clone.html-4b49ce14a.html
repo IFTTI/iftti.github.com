@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>如何搜索 Elasticsearch 中存储的动态请求 URL</title>
+    <title>PHP克隆</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-03-07-howto-search-dynamic-url-in-elasticsearch-866359845.html">
+    <link rel="canonical" href="http://iftti.com/posts/2012/2012-03-11-php-clone.html-4b49ce14a.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,84 +50,226 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>如何搜索 Elasticsearch 中存储的动态请求 URL</h1>
-    <p class="meta"><span class="time">Mar 7, 2014</span><span class="source_url"> • [来自 <a name="chenlinux.com" href="http://chenlinux.com/2014/03/07/howto-search-dynamic-url-in-elasticsearch" target="_blank">chenlinux.com</a>]</span></p>
+    <h1>PHP克隆</h1>
+    <p class="meta"><span class="time">Mar 11, 2012</span><span class="source_url"> • [来自 <a name="weizhifeng.net" href="http://weizhifeng.net/php-clone.html" target="_blank">weizhifeng.net</a>]</span></p>
   </header>
 
   <article class="post-content">
-    <div style="background-color: #FFF;">
-    <p>当我们用 logstash 处理 WEB 服务器访问日志的时候，肯定就涉及到一个后期查询的问题。</p>
 
-<p>可能一般我们在 Kibana 上更多的是针对响应时间做数值统计，针对来源IP、域名或者客户端情况做分组统计。但是如果碰到这么个问题的时候呢——<strong>过滤所有动态请求的响应时间</strong>。</p>
+	<h3>什么是克隆</h3>
 
-<p>这时候你可能会发现一个问题：我们肯定都是用 URL 里带有问号? 来作为过滤条件。但是实际是 Kibana 里一条数据都过滤不出来。</p>
+<p><a href="http://en.wikipedia.org/wiki/Clone_(computing)" title="clone">克隆</a>就是完全复制另一个对象，二者独立，互不影响。你可能说直接用变量赋值不就完了吗？但是对于对象来说，简单的赋值并不能实现克隆了，因为对象是通过<a href="http://weizhifeng.net/php-reference.html" title="PHP引用误区">伪引用</a>传递的，比如：</p>
 
-<p>于是我开测试库模拟了一下：</p>
+<pre><code>&lt;?php
+class Sample {
+    private $a = 1;
 
-<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># 插入两条数据</span>
-curl http://localhost:9200/test/log/1 -d <span class="s1">'{"url":"http://locahost/index.html"}'</span>
-curl http://localhost:9200/test/log/2 -d <span class="s1">'{"url":"http://locahost/index.php?key=value"}'</span>
-<span class="c"># 搜索显示全部数据</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":".*"}}}}'</span>
-<span class="c"># 搜索返回请求格式解析失败</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":"\?.*"}}}}'</span>
-<span class="c"># 搜索返回空数据</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":".*\\?.*"}}}}'</span></code></pre>
-</div>
+    public function plus() {
+        $this-&gt;a ++;
+    }
 
-<p>后来发现问题出在分词上面。</p>
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+}
 
-<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># 删除之前的测试数据和索引</span>
-curl -XDELETE http://localhost:9200/test/log
-<span class="c"># 预定义索引类型的映射，url字段在索引的时候不分词</span>
-curl http://localhost:9200/test/log/_mapping -d <span class="s1">'{"log":{"properties":{"url":{"index":"not_analyzed","type":"string"}}}}'</span>
-<span class="c"># 还是插入两条数据</span>
-curl http://localhost:9200/test/log/1 -d <span class="s1">'{"url":"http://locahost/index.html"}'</span>
-curl http://localhost:9200/test/log/2 -d <span class="s1">'{"url":"http://locahost/index.php?key=value"}'</span>
-<span class="c"># 同样的搜索请求，返回了一条结果(index.php?这条)</span>
-curl http://localhost:9200/test/log/_search?pretty<span class="o">=</span><span class="m">1</span> -d <span class="s1">'{"query":{"regexp":{"url":{"value":".*\\?.*"}}}}'</span></code></pre>
-</div>
+$obj = new Sample();
+$obj-&gt;foo(); // 输出a=1
 
-<p>上面这个搜索还可以简写成 Query DSL 的样式：</p>
+$obj2 = $obj;
+$obj2-&gt;plus(); // +1
+$obj2-&gt;foo(); // 输出a=2
+$obj-&gt;foo(); // 输出a=2，说明$obj也发生了变化，显然这不是我们想看到的
+?&gt;
+</code></pre>
 
-<p><code>
-curl 'http://localhost:9200/test/log/_search?q=url:/.*\\?.*/&amp;pretty=1'
-</code></p>
+<h3>克隆</h3>
 
-<p>而在 Logstash 比较新的 1.3.3 版本之后，有自带的 template 定义，会对每个 fields 采用 <a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/_multi_fields.html">multi-fields</a> 特性，也就是除了默认分词的 <code>URL</code> 字段以外，还有一个 <code>URL.raw</code> 字段都是不分词的。所以只要过滤这个字段就可以了。</p>
+<p>PHP提供了<strong>clone</strong>关键字来实现对象的克隆，比如：</p>
 
-<p>(<em>注意，ES1.0版的multi-fields的template写法完全不一样了，所以要用这个特性的童鞋还是谨慎测试logstash和es的版本配套</em>)</p>
+<pre><code>&lt;?php
+$obj = new Sample();
+$obj2 = clone $obj; // 克隆一个$obj，赋值给$obj2
 
-<p>Medcl 大神提示我：<strong>不指定 mapping 的情况下，ES 默认采用 unigram 分词</strong>。也就是切成尽可能小的单词。</p>
+$obj-&gt;foo(); // 输出a=1
 
-    <hr>
+$obj2-&gt;plus(); //+1
+$obj2-&gt;foo(); // 输出a=2
 
-    <hr>
+$obj-&gt;foo(); // 输出a=1，$obj没有发生变化，即$obj与$obj2没有任何联系
+?&gt;
+</code></pre>
 
-  <!-- UY BEGIN -->
+<p>当复制完成时, 如果定义了<strong>__clone()</strong>方法， 则新创建的对象（复制生成的对象）中的<strong>__clone()</strong>方法会被调用， 可用于修改属性的值（如果有必要的话），比如：</p>
 
-<!-- UY END -->
+<pre><code>&lt;?php
+class Sample {    
+    private $a = 1;
+    private $instance_no; // instance编号
+    static public $all = 0;    // instance总数
 
-  </div>
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+
+    public function bar() {
+        echo "instance={$this-&gt;instance_no}";
+    }
+
+    public function __construct() {
+        // 实例号＋1
+        $this-&gt;instance_no = ++self::$all;
+    }
+
+    public function __clone() {
+        // 实例号＋1
+        $this-&gt;instance_no = ++self::$all;
+    }
+}
+
+$obj = new Sample();
+$obj-&gt;foo(); // 输出a=1
+$obj-&gt;bar(); // 输出instance=1 实例编号为1
+
+$obj2 = clone $obj;
+$obj2-&gt;foo(); // 输出a=1 没变
+$obj2-&gt;bar(); // 输出instance=2 实例编号为2
+?&gt;
+</code></pre>
+
+<h3>深浅复制</h3>
+
+<p>在PHP中，克隆会把对象的所有属性进行复制，但是如果一个对象中包含引用属性，那么克隆之后，在新生成的对象中这个属性仍然是指向原来变量的引用，这个称为浅复制(shallow copy)。比如：</p>
+
+<pre><code>&lt;?php
+class Sample {
+    private $a = 1;
+
+    public function plus() {
+        $this-&gt;a ++;
+    }
+
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+}
+
+class Sample2 {
+    public $b = 1;
+    public $obj;
+
+    public function plus() {
+        $this-&gt;b ++;
+    }
+
+    public function foo() {
+        echo "b={$this-&gt;b}";
+    }
+}
+
+$obj = new Sample2();
+$obj-&gt;obj = new Sample();
+$obj2 = clone $obj; // clone 
+
+// 修改对象的普通属性
+$obj-&gt;plus(); // $b + 1
+$obj-&gt;foo(); // 输出b=2
+$obj2-&gt;foo(); // 输出b=1，克隆的对象没有发生变化，因此普通属性克隆没有问题
+
+// 修改对象的引用属性
+$obj-&gt;obj-&gt;plus(); // $a+1
+$obj-&gt;obj-&gt;foo(); // 输出a=2
+$obj2-&gt;obj-&gt;foo(); // 输出a=2 克隆对象中的引用属性也发生了变化，这个不是我们想要的结果
+?&gt;
+</code></pre>
+
+<p>以上的列子说明了浅复制导致的问题，我们要自己实现对引用属性的完全复制，术语叫作深复制(deep copy)，示例如下：</p>
+
+<pre><code>&lt;?php
+class Sample {
+    private $a = 1;
+
+    public function plus() {
+        $this-&gt;a ++;
+    }
+
+    public function foo() {
+        echo "a={$this-&gt;a}";
+    }
+}
+
+class Sample2 {
+    public $b = 1;
+    public $obj;
+
+    public function plus() {
+        $this-&gt;b ++;
+    }
+
+    public function foo() {
+        echo "b={$this-&gt;b}";
+    }
+
+    function __clone() {
+        $this-&gt;obj = clone $this-&gt;obj;
+
+        // 当存在对象数组的时候，可以使用以下代码实现深复制
+        /*foreach ($this as $key =&gt; $val) {
+            if (is_object($val) || (is_array($val))) {
+                $this-&gt;{$key} = unserialize(serialize($val));
+            }
+        }*/
+    }
+}
+
+$obj = new Sample2();
+$obj-&gt;obj = new Sample();
+$obj2 = clone $obj; // clone 
+
+// 修改对象的引用属性
+$obj-&gt;obj-&gt;plus(); // $a+1
+$obj-&gt;obj-&gt;foo(); // 输出a=2
+$obj2-&gt;obj-&gt;foo(); // 输出a=1 克隆对象中的引用属性没有发生变化，bingo.
+?&gt;
+</code></pre>
+
+<p>参考：</p>
+
+<p><a href="http://www.php.net/manual/zh/language.oop5.cloning.php">http://www.php.net/manual/zh/language.oop5.cloning.php</a></p>
+
+	(完)
+
+	<div class="post-info">
+		11 Mar 2012  
+
+	</div>
+
+	<!-- disqus start -->
+
+	<!-- disqus end -->
+
+	<!-- related start -->
+
+	<!-- related end -->
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-03-07-genarate-fig-from-diagramo-83b5477c7.html" title="Previous Post: 转换 diagramo 绘制的拓扑图成 fig.yml 格式" data-instant>&laquo; 转换 diagramo 绘制的拓扑图成 fig.yml 格式</a>
+    <a class="basic-alignment left" href="/posts/2011/2011-11-06-HA-with-HAProxy-and-KeepAlived.html-872dfef92.html" title="Previous Post: 用HAProxy和KeepAlived构建高可用的反向代理系统" data-instant>&laquo; 用HAProxy和KeepAlived构建高可用的反向代理系统</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-03-09-thoughts-after-docker-meetup-f3ea81b84.html" title="Next Post: Docker Meetup 参会总结" data-instant>Docker Meetup 参会总结 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2012/2012-03-13-php-reference.html-d0df28b64.html" title="Next Post: PHP引用以及误区" data-instant>PHP引用以及误区 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>27 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-27-using-pdl-on-macbook-0a2e8590f.html">在 MacBook 上使用 PDL 绘图 </a></li>
+      <li><span>13 Mar 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-03-13-php-reference.html-d0df28b64.html">PHP引用以及误区</a></li>
 
-      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
+      <li><span>27 Oct 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-10-27-immediately-invoked-function-expression.html-410c6719c.html">JavaScript中的立即执行函数表达式</a></li>
 
-      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html">Perl 编程的个人惯例</a></li>
+      <li><span>02 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-02-build-private-npm-registry-with-npmjs-and-kappa.html-671b91147.html">利用kappa搭建私有NPM仓库</a></li>
 
   </ul>
 </div>
