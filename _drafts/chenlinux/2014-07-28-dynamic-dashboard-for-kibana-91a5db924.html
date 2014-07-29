@@ -1,0 +1,53 @@
+---
+layout: post
+title: 'Kibana 动态仪表板的使用 '
+time: 2014-07-28 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/07/28/dynamic-dashboard-for-kibana
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>半年前，Kibana3.4 版刚出来的时候，曾经在官方博客上描述了一个新功能，当时我的翻译见：<a href="/2014/01/15/kibana3-milestone4-20131105/">【翻译】Kibana3 里程碑 4</a>。</p>
+<p>今天我实际使用了一下这个新功能，感觉还是蛮有用的，单独拿出来记录一下用法和一些没在之前文章里提到的细节。</p>
+<h2 id="section">使用方法</h2>
+<p>使用方法其实在官方描述里已经比较清楚了。就是在原本的 <code>http://127.0.0.1:9292/#/dashboard/file/logstash.json</code> 地址后面，再加上请求参数 <code>?query=***</code> 即可。</p>
+<h2 id="section-1">注意事项</h2>
+<p>看起来好像太过简单，不过用起来其实还是有点注意事项的：</p>
+<ul>
+  <li>Kibana 目前不支持对保存在 Elasticsearch 中的 dashboard 做这个事情。</li>
+</ul>
+<p>所以一定得保存成 <code>yourname.json</code> 文件放入 <code>app/dashboards/</code> 目录里才行。</p>
+<ul>
+  <li>静态的 JSON 文件其实是利用模板技术。</li>
+</ul>
+<p>所以直接导出得到的 JSON 文件还不能直接起作用。需要稍微做一点修改。</p>
+<p>你可以打开默认可用的 <code>logstash.json</code> 文件，看看有什么奇特的地方，没错，就是下面这样：</p>
+<pre><code>"query": "\{\{ARGS.query || '*'\}\}"
+</code></pre>
+<p>而你自己保存下来的 JSON，这里都会是具体的数据。所以，要让自己的 JSON 布局也支持动态仪表板的话，按照这个写法也都加上 <code>ARGS.query</code> 就好了！</p>
+<p>从 logstash.json 里还可以看到，除了 <code>?query=</code> 以外，其实还支持 <code>from=</code> 参数，默认是 <code>24h</code>。</p>
+<ul>
+  <li>query 参数的特殊字符问题。</li>
+</ul>
+<p>比如我之前在搜索框里输入的 querystring 是这样的：<code>type:mweibo_action AND urlpath:"/2/statuses/friends_timeline.json"</code> 。</p>
+<p>那么实际用的时候，如果写成这样一个 url：<code>http://127.0.0.1:9292/#/dashboard/file/logstash.json?query=type:mweibo_action AND urlpath:"/2/statuses/friends_timeline.json"</code>，实际是不对的。我一度怀疑是不是 urlpath 里的 <code>/</code> 导致的问题，后来发现，其实是 <code>"</code> 在进 JSON 文件模板变量替换的时候给当做只是字符串赋值引号的作用，就不再作为字符串本身传递给 Elasticsearch 作为请求内容本身了。<strong>所以需要用 <code>\</code> 给 <code>"</code> 做转义。</strong></p>
+<p>(这里一定要有 <code>"</code> 的原因是，ES 的 querystring 里，<code>field:/regex/</code> 是正则匹配搜索的语法，刚好 url 也是以 <code>/</code> 开头的)</p>
+<p>所以可用的 url 应该是：<code>http://127.0.0.1:9292/#/dashboard/file/logstash.json?query=type:mweibo_action AND urlpath:\"/2/statuses/friends_timeline.json\"</code>！</p>
+<p>经过 url_encode 之后就变成了：<code>http://127.0.0.1:9292/#/dashboard/file/logstash.json?query=type:mweibo_action%20AND%20urlpath:%5C%22%2F2%2Fstatuses%2Ffriends_timeline.json%5C%22</code></p>
+<p>这样就可以了！</p>
+<ul>
+  <li>用 JSON 的局限。</li>
+</ul>
+<p>动态仪表板其实有两种用法，这里只用到了 <code>file/logstash.json</code> 静态文件方式，这种方式只支持一个 query 条件，也没有太多的附加参数支持。而 <code>script/logstash.js</code> 方式，支持多个 query 条件，以及 index、pattern、interval、timefield 等更多的参数选项。</p>
+<p>当然，研究一下 angularjs 的用法，给 JSON 文件里也加上 <code>ARGS.query</code> 的 <code>split</code> 方法，也不算太难。</p>
+    <hr>
+    
+    <hr>
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
