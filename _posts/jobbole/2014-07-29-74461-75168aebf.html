@@ -1,0 +1,93 @@
+---
+layout: post
+title: '取代cookie的网站追踪技术：”帆布指纹识别”初探'
+time: 2014-07-29 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/74461/
+images:
+  2e26c1070d5dab4b2b90d63b546c8437: http://jbcdn2.b0.upaiyun.com/2014/07/7d81d15d0370bd873bcaefb210ee0ab1.jpg
+  e29560b7e829e202e4795e607070bd6f: http://jbcdn2.b0.upaiyun.com/2014/07/e0e6635e1c4f2a9253c50f4863fc87f3.jpg
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/7d81d15d0370bd873bcaefb210ee0ab1.jpg" rel="lightbox[74461]" title="取代cookie的网站追踪技术：”帆布指纹识别”初探"><img class="alignnone size-full wp-image-74462" alt="4b611878ac58d8705d4bad6874bd2a2a" src="/images/jobbole.com/2e26c1070d5dab4b2b90d63b546c8437.jpg"></a></p>
+<p> </p>
+<p><strong>【前言】</strong></p>
+<p>一般情况下，网站或者广告联盟都会非常想要一种技术方式可以在网络上精确定位到每一个个体，这样可以通过收集这些个体的数据，通过分析后更加精准的去推送广告（精准化营销）或其他有针对性的一些活动。Cookie技术是非常受欢迎的一种。当用户访问一个网站时，网站可以在用户当前的浏览器Cookie中永久植入一个含有唯一标示符（UUID）的信息，并通过这个信息将用户所有行为（浏览了哪些页面？搜索了哪些关键字？对什么感兴趣？点了哪些按钮？用了哪些功能？看了哪些商品？把哪些放入了购物车等等）关联起来。</p>
+<p>而随着网民对个人隐私的重视，Cookie越来越不受待见。不少安全工具甚至是浏览器都开始允许或引导用户关闭Cookie功能，比如很多主流浏览器都有一个“隐私模式浏览”功能。这样以来，网站就很难追踪用户行为了。但仍然有一些方法可以让网站去追踪每一个访问者的行为，比如通过flash cookie的方式也可以达到唯一标识和追踪的目的。</p>
+<p>笔者近期注意到，国外媒体报道了一种非常难以摆脱的新型在线追踪工具被用来尾随从白宫官网到色情网站YouPorn.com的热门网站的访问者。经过分析，这个就是另一种比较新的访客追踪技术：“帆布指纹识别”技术，具体代码见附录6。这个技术的独特之处是：它不像通过Cookie或者Flash Cookie等之类的方式，你基本是无法屏蔽它的。</p>
+<p><strong>【原理分析】</strong></p>
+<p>笔者收集整理了很多知名站点上的类似代码，详见附录4，从这些“帆布指纹识别”代码可以看出，均使用到了HTML5专属标签&lt;canvas&gt;的一个现状：在绘制canvas图片时，同样的canvas绘制代码，不同机器和浏览器绘制的图片特征是相同并且独一无二的，这样以来，提取最简单的md5值便可以唯一标识和跟踪这个用户。</p>
+<p>一段产生canvas元素的javascript代码：</p>
+<pre class="brush: javascript; gutter: true">var canvas = document.createElement('canvas');
+var ctx = canvas.getContext('2d');
+var txt = 'http://security.tencent.com/';
+ctx.textBaseline = "top";
+ctx.font = "14px 'Arial'";
+ctx.textBaseline = "tencent";
+ctx.fillStyle = "#f60";
+ctx.fillRect(125,1,62,20);
+ctx.fillStyle = "#069";
+ctx.fillText(txt, 2, 15);
+ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+ctx.fillText(txt, 4, 17);</pre>
+<p>获取绘画的内容，需要使用到canvas.toDataURL()方法，该方法返回的是图片内容的base64编码字符串。对于PNG文件格式，以块(chunk)划分，最后一块是一段32位的CRC校验，提取这段CRC校验码便可以用于用户的唯一标识：</p>
+<pre class="brush: javascript; gutter: true">var b64 = canvas.toDataURL().replace("data:image/png;base64,","");
+var bin = atob(b64);
+var crc = bin2hex(bin.slice(-16,-12));
+console.log(crc);</pre>
+<p>chrome隐身模式测试：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/07/e0e6635e1c4f2a9253c50f4863fc87f3.jpg" rel="lightbox[74461]" title="取代cookie的网站追踪技术：”帆布指纹识别”初探"><img class="alignnone size-full wp-image-74463" alt="614042dc4c769520310cea5a7fe024ba" src="/images/jobbole.com/e29560b7e829e202e4795e607070bd6f.jpg"></a></p>
+<p> </p>
+<p>同一机器的chrome浏览器，无论正常模式还是隐身模式，得到的crc值始终一致。而对于不同机器得到的值是不同的，追踪效果显而易见。</p>
+<p>看到这里，相信很多人想问，Why？为什么会出现这样的情况？同样的js代码，在不同设备的浏览器上，结果是唯一并且各不相同的。这到底是为什么？其实原因很简单，同样的HTML5 Canvas元素绘制操作，在不同的操作系统不同的浏览器上，产生的图片内容其实是不完全相同的。出现这种情况可能是有几个原因：</p>
+<p>1、在图片格式上，不同web浏览器使用了不同的图形处理引擎、不同的图片导出选项、不同的默认压缩级别等。</p>
+<p>2、在像素级别来看，操作系统各自使用了不同的设置和算法来进行抗锯齿和子像素渲染操作。</p>
+<p>因此，即使是相同的绘图操作，最终产生的图片数据在hash层面上依然是不同的。这个具体代码层面，恐怕要去搞懂各个主流浏览器的实现和以及操作系统的渲染。笔者精力所限，短期很难给出。大家可以自行摸索下，欢迎交流J</p>
+<p><strong>【后话】</strong></p>
+<p>HTML5千变万化，利用canvas 这一特性来实现用户追踪，目前并没有好的对抗方案，未来也只能依靠广大浏览器厂商自行了断，实现canvas绘图机制的随机化或许可以很好的保护用户隐私，防止被追踪。</p>
+<p>文中涉及到的代码和技术细节，只限用于技术交流，切勿用于非法用途。另外，如果想要研究更多的用户追踪技术，推荐去研究下大名鼎鼎的专注于访客追踪的开源项目：evercookie【附录5】，这个猥琐的小工具，通过几乎所有你想到和想不到的方式（Cookie、Flash、Silverlight、Web History、HTTP ETags、Web cache、window.name caching、userData storage、HTML5、甚至是java的漏洞等）来跟踪访问网站的用户行为。</p>
+<p><strong>【附录】<br>
+</strong></p>
+<p>[1] <a href="http://cseweb.ucsd.edu/~hovav/dist/canvas.pdf">http://cseweb.ucsd.edu/~hovav/dist/canvas.pdf</a></p>
+<p>[2] <a href="https://securehomes.esat.kuleuven.be/~gacar/sticky/index.html">https://securehomes.esat.kuleuven.be/~gacar/sticky/index.html</a></p>
+<p>[3] <a href="https://panopticlick.eff.org/browser-uniqueness.pdf">https://panopticlick.eff.org/browser-uniqueness.pdf</a></p>
+<p>[4] 部分“帆布指纹鉴别代码”地址列表：</p>
+<p>http://ct1.addthis.com/static/r07/core130.js</p>
+<p>http://i.ligatus.com/script/fingerprint.min.js</p>
+<p>http://src.kitcode.net/fp2.js</p>
+<p>http://admicro1.vcmedia.vn/fingerprint/figp.js</p>
+<p>http://shorte.st/js/packed/smeadvert-intermediate-ad.js</p>
+<p>http://stat.ringier.cz/js/fingerprint.min.js</p>
+<p>http://cya2.net/js/STAT/89946.js</p>
+<p>http://images.revtrax.com/RevTrax/js/fp/fp.min.jsp</p>
+<p>http://rackcdn.com/mongoose.fp.js</p>
+<p>[5]  evercookie官网 <a href="http://samy.pl/evercookie/">http://samy.pl/evercookie/</a></p>
+<p>[6]  使用帆布指纹识别技术的库fingerprintjs 官网 <a href="https://github.com/Valve/fingerprintjs">https://github.com/Valve/fingerprintjs</a></p>
+<p>[7]  <a href="https://www.browserleaks.com/canvas#how-does-it-work">https://www.browserleaks.com/canvas#how-does-it-work</a></p>
+
+
+<!-- div id="ad1">
+</div -->
+
+<p><a target="_blank" rel="nofollow" href="http://www.jobdeer.com/?fr=jobbole"></a></p>
+	
+
+
+	
+{% endraw %}
