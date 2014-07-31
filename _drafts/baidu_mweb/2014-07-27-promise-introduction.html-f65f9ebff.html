@@ -1,0 +1,294 @@
+---
+layout: post
+title: 'Promise 初探'
+time: 2014-07-27
+site_name: mweb.baidu.com
+source_url: http://mweb.baidu.com/p/promise-introduction.html
+---
+{% raw %}
+
+		<p>其实 Promise 这个东西提出来也挺久时间了，它是一种解决复杂异步回调逻辑的方法。大部分人类的正常思维方式都是线性连贯的，但是在 JavaScript 中，异步却是主流。所以，在遇到复杂逻辑时，我们往往会<a href="http://tritarget.org/blog/2012/11/28/the-pyramid-of-doom-a-javascript-style-trap/">写成这样</a>：</p>
+<pre class="wp-code-highlight prettyprint">
+// Code uses jQuery to illustrate the Pyramid of Doom
+(function($) {
+  $(function(){
+    $("button").click(function(e) {
+      $.get("/test.json", function(data, textStatus, jqXHR) {
+        $(".list").each(function() {
+          $(this).click(function(e) {
+            setTimeout(function() {
+              alert("Hello World!");
+            }, 1000);
+          });
+        });
+      });
+    });
+  });
+})(jQuery);
+</pre>
+<p>这就是所谓的「回调金字塔」，每当看到这样的代码，我就会不由自主地唱起一首歌：</p>
+<blockquote><p>
+  如果你愿意一层一层一层地剥开我的心……
+</p></blockquote>
+<p>解决这个方法最简单的方法，就是把匿名函数取个名字，单独提取出来定义。但是当遇到多变的业务场景时，具名函数的方法也不太管用，于是便有了各种高级的碾平异步回调的解决方案，Promise 就是其中一种。</p>
+<p>在 ECMAScript 6 中，Promise 模式得到了原生的支持。我们就从原生模型说起。</p>
+<p><span id="more-497"></span></p>
+<h2>ECMAScript 6 Promise</h2>
+<p>为了简化各种各样的异步逻辑，我们先假设有一个会花一些时间来完成的 JS 函数。它的功能很简单，就是过一段时间以后调用传入的回调函数。</p>
+<pre class="wp-code-highlight prettyprint">
+var wait = function(callback, param) {
+  setTimeout(function() {
+    callback(param)
+  }, 2000 + (Math.random() - 0.5) * 1000);
+}
+wait(console.log.bind(console), 'test');
+</pre>
+<p>你可以想象多层嵌套的时候大概是什么样子：</p>
+<pre class="wp-code-highlight prettyprint">
+wait(function() {
+  console.log('如果你愿意');
+  wait(function() {
+    console.log('一层');
+    wait(function() {
+      console.log('一层');
+      wait(function() {
+        console.log('一层地');
+        wait(console.log.bind(console), '剥开我的心');
+      });
+    });
+  });
+});
+</pre>
+<p>那么，在 Promise 的世界里是什么样的呢？这就不得不先枯燥地解释一些东西了。首先，什么叫做一个「promise」？一个 promise 可以是一个对象或者函数，它包含一个 <code>then</code> 接口并且符合相应的规范。使用一个 promise 的方法就是这样：</p>
+<pre class="wp-code-highlight prettyprint">
+promise.then(function(response) {
+    // onFulfilled 时执行
+}, function(error) {
+    // onRejected 时执行
+});
+</pre>
+<p>于是问题又来了，什么叫做 fulfilled 和 rejected 呢？一个 promise 会有三种状态，大致可以理解为执行成功（fulfilled）、执行失败（rejected）和正在执行中（pending）。Promise 包含一个状态机，它内部的状态转换，只允许从 pending 到 fulfilled 或者 rejected 一次，不允许更多了。如果用大家喜闻乐见的薛定谔的猫来解释，就是打开盒子的时候，我们的猫要么死了，要么没死，要么不确定死没死，死的的猫无法复活，活猫也一定不会死:D</p>
+<p>新建一个 promise 的时候，我们需要在代码中定义什么时候算成功了，什么时候算失败了。于是上面 wait 的例子便可以改写这样了：</p>
+<pre class="wp-code-highlight prettyprint">
+function waitPromise(param) {
+  return new Promise(function(resolve, reject) {
+    setTimeout(function() {
+      resolve(param);
+    }, 2000 + (Math.random() - 0.5) * 1000);
+  });
+}
+
+waitPromise('如果你愿意').then(function(response) {
+  console.log(response);
+  return waitPromise('一层');
+}).then(function(response) {
+  console.log(response);
+  return waitPromise('一层');
+}).then(function(response) {
+  console.log(response);
+  return waitPromise('一层地');
+}).then(function(response) {
+  console.log(response);
+  return waitPromise('剥开我的心');
+}).then(console.log.bind(console));
+</pre>
+<p>从上面的例子中，我们可以看出几点：</p>
+<ol>
+<li>一个 promise 它 resolve（或者 reject）的东西就是 <code>then</code> 的两个回调接受的参数。</li>
+<li>
+<code>then</code> 可以链式调用，调用的顺序就是你定义的顺序。</li>
+<li>在 <code>onFulfilled</code>（或者 <code>onRejected</code>）中，你可以返回一个 promise，此时 <code>then</code> 会返回这个 promise 的一个代理，并响应它的状态变化（即给下一个 <code>then</code> 使用）。</li>
+</ol>
+<p><code>onFulfilled</code> 和 <code>onRejected</code> 中，除了可以返回一个 promise 以外，还可以返回一个对象，其中包含一个 <code>then</code> 方法——这样的对象称作 <em>thenable</em>。当 thenable 被返回时，代理的 promise 就会去调用该方法，并传入 <code>resolvePromise</code> 和 <code>rejectPromise</code> 两个参数，于是这个 promise 也就链式地传递下去了。除此之外，返回一个不是 thenable 的值也是可以的，这相当于一个简化，该返回值会被链式的 promise 立即 fulfill。</p>
+<p>上面的例子比较一根筋，所有的 <code>then</code> 只定义了第一个参数（即成功的回调），其实我们还可以通过调用 <code>onRejected</code> 或者抛出一个异常来表示 Promise 执行失败，从而进入 <code>then</code> 的第二个函数中（<code>then(func1, func2)</code> 必定会调用且仅调用其中一个）。听上去是不是有点 try/catch 的味道，事实上，Promise 还真提供了一个语法糖，就是 <code>catch(func)</code>，它其实相当于 <code>then(undefined, func)</code>。链条中加入的 <code>catch</code> 可以管上它之前所有的 promise 中的失败情况。</p>
+<p>听上去好像很绕口的样子，而且这个 Promise 也不过是把回调拉平了而已嘛，至于这么复杂么？其实，依赖这些，我们可以方便地实现更多异步逻辑。在 ECMAScript 6中，Promise 还定义了两个接口：</p>
+<ul>
+<li>
+<code>Promise.all</code>：接受一堆 promise 的数组（任何可迭代的对象都可以），只有当他们都解决了以后，才会解决</li>
+<li>
+<code>Promise.race</code>：也是接受一堆 promise，但是只要有一个成功或者失败了，就会立即解决或驳回它本身</li>
+</ul>
+<p>怎么样，是不是突显出 JavaScript 的函数式风格了。就<a href="http://kangax.github.io/compat-table/es6/#Promise">目前的形势</a>而言，Chrome 33 和 Firefox 30 以上的浏览器都已经实现了原生 Promise。</p>
+<h2>Promises/A+</h2>
+<p>之前说了那么多关于 Promise 的这个规定，那个规定，其实它是有一个统一的名称的，就叫做 Promises/A+。在<a href="http://promisesaplus.com/">它的网站</a>上，你可以阅读到完整的规范文档。</p>
+<p>基于这个标准，除了 ECMAScript 6 中比较简易的 Promise 以外，还有很多实现各不相同，功能各有千秋的实现，比较有名的有（按现有 Github Star 数排列）：</p>
+<ul>
+<li><a href="https://github.com/kriskowal/q">Q</a></li>
+<li><a href="https://github.com/petkaantonov/bluebird">Bluebird</a></li>
+<li><a href="https://github.com/cujojs/when">when</a></li>
+<li><a href="https://github.com/tildeio/rsvp.js/">rsvp.js</a></li>
+</ul>
+<p>例如，Q 支持进度查询功能，执行时间较长的异步操作（例如文件上传）可以即时获取进度信息：</p>
+<pre class="wp-code-highlight prettyprint">
+return uploadFile()
+.then(function () {
+    // Success uploading the file
+}, function (err) {
+    // There was an error, and we get the reason for error
+}, function (progress) {
+    // We get notified of the upload's progress as it is executed
+});
+</pre>
+<h2>重新发明轮子</h2>
+<p>尽管 Promise 的实现有很多，但是它们的核心都是一样的，就是围绕着 <code>then</code> 方法展开。既然有了标准规范，其实我们可以自己实现一个简单的 Promise。</p>
+<p>首先当然要创建一个 Promise 对象的构造函数，它接受一个函数作为参数，调用这个函数的时候，会传入 <code>resolve</code> 和 <code>reject</code> 方法。</p>
+<pre class="wp-code-highlight prettyprint">
+function MyPromise(resolver) {
+    // 简单起见就不做类型检查了，假定 resolver 一定为函数
+
+    this.status = 0;  // 0: pending, 1: fulfilled, 2: rejected
+    this.value = null;
+    this.handlers = [];
+
+    doResolve.call(this, resolver);
+}
+
+function doResolve(resolver) {
+    var called = false;
+    function resolvePromise(value) {
+        if (called) {
+            return;
+        } else {
+            called = true;
+            resolve.call(this, value);
+        }
+    }
+
+    function rejectPromise(reason) {
+        if (called) {
+            return;
+        } else {
+            called = true;
+            reject.call(this, reason);
+        }
+    }
+
+    try {
+        resolver(resolvePromise.bind(this), rejectPromise.bind(this));
+    } catch(e) {
+        rejectPromise(e);
+    }
+}
+</pre>
+<p>这样，当使用 <code>new Promise(function(resolve, reject) {...});</code> 构造时，就会进入 <code>doResolve</code>，这时会执行传入给 <code>new Promise</code> 的参数，并给出 <code>resolve</code> 和 <code>reject</code> 的实现。可以看到为了保证 <code>resolve</code> 或 <code>reject</code> 总共只能被调用一次，这里用到了一个闭包。接下来来看具体的 <code>resolve</code> 和 <code>reject</code> 是怎么实现的。</p>
+<pre class="wp-code-highlight prettyprint">
+function resolve(value) {
+    try {
+        if (this === value) {
+            throw new TypeError('A promise cannot be resolved with itself.');
+        }
+        if (value &amp;&amp; (typeof value === 'object' || typeof value === 'function')) {
+            var then = value.then;
+            if (typeof then === 'function') {
+                doResolve.call(this, then.bind(value));
+                return;
+            }
+        }
+        this.status = 1;
+        this.value = value;
+        dequeue.call(this);
+    } catch(e) {
+        reject(e);
+    }
+}
+
+function reject(reason) {
+    this.status = 2;
+    this.value = reason;
+    dequeue.call(this);
+}
+</pre>
+<p>具体的 <code>resolve</code> 实现中，我们会判断解决的值是否是一个 thenable，如果是的话，就会去执行这个 <code>then</code> 函数，并且接受它的状态和返回值。如果不是，就直接使用该值解决这个 promise。</p>
+<p>可以想象，当我们执行 promise 的 <code>then</code> 方法时，其实是完成了一个类似<a href="http://zh.wikipedia.org/zh/%E8%A7%82%E5%AF%9F%E8%80%85%E6%A8%A1%E5%BC%8F">观察者模式</a>的注册过程。当 promise 还处于 pending 状态时，回调函数会被暂时存储起来，待到解决或失败时再执行，但是当 <code>then</code> 发现这个 promise 已经完成了状态转换，便可以根据状态立即执行回调了。</p>
+<p>在这里，我们使用了 <code>this.handlers</code> 数组来暂存 <code>then</code> 的回调函数，当状态改变时，会调用 <code>dequeue</code> 方法来处理队列。</p>
+<pre class="wp-code-highlight prettyprint">
+function dequeue() {
+    var handler;
+    while (this.handlers.length) {
+        handler = this.handlers.shift();
+        handle.call(this, handler.thenPromise, handler.onFulfilled, handler.onRejected);
+    }
+}
+</pre>
+<p>最后便是核心方法 <code>then</code> 的实现了。根据规范，它必须返回一个 promise，并根据 <code>onFulfilled</code> 或 <code>onRejected</code> 回调的返回值来决定是将它标记为完成还是失败。</p>
+<pre class="wp-code-highlight prettyprint">
+MyPromise.prototype.then = function(onFulfilled, onRejected) {
+    var self = this;
+    var thenPromise = new MyPromise(function() {});
+
+    if (!self.status) {
+        self.handlers.push({
+            thenPromise: thenPromise,
+            onFulfilled: onFulfilled,
+            onRejected: onRejected
+        });
+    } else {
+        handle.call(self, thenPromise, onFulfilled, onRejected);
+    }
+
+    return thenPromise;
+};
+
+function handle(thenPromise, onFulfilled, onRejected) {
+    var self = this;
+
+    setTimeout(function() {
+        var callback, ret;
+        if (self.status == 1) {
+            callback = onFulfilled;
+        } else {
+            callback = onRejected;
+        }
+        if (typeof callback === 'function') {
+            try {
+                ret = callback(self.value);
+                resolve.call(thenPromise, ret);
+            } catch(e) {
+                reject.call(thenPromise, e);
+            }
+            return;
+        }
+        if (self.status == 1) {
+            resolve.call(thenPromise, self.value);
+        } else {
+            reject.call(thenPromise, self.value);
+        }
+    }, 1);
+}
+</pre>
+<p>在上面的 <code>handle</code> 函数中，我们立即调用回调函数，并且根据回调函数的类型来改变 <code>then</code> 方法返回的 promise 的状态，这样就形成了一个 promise 链条。</p>
+<p>大约 100 多行代码，我们就实现了一个粗糙的 Promise 库。当然，上面的代码可能还有很多 Bug，并且也不是严格符合 Promises/A+ 的。如果读者发现问题，请不吝指出。</p>
+<p>有了这个核心的基础，实现外围的 API 例如 <code>Promise.all</code>、<code>Promise.race</code> 就比较简单了，这里就不给出了。其实，Promise 看似用起来很简单，想要自己严格实现一个，还是有不少难点的，其中最容易被绕晕的就是对 <code>then</code><br>
+的实现，以及如何处理 <code>then</code> 的回调中又返回新的 promise 的逻辑。</p>
+<p>我们回到文章开头的例子，使用我们自己的 MyPromise 试验一下。简单起见，就不写那么多层了。</p>
+<pre class="wp-code-highlight prettyprint">
+function waitPromise(param) {
+  return new Promise(function(resolve, reject) {
+    setTimeout(function() {
+      resolve(param);
+    }, 2000 + (Math.random() - 0.5) * 1000);
+  });
+}
+
+waitPromise('如果你愿意').then(function(response) {
+  console.log(response);
+  return waitPromise('一层');
+}).then(console.log.bind(console));
+</pre>
+<p>可以看到我们可以成功输出两行文字。你能根据上面的实现，看出这次调用事实上一共产生了多少个 promise 对象吗？</p>
+<p>答案是五个：</p>
+<ul>
+<li>P0：第一次 <code>waitPromise('如果你愿意')</code> 返回的</li>
+<li>P1：第一个 <code>then</code> 返回的</li>
+<li>P2：第二个 <code>then</code> 返回的</li>
+<li>P3：第一个 <code>then</code> 里，通过 <code>return waitPromise('一层')</code> 返回的</li>
+<li>P4：在处理 P1 时，会调用 P3 的 <code>then</code> 方法，这时候又会返回一个 promise</li>
+</ul>
+<h2>参考资料</h2>
+<ul>
+<li><a href="http://www.html5rocks.com/zh/tutorials/es6/promises/">JavaScript Promises – There and back again</a></li>
+<li><a href="http://promisesaplus.com/">Promises/A+</a></li>
+<li>
+</ul>
+			<!-- .entry-content -->
+{% endraw %}

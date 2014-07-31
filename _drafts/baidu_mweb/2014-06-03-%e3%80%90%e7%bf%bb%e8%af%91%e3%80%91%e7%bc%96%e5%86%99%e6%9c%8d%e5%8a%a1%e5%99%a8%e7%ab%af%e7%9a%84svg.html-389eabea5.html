@@ -1,0 +1,361 @@
+---
+layout: post
+title: '【翻译】编写服务器端的SVG'
+time: 2014-06-03
+site_name: mweb.baidu.com
+source_url: http://mweb.baidu.com/p/%e3%80%90%e7%bf%bb%e8%af%91%e3%80%91%e7%bc%96%e5%86%99%e6%9c%8d%e5%8a%a1%e5%99%a8%e7%ab%af%e7%9a%84svg.html
+images:
+  bd23b5f82857cd450eae34d150c59a04: http://jabezblog.u.qiniudn.com/svg.PNG
+  8325ea8d746d276e051bfddc8296fea6: http://www.smashingmagazine.com/wp-content/uploads/2014/05/result.svg
+---
+{% raw %}
+
+		<p><img src="/images/mweb.baidu.com/bd23b5f82857cd450eae34d150c59a04.jpg" alt=""></p>
+<h1>编写服务器端的SVG</h1>
+<p>我想到了2014年已经不需要再去解释SVG对于前端开发的重要性了，SVG能够让图形在所有设备上的表现一致，尤其是在不同分辨率的设备之间。然而，和其他技术一样，SVG也有它的缺点。在本文中，我们将一起来学习如何绕过其中的一些。</p>
+<p><span id="more-463"></span></p>
+<h1>问题是什么？</h1>
+<p>你为什么需要在服务器端生成SVG？既然这项技术是一项客户端上的技术，那么为什么人们会想要在服务器端生成SVG呢？</p>
+<p>在回答这些问题之前，我们先来看看现状如何。如今当我们谈论到“生成SVG”时，我们其实是在讨论“用JavaScript生成SVG”。目前浏览器的支持和一些库使得创造复杂的图像（甚至包含动画和用户交互）变成了一件非常简单的事情：你只需要选择一个适合你的库即可。</p>
+<p>对于SVG库，我们有很多选择，从一些被人们普遍使用的例如Raphaël.js, Snap.svg 以及 svg.js到其他数不清的小型svg库。如果你要绘制图表或者进行数据可视化，你还可以选择gRaphaël, Highcharts 或者 D3。</p>
+<p>因此正确的问题应该是，我们怎么能在继续使用JavaScript生成SVG的同时又将生成的结果放到服务器上呢？这个问题有点长，但是下面的几点说明了我们为什么应该回答它：</p>
+<ul>
+<li>允许用户去下载一张图片： 如果你不想用一些“不明”格式的图片去吓坏用户，那么你应该将SVG转换为PNG或者PDF。  </li>
+<li>允许在一封邮件中插入图形： 我们在邮件中同样需要图形，并且我们希望看到一张高质量的图片。  </li>
+<li>允许一个图形显示在另一个网站上： 考虑一下API。  </li>
+<li>提升性能： 复杂的可视化逻辑经常会轻易的让浏览器当机几秒钟。通过在服务器端生成SVG，我们可以缓存结果然后将在用户想要使用时将缓存的SVG传递到客户端。   </li>
+</ul>
+<h1>解决办法</h1>
+<h2>在服务器端重建所有逻辑</h2>
+<p>这个方法是可用的，但我们不会去使用它。绝大多数成熟的后端语言都有一些能够生成SVG的库。但是作为开发者，我们并不想要重复逻辑两次，因为这将会导致一些bug，整合问题，对于后期维护来说也是一个沉重的负担。</p>
+<h2>最直接的解决方法</h2>
+<p>最简单的方式是将浏览器端生成的SVG通过AJAX的形式发送到浏览器端。</p>
+<p>下面是一个环宇jQuery和Raphaël.js的简单例子。我们将以一段简单的HTML模板开始：</p>
+<pre class="wp-code-highlight prettyprint">
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+   &lt;head&gt;
+  &lt;meta charset="utf-8"&gt;
+  &lt;script src="http://code.jquery.com/jquery-2.1.0.min.js"&gt;&lt;/script&gt;
+  &lt;script src="http://cdnjs.cloudflare.com/ajax/libs/raphael/2.1.2/raphael-min.js"&gt;&lt;/script&gt;
+   &lt;/head&gt;
+   &lt;body&gt;
+  &lt;div id="svg"&gt;&lt;/div&gt;
+   &lt;/body&gt;
+&lt;/html&gt;
+</pre>
+<p>现在，我们来添加绘图代码：</p>
+<pre class="wp-code-highlight prettyprint">
+    $(function() {
+       var svgContainer = document.getElementById("svg");
+       var paper = Raphael(svgContainer, 640, 480);
+      
+       paper
+      .rect(0, 0, 640, 480, 10)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+      });
+    
+       var circle = paper
+    .circle(320, 240, 60)
+    .attr({
+       fill: '#223fa3', 
+       stroke: '#000',
+       'stroke-width': 80,
+       'stroke-opacity': 0.5
+    });
+       paper
+      .rect(circle.attr('cx') - 10, circle.attr('cy') - 10, 20, 20)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+      });
+      
+       $.post(
+      '/svg_catcher',
+      { content: svgContainer.innerHTML }
+      );
+    });  
+</pre>
+<p>在服务器端，我们只需要缓存结果并使用任意一种方式去处理它。下面显示的就是上面的代码生成的图片：</p>
+<p><img src="/images/mweb.baidu.com/8325ea8d746d276e051bfddc8296fea6.jpg" alt=""></p>
+<p>这个技巧绝不不仅仅适用于Raphaël，也适用于任何的SVG库。在这里以Raphaël为例仅仅是因为它非常受欢迎，经过严格测试，API也很好理解。它不仅能够使用JavaScript轻易的创造和操纵图形，同时对那些不支持SVG的旧版本浏览器也支持VML。</p>
+<p>这种方式非常简单而直接，但是也有一些缺点：</p>
+<ul>
+<li>你需要在上传SVG代码以后内联所有的外部资源（包括图片），否则所有的转换部分将会显示为空白而不是原来的资源。  </li>
+<li>如果生成的SVG体积很大，而用户的网络条件又很差，结果将导致文件失效。我们可以再服务器端验证文件，但是却无法解决下面一个问题。  </li>
+<li>恶意输入是一个问题。将一张漂亮的商业图表换成一张小猫的图片是非常容易的。从技术上来说，它是合格的，但是你会知道它并不是你想要的结果。  </li>
+</ul>
+<p>如果你信任你的用户的话（例如企业内网），你完全可以使用这种方法。否则，安全风险将是一个大问题。</p>
+<h2>PhantomJS</h2>
+<p>为了防止用户从方程式输入（或者尽可能减小这一过程），我们应该将生成SVG的脚本移到服务器端上。</p>
+<p>浏览器中运行着很多复杂的代码。因此最简单的方式就是讲浏览器移到服务器上。感谢PhantomJS，让我们梦想成真。</p>
+<p>PhantomJS是一个WebKit的实现方式，它使用JavaScript来进行控制。简单来说，它就是一个无界面的浏览器，这意味着页面永远不会被渲染。</p>
+<p>一开始你需要在你的系统上安装PhantomJS，查看一下官方文档，非常简单。然后我们将我们的脚本进行一些小小的修改以便它能够在PhantomJS中运行：首先，我们创建<code>index.html</code>来作为我们生成器的模板：</p>
+<pre class="wp-code-highlight prettyprint">
+    &lt;!DOCTYPE html&gt;
+    &lt;html&gt;
+       &lt;head&gt;
+      &lt;script src="http://cdnjs.cloudflare.com/ajax/libs/raphael/2.1.2/raphael-min.js"&gt;&lt;/script&gt;
+      &lt;meta charset="utf-8"&gt;
+       &lt;/head&gt;
+       &lt;body&gt;
+      &lt;div id="svg"&gt;&lt;/div&gt;
+       &lt;/body&gt;
+    &lt;/html&gt;   
+</pre>
+<p>然后，创建<code>generator.js</code>，它将会驱动PhantomJS：</p>
+<pre class="wp-code-highlight prettyprint">    
+    var fs = require('fs');
+    var page = require('webpage').create();
+    var url = 'file://' + fs.absolute('./index.html');
+    
+    var svgDrawer = function() {
+       var svgContainer = document.getElementById("svg");
+       var paper = Raphael(svgContainer, 640, 480);
+       paper
+      .rect(0, 0, 640, 480, 10)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+    });
+       var circle = paper
+    .circle(320, 240, 60)
+    .attr({
+       fill: '#223fa3',
+       stroke: '#000',
+       'stroke-width': 80,
+       'stroke-opacity': 0.5
+    });
+       paper
+      .rect(circle.attr('cx') - 10, circle.attr('cy') - 10, 20, 20)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+    });
+    
+       return svgContainer.innerHTML;
+    };
+    
+    page.open(url, function (status) {
+       console.log(page.evaluate(svgDrawer));
+       phantom.exit();
+    });
+</pre>
+<p>现在我们已经做好的准备工作，运行下面的代码：</p>
+<pre class="wp-code-highlight prettyprint">&lt;code&gt;phantomjs generator.js &amp;gt; result.svg  
+&lt;/code&gt;</pre>
+<p>现在我们已经有了一个完全能在服务器上运行的生成器，同时不需要我们编写多于的代码。</p>
+<p>我们还能做到更好吗？答案是YES！</p>
+<p>在我的电脑上，运行<code>time phantomjs generator.js &gt; result.svg</code>需要花费大约0.2s。</p>
+<blockquote><p>
+  0.14s user 0.03s system 74% cpu 0.232 total
+</p></blockquote>
+<p>其中最花费时间的任务，毫无疑问是“浏览器热身”时间。我们在每次请求时需要做这件事情，这样显然非常没有效率。我们可以通过将PhantomJS脚本从一个“单次运行”的解决方案移到一个真正的服务器，监听数据并响应SVG来解决这个问题。</p>
+<p>我们现在就来做这件事，我们并不想要每次都生成一模一样的SVG。因此我们想要为我们的可视化添加动态支持。我们最终的工作流程如下所示：</p>
+<ol>
+<li>启动一个服务器，它将会监听一个一个接口上我们的所有请求</li>
+<li>将请求同数据有效荷载一起传递用于可视化</li>
+<li>接受基于我们的数据生成的SVG  </li>
+</ol>
+<p>为了开启一个服务器，我们需要使用内建的模块：</p>
+<pre class="wp-code-highlight prettyprint">
+    var port, server, page, url, fs = require('fs');
+    
+    port = 9494;
+    server = require('webserver').create();
+    
+    page = require('webpage').create();
+    url = 'file://' + fs.absolute('./index.html');
+</pre>
+<p>然后，我们需要改变我们的绘图函数来支持动态数据：</p>
+<pre class="wp-code-highlight prettyprint">
+    var svgDrawer = function(data) {
+       var svgContainer = document.getElementById("svg");
+       var paper = Raphael(svgContainer, 640, 480);
+       paper
+      .rect(data.x, data.y, 640, 480, 10)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+      });
+       var circle = paper
+    .circle(data.x/2, data.y/2, 60)
+    .attr({
+       fill: '#223fa3',
+       stroke: '#000',
+       'stroke-width': 80,
+       'stroke-opacity': 0.5
+    });
+       paper
+      .rect(circle.attr('cx') - 10, circle.attr('cy') - 10, 20, 20)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+      });
+    
+       return svgContainer.innerHTML;
+    }  
+</pre>
+<p>正如你所见，上面的代码只做了一些小小的改动。我们传递了<code>data</code>参数并使用其中的<code>x</code>和<code>y</code>属性来定义我们的<code>rect</code>和<code>circle</code>。</p>
+<p>现在，我们来编写用些响应每个请求的函数。它将会接卸请求的荷载，在页面的上下文中运行绘图代码并且将结果返回给我们：</p>
+<pre class="wp-code-highlight prettyprint">
+    var service = server.listen(port, function (request, response) {
+       var drawerPayload = JSON.parse(request.post).data;
+       page.open(url, function (status) {
+      var svg = page.evaluate(svgDrawer, drawerPayload);
+    
+      response.statusCode = 200;
+      response.write(svg);
+      response.close();
+       });
+    });  
+</pre>
+<p>最后一个部分的作用是检查所有的一切是否正常运行并且通知用户我们即将要做的事：</p>
+<pre class="wp-code-highlight prettyprint">
+    
+    if (service) {
+       console.log('Web server running on port ' + port);
+    } else {
+       console.log('Error: Could not create web server listening on port ' + port);
+       phantom.exit();
+    }
+</pre>
+<p>现在我们已经准备好测试我们的服务器了！运行<code>phantom server.js</code>并创建一个测试荷载文件，<code>payload.json</code>:</p>
+<pre class="wp-code-highlight prettyprint">
+    {
+       "data": {
+      "x": 700,
+      "y": 490
+       }
+    }  
+</pre>
+<p>然后使用cURL来向服务器发出请求：</p>
+<pre class="wp-code-highlight prettyprint">
+    curl -X POST -d @payload.json -H "Content-Type: application/json" localhost:9494 
+</pre>
+<p>你应该已经接收到了你的自定义SVG。速度应该已经获得了提升：</p>
+<blockquote><p>
+  0.00s user 0.00s system 30% cpu 0.026 total
+</p></blockquote>
+<p>总而言之，使用PhantomJS运行代码是在服务器端生成SVG最有效的方式。</p>
+<p>Highcharts，一个非常流行的图表库，拥有它自己的脚本，你可以使用它轻松的生成用于邮件汇报和其他目的的图片。</p>
+<h2>JSDOM</h2>
+<p>有人可能会问：“为什么我们要讲一个实际的服务器移到服务器端？为什么我们不能只使用Node.js在后端运行我们的绘图函数？”</p>
+<p>我们可以这样做。但是最大的障碍并不是如何在Node.js中require一个浏览器端的库，而是如何在没有DOM操纵的情况下运行。<br>
+Raphael，Snap，svg等其他SVG库都使用DOM API来创建一个SVG文档，在其中加入节点并且用不同方式操纵它。Node.js缺少这样的API。</p>
+<p>JSDOM正是你想要的：一个可以在Node.js中使用的DOM操纵JavaScript库。</p>
+<p>下面我们将绘图函数进行一些转换看看能不能在JSDOM中使用：</p>
+<pre class="wp-code-highlight prettyprint">
+    var jsdom = require('jsdom').jsdom;
+    var fs = require('fs');
+    
+    var boilerplate = fs.readFileSync('index.html');
+    
+    var doc = jsdom(boilerplate);
+    doc.implementation.addFeature(
+      'http://www.w3.org/TR/SVG11/feature#BasicStructure', '1.1'
+    )
+</pre>
+<p>在这里，我们调用了JSDOM并为它传递了我们的模板HTML，同时在支持特性的列表中添加了SVG 1.1。</p>
+<p>现在，我们在<code>window.onload</code>回调中添加绘图代码：</p>
+<pre class="wp-code-highlight prettyprint">
+    var window = doc.parentWindow;
+    
+    window.onload = function() {
+       window.Raphael.prototype.renderfix = function(){};
+       var svgContainer = window.document.getElementById('svg');
+       var paper = window.Raphael(svgContainer, 640, 480);
+       paper
+      .rect(0, 0, 640, 480, 10)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+      });
+       var circle = paper
+    .circle(320, 240, 60)
+    .attr({
+      fill: '#223fa3',
+      stroke: '#000',
+      'stroke-width': 80,
+      'stroke-opacity': 0.5
+    });
+       paper
+      .rect(circle.attr('cx') - 10, circle.attr('cy') - 10, 20, 20)
+      .attr({
+     fill: '#fff',
+     stroke: 'none'
+      });
+       console.log(svgContainer.innerHTML);
+    };  
+</pre>
+<p>绘图代码没有做任何修改，除了我们在所有window作用域下的变量前面添加了<code>window</code>其中年会，同时添加了一行神秘的代码：</p>
+<pre class="wp-code-highlight prettyprint">
+    window.Raphael.prototype.renderfix = function(){};
+</pre>
+<p>这是一个hack小技巧，因为JSDOM并不支持特定的SVG API，因此一定要注意这一点。在我们的例子中，如果我们移除这一行代码，将会得到如下的错误：</p>
+<blockquote><p>
+  TypeError: Object [ SVG ] has no method ‘createSVGMatrix’
+</p></blockquote>
+<p>在这里，我们重载了Raphael中的<code>renderfix</code>函数，而改用<code>createSVGMatrix</code>，一个空函数。这种解决方法还不能再生产环境下使用，但是在我们的试验中运行的很好。</p>
+<p>现在我们运行<code>node index.js</code>来进行我们的实验。猜猜速度如何？</p>
+<blockquote><p>
+  0.49s user 0.06s system 89% cpu 0.612 total
+</p></blockquote>
+<p>因此，使用JSDOM是可行的，但是这种方式还不太稳定并且比PhantomJS要慢。尽管如此，这仍然是一种不错的方式，也是一个有趣的试验。</p>
+<h2>SVABLE</h2>
+<p>现在又最后一种方式: Svable。它的转换接口是免费的，使用这些接口我们不需要去进行上面提到的工具中那么多的设置。你只需要发送你的SVG然后你就能够得到一个PDF或者PNG：</p>
+<pre class="wp-code-highlight prettyprint">
+    curl -X POST -d @payload.json \
+      -H "Content-Type: application/json" \  
+      -H "Authorization: Bearer your-svable-token" \
+      https://svable.com/api/convert &gt; result.pdf  
+</pre>
+<p>下面是<code>payload.json</code>文件：</p>
+<pre class="wp-code-highlight prettyprint">
+    {
+       "content": "&lt;svg&gt;…",
+       "format": "pdf"
+    }  
+</pre>
+<p>更多的细节，可以查看Svable网站上的文档。</p>
+<p>服务的第二个（也是更加有趣的）部分是一个生成SVG的功能。你可以不用PhantomJS或者任何DOM模拟，不用任何绘图代码就能生成一张图片。</p>
+<p>Svable为大多数流行的SVG生成库提供了API和特定的适配器。因此，在我们的Raphaël例子中：</p>
+<pre class="wp-code-highlight prettyprint">    
+    var Svable = require('svable');
+    var paper = Svable(0, 0, 640, 480, 'raphael');
+    paper
+       .rect(0, 0, 640, 480, 10)
+       .attr({
+       fill: '#fff',
+       stroke: 'none'
+       });
+    var circle = paper
+       .circle(320, 240, 60)
+       .attr({
+      fill: '#223fa3',
+      stroke: '#000',
+      'stroke-width': 80,
+      'stroke-opacity': 0.5
+       });
+    paper
+       .rect(circle.attr('cx') - 10, circle.attr('cy') - 10, 20, 20)
+       .attr({
+      fill: '#fff',
+      stroke: 'none'
+       });
+    
+    console.log(paper.burnSync());  
+</pre>
+<p>上面的代码将会返回我们的SVG，而<code>paper.burnSync({ format:"pdf" })</code>将会返回转换的PDF文件。</p>
+<p>这个功能目前只用于私有测试版，你可以持续关注它。</p>
+<h1>总结</h1>
+<p>可以这样说，当我们谈论到SVG时，我们不能说“它只运行在服务器端了”。</p>
+<p>很多技术可以让我们使用浏览器端的代码在服务器端生成SVG，同时这些资源和结构对于任何的可视化来说都是可用的。</p>
+<p>也许你一开始只是使用SVG来满足你的一些基本业务需求，但是你会渐渐的意识到其中的缺点和瓶颈并学着修改它。</p>
+<p>祝你使用SVG愉快！</p>
+<hr>
+<p>本文译自，原文地址http://www.smashingmagazine.com/2014/05/26/love-generating-svg-javascript-move-to-server/</p>
+			<!-- .entry-content -->
+{% endraw %}
