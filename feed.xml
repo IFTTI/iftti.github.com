@@ -5,9 +5,505 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Thu, 31 Jul 2014 10:42:36 +0800</pubDate>
-    <lastBuildDate>Thu, 31 Jul 2014 10:42:36 +0800</lastBuildDate>
+    <pubDate>Thu, 31 Jul 2014 19:43:17 +0800</pubDate>
+    <lastBuildDate>Thu, 31 Jul 2014 19:43:17 +0800</lastBuildDate>
     <generator>Jekyll v2.1.0</generator>
+    
+      <item>
+        <title>数字证书原理</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;文中首先解释了加密解密的一些基础知识和概念，然后通过一个加密通信过程的例子说明了加密算法的作用，以及数字证书的出现所起的作用。接着对数字证书做一个详细的解释，并讨论一下windows中数字证书的管理，最后演示使用makecert生成数字证书。如果发现文中有错误的地方，或者有什么地方说得不够清楚，欢迎指出！&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h5&gt;1、基础知识&lt;/h5&gt;
+&lt;p&gt;这部分内容主要解释一些概念和术语，最好是先理解这部分内容。&lt;/p&gt;
+&lt;h6&gt;1.1、公钥密码体制(public-key cryptography)&lt;/h6&gt;
+&lt;p&gt;公钥密码体制分为三个部分，公钥、私钥、加密解密算法，它的加密解密过程如下：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;加密：通过加密算法和公钥对内容(或者说明文)进行加密，得到密文。加密过程需要用到公钥。&lt;/li&gt;
+&lt;li&gt;解密：通过解密算法和私钥对密文进行解密，得到明文。解密过程需要用到解密算法和私钥。注意，由公钥加密的内容，只能由私钥进行解密，也就是说，由公钥加密的内容，如果不知道私钥，是无法解密的。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;公钥密码体制的公钥和算法都是公开的(这是为什么叫公钥密码体制的原因)，私钥是保密的。大家都以使用公钥进行加密，但是只有私钥的持有者才能解密。在实际的使用中，有需要的人会生成一对公钥和私钥，把公钥发布出去给别人使用，自己保留私钥。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;1.2、对称加密算法(symmetric key algorithms)&lt;/h6&gt;
+&lt;p&gt;在对称加密算法中，加密使用的密钥和解密使用的密钥是相同的。也就是说，加密和解密都是使用的同一个密钥。因此对称加密算法要保证安全性的话，密钥要做好保密，只能让使用的人知道，不能对外公开。这个和上面的公钥密码体制有所不同，公钥密码体制中加密是用公钥，解密使用私钥，而对称加密算法中，加密和解密都是使用同一个密钥，不区分公钥和私钥。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;// 密钥，一般就是一个字符串或数字，在加密或者解密时传递给加密/解密算法。前面在公钥密码体制中说到的公钥、私钥就是密钥，公钥是加密使用的密钥，私钥是解密使用的密钥。&lt;/p&gt;
+&lt;h6&gt;&lt;/h6&gt;
+&lt;h6&gt;1.3、非对称加密算法(asymmetric key algorithms)&lt;/h6&gt;
+&lt;p&gt;在非对称加密算法中，加密使用的密钥和解密使用的密钥是不相同的。前面所说的公钥密码体制就是一种非对称加密算法，他的公钥和是私钥是不能相同的，也就是说加密使用的密钥和解密使用的密钥不同，因此它是一个非对称加密算法。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;1.4、RSA简介&lt;/h6&gt;
+&lt;p&gt;RSA是一种公钥密码体制，现在使用得很广泛。如果对RSA本身有兴趣的，后面看我有没有时间写个RSA的具体介绍。&lt;/p&gt;
+&lt;p&gt;RSA密码体制是一种公钥密码体制，公钥公开，私钥保密，它的加密解密算法是公开的。 由公钥加密的内容可以并且只能由私钥进行解密，并且由私钥加密的内容可以并且只能由公钥进行解密。也就是说，&lt;strong&gt;RSA的这一对公钥、私钥都可以用来加密和解密，并且一方加密的内容可以由并且只能由对方进行解密&lt;/strong&gt;。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;1.5、签名和加密&lt;/h6&gt;
+&lt;p&gt;我们说加密，是指对某个内容加密，加密后的内容还可以通过解密进行还原。 比如我们把一封邮件进行加密，加密后的内容在网络上进行传输，接收者在收到后，通过解密可以还原邮件的真实内容。&lt;/p&gt;
+&lt;p&gt;这里主要解释一下签名，签名就是在&lt;strong&gt;信息&lt;/strong&gt;的后面再加上一段内容，可以证明&lt;strong&gt;信息&lt;/strong&gt;没有被修改过，怎么样可以达到这个效果呢？一般是对&lt;strong&gt;信息&lt;/strong&gt;做一个hash计算得到一个hash值，注意，这个过程是不可逆的，也就是说无法通过hash值得出原来的&lt;strong&gt;信息&lt;/strong&gt;内容。在把&lt;strong&gt;信息&lt;/strong&gt;发送出去时，把这个hash值加密后做为一个签名和&lt;strong&gt;信息&lt;/strong&gt;一起发出去。 接收方在收到&lt;strong&gt;信息&lt;/strong&gt;后，会重新计算&lt;strong&gt;信息&lt;/strong&gt;的hash值，并和&lt;strong&gt;信息&lt;/strong&gt;所附带的hash值(解密后)进行对比，如果一致，就说明信息的内容没有被修改过，因为这里hash计算可以保证不同的内容一定会得到不同的hash值，所以只要内容一被修改，根据&lt;strong&gt;信息&lt;/strong&gt;内容计算的hash值就会变化。当然，不怀好意的人也可以修改&lt;strong&gt;信息&lt;/strong&gt;内容的同时也修改hash值，从而让它们可以相匹配，为了防止这种情况，hash值一般都会加密后(也就是签名)再和&lt;strong&gt;信息&lt;/strong&gt;一起发送，以保证这个hash值不被修改。至于如何让别人可以解密这个签名，这个过程涉及到数字证书等概念，我们后面在说到数字证书时再详细说明，这里您先只需先理解签名的这个概念。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h5&gt;2、一个加密通信过程的演化&lt;/h5&gt;
+&lt;p&gt;我们来看一个例子，现在假设“服务器”和“客户”要在网络上通信，并且他们打算使用RSA(参看前面的RSA简介)来对通信进行加密以保证谈话内容的安全。由于是使用RSA这种公钥密码体制，“服务器”需要对外发布公钥(算法不需要公布，RSA的算法大家都知道)，自己留着私钥。“客户”通过某些途径拿到了“服务器”发布的公钥，客户并不知道私钥。“客户”具体是通过什么途径获取公钥的，我们后面再来说明，下面看一下双方如何进行保密的通信：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.1 第一回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：？？？？&lt;/p&gt;
+&lt;p&gt;因为消息是在网络上传输的，有人可以冒充自己是“服务器”来向客户发送信息。例如上面的消息可以被黑客截获如下：&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“客户”-&amp;gt;“黑客”：你好&lt;/strong&gt;        // 黑客在“客户”和“服务器”之间的某个路由器上截获“客户”发给服务器的信息，然后自己冒充“服务器”&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;因此“客户”在接到消息后，并不能肯定这个消息就是由“服务器”发出的，某些“黑客”也可以冒充“服务器”发出这个消息。如何确定信息是由“服务器”发过来的呢？有一个解决方法，因为只有服务器有私钥，所以如果只要能够确认对方有私钥，那么对方就是“服务器”。因此通信过程可以改进为如下：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.2 第二回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;// &lt;strong&gt;注&lt;/strong&gt;意这里约定一下，{} 表示RSA加密后的内容，[ | ]表示用什么密钥和算法进行加密，后面的示例中都用这种表示方式，例如上面的&lt;/strong&gt; {你好，我是服务器}[私钥|RSA]&lt;strong&gt;  就表示用私钥对&lt;/strong&gt;“你好，我是服务器”&lt;strong&gt;进行加密后的结果。&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;为了向“客户”证明自己是“服务器”， “服务器”把一个字符串用自己的私钥加密，把明文和加密后的密文一起发给“客户”。对于这里的例子来说，就是把字符串 “你好，我是服务器”和这个字符串用私钥加密后的内容 {你好，我是服务器}[私钥|RSA] 发给客户。&lt;/p&gt;
+&lt;p&gt;“客户”收到信息后，她用自己持有的公钥解密密文，和明文进行对比，如果一致，说明信息的确是由服务器发过来的。也就是说“客户”把 {你好，我是服务器}[私钥|RSA] 这个内容用公钥进行解密，然后和“你好，我是服务器”对比。因为由“服务器”用私钥加密后的内容，&lt;strong&gt;由并且只能由&lt;/strong&gt;公钥进行解密，私钥只有“服务器”持有，所以如果解密出来的内容是能够对得上的，那说明信息一定是从“服务器”发过来的。&lt;/p&gt;
+&lt;p&gt;假设“黑客”想冒充“服务器”：&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“客户”-&amp;gt;“黑客”：向我证明你就是服务器&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[？？？|RSA]&lt;/strong&gt;    //这里黑客无法冒充，因为他不知道&lt;strong&gt;私钥&lt;/strong&gt;，无法用&lt;strong&gt;私钥&lt;/strong&gt;加密某个字符串后发送给客户去验证。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“客户”-&amp;gt;“黑客”：？？？？&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;由于“黑客”没有“服务器”的私钥，因此它发送过去的内容，“客户”是无法通过服务器的公钥解密的，因此可以认定对方是个冒牌货！&lt;/p&gt;
+&lt;p&gt;到这里为止，“客户”就可以确认“服务器”的身份了，可以放心和“服务器”进行通信，但是这里有一个问题，通信的内容在网络上还是无法保密。为什么无法保密呢？通信过程不是可以用公钥、私钥加密吗？其实用RSA的私钥和公钥是不行的，我们来具体分析下过程，看下面的演示：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.3 第三回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我的帐号是aaa，密码是123，把我的余额的信息发给我看看}[公钥|RSA]&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{你的余额是100元}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;注意上面的的信息 {你的余额是100元}[私钥]，这个是“服务器”用私钥加密后的内容，但是我们之前说了，公钥是发布出去的，因此所有的人都知道公钥，所以除了“客户”，其它的人也可以用公钥对{你的余额是100元}[私钥]进行解密。所以如果“服务器”用私钥加密发给“客户”，这个信息是无法保密的，因为只要有公钥就可以解密这内容。然而“服务器”也不能用公钥对发送的内容进行加密，因为“客户”没有私钥，发送个“客户”也解密不了。&lt;/p&gt;
+&lt;p&gt;这样问题就又来了，那又如何解决呢？在实际的应用过程，一般是通过引入对称加密来解决这个问题，看下面的演示：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.4 第四回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我们后面的通信过程，用对称加密来进行，这里是对称加密算法和密钥}[公钥|RSA]    //蓝色字体的部分是对称加密的算法和密钥的具体内容，客户把它们发送给服务器。&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{OK，收到！}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我的帐号是aaa，密码是123，把我的余额的信息发给我看看}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{你的余额是100元}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;在上面的通信过程中，“客户”在确认了“服务器”的身份后，“客户”自己选择一个对称加密算法和一个密钥，把这个对称加密算法和密钥一起用公钥加密后发送给“服务器”。注意，由于对称加密算法和密钥是用公钥加密的，就算这个加密后的内容被“黑客”截获了，由于没有私钥，“黑客”也无从知道对称加密算法和密钥的内容。&lt;/p&gt;
+&lt;p&gt;由于是用公钥加密的，只有私钥能够解密，这样就可以保证只有服务器可以知道对称加密算法和密钥，而其它人不可能知道(这个对称加密算法和密钥是“客户”自己选择的，所以“客户”自己当然知道如何解密加密)。这样“服务器”和“客户”就可以用对称加密算法和密钥来加密通信的内容了。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;总结一下，RSA加密算法在这个通信过程中所起到的作用主要有两个：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;因为私钥只有“服务器”拥有，因此“客户”可以通过判断对方是否有私钥来判断对方是否是“服务器”。&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;客户端通过RSA的掩护，安全的和服务器商量好一个对称加密算法和密钥来保证后面通信过程内容的安全。&lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;如果这里您理解了为什么不用RSA去加密通信过程，而是要再确定一个对称加密算法来保证通信过程的安全，那么就说明前面的内容您已经理解了。(如果不清楚，再看下2.3和2.4，如果还是不清楚，那应该是我们说清楚，您可以留言提问。)&lt;/p&gt;
+&lt;p&gt;到这里，“客户”就可以确认“服务器”的身份，并且双方的通信内容可以进行加密，其他人就算截获了通信内容，也无法解密。的确，好像通信的过程是比较安全了。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;但是这里还留有一个问题，在最开始我们就说过，“服务器”要对外发布公钥，那“服务器”如何把公钥发送给“客户”呢？我们第一反应可能会想到以下的两个方法：&lt;/p&gt;
+&lt;p&gt;a)把公钥放到互联网的某个地方的一个下载地址，事先给“客户”去下载。&lt;/p&gt;
+&lt;p&gt;b)每次和“客户”开始通信时，“服务器”把公钥发给“客户”。&lt;/p&gt;
+&lt;p&gt;但是这个两个方法都有一定的问题，&lt;/p&gt;
+&lt;p&gt;对于a)方法，“客户”无法确定这个下载地址是不是“服务器”发布的，你凭什么就相信这个地址下载的东西就是“服务器”发布的而不是别人伪造的呢，万一下载到一个假的怎么办？另外要所有的“客户”都在通信前事先去下载公钥也很不现实。&lt;/p&gt;
+&lt;p&gt;对于b)方法，也有问题，因为任何人都可以自己生成一对公钥和私钥，他只要向“客户”发送他自己的私钥就可以冒充“服务器”了。示意如下：&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“黑客”：你好           //黑客截获“客户”发给“服务器”的消息&lt;/p&gt;
+&lt;p&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器，这个是我的公钥    //黑客自己生成一对公钥和私钥，把公钥发给“客户”，自己保留私钥&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“黑客”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[黑客自己的私钥|RSA]      //客户收到“黑客”用私钥加密的信息后，是可以用“黑客”发给自己的公钥解密的，从而会误认为“黑客”是“服务器”&lt;/p&gt;
+&lt;p&gt;因此“黑客”只需要自己生成一对公钥和私钥，然后把公钥发送给“客户”，自己保留私钥，这样由于“客户”可以用黑客的公钥解密黑客的私钥加密的内容，“客户”就会相信“黑客”是“服务器”，从而导致了安全问题。&lt;strong&gt;这里问题的根源就在于，大家都可以生成公钥、私钥对，无法确认公钥对到底是谁的。 &lt;/strong&gt;如果能够确定公钥到底是谁的，就不会有这个问题了。例如，如果收到“黑客”冒充“服务器”发过来的公钥，经过某种检查，如果能够发现这个公钥不是“服务器”的就好了。&lt;/p&gt;
+&lt;p&gt;为了解决这个问题，数字证书出现了，它可以解决我们上面的问题。先大概看下什么是数字证书，一个证书包含下面的具体内容：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;证书的发布机构&lt;/li&gt;
+&lt;li&gt;证书的有效期&lt;/li&gt;
+&lt;li&gt;公钥&lt;/li&gt;
+&lt;li&gt;证书所有者（Subject）&lt;/li&gt;
+&lt;li&gt;签名所使用的算法&lt;/li&gt;
+&lt;li&gt;指纹以及指纹算法&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;证书的内容的详细解释会在后面详细解释，这里先只需要搞清楚一点，&lt;strong&gt;数字证书可以保证&lt;strong&gt;数字&lt;/strong&gt;证书里的公钥确实是这个证书的所有者(Subject)的，或者证书可以用来确认对方的身份&lt;/strong&gt;。也就是说，我们拿到一个数字证书，我们可以判断出这个数字证书到底是谁的。至于是如何判断的，后面会在详细讨论数字证书时详细解释。现在把前面的通信过程使用数字证书修改为如下：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.5 第五回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器，这里是我的数字证书        //这里用证书代替了公钥&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;注意，上面第二次通信，“服务器”把自己的证书发给了“客户”，而不是发送公钥。“客户”可以根据证书校验这个证书到底是不是“服务器”的，也就是能校验这个证书的所有者是不是“服务器”，从而确认这个证书中的公钥的确是“服务器”的。后面的过程和以前是一样，“客户”让“服务器”证明自己的身份，“服务器”用私钥加密一段内容连同明文一起发给“客户”，“客户”把加密内容用数字证书中的公钥解密后和明文对比，如果一致，那么对方就确实是“服务器”，然后双方协商一个对称加密来保证通信过程的安全。到这里，整个过程就完整了，我们回顾一下：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.6 完整过程：&lt;/h6&gt;
+&lt;p&gt;&lt;strong&gt;step1&lt;/strong&gt;： “客户”向服务端发送一个通信请求&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;step2&lt;/strong&gt;： “服务器”向客户发送自己的数字证书。证书中有一个公钥用来加密信息，私钥由“服务器”持有&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器，这里是我的数字证书&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;step3&lt;/strong&gt;： “客户”收到“服务器”的证书后，它会去验证这个数字证书到底是不是“服务器”的，数字证书有没有什么问题，数字证书如果检查没有问题，就说明数字证书中的公钥确实是“服务器”的。检查数字证书后，“客户”会发送一个随机的字符串给“服务器”用私钥去加密，服务器把加密的结果返回给“客户”，“客户”用公钥解密这个返回结果，如果解密结果与之前生成的随机字符串一致，那说明对方确实是私钥的持有者，或者说对方确实是“服务器”。&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器，这是一个随机字符串     //前面的例子中为了方便解释，用的是“你好”等内容，实际情况下一般是随机生成的一个字符串。&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{一个随机字符串}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;step4&lt;/strong&gt;： 验证“服务器”的身份后，“客户”生成一个对称加密算法和密钥，用于后面的通信的加密和解密。这个对称加密算法和密钥，“客户”会用公钥加密后发送给“服务器”，别人截获了也没用，因为只有“服务器”手中有可以解密的私钥。这样，后面“服务器”和“客户”就都可以用对称加密算法来加密和解密通信内容了。&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{OK，已经收到你发来的对称加密算法和密钥！有什么可以帮到你的？}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我的帐号是aaa，密码是123，把我的余额的信息发给我看看}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{你好，你的余额是100元}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;…… //继续其它的通信&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;&lt;strong&gt;2.7 其它问题：&lt;/strong&gt;&lt;/h6&gt;
+&lt;p&gt;上面的过程已经十分接近HTTPS的真实通信过程了，完全可以按照这个过程去理解HTTPS的工作原理。但是我为了方便解释，上面有些细节没有说到，有兴趣的人可以看下这部分的内容。可以跳过不看，无关紧要。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;【问题1】&lt;/p&gt;
+&lt;p&gt;上面的通信过程中说到，在检查完证书后，“客户”发送一个随机的字符串给“服务器”去用私钥加密，以便判断对方是否真的持有私钥。但是有一个问题，“黑客”也可以发送一个字符串给“服务器”去加密并且得到加密后的内容，这样对于“服务器”来说是不安全的，因为黑客可以发送一些简单的有规律的字符串给“服务器”加密，从而寻找加密的规律，有可能威胁到私钥的安全。所以说，“服务器”随随便便用私钥去加密一个来路不明的字符串并把结果发送给对方是不安全的。&lt;/p&gt;
+&lt;p&gt;〖解决方法〗&lt;/p&gt;
+&lt;p&gt;每次收到“客户”发来的要加密的的字符串时，“服务器”并不是真正的加密这个字符串本身，而是把这个字符串进行一个hash计算，加密这个字符串的hash值(不加密原来的字符串)后发送给“客户”，“客户”收到后解密这个hash值并自己计算字符串的hash值然后进行对比是否一致。也就是说，“服务器”不直接加密收到的字符串，而是加密这个字符串的一个hash值，这样就避免了加密那些有规律的字符串，从而降低被破解的机率。“客户”自己发送的字符串，因此它自己可以计算字符串的hash值，然后再把“服务器”发送过来的加密的hash值和自己计算的进行对比，同样也能确定对方是否是“服务器”。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;【问题2】&lt;/p&gt;
+&lt;p&gt;在双方的通信过程中，“黑客”可以截获发送的加密了的内容，虽然他无法解密这个内容，但是他可以捣乱，例如把信息原封不动的发送多次，扰乱通信过程。&lt;/p&gt;
+&lt;p&gt;〖解决方法〗&lt;/p&gt;
+&lt;p&gt;可以给通信的内容加上一个序号或者一个随机的值，如果“客户”或者“服务器”接收到的信息中有之前出现过的序号或者随机值，那么说明有人在通信过程中重发信息内容进行捣乱，双方会立刻停止通信。有人可能会问，如果有人一直这么捣乱怎么办？那不是无法通信了？ 答案是的确是这样的，例如有人控制了你连接互联网的路由器，他的确可以针对你。但是一些重要的应用，例如军队或者政府的内部网络，它们都不使用我们平时使用的公网，因此一般人不会破坏到他们的通信。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;【问题3】&lt;/p&gt;
+&lt;p&gt;在双方的通信过程中，“黑客”除了简单的重复发送截获的消息之外，还可以修改截获后的密文修改后再发送，因为修改的是密文，虽然不能完全控制消息解密后的内容，但是仍然会破坏解密后的密文。因此发送过程如果黑客对密文进行了修改，“客户”和“服务器”是无法判断密文是否被修改的。虽然不一定能达到目的，但是“黑客”可以一直这样碰碰运气。&lt;/p&gt;
+&lt;p&gt;〖解决方法〗&lt;/p&gt;
+&lt;p&gt;在每次发送信息时，先对信息的内容进行一个hash计算得出一个hash值，将信息的内容和这个hash值一起加密后发送。接收方在收到后进行解密得到明文的内容和hash值，然后接收方再自己对收到信息内容做一次hash计算，与收到的hash值进行对比看是否匹配，如果匹配就说明信息在传输过程中没有被修改过。如果不匹配说明中途有人故意对加密数据进行了修改，立刻中断通话过程后做其它处理。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h5&gt;3. 证书的构成和原理&lt;/h5&gt;
+&lt;h6&gt;3.1 证书的构成和原理&lt;/h6&gt;
+&lt;p&gt;之前已经大概说了一个证书由什么构成，但是没有仔细进行介绍，这里对证书的内容做一个详细的介绍。先看下一个证书到底是个什么东西，在windows下查看一个证书时，界面是这样的，我们主要关注一下Details Tab页，其中的内容比较长，我滚动内容后后抓了三个图，把完整的信息显示出来：&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/149c3cd31576c0abfd982423eaff8aab.png&quot; rel=&quot;lightbox[74614]&quot; title=&quot;数字证书原理&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-74615&quot; alt=&quot;certificateDetails_thumb&quot; src=&quot;/images/jobbole.com/9979e5d6c6d6217908596b4e50bc790c.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;文中首先解释了加密解密的一些基础知识和概念，然后通过一个加密通信过程的例子说明了加密算法的作用，以及数字证书的出现所起的作用。接着对数字证书做一个详细的解释，并讨论一下windows中数字证书的管理，最后演示使用makecert生成数字证书。如果发现文中有错误的地方，或者有什么地方说得不够清楚，欢迎指出！&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h5&gt;1、基础知识&lt;/h5&gt;
+&lt;p&gt;这部分内容主要解释一些概念和术语，最好是先理解这部分内容。&lt;/p&gt;
+&lt;h6&gt;1.1、公钥密码体制(public-key cryptography)&lt;/h6&gt;
+&lt;p&gt;公钥密码体制分为三个部分，公钥、私钥、加密解密算法，它的加密解密过程如下：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;加密：通过加密算法和公钥对内容(或者说明文)进行加密，得到密文。加密过程需要用到公钥。&lt;/li&gt;
+&lt;li&gt;解密：通过解密算法和私钥对密文进行解密，得到明文。解密过程需要用到解密算法和私钥。注意，由公钥加密的内容，只能由私钥进行解密，也就是说，由公钥加密的内容，如果不知道私钥，是无法解密的。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;公钥密码体制的公钥和算法都是公开的(这是为什么叫公钥密码体制的原因)，私钥是保密的。大家都以使用公钥进行加密，但是只有私钥的持有者才能解密。在实际的使用中，有需要的人会生成一对公钥和私钥，把公钥发布出去给别人使用，自己保留私钥。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;1.2、对称加密算法(symmetric key algorithms)&lt;/h6&gt;
+&lt;p&gt;在对称加密算法中，加密使用的密钥和解密使用的密钥是相同的。也就是说，加密和解密都是使用的同一个密钥。因此对称加密算法要保证安全性的话，密钥要做好保密，只能让使用的人知道，不能对外公开。这个和上面的公钥密码体制有所不同，公钥密码体制中加密是用公钥，解密使用私钥，而对称加密算法中，加密和解密都是使用同一个密钥，不区分公钥和私钥。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;// 密钥，一般就是一个字符串或数字，在加密或者解密时传递给加密/解密算法。前面在公钥密码体制中说到的公钥、私钥就是密钥，公钥是加密使用的密钥，私钥是解密使用的密钥。&lt;/p&gt;
+&lt;h6&gt;&lt;/h6&gt;
+&lt;h6&gt;1.3、非对称加密算法(asymmetric key algorithms)&lt;/h6&gt;
+&lt;p&gt;在非对称加密算法中，加密使用的密钥和解密使用的密钥是不相同的。前面所说的公钥密码体制就是一种非对称加密算法，他的公钥和是私钥是不能相同的，也就是说加密使用的密钥和解密使用的密钥不同，因此它是一个非对称加密算法。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;1.4、RSA简介&lt;/h6&gt;
+&lt;p&gt;RSA是一种公钥密码体制，现在使用得很广泛。如果对RSA本身有兴趣的，后面看我有没有时间写个RSA的具体介绍。&lt;/p&gt;
+&lt;p&gt;RSA密码体制是一种公钥密码体制，公钥公开，私钥保密，它的加密解密算法是公开的。 由公钥加密的内容可以并且只能由私钥进行解密，并且由私钥加密的内容可以并且只能由公钥进行解密。也就是说，&lt;strong&gt;RSA的这一对公钥、私钥都可以用来加密和解密，并且一方加密的内容可以由并且只能由对方进行解密&lt;/strong&gt;。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;1.5、签名和加密&lt;/h6&gt;
+&lt;p&gt;我们说加密，是指对某个内容加密，加密后的内容还可以通过解密进行还原。 比如我们把一封邮件进行加密，加密后的内容在网络上进行传输，接收者在收到后，通过解密可以还原邮件的真实内容。&lt;/p&gt;
+&lt;p&gt;这里主要解释一下签名，签名就是在&lt;strong&gt;信息&lt;/strong&gt;的后面再加上一段内容，可以证明&lt;strong&gt;信息&lt;/strong&gt;没有被修改过，怎么样可以达到这个效果呢？一般是对&lt;strong&gt;信息&lt;/strong&gt;做一个hash计算得到一个hash值，注意，这个过程是不可逆的，也就是说无法通过hash值得出原来的&lt;strong&gt;信息&lt;/strong&gt;内容。在把&lt;strong&gt;信息&lt;/strong&gt;发送出去时，把这个hash值加密后做为一个签名和&lt;strong&gt;信息&lt;/strong&gt;一起发出去。 接收方在收到&lt;strong&gt;信息&lt;/strong&gt;后，会重新计算&lt;strong&gt;信息&lt;/strong&gt;的hash值，并和&lt;strong&gt;信息&lt;/strong&gt;所附带的hash值(解密后)进行对比，如果一致，就说明信息的内容没有被修改过，因为这里hash计算可以保证不同的内容一定会得到不同的hash值，所以只要内容一被修改，根据&lt;strong&gt;信息&lt;/strong&gt;内容计算的hash值就会变化。当然，不怀好意的人也可以修改&lt;strong&gt;信息&lt;/strong&gt;内容的同时也修改hash值，从而让它们可以相匹配，为了防止这种情况，hash值一般都会加密后(也就是签名)再和&lt;strong&gt;信息&lt;/strong&gt;一起发送，以保证这个hash值不被修改。至于如何让别人可以解密这个签名，这个过程涉及到数字证书等概念，我们后面在说到数字证书时再详细说明，这里您先只需先理解签名的这个概念。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h5&gt;2、一个加密通信过程的演化&lt;/h5&gt;
+&lt;p&gt;我们来看一个例子，现在假设“服务器”和“客户”要在网络上通信，并且他们打算使用RSA(参看前面的RSA简介)来对通信进行加密以保证谈话内容的安全。由于是使用RSA这种公钥密码体制，“服务器”需要对外发布公钥(算法不需要公布，RSA的算法大家都知道)，自己留着私钥。“客户”通过某些途径拿到了“服务器”发布的公钥，客户并不知道私钥。“客户”具体是通过什么途径获取公钥的，我们后面再来说明，下面看一下双方如何进行保密的通信：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.1 第一回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：？？？？&lt;/p&gt;
+&lt;p&gt;因为消息是在网络上传输的，有人可以冒充自己是“服务器”来向客户发送信息。例如上面的消息可以被黑客截获如下：&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“客户”-&amp;gt;“黑客”：你好&lt;/strong&gt;        // 黑客在“客户”和“服务器”之间的某个路由器上截获“客户”发给服务器的信息，然后自己冒充“服务器”&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;因此“客户”在接到消息后，并不能肯定这个消息就是由“服务器”发出的，某些“黑客”也可以冒充“服务器”发出这个消息。如何确定信息是由“服务器”发过来的呢？有一个解决方法，因为只有服务器有私钥，所以如果只要能够确认对方有私钥，那么对方就是“服务器”。因此通信过程可以改进为如下：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.2 第二回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;// &lt;strong&gt;注&lt;/strong&gt;意这里约定一下，{} 表示RSA加密后的内容，[ | ]表示用什么密钥和算法进行加密，后面的示例中都用这种表示方式，例如上面的&lt;/strong&gt; {你好，我是服务器}[私钥|RSA]&lt;strong&gt;  就表示用私钥对&lt;/strong&gt;“你好，我是服务器”&lt;strong&gt;进行加密后的结果。&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;为了向“客户”证明自己是“服务器”， “服务器”把一个字符串用自己的私钥加密，把明文和加密后的密文一起发给“客户”。对于这里的例子来说，就是把字符串 “你好，我是服务器”和这个字符串用私钥加密后的内容 {你好，我是服务器}[私钥|RSA] 发给客户。&lt;/p&gt;
+&lt;p&gt;“客户”收到信息后，她用自己持有的公钥解密密文，和明文进行对比，如果一致，说明信息的确是由服务器发过来的。也就是说“客户”把 {你好，我是服务器}[私钥|RSA] 这个内容用公钥进行解密，然后和“你好，我是服务器”对比。因为由“服务器”用私钥加密后的内容，&lt;strong&gt;由并且只能由&lt;/strong&gt;公钥进行解密，私钥只有“服务器”持有，所以如果解密出来的内容是能够对得上的，那说明信息一定是从“服务器”发过来的。&lt;/p&gt;
+&lt;p&gt;假设“黑客”想冒充“服务器”：&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“客户”-&amp;gt;“黑客”：向我证明你就是服务器&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[？？？|RSA]&lt;/strong&gt;    //这里黑客无法冒充，因为他不知道&lt;strong&gt;私钥&lt;/strong&gt;，无法用&lt;strong&gt;私钥&lt;/strong&gt;加密某个字符串后发送给客户去验证。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;“客户”-&amp;gt;“黑客”：？？？？&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;由于“黑客”没有“服务器”的私钥，因此它发送过去的内容，“客户”是无法通过服务器的公钥解密的，因此可以认定对方是个冒牌货！&lt;/p&gt;
+&lt;p&gt;到这里为止，“客户”就可以确认“服务器”的身份了，可以放心和“服务器”进行通信，但是这里有一个问题，通信的内容在网络上还是无法保密。为什么无法保密呢？通信过程不是可以用公钥、私钥加密吗？其实用RSA的私钥和公钥是不行的，我们来具体分析下过程，看下面的演示：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.3 第三回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我的帐号是aaa，密码是123，把我的余额的信息发给我看看}[公钥|RSA]&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{你的余额是100元}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;注意上面的的信息 {你的余额是100元}[私钥]，这个是“服务器”用私钥加密后的内容，但是我们之前说了，公钥是发布出去的，因此所有的人都知道公钥，所以除了“客户”，其它的人也可以用公钥对{你的余额是100元}[私钥]进行解密。所以如果“服务器”用私钥加密发给“客户”，这个信息是无法保密的，因为只要有公钥就可以解密这内容。然而“服务器”也不能用公钥对发送的内容进行加密，因为“客户”没有私钥，发送个“客户”也解密不了。&lt;/p&gt;
+&lt;p&gt;这样问题就又来了，那又如何解决呢？在实际的应用过程，一般是通过引入对称加密来解决这个问题，看下面的演示：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.4 第四回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我们后面的通信过程，用对称加密来进行，这里是对称加密算法和密钥}[公钥|RSA]    //蓝色字体的部分是对称加密的算法和密钥的具体内容，客户把它们发送给服务器。&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{OK，收到！}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我的帐号是aaa，密码是123，把我的余额的信息发给我看看}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{你的余额是100元}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;在上面的通信过程中，“客户”在确认了“服务器”的身份后，“客户”自己选择一个对称加密算法和一个密钥，把这个对称加密算法和密钥一起用公钥加密后发送给“服务器”。注意，由于对称加密算法和密钥是用公钥加密的，就算这个加密后的内容被“黑客”截获了，由于没有私钥，“黑客”也无从知道对称加密算法和密钥的内容。&lt;/p&gt;
+&lt;p&gt;由于是用公钥加密的，只有私钥能够解密，这样就可以保证只有服务器可以知道对称加密算法和密钥，而其它人不可能知道(这个对称加密算法和密钥是“客户”自己选择的，所以“客户”自己当然知道如何解密加密)。这样“服务器”和“客户”就可以用对称加密算法和密钥来加密通信的内容了。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;总结一下，RSA加密算法在这个通信过程中所起到的作用主要有两个：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;因为私钥只有“服务器”拥有，因此“客户”可以通过判断对方是否有私钥来判断对方是否是“服务器”。&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;客户端通过RSA的掩护，安全的和服务器商量好一个对称加密算法和密钥来保证后面通信过程内容的安全。&lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;如果这里您理解了为什么不用RSA去加密通信过程，而是要再确定一个对称加密算法来保证通信过程的安全，那么就说明前面的内容您已经理解了。(如果不清楚，再看下2.3和2.4，如果还是不清楚，那应该是我们说清楚，您可以留言提问。)&lt;/p&gt;
+&lt;p&gt;到这里，“客户”就可以确认“服务器”的身份，并且双方的通信内容可以进行加密，其他人就算截获了通信内容，也无法解密。的确，好像通信的过程是比较安全了。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;但是这里还留有一个问题，在最开始我们就说过，“服务器”要对外发布公钥，那“服务器”如何把公钥发送给“客户”呢？我们第一反应可能会想到以下的两个方法：&lt;/p&gt;
+&lt;p&gt;a)把公钥放到互联网的某个地方的一个下载地址，事先给“客户”去下载。&lt;/p&gt;
+&lt;p&gt;b)每次和“客户”开始通信时，“服务器”把公钥发给“客户”。&lt;/p&gt;
+&lt;p&gt;但是这个两个方法都有一定的问题，&lt;/p&gt;
+&lt;p&gt;对于a)方法，“客户”无法确定这个下载地址是不是“服务器”发布的，你凭什么就相信这个地址下载的东西就是“服务器”发布的而不是别人伪造的呢，万一下载到一个假的怎么办？另外要所有的“客户”都在通信前事先去下载公钥也很不现实。&lt;/p&gt;
+&lt;p&gt;对于b)方法，也有问题，因为任何人都可以自己生成一对公钥和私钥，他只要向“客户”发送他自己的私钥就可以冒充“服务器”了。示意如下：&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“黑客”：你好           //黑客截获“客户”发给“服务器”的消息&lt;/p&gt;
+&lt;p&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器，这个是我的公钥    //黑客自己生成一对公钥和私钥，把公钥发给“客户”，自己保留私钥&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“黑客”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“黑客”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[黑客自己的私钥|RSA]      //客户收到“黑客”用私钥加密的信息后，是可以用“黑客”发给自己的公钥解密的，从而会误认为“黑客”是“服务器”&lt;/p&gt;
+&lt;p&gt;因此“黑客”只需要自己生成一对公钥和私钥，然后把公钥发送给“客户”，自己保留私钥，这样由于“客户”可以用黑客的公钥解密黑客的私钥加密的内容，“客户”就会相信“黑客”是“服务器”，从而导致了安全问题。&lt;strong&gt;这里问题的根源就在于，大家都可以生成公钥、私钥对，无法确认公钥对到底是谁的。 &lt;/strong&gt;如果能够确定公钥到底是谁的，就不会有这个问题了。例如，如果收到“黑客”冒充“服务器”发过来的公钥，经过某种检查，如果能够发现这个公钥不是“服务器”的就好了。&lt;/p&gt;
+&lt;p&gt;为了解决这个问题，数字证书出现了，它可以解决我们上面的问题。先大概看下什么是数字证书，一个证书包含下面的具体内容：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;证书的发布机构&lt;/li&gt;
+&lt;li&gt;证书的有效期&lt;/li&gt;
+&lt;li&gt;公钥&lt;/li&gt;
+&lt;li&gt;证书所有者（Subject）&lt;/li&gt;
+&lt;li&gt;签名所使用的算法&lt;/li&gt;
+&lt;li&gt;指纹以及指纹算法&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;证书的内容的详细解释会在后面详细解释，这里先只需要搞清楚一点，&lt;strong&gt;数字证书可以保证&lt;strong&gt;数字&lt;/strong&gt;证书里的公钥确实是这个证书的所有者(Subject)的，或者证书可以用来确认对方的身份&lt;/strong&gt;。也就是说，我们拿到一个数字证书，我们可以判断出这个数字证书到底是谁的。至于是如何判断的，后面会在详细讨论数字证书时详细解释。现在把前面的通信过程使用数字证书修改为如下：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.5 第五回合：&lt;/h6&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器，这里是我的数字证书        //这里用证书代替了公钥&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器 {你好，我是服务器}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt;注意，上面第二次通信，“服务器”把自己的证书发给了“客户”，而不是发送公钥。“客户”可以根据证书校验这个证书到底是不是“服务器”的，也就是能校验这个证书的所有者是不是“服务器”，从而确认这个证书中的公钥的确是“服务器”的。后面的过程和以前是一样，“客户”让“服务器”证明自己的身份，“服务器”用私钥加密一段内容连同明文一起发给“客户”，“客户”把加密内容用数字证书中的公钥解密后和明文对比，如果一致，那么对方就确实是“服务器”，然后双方协商一个对称加密来保证通信过程的安全。到这里，整个过程就完整了，我们回顾一下：&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;2.6 完整过程：&lt;/h6&gt;
+&lt;p&gt;&lt;strong&gt;step1&lt;/strong&gt;： “客户”向服务端发送一个通信请求&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：你好&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;step2&lt;/strong&gt;： “服务器”向客户发送自己的数字证书。证书中有一个公钥用来加密信息，私钥由“服务器”持有&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：你好，我是服务器，这里是我的数字证书&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;step3&lt;/strong&gt;： “客户”收到“服务器”的证书后，它会去验证这个数字证书到底是不是“服务器”的，数字证书有没有什么问题，数字证书如果检查没有问题，就说明数字证书中的公钥确实是“服务器”的。检查数字证书后，“客户”会发送一个随机的字符串给“服务器”用私钥去加密，服务器把加密的结果返回给“客户”，“客户”用公钥解密这个返回结果，如果解密结果与之前生成的随机字符串一致，那说明对方确实是私钥的持有者，或者说对方确实是“服务器”。&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：向我证明你就是服务器，这是一个随机字符串     //前面的例子中为了方便解释，用的是“你好”等内容，实际情况下一般是随机生成的一个字符串。&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{一个随机字符串}[私钥|RSA]&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;step4&lt;/strong&gt;： 验证“服务器”的身份后，“客户”生成一个对称加密算法和密钥，用于后面的通信的加密和解密。这个对称加密算法和密钥，“客户”会用公钥加密后发送给“服务器”，别人截获了也没用，因为只有“服务器”手中有可以解密的私钥。这样，后面“服务器”和“客户”就都可以用对称加密算法来加密和解密通信内容了。&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{OK，已经收到你发来的对称加密算法和密钥！有什么可以帮到你的？}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“客户”-&amp;gt;“服务器”：{我的帐号是aaa，密码是123，把我的余额的信息发给我看看}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;“服务器”-&amp;gt;“客户”：{你好，你的余额是100元}[密钥|对称加密算法]&lt;/p&gt;
+&lt;p&gt;…… //继续其它的通信&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h6&gt;&lt;strong&gt;2.7 其它问题：&lt;/strong&gt;&lt;/h6&gt;
+&lt;p&gt;上面的过程已经十分接近HTTPS的真实通信过程了，完全可以按照这个过程去理解HTTPS的工作原理。但是我为了方便解释，上面有些细节没有说到，有兴趣的人可以看下这部分的内容。可以跳过不看，无关紧要。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;【问题1】&lt;/p&gt;
+&lt;p&gt;上面的通信过程中说到，在检查完证书后，“客户”发送一个随机的字符串给“服务器”去用私钥加密，以便判断对方是否真的持有私钥。但是有一个问题，“黑客”也可以发送一个字符串给“服务器”去加密并且得到加密后的内容，这样对于“服务器”来说是不安全的，因为黑客可以发送一些简单的有规律的字符串给“服务器”加密，从而寻找加密的规律，有可能威胁到私钥的安全。所以说，“服务器”随随便便用私钥去加密一个来路不明的字符串并把结果发送给对方是不安全的。&lt;/p&gt;
+&lt;p&gt;〖解决方法〗&lt;/p&gt;
+&lt;p&gt;每次收到“客户”发来的要加密的的字符串时，“服务器”并不是真正的加密这个字符串本身，而是把这个字符串进行一个hash计算，加密这个字符串的hash值(不加密原来的字符串)后发送给“客户”，“客户”收到后解密这个hash值并自己计算字符串的hash值然后进行对比是否一致。也就是说，“服务器”不直接加密收到的字符串，而是加密这个字符串的一个hash值，这样就避免了加密那些有规律的字符串，从而降低被破解的机率。“客户”自己发送的字符串，因此它自己可以计算字符串的hash值，然后再把“服务器”发送过来的加密的hash值和自己计算的进行对比，同样也能确定对方是否是“服务器”。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;【问题2】&lt;/p&gt;
+&lt;p&gt;在双方的通信过程中，“黑客”可以截获发送的加密了的内容，虽然他无法解密这个内容，但是他可以捣乱，例如把信息原封不动的发送多次，扰乱通信过程。&lt;/p&gt;
+&lt;p&gt;〖解决方法〗&lt;/p&gt;
+&lt;p&gt;可以给通信的内容加上一个序号或者一个随机的值，如果“客户”或者“服务器”接收到的信息中有之前出现过的序号或者随机值，那么说明有人在通信过程中重发信息内容进行捣乱，双方会立刻停止通信。有人可能会问，如果有人一直这么捣乱怎么办？那不是无法通信了？ 答案是的确是这样的，例如有人控制了你连接互联网的路由器，他的确可以针对你。但是一些重要的应用，例如军队或者政府的内部网络，它们都不使用我们平时使用的公网，因此一般人不会破坏到他们的通信。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;【问题3】&lt;/p&gt;
+&lt;p&gt;在双方的通信过程中，“黑客”除了简单的重复发送截获的消息之外，还可以修改截获后的密文修改后再发送，因为修改的是密文，虽然不能完全控制消息解密后的内容，但是仍然会破坏解密后的密文。因此发送过程如果黑客对密文进行了修改，“客户”和“服务器”是无法判断密文是否被修改的。虽然不一定能达到目的，但是“黑客”可以一直这样碰碰运气。&lt;/p&gt;
+&lt;p&gt;〖解决方法〗&lt;/p&gt;
+&lt;p&gt;在每次发送信息时，先对信息的内容进行一个hash计算得出一个hash值，将信息的内容和这个hash值一起加密后发送。接收方在收到后进行解密得到明文的内容和hash值，然后接收方再自己对收到信息内容做一次hash计算，与收到的hash值进行对比看是否匹配，如果匹配就说明信息在传输过程中没有被修改过。如果不匹配说明中途有人故意对加密数据进行了修改，立刻中断通话过程后做其它处理。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h5&gt;3. 证书的构成和原理&lt;/h5&gt;
+&lt;h6&gt;3.1 证书的构成和原理&lt;/h6&gt;
+&lt;p&gt;之前已经大概说了一个证书由什么构成，但是没有仔细进行介绍，这里对证书的内容做一个详细的介绍。先看下一个证书到底是个什么东西，在windows下查看一个证书时，界面是这样的，我们主要关注一下Details Tab页，其中的内容比较长，我滚动内容后后抓了三个图，把完整的信息显示出来：&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/3b43a1fa4354156cbd2ad40b6fd1b638.png&quot; rel=&quot;lightbox[74614]&quot; title=&quot;数字证书原理&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-74616&quot; alt=&quot;2009121816032340&quot; src=&quot;/images/jobbole.com/497e3ecd7ee5e85812305d5768ede5fc.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;上面的步骤结束后，会又弹出一个对话框，里面有三个单选按钮如下：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;My user account&lt;/li&gt;
+&lt;li&gt;Service account&lt;/li&gt;
+&lt;li&gt;Computer account&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;可以选择第一或者第三个选项，用来查看当前用户的证书或整个计算里面安装的证书。我们这里就默认选择第一个，平时一般安装证书的时候都会给所有用户安装，所以选择第一个和第三个选项看到的证书会差不多。我们在左边的导航树中选中受信任的证书发布机构(Trusted Root Certificate Authorities)，然后点击下面的证书(Certificates)，在右边的区域中就可以看到所有的受信任的证书发布机构的证书。&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/77823c8c43e1168f66738b58f71302cb.png&quot; rel=&quot;lightbox[74614]&quot; title=&quot;数字证书原理&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-74617&quot; alt=&quot;trustedcaAuth_thumb&quot; src=&quot;/images/jobbole.com/33a24871062fcc3175e7e62aa759cfa8.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;注意上面的图片中，右边我们选中的这个证书发布机构”SecureTrust CA”，我们前面在第3章3.2节中举例子的时候，就是去向这个证书发布机构申请的证书，由于我们申请的证书是这个机构发布的，所以应用程序在检查我们的证书的发布机构时(会检查我们证书的签名，确认是该机构发布的证书)，就会发现是可以信任的证书发布机构，从而就会相信我们证书的真实性。&lt;/p&gt;
+&lt;p&gt;删除数字证书很简单，直接在右边的列表中右键然后删除就可以了。&lt;/p&gt;
+&lt;p&gt;数字证书的安装也比较简单，直接双击数字证书文件，会打开数字证书，对话框下面会有一个Install Certificate按钮，点击后就可以根据向导进行安装，如下图所示：&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/fb462dcb5609578b955317d5ae8772411.png&quot; rel=&quot;lightbox[74614]&quot; title=&quot;数字证书原理&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-74620&quot; alt=&quot;installCertificate_thumb_1&quot; src=&quot;/images/jobbole.com/caa28b56eb5e3fd6725a50fcaa2a774b.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;这个证书是我自己生成的测试证书，在证书的导入向导里面，它会让你选择导入到什么位置，如果是一个我们自己信任的证书发布机构自己的证书，只要导入到Certificate Authorities就可以了。Trusted Root Certificate Authorities, Intermediate Certification Authorities, Third-Party Root Certification Authorities 都是可以的，他们只是对证书的发布机构做了一个分类，还有一些其它的证书类型，例如Personal(个人证书)等等，具体就不介绍了。安装的时候一般来说可以用默认的选择项一直”下一步”到底。&lt;/p&gt;
+&lt;h6&gt;4.2 如何自己创建证书&lt;/h6&gt;
+&lt;p&gt;每个证书发布机构都有自己的用来创建证书的工具，当然，具体他们怎么去创建一个证书的我也不太清楚，不同类型的证书都有一定的格式和规范，我没有仔细去研究过这部分内容。 微软为我们提供了一个用来创建证书的工具makecert.exe，在安装Visual Studio的时候会安装上。如果没有安装也无所谓，可以上网去下一个，搜索&lt;strong&gt;makecert&lt;/strong&gt;就可以了。可以直接从我的博客下载，这是&lt;a href=&quot;http://files.cnblogs.com/JefferySun/makecert.zip&quot;&gt;链接&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;向一些正规的证书发布机构申请证书一般是要收费的(因为别人要花时间检查你的身份，确认有没有同名的证书等等)，这里我们看下如何自己创建一个证书，为后面在IIS中配置Https做准备。&lt;/p&gt;
+&lt;p&gt;我们用到的是&lt;strong&gt;makecert&lt;/strong&gt;这个工具，微软有很详细的使用帮助，我这里只做一个简单的解释，详细的各种参数和使用方法请查看&lt;a href=&quot;http://msdn.microsoft.com/zh-cn/library/bfsktky3(VS.80).aspx&quot;&gt;MSDN的makecert的帮助&lt;/a&gt;。但是里面有些参数说得不够清楚，而且还有遗漏的，可以参看我后面的解释作为一个补充。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;先看下&lt;strong&gt;makecert&lt;/strong&gt;最简单的使用方式：&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;makecert.exe test.cer&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;上面的命令会在makecert.exe所在的目录生成一个证书文件test.cer的数字证书文件。可以双击证书打开，看看证书的内容如下：&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/b9d5f834ceb3db959cee0a69c7e3de97.png&quot; rel=&quot;lightbox[74614]&quot; title=&quot;数字证书原理&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-74624&quot; alt=&quot;testCertificate1_thumb (1)&quot; src=&quot;/images/jobbole.com/d829e3d1305aa7ac585811e1ff446b20.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;证书的发布机构是”Root Agency”，证书的主题(证书发布给谁)是”Joe’s-Software-Emporium”，因为我们没有指定把证书发布给谁，makecert自己给我们随便生成了一个公司的名字。另外还指定了公钥、签名算法(用来解密签名)、指纹和指纹算法等。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;/strong&gt;，因为这个证书是由微软的工具生成的，严格来说它没什么发布机构，所以微软虚拟了一个叫做”Root Agency”的发布机构，默认情况下，windows里面安装了这个所谓的证书发布机构的证书，但是这证书默认情况下不是受信任的，原因很简单，这样做大家都可以用makecert来制作合法的数字证书了。如果我们自己硬是要，也可以把它设置为受信任的。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;下面我们看下其它的参数，比如我们要给网站 www.jefferysun.com 生成一个证书MyCA.cer，假设我们把makecert.exe放在C：盘下，命令行如下：&lt;/p&gt;
+&lt;div id=&quot;_mcePaste&quot;&gt;makecert -r -pe -n “CN=10.30.146.206″ -b 01/01/2000 -e 01/01/2036 -eku 1.3.6.1.5.5.7.3.1 -ss my -sr localMachine -sky exchange -sp “Microsoft RSA SChannel Cryptographic Provider” -sy 12&lt;/div&gt;
+&lt;p&gt;C:\&amp;gt; makecert.exe –pe -r  –n  “CN=www.jefferysun.com” -ss my -sr LocalMachine -a sha1 -len 2048  MyCA.cer&lt;/p&gt;
+&lt;p&gt;解释一下makecert的常用参数的意思：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;strong&gt;-n&lt;/strong&gt; 指定主题的名字，这个是有固定的格式的， CN=主题名字 ，CN应该是Certificate Name的缩写。我这里的主题的名字就是我们的IIS所在机器的IP。这里可以指定一些主题的其它附加信息，例如 O= *** 表示组织信息等等。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-r&lt;/strong&gt; 创建自签署证书，意思就是说在生成证书时，将证书的发布机构设置为自己。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-pe&lt;/strong&gt; 将所生成的私钥标记为可导出。注意，服务器发送证书给客户端的时候，客户端只能从证书里面获取公钥，私钥是无法获取的。如果我们指定了这个参数，证书在安装在机器上后，我们还可以从证书中导出私钥，默认情况下是不能导出私钥的。正规的途径发布的证书，是不可能让你导出私钥的。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-b –e&lt;/strong&gt; 证书的有效期&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-ss&lt;/strong&gt; 证书的存储名称，就是windows证书存储区的目录名，如果不存在在的话就创建一个。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-sr&lt;/strong&gt; 证书的存储位置，只有currentuser（默认值）或 localmachine两个值。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-sv&lt;/strong&gt; 指定保存私钥的文件，文件里面除了包含私钥外，其实也包含了证书。这个文件是需要保密的，这个文件在服务端配置时是需要用到的。&lt;/li&gt;
+&lt;li&gt;这个CN=10.30.146.206要与自己的服务器相对应，要不然在配置HTTPS的时候会出现错误&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-a&lt;/strong&gt; 指定签名算法，必须是md5或rsa1。(还记得签名算法的作用不？可以看一下3章的第1节中关于签名算法的介绍)&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-in&lt;/strong&gt; 指定证书发布机构的名称&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;-len&lt;/strong&gt; 这个参数在中文的帮助文档中好像没有提到，但是这个其实很重要，用于指定公钥的位数，越大越安全，默认值是1024，推荐2048。我试了下，这个不为1024的倍数也是可以的。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;生成证书后可以进行安装，安装过程可以参看4.1节。&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+&lt;p&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow&quot; href=&quot;http://www.jobdeer.com/?fr=jobbole&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+	
+
+
+	
+
+</description>
+        <pubDate>Thu, 31 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-31-74614-e5103064d.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-31-74614-e5103064d.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>优化你的css</title>
+        <description>
+
+		&lt;blockquote&gt;&lt;p&gt;
+  优化你的css，是优化你的xxx系列的第一篇，后续会推出多篇，欢迎大家来关注&lt;a href=&quot;http://weibo.com/mbuweb&quot;&gt;移动云前端小组&lt;/a&gt;获取最新文章。
+&lt;/p&gt;&lt;/blockquote&gt;
+&lt;h2&gt;系列概述&lt;/h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;
+  在移动web兴起的年代，速度优化重新被大家重视起来，因为手机的网络环境和性能比PC端差了很多，估计大家也能感觉到用手机打开网页的时候，能明显感觉到页面蜗牛般的速度。&lt;/p&gt;
+&lt;p&gt;  这个系列的优化会以移动环境为基础，当然绝大多数规则也同样适合PC端。
+&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2&gt;优化的基本原则&lt;/h2&gt;
+&lt;blockquote&gt;&lt;p&gt;
+  速度优化有一些基本思路，提前总结一下
+&lt;/p&gt;&lt;/blockquote&gt;
+&lt;ul&gt;
+&lt;li&gt;按需加载(只加载你需要的)&lt;/li&gt;
+&lt;li&gt;并行(让串行的事情并行起来)&lt;/li&gt;
+&lt;li&gt;压缩(通过压缩减少体积)&lt;/li&gt;
+&lt;li&gt;缓存(利用缓存，减少请求等待)&lt;/li&gt;
+&lt;li&gt;预测(预测用户行为，提前发出请求)&lt;/li&gt;
+&lt;li&gt;合并(把多个零散文件合并起来，减少请求)&lt;/li&gt;
+&lt;li&gt;自动化(让速度优化变成一种常规，和自动化工具(例如gulp,grunt,fis)结合，减少成本)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;进入正题，优化你的css&lt;/h2&gt;
+&lt;blockquote&gt;&lt;p&gt;
+  为什么第一篇讲css，因为css是最难优化的，图片和js你都可以延迟加载，而css不可以，你必须在dom前面加载css，你必须接受css阻塞dom渲染的现实。
+&lt;/p&gt;&lt;/blockquote&gt;
+&lt;h2&gt;css优化之压缩(cssshrink)&lt;/h2&gt;
+&lt;blockquote&gt;&lt;p&gt;
+  我们一般都会对css进行常规压缩，主要做去空格和换行的工作。这里推荐的cssshrink会做更精细的工作，cssshrink会首先通过css parser对css进行解析，然后有针对性的进行优化。例如会吧0px和0%转换成0，bold转换成700，字符级别的极致压缩，为作者点个赞。
+&lt;/p&gt;&lt;/blockquote&gt;
+&lt;ul&gt;
+&lt;li&gt;cssshrink具体的优化策略，&lt;a href=&quot;http://cssshrink.com/velocity&quot;&gt;点此查看&lt;/a&gt;
+&lt;/li&gt;
+&lt;li&gt;cssshrink &lt;a href=&quot;https://github.com/stoyan/cssshrink&quot;&gt;GitHub地址&lt;/a&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;css优化之合并&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;使用gulp-concat将多个css合并在一起&lt;/li&gt;
+&lt;li&gt;不要使用@import 减少阻塞和请求&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;css拆分&lt;/h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;
+  看起来和上面有些冲突，这也是css和其它部分优化不同的地方。 一般我们大家都习惯把css放在最上面，js放在最下面。这是一个好习惯，但是对于css来说并不是最好的选择。&lt;/p&gt;
+&lt;p&gt;  在移动端，大家非常重视首屏时间，也就是用户看到页面的时间。把整个页面的css都放在最上面，大量首屏用不到的css会阻塞首屏的展现。
+&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;ul&gt;
+&lt;li&gt;head只放首屏能用到的css，首屏外的css下移&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;css使用率&lt;/h2&gt;
+&lt;blockquote&gt;&lt;p&gt;
+  一般页面经过多人维护后，会产生大量用不到css，大家也不敢随意删除，这就需要一些检测工具
+&lt;/p&gt;&lt;/blockquote&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;a href=&quot;https://github.com/demohi/unu&quot;&gt;unu&lt;/a&gt;&lt;br&gt;
+1.1 unu是一个用来检测页面哪些css没有用到的Node.js模块&lt;br&gt;
+1.2 优点：提供&lt;a href=&quot;https://github.com/demohi/unu-web&quot;&gt;可视化界面&lt;/a&gt;,使用非常简单，输入url，即可查看页面css的使用情况&lt;br&gt;
+1.3 缺点：目前只支持style标签式的css，另外没有执行页面的js&lt;/li&gt;
+&lt;li&gt;
+&lt;a href=&quot;https://github.com/giakki/uncss&quot;&gt;uncss&lt;/a&gt;&lt;br&gt;
+2.1 uncss是可以把页面css没有用到去除的模块&lt;br&gt;
+2.2 优点：支持命令行和gulp、grunt插件，支持link方式，基于phantomjs，模拟浏览器执行，支持js执行&lt;br&gt;
+2.3 缺点：仅凭一个url导出的css，不具有实际价值，另外不支持style标签&lt;/li&gt;
+&lt;li&gt;
+&lt;a href=&quot;https://github.com/addyosmani/critical&quot;&gt;critical&lt;/a&gt;&lt;br&gt;
+3.1 critical是一个用来检测首屏css有哪些没用到的模块&lt;br&gt;
+3.2优点：可以输入首屏宽高来检测、有gulp、grunt插件&lt;br&gt;
+3.3 缺点：不支持url，只支持本地html，不支持style标签&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2&gt;总结&lt;/h2&gt;
+&lt;blockquote&gt;&lt;p&gt;
+  速度优化对于开发人员来说是件降低生产力的事情，所以需要尽可能的自动化，设置好规则，无痛优化，同时避免后续恶化。
+&lt;/p&gt;&lt;/blockquote&gt;
+&lt;p&gt;有任何问题，欢迎&lt;/p&gt;
+			&lt;!-- .entry-content --&gt;
+
+</description>
+        <pubDate>Thu, 31 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-31-%25e4%25bc%2598%25e5%258c%2596%25e4%25bd%25a0%25e7%259a%2584css.html-2280d8aae.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-31-%25e4%25bc%2598%25e5%258c%2596%25e4%25bd%25a0%25e7%259a%2584css.html-2280d8aae.html</guid>
+        
+        
+      </item>
     
       <item>
         <title>SQL/NoSQL两大阵营激辩：谁更适合大数据</title>
@@ -83,6 +579,205 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         <pubDate>Wed, 30 Jul 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-07-30-74548-27ff28e56.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-30-74548-27ff28e56.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>算法系列：煎饼排序</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;我对算法很感兴趣，这次介绍的煎饼排序问题是在很多算法课程上都介绍过的经典例子。如果这是你第一次接触这个问题，我非常建议你在阅读时先独立思考解决方法。下面我们开始，希望大家喜欢咯。&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;煎饼排序： 维基百科给出的释义煎饼排序是数学上的一个问题的一种通俗叫法：对一堆无序的煎饼以大小排序，铲子可以在任意位置伸进去并且把上面的煎饼都翻转过来。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;通俗点说，我们有一个锅铲和一堆煎饼，我们的目标是将煎饼按照大小排序，大的在下面。我们唯一的办法是让锅铲从一个地方伸进去，并且把上面所有的煎饼翻下来。举个栗子，一开始的煎饼是这样子的：&lt;/p&gt;
+&lt;p&gt;&lt;img id=&quot;pic&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/006bcdc17b71a5bf164842458058f98b.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;我们决定在这里铲入：&lt;img id=&quot;pic&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/2532f583f72787eedf4ca721c520309c.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;红色箭头代表插入位置，蓝色的表示新的煎饼堆底。&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/1c8217ab14bcd5a5d98745c555aa7b59.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;就是这样！&lt;/p&gt;
+&lt;ul&gt;
+&lt;li style=&quot;text-align: center;&quot;&gt;&lt;strong&gt;&lt;span style=&quot;line-height: 15px;&quot;&gt;煎饼排序算法&lt;/span&gt;&lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;（在你往下看之前，我建议你先自己想想解决办法。）&lt;/p&gt;
+&lt;p&gt;我现在讲的不是最好的办法，但是却是最直观最容易解释的。我选这种方法是为了向人们展示有些算法是非常容易并且直观的。我希望大家看了以后都能来尝试一下算法。通常，计算机专业会把普通人都吓跑，因为它一开始看上去太令人紧张。在这篇文章最后我将贴上更快的算法的链接。&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt; 将问题分解开来：&lt;/li&gt;
+&lt;/ul&gt;
+&lt;ol&gt;
+&lt;li&gt;我们需要将煎饼排序，初始的形状可能是任意的。&lt;/li&gt;
+&lt;li&gt;我们只能对一部分煎饼进行翻转。&lt;/li&gt;
+&lt;li&gt;如果想让某一块特定的煎饼在最下面，需要先把它翻到最上面。&lt;/li&gt;
+&lt;li&gt;因此想要排好一块煎饼就需要先翻一下把它翻到顶上再把它翻到下面才行。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;ul&gt;
+&lt;li&gt;凭直觉想出来的算法&lt;/li&gt;
+&lt;/ul&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;span style=&quot;line-height: 15px;&quot;&gt;把未排序的煎饼中最大（或者顺序在最后）的煎饼翻下去（需要两步）。&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;重复第一步。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;既然我们有了算法，那么我们就来思考一下看它正确与否吧：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;只有一个煎饼的时候正确吗？——正确。&lt;/li&gt;
+&lt;li&gt;两个煎饼，大的在上，正确吗？——正确，我们翻一下就行了。&lt;/li&gt;
+&lt;li&gt;如果有三个煎饼，顺序从上到下依次是：中、大、小，正确吗？正确，我们先把大的翻上去，现在从上到下依次是大、中、小；然后我们再整个翻一下，顺序就变成了小、中、大。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;既然在这几种简单情况下都是正确的，那么我们不妨用Python写出来吧~（欢迎在Github上Fork我的&lt;a href=&quot;https://github.com/lettergram/pancakesort&quot;&gt;代码&lt;/a&gt;。）&lt;/p&gt;
+&lt;pre class=&quot;brush: python; gutter: true&quot;&gt;# Sorts Pancakes                                                                                    
+def sortPancakes(stack):
+
+    sorted_index = 10
+    for i in reversed(range(len(stack))):
+        stack = flip(stack, findLargestPancake(stack, i))
+        print(&quot;Flip Up&quot;, stack)
+        stack = flip(stack, i)
+        print(&quot;Flip Down&quot;, stack)
+    return stack
+
+# All of the pancakes are sorted after index                                                        
+# Returns the index of largest unsorted pancake                                                     
+def findLargestPancake(stack, index):
+
+    largest_pancake = stack[index]
+    largest_index = index;
+
+    for i in range(index):
+        if stack[i] &amp;gt; largest_pancake:
+            largest_pancake = stack[i]
+            largest_index = i
+
+    print &quot;&quot;
+    print(&quot;Insert Spatula in index&quot;, largest_index, &quot;Size&quot;, largest_pancake)
+    return largest_index
+
+# Slide spatula under pancake at index and flip to top                                              
+def flip(stack, index):
+    newStack = stack[:(index + 1)]
+    newStack.reverse()
+    newStack += stack[(index + 1):]
+    return newStack
+
+stack = [1, 4, 5, 2, 3, 8, 6, 7, 9, 0]
+
+print&quot;\nUnsorted:&quot;
+print stack
+
+print &quot;\nIterating:&quot;
+stack = sortPancakes(stack)
+
+print &quot;\nSorted:&quot;
+print stack
+print &quot;&quot;&lt;/pre&gt;
+&lt;p&gt;我们运行一下程序：&lt;/p&gt;
+&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;Unsorted: [1, 4, 5, 2, 3, 8, 6, 7, 9, 0]
+
+Iterating:
+
+(‘Insert Spatula in index’, 8, ‘Size’, 9)
+ (‘Flip Up’, [9, 7, 6, 8, 3, 2, 5, 4, 1, 0])
+ (‘Flip Down’, [0, 1, 4, 5, 2, 3, 8, 6, 7, 9])
+
+(‘Insert Spatula in index’, 6, ‘Size’, 8)
+ (‘Flip Up’, [8, 3, 2, 5, 4, 1, 0, 6, 7, 9])
+ (‘Flip Down’, [7, 6, 0, 1, 4, 5, 2, 3, 8, 9])
+
+(‘Insert Spatula in index’, 0, ‘Size’, 7)
+ (‘Flip Up’, [7, 6, 0, 1, 4, 5, 2, 3, 8, 9])
+ (‘Flip Down’, [3, 2, 5, 4, 1, 0, 6, 7, 8, 9])
+
+(‘Insert Spatula in index’, 6, ‘Size’, 6)
+ (‘Flip Up’, [6, 0, 1, 4, 5, 2, 3, 7, 8, 9])
+ (‘Flip Down’, [3, 2, 5, 4, 1, 0, 6, 7, 8, 9])
+
+(‘Insert Spatula in index’, 2, ‘Size’, 5)
+ (‘Flip Up’, [5, 2, 3, 4, 1, 0, 6, 7, 8, 9])
+ (‘Flip Down’, [0, 1, 4, 3, 2, 5, 6, 7, 8, 9])
+
+(‘Insert Spatula in index’, 2, ‘Size’, 4)
+ (‘Flip Up’, [4, 1, 0, 3, 2, 5, 6, 7, 8, 9])
+ (‘Flip Down’, [2, 3, 0, 1, 4, 5, 6, 7, 8, 9])
+
+(‘Insert Spatula in index’, 1, ‘Size’, 3)
+ (‘Flip Up’, [3, 2, 0, 1, 4, 5, 6, 7, 8, 9])
+ (‘Flip Down’, [1, 0, 2, 3, 4, 5, 6, 7, 8, 9])
+
+(‘Insert Spatula in index’, 2, ‘Size’, 2)
+ (‘Flip Up’, [2, 0, 1, 3, 4, 5, 6, 7, 8, 9])
+ (‘Flip Down’, [1, 0, 2, 3, 4, 5, 6, 7, 8, 9])
+
+(‘Insert Spatula in index’, 0, ‘Size’, 1)
+ (‘Flip Up’, [1, 0, 2, 3, 4, 5, 6, 7, 8, 9])
+ (‘Flip Down’, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+(‘Insert Spatula in index’, 0, ‘Size’, 0)
+ (‘Flip Up’, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+ (‘Flip Down’, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+
+Pancake Sort Completed!
+
+Sorted:&amp;lt;em&amp;gt; &amp;lt;/em&amp;gt;[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]&lt;/pre&gt;
+&lt;p&gt;成功了！就是这么简单！&lt;/p&gt;
+&lt;ul&gt;
+&lt;li style=&quot;text-align: center;&quot;&gt;&lt;strong&gt;计算运行时间 &lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;计算一个算法的运行时间是非常重要的。这可以让你知道问题的复杂程度和规模。在计算机领域我们经常用&lt;a href=&quot;https://en.wikipedia.org/wiki/Big_O_notation&quot;&gt;大O表示法&lt;/a&gt;（Big-O Notation)，它保证了程序的运行时间一定在这之内。（如果你想不起来或者根本没听说过这个名称，建议你移步&lt;a href=&quot;https://en.wikipedia.org/wiki/Big_O_notation&quot;&gt;维基。&lt;/a&gt;）&lt;/p&gt;
+&lt;p&gt;分析这个算法的运行时间还是比较直观的。可以想象，最差的情况是，这堆煎饼是交替的最小和最大。比如[0, 9, 1, 8, 2, 7, 3, 6, 5, 4]。我们需要先把9翻上去，再翻到底下。然后是8、7、6等等。每一个都需要两步，所以总的步数最大是2n-3。n是总的煎饼个数，“-3”是因为当倒数第二个归位了之后倒数第一个的位置自然也就正确了，并且倒数第二个只需要一下。有些Reddit的&lt;a href=&quot;http://www.reddit.com/r/compsci/comments/29a5jd/everyday_algorithms_pancake_sort/&quot;&gt;评论&lt;/a&gt;给我提了建议：为了避免混淆，我们在这里要说清楚我们忽略了”搜索时间“，现在计算的都是翻转所需要的时间。&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;span style=&quot;line-height: 15px;&quot;&gt;运行时间（翻转所需要的）：O(n)。&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;内存大小：O(n)。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;然而，我们还没考虑每次搜索最大的煎饼所需要的时间。在我上面的代码中，如果要在翻转之前先找到最大的煎饼，我们必须搜索整个（还未排好序的）煎饼堆。这就使得我们最差的搜索时间成为了n乘以n。因为我们必须把每个都找一遍才能确定哪个是最大的，并且一共有n轮搜索。因此：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;span style=&quot;line-height: 15px;&quot;&gt;运行时间：O(n*n)。&lt;/span&gt;&lt;/li&gt;
+&lt;li&gt;内存大小：O(n)。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;还需要说明的一点是，我的程序使用了不多余n的内存：&lt;/p&gt;
+&lt;pre class=&quot;brush: python; gutter: true&quot;&gt;# Slide spatula under pancake at index and flip to top                                              
+def flip(stack, index):
+    newStack = stack[:(index + 1)]
+    newStack.reverse()
+    newStack += stack[(index + 1):]
+    return newStack&lt;/pre&gt;
+&lt;p&gt;我的解法需要O(n+k)的内存，k表示第一次翻转的大小，最大不多余n-1。因此我们的解答需要2n-1或者O(n)的内存。如果我们想避免这些开销我们可以原地翻转，在数组中挨个交换，但是这样代码就不好懂了。&lt;/p&gt;
+&lt;ul&gt;
+&lt;li style=&quot;text-align: center;&quot;&gt;&lt;strong&gt;结论&lt;/strong&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;以上介绍的算法不是最快的。如果你还想进一步了解这个问题，我建议你读一下这篇Bill Gates和Christos Papadimitriou写的&lt;a href=&quot;http://www.cs.berkeley.edu/~christos/papers/Bounds%20For%20Sorting%20By%20Prefix%20Reversal.pdf&quot;&gt;论文&lt;/a&gt;，以及Chitturi，Fahle，Meng以及一些其他人写的这篇&lt;a href=&quot;http://www.sciencedirect.com/science/article/pii/S0304397508003575&quot;&gt;论文&lt;/a&gt;。如果你喜欢这篇文章的话，可以来读一下我写的关于计数排序的&lt;a href=&quot;http://austingwalters.com/counting-sort-in-c/&quot;&gt;文章&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;之后我还会推出一个更难的”烧焦的煎饼问题“：&lt;/p&gt;
+&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;每块被翻到过最底下的煎饼被烧焦了，这个排序必须使得每个煎饼的烧焦的那一面在下。&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;这个解法将会在我的邮件列表中发给大家，或者你可以看这个&lt;a href=&quot;http://us8.campaign-archive2.com/?u=cb393d7130736f1fef1e65dbf&amp;amp;id=17c1e959eb&quot;&gt;更新&lt;/a&gt;。&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+&lt;p&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow&quot; href=&quot;http://www.jobdeer.com/?fr=jobbole&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+	
+
+
+	
+
+</description>
+        <pubDate>Wed, 30 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-30-74263-3d62c6736.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-30-74263-3d62c6736.html</guid>
         
         
       </item>
@@ -534,6 +1229,303 @@ color.getRed(&amp;amp;&lt;span class=&quot;pointer&quot;&gt;r&lt;/span&gt;, gree
       </item>
     
       <item>
+        <title>Promise 初探</title>
+        <description>
+
+		&lt;p&gt;其实 Promise 这个东西提出来也挺久时间了，它是一种解决复杂异步回调逻辑的方法。大部分人类的正常思维方式都是线性连贯的，但是在 JavaScript 中，异步却是主流。所以，在遇到复杂逻辑时，我们往往会&lt;a href=&quot;http://tritarget.org/blog/2012/11/28/the-pyramid-of-doom-a-javascript-style-trap/&quot;&gt;写成这样&lt;/a&gt;：&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+// Code uses jQuery to illustrate the Pyramid of Doom
+(function($) {
+  $(function(){
+    $(&quot;button&quot;).click(function(e) {
+      $.get(&quot;/test.json&quot;, function(data, textStatus, jqXHR) {
+        $(&quot;.list&quot;).each(function() {
+          $(this).click(function(e) {
+            setTimeout(function() {
+              alert(&quot;Hello World!&quot;);
+            }, 1000);
+          });
+        });
+      });
+    });
+  });
+})(jQuery);
+&lt;/pre&gt;
+&lt;p&gt;这就是所谓的「回调金字塔」，每当看到这样的代码，我就会不由自主地唱起一首歌：&lt;/p&gt;
+&lt;blockquote&gt;&lt;p&gt;
+  如果你愿意一层一层一层地剥开我的心……
+&lt;/p&gt;&lt;/blockquote&gt;
+&lt;p&gt;解决这个方法最简单的方法，就是把匿名函数取个名字，单独提取出来定义。但是当遇到多变的业务场景时，具名函数的方法也不太管用，于是便有了各种高级的碾平异步回调的解决方案，Promise 就是其中一种。&lt;/p&gt;
+&lt;p&gt;在 ECMAScript 6 中，Promise 模式得到了原生的支持。我们就从原生模型说起。&lt;/p&gt;
+&lt;p&gt;&lt;span id=&quot;more-497&quot;&gt;&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;ECMAScript 6 Promise&lt;/h2&gt;
+&lt;p&gt;为了简化各种各样的异步逻辑，我们先假设有一个会花一些时间来完成的 JS 函数。它的功能很简单，就是过一段时间以后调用传入的回调函数。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+var wait = function(callback, param) {
+  setTimeout(function() {
+    callback(param)
+  }, 2000 + (Math.random() - 0.5) * 1000);
+}
+wait(console.log.bind(console), &#39;test&#39;);
+&lt;/pre&gt;
+&lt;p&gt;你可以想象多层嵌套的时候大概是什么样子：&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+wait(function() {
+  console.log(&#39;如果你愿意&#39;);
+  wait(function() {
+    console.log(&#39;一层&#39;);
+    wait(function() {
+      console.log(&#39;一层&#39;);
+      wait(function() {
+        console.log(&#39;一层地&#39;);
+        wait(console.log.bind(console), &#39;剥开我的心&#39;);
+      });
+    });
+  });
+});
+&lt;/pre&gt;
+&lt;p&gt;那么，在 Promise 的世界里是什么样的呢？这就不得不先枯燥地解释一些东西了。首先，什么叫做一个「promise」？一个 promise 可以是一个对象或者函数，它包含一个 &lt;code&gt;then&lt;/code&gt; 接口并且符合相应的规范。使用一个 promise 的方法就是这样：&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+promise.then(function(response) {
+    // onFulfilled 时执行
+}, function(error) {
+    // onRejected 时执行
+});
+&lt;/pre&gt;
+&lt;p&gt;于是问题又来了，什么叫做 fulfilled 和 rejected 呢？一个 promise 会有三种状态，大致可以理解为执行成功（fulfilled）、执行失败（rejected）和正在执行中（pending）。Promise 包含一个状态机，它内部的状态转换，只允许从 pending 到 fulfilled 或者 rejected 一次，不允许更多了。如果用大家喜闻乐见的薛定谔的猫来解释，就是打开盒子的时候，我们的猫要么死了，要么没死，要么不确定死没死，死的的猫无法复活，活猫也一定不会死:D&lt;/p&gt;
+&lt;p&gt;新建一个 promise 的时候，我们需要在代码中定义什么时候算成功了，什么时候算失败了。于是上面 wait 的例子便可以改写这样了：&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+function waitPromise(param) {
+  return new Promise(function(resolve, reject) {
+    setTimeout(function() {
+      resolve(param);
+    }, 2000 + (Math.random() - 0.5) * 1000);
+  });
+}
+
+waitPromise(&#39;如果你愿意&#39;).then(function(response) {
+  console.log(response);
+  return waitPromise(&#39;一层&#39;);
+}).then(function(response) {
+  console.log(response);
+  return waitPromise(&#39;一层&#39;);
+}).then(function(response) {
+  console.log(response);
+  return waitPromise(&#39;一层地&#39;);
+}).then(function(response) {
+  console.log(response);
+  return waitPromise(&#39;剥开我的心&#39;);
+}).then(console.log.bind(console));
+&lt;/pre&gt;
+&lt;p&gt;从上面的例子中，我们可以看出几点：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;一个 promise 它 resolve（或者 reject）的东西就是 &lt;code&gt;then&lt;/code&gt; 的两个回调接受的参数。&lt;/li&gt;
+&lt;li&gt;
+&lt;code&gt;then&lt;/code&gt; 可以链式调用，调用的顺序就是你定义的顺序。&lt;/li&gt;
+&lt;li&gt;在 &lt;code&gt;onFulfilled&lt;/code&gt;（或者 &lt;code&gt;onRejected&lt;/code&gt;）中，你可以返回一个 promise，此时 &lt;code&gt;then&lt;/code&gt; 会返回这个 promise 的一个代理，并响应它的状态变化（即给下一个 &lt;code&gt;then&lt;/code&gt; 使用）。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;&lt;code&gt;onFulfilled&lt;/code&gt; 和 &lt;code&gt;onRejected&lt;/code&gt; 中，除了可以返回一个 promise 以外，还可以返回一个对象，其中包含一个 &lt;code&gt;then&lt;/code&gt; 方法——这样的对象称作 &lt;em&gt;thenable&lt;/em&gt;。当 thenable 被返回时，代理的 promise 就会去调用该方法，并传入 &lt;code&gt;resolvePromise&lt;/code&gt; 和 &lt;code&gt;rejectPromise&lt;/code&gt; 两个参数，于是这个 promise 也就链式地传递下去了。除此之外，返回一个不是 thenable 的值也是可以的，这相当于一个简化，该返回值会被链式的 promise 立即 fulfill。&lt;/p&gt;
+&lt;p&gt;上面的例子比较一根筋，所有的 &lt;code&gt;then&lt;/code&gt; 只定义了第一个参数（即成功的回调），其实我们还可以通过调用 &lt;code&gt;onRejected&lt;/code&gt; 或者抛出一个异常来表示 Promise 执行失败，从而进入 &lt;code&gt;then&lt;/code&gt; 的第二个函数中（&lt;code&gt;then(func1, func2)&lt;/code&gt; 必定会调用且仅调用其中一个）。听上去是不是有点 try/catch 的味道，事实上，Promise 还真提供了一个语法糖，就是 &lt;code&gt;catch(func)&lt;/code&gt;，它其实相当于 &lt;code&gt;then(undefined, func)&lt;/code&gt;。链条中加入的 &lt;code&gt;catch&lt;/code&gt; 可以管上它之前所有的 promise 中的失败情况。&lt;/p&gt;
+&lt;p&gt;听上去好像很绕口的样子，而且这个 Promise 也不过是把回调拉平了而已嘛，至于这么复杂么？其实，依赖这些，我们可以方便地实现更多异步逻辑。在 ECMAScript 6中，Promise 还定义了两个接口：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;code&gt;Promise.all&lt;/code&gt;：接受一堆 promise 的数组（任何可迭代的对象都可以），只有当他们都解决了以后，才会解决&lt;/li&gt;
+&lt;li&gt;
+&lt;code&gt;Promise.race&lt;/code&gt;：也是接受一堆 promise，但是只要有一个成功或者失败了，就会立即解决或驳回它本身&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;怎么样，是不是突显出 JavaScript 的函数式风格了。就&lt;a href=&quot;http://kangax.github.io/compat-table/es6/#Promise&quot;&gt;目前的形势&lt;/a&gt;而言，Chrome 33 和 Firefox 30 以上的浏览器都已经实现了原生 Promise。&lt;/p&gt;
+&lt;h2&gt;Promises/A+&lt;/h2&gt;
+&lt;p&gt;之前说了那么多关于 Promise 的这个规定，那个规定，其实它是有一个统一的名称的，就叫做 Promises/A+。在&lt;a href=&quot;http://promisesaplus.com/&quot;&gt;它的网站&lt;/a&gt;上，你可以阅读到完整的规范文档。&lt;/p&gt;
+&lt;p&gt;基于这个标准，除了 ECMAScript 6 中比较简易的 Promise 以外，还有很多实现各不相同，功能各有千秋的实现，比较有名的有（按现有 Github Star 数排列）：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https://github.com/kriskowal/q&quot;&gt;Q&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://github.com/petkaantonov/bluebird&quot;&gt;Bluebird&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://github.com/cujojs/when&quot;&gt;when&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;https://github.com/tildeio/rsvp.js/&quot;&gt;rsvp.js&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;例如，Q 支持进度查询功能，执行时间较长的异步操作（例如文件上传）可以即时获取进度信息：&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+return uploadFile()
+.then(function () {
+    // Success uploading the file
+}, function (err) {
+    // There was an error, and we get the reason for error
+}, function (progress) {
+    // We get notified of the upload&#39;s progress as it is executed
+});
+&lt;/pre&gt;
+&lt;h2&gt;重新发明轮子&lt;/h2&gt;
+&lt;p&gt;尽管 Promise 的实现有很多，但是它们的核心都是一样的，就是围绕着 &lt;code&gt;then&lt;/code&gt; 方法展开。既然有了标准规范，其实我们可以自己实现一个简单的 Promise。&lt;/p&gt;
+&lt;p&gt;首先当然要创建一个 Promise 对象的构造函数，它接受一个函数作为参数，调用这个函数的时候，会传入 &lt;code&gt;resolve&lt;/code&gt; 和 &lt;code&gt;reject&lt;/code&gt; 方法。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+function MyPromise(resolver) {
+    // 简单起见就不做类型检查了，假定 resolver 一定为函数
+
+    this.status = 0;  // 0: pending, 1: fulfilled, 2: rejected
+    this.value = null;
+    this.handlers = [];
+
+    doResolve.call(this, resolver);
+}
+
+function doResolve(resolver) {
+    var called = false;
+    function resolvePromise(value) {
+        if (called) {
+            return;
+        } else {
+            called = true;
+            resolve.call(this, value);
+        }
+    }
+
+    function rejectPromise(reason) {
+        if (called) {
+            return;
+        } else {
+            called = true;
+            reject.call(this, reason);
+        }
+    }
+
+    try {
+        resolver(resolvePromise.bind(this), rejectPromise.bind(this));
+    } catch(e) {
+        rejectPromise(e);
+    }
+}
+&lt;/pre&gt;
+&lt;p&gt;这样，当使用 &lt;code&gt;new Promise(function(resolve, reject) {...});&lt;/code&gt; 构造时，就会进入 &lt;code&gt;doResolve&lt;/code&gt;，这时会执行传入给 &lt;code&gt;new Promise&lt;/code&gt; 的参数，并给出 &lt;code&gt;resolve&lt;/code&gt; 和 &lt;code&gt;reject&lt;/code&gt; 的实现。可以看到为了保证 &lt;code&gt;resolve&lt;/code&gt; 或 &lt;code&gt;reject&lt;/code&gt; 总共只能被调用一次，这里用到了一个闭包。接下来来看具体的 &lt;code&gt;resolve&lt;/code&gt; 和 &lt;code&gt;reject&lt;/code&gt; 是怎么实现的。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+function resolve(value) {
+    try {
+        if (this === value) {
+            throw new TypeError(&#39;A promise cannot be resolved with itself.&#39;);
+        }
+        if (value &amp;amp;&amp;amp; (typeof value === &#39;object&#39; || typeof value === &#39;function&#39;)) {
+            var then = value.then;
+            if (typeof then === &#39;function&#39;) {
+                doResolve.call(this, then.bind(value));
+                return;
+            }
+        }
+        this.status = 1;
+        this.value = value;
+        dequeue.call(this);
+    } catch(e) {
+        reject(e);
+    }
+}
+
+function reject(reason) {
+    this.status = 2;
+    this.value = reason;
+    dequeue.call(this);
+}
+&lt;/pre&gt;
+&lt;p&gt;具体的 &lt;code&gt;resolve&lt;/code&gt; 实现中，我们会判断解决的值是否是一个 thenable，如果是的话，就会去执行这个 &lt;code&gt;then&lt;/code&gt; 函数，并且接受它的状态和返回值。如果不是，就直接使用该值解决这个 promise。&lt;/p&gt;
+&lt;p&gt;可以想象，当我们执行 promise 的 &lt;code&gt;then&lt;/code&gt; 方法时，其实是完成了一个类似&lt;a href=&quot;http://zh.wikipedia.org/zh/%E8%A7%82%E5%AF%9F%E8%80%85%E6%A8%A1%E5%BC%8F&quot;&gt;观察者模式&lt;/a&gt;的注册过程。当 promise 还处于 pending 状态时，回调函数会被暂时存储起来，待到解决或失败时再执行，但是当 &lt;code&gt;then&lt;/code&gt; 发现这个 promise 已经完成了状态转换，便可以根据状态立即执行回调了。&lt;/p&gt;
+&lt;p&gt;在这里，我们使用了 &lt;code&gt;this.handlers&lt;/code&gt; 数组来暂存 &lt;code&gt;then&lt;/code&gt; 的回调函数，当状态改变时，会调用 &lt;code&gt;dequeue&lt;/code&gt; 方法来处理队列。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+function dequeue() {
+    var handler;
+    while (this.handlers.length) {
+        handler = this.handlers.shift();
+        handle.call(this, handler.thenPromise, handler.onFulfilled, handler.onRejected);
+    }
+}
+&lt;/pre&gt;
+&lt;p&gt;最后便是核心方法 &lt;code&gt;then&lt;/code&gt; 的实现了。根据规范，它必须返回一个 promise，并根据 &lt;code&gt;onFulfilled&lt;/code&gt; 或 &lt;code&gt;onRejected&lt;/code&gt; 回调的返回值来决定是将它标记为完成还是失败。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+MyPromise.prototype.then = function(onFulfilled, onRejected) {
+    var self = this;
+    var thenPromise = new MyPromise(function() {});
+
+    if (!self.status) {
+        self.handlers.push({
+            thenPromise: thenPromise,
+            onFulfilled: onFulfilled,
+            onRejected: onRejected
+        });
+    } else {
+        handle.call(self, thenPromise, onFulfilled, onRejected);
+    }
+
+    return thenPromise;
+};
+
+function handle(thenPromise, onFulfilled, onRejected) {
+    var self = this;
+
+    setTimeout(function() {
+        var callback, ret;
+        if (self.status == 1) {
+            callback = onFulfilled;
+        } else {
+            callback = onRejected;
+        }
+        if (typeof callback === &#39;function&#39;) {
+            try {
+                ret = callback(self.value);
+                resolve.call(thenPromise, ret);
+            } catch(e) {
+                reject.call(thenPromise, e);
+            }
+            return;
+        }
+        if (self.status == 1) {
+            resolve.call(thenPromise, self.value);
+        } else {
+            reject.call(thenPromise, self.value);
+        }
+    }, 1);
+}
+&lt;/pre&gt;
+&lt;p&gt;在上面的 &lt;code&gt;handle&lt;/code&gt; 函数中，我们立即调用回调函数，并且根据回调函数的类型来改变 &lt;code&gt;then&lt;/code&gt; 方法返回的 promise 的状态，这样就形成了一个 promise 链条。&lt;/p&gt;
+&lt;p&gt;大约 100 多行代码，我们就实现了一个粗糙的 Promise 库。当然，上面的代码可能还有很多 Bug，并且也不是严格符合 Promises/A+ 的。如果读者发现问题，请不吝指出。&lt;/p&gt;
+&lt;p&gt;有了这个核心的基础，实现外围的 API 例如 &lt;code&gt;Promise.all&lt;/code&gt;、&lt;code&gt;Promise.race&lt;/code&gt; 就比较简单了，这里就不给出了。其实，Promise 看似用起来很简单，想要自己严格实现一个，还是有不少难点的，其中最容易被绕晕的就是对 &lt;code&gt;then&lt;/code&gt;&lt;br&gt;
+的实现，以及如何处理 &lt;code&gt;then&lt;/code&gt; 的回调中又返回新的 promise 的逻辑。&lt;/p&gt;
+&lt;p&gt;我们回到文章开头的例子，使用我们自己的 MyPromise 试验一下。简单起见，就不写那么多层了。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+function waitPromise(param) {
+  return new Promise(function(resolve, reject) {
+    setTimeout(function() {
+      resolve(param);
+    }, 2000 + (Math.random() - 0.5) * 1000);
+  });
+}
+
+waitPromise(&#39;如果你愿意&#39;).then(function(response) {
+  console.log(response);
+  return waitPromise(&#39;一层&#39;);
+}).then(console.log.bind(console));
+&lt;/pre&gt;
+&lt;p&gt;可以看到我们可以成功输出两行文字。你能根据上面的实现，看出这次调用事实上一共产生了多少个 promise 对象吗？&lt;/p&gt;
+&lt;p&gt;答案是五个：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;P0：第一次 &lt;code&gt;waitPromise(&#39;如果你愿意&#39;)&lt;/code&gt; 返回的&lt;/li&gt;
+&lt;li&gt;P1：第一个 &lt;code&gt;then&lt;/code&gt; 返回的&lt;/li&gt;
+&lt;li&gt;P2：第二个 &lt;code&gt;then&lt;/code&gt; 返回的&lt;/li&gt;
+&lt;li&gt;P3：第一个 &lt;code&gt;then&lt;/code&gt; 里，通过 &lt;code&gt;return waitPromise(&#39;一层&#39;)&lt;/code&gt; 返回的&lt;/li&gt;
+&lt;li&gt;P4：在处理 P1 时，会调用 P3 的 &lt;code&gt;then&lt;/code&gt; 方法，这时候又会返回一个 promise&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2&gt;参考资料&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://www.html5rocks.com/zh/tutorials/es6/promises/&quot;&gt;JavaScript Promises – There and back again&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://promisesaplus.com/&quot;&gt;Promises/A+&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;
+&lt;/ul&gt;
+			&lt;!-- .entry-content --&gt;
+
+</description>
+        <pubDate>Sun, 27 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-27-promise-introduction.html-f65f9ebff.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-27-promise-introduction.html-f65f9ebff.html</guid>
+        
+        
+      </item>
+    
+      <item>
         <title>iOS开发如何提高</title>
         <description>
 &lt;p&gt;&lt;img src=&quot;/images/devtang.com/79692bab05e21d2e6ef22c2bdacb7f5d.jpg&quot;&gt;&lt;/p&gt;
@@ -654,6 +1646,194 @@ color.getRed(&amp;amp;&lt;span class=&quot;pointer&quot;&gt;r&lt;/span&gt;, gree
         <pubDate>Sun, 27 Jul 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-07-27-ios-levelup-tips-44de87aac.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-27-ios-levelup-tips-44de87aac.html</guid>
+        
+        
+      </item>
+    
+      <item>
+        <title>Web Components 初探</title>
+        <description>
+
+		&lt;p&gt;众所周知，Web 页面是由 HTML+CSS+JavaScript 三板斧配合而成的，这体现了一种结构、表现、交互分离的思想。但是随着 Web 应用不断丰富，过度分离的设计也会带来可重用性上的问题。于是各家显神通，各种 UI 组件工具库层出不穷，煞有八仙过海之势。于是 W3C 坐不住了，大手一挥，说道：不如让我们统一一个 Web Components 的标准吧怎么样。&lt;/p&gt;
+&lt;p&gt;Web Components 的核心思想就是把 UI 元素组件化，即将 HTML、CSS、JS 封装起来，使用的时候就不需要这里贴一段 HTML，那里贴一段样式，最后再贴一段 JS 了。一般来说，它其实是由四个部分的功能组成的：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;模板，&lt;code&gt;&amp;lt;template&amp;gt;&lt;/code&gt; 标签&lt;/li&gt;
+&lt;li&gt;自定义元素&lt;/li&gt;
+&lt;li&gt;Shadow DOM（隐匿 DOM）&lt;/li&gt;
+&lt;li&gt;Imports（导入）&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;我们还是通过一个简单的例子看看这些新玩意儿都是些什么吧。&lt;/p&gt;
+&lt;p&gt;&lt;span id=&quot;more-489&quot;&gt;&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;一段简单的 HTML&lt;/h2&gt;
+&lt;p&gt;假设我们有一个提供 App 介绍的代码片段，为了不让事情变得更复杂，这里只有 HTML 和 CSS，不关 JS 什么事。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+&amp;lt;div class=&quot;app-info&quot;&amp;gt;
+  &amp;lt;div class=&quot;app-bar&quot;&amp;gt;
+    &amp;lt;img class=&quot;app-icon&quot; src=&quot;http://img.dayanjia.com/di/TOY7/6c2442a7d933c8950f39059ed31373f083020094.png&quot; width=&quot;36&quot; height=&quot;36&quot;/&amp;gt;
+    &amp;lt;div class=&quot;app-name&quot;&amp;gt;百度手机助手&amp;lt;/div&amp;gt;
+    &amp;lt;a class=&quot;app-downbtn&quot; href=&quot;http://gdown.baidu.com/data/wisegame/de5074e4e28aecec/baidushoujizhushou_16783385.apk&quot;&amp;gt;下载&amp;lt;/a&amp;gt;
+  &amp;lt;/div&amp;gt;
+  &amp;lt;div class=&quot;app-description&quot;&amp;gt;
+    百度手机助手是Android手机的权威资源平台，拥有最全最好的应用、游戏、壁纸资源，帮助您在海量资源中精准搜索、高速下载、轻松管理，万千汇聚，一触即得。海量资源：免费获取数十万款应用和游戏，更有海量独家正版壁纸，任你挑选。
+  &amp;lt;/div&amp;gt;
+&amp;lt;/div&amp;gt;
+&lt;/pre&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+.app-info {
+  padding: 0.2em;
+  border-bottom: 1px dotted #ddd;
+}
+.app-bar {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+}
+.app-name {
+  flex-grow: 2;
+  margin-left: 1em;
+}
+.app-downbtn {
+  text-decoration: none;
+  padding: 0.2em 1.1em;
+  margin-right: 1em;
+  color: #fff;
+  background: #5573eb;
+}
+.app-description {
+  font-size: 12px;
+}
+&lt;/pre&gt;
+&lt;p&gt;看上去就是这样的：&lt;/p&gt;
+&lt;p data-height=&quot;170&quot; data-theme-id=&quot;0&quot; data-slug-hash=&quot;kKvif&quot; data-default-tab=&quot;result&quot; class=&quot;codepen&quot;&gt;See the Pen &lt;a href=&quot;http://codepen.io/clippit/pen/kKvif/&quot;&gt;kKvif&lt;/a&gt; by Letian Zhang (&lt;a href=&quot;http://codepen.io/clippit&quot;&gt;@clippit&lt;/a&gt;) on &lt;a href=&quot;http://codepen.io&quot;&gt;CodePen&lt;/a&gt;.&lt;/p&gt;
+&lt;h2&gt;模板&lt;/h2&gt;
+&lt;p&gt;HTML 模板这个东西已经存在很久了，模板的实现无非是这么几种。一种是直接写在 DOM 里，但是给它一个 &lt;code&gt;display: none&lt;/code&gt; 的样式。使用这种模板，我们可以很方便地用 JavaScript 来操作 DOM 结构，但是如果你在模板里写了一个 &lt;code&gt;img&lt;/code&gt; 元素之类，不好意思，即使你看不到，这个图片的网络请求还是要发一下的。此外，与模板相对应的 CSS 也是和页面其他部分平行的关系，你需要给模板加一个 ID 之类的选择器前缀来指定样式，以保证不和页面中的其他元素冲突。&lt;/p&gt;
+&lt;p&gt;第二种是使用 &lt;code&gt;&amp;lt;script&amp;gt;&lt;/code&gt; 标签，但是给它指定一个非脚本的 &lt;code&gt;type&lt;/code&gt; 属性，这样浏览器就不会把它当做 JS 来执行了：&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+&amp;lt;script id=&quot;template&quot; type=&quot;x-tmpl-mustache&quot;&amp;gt;
+Hello {{ name }}!
+&amp;lt;/script&amp;gt;
+&lt;/pre&gt;
+&lt;p&gt;这种方法的好处在于，DOM 元素是不会预先渲染的，因为在被 JS 取得模板数据并插入 DOM 之前，它都是一堆死气沉沉的纯文本。同时这也是它的弊端，因为是纯文本，所以你要手动处理这些复杂的标签，需要格外小心 XSS 之类的问题。&lt;/p&gt;
+&lt;p&gt;于是新的 &lt;code&gt;&amp;lt;template&amp;gt;&lt;/code&gt; 标签就被提出了，它可以看做是结合了上面两种方法的优势。我们将上面的 HTML 模版化后：&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+&amp;lt;template id=&quot;appTmpl&quot;&amp;gt;
+... 和之前一样的内容 ...
+&amp;lt;/template&amp;gt;
+&lt;/pre&gt;
+&lt;p&gt;使用下面的 JS 就可以访问到模板，并将其插入 DOM 中。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+var tmpl = document.querySelector(&#39;#appTmpl&#39;);
+// 取到 t 以后，可以像操作 DOM 一样随意修改其中的内容
+// 然后需要从模板创建一个深拷贝（Deep Copy），将其插入 DOM
+var clone = document.importNode(tmpl.content, true);
+// 创建深拷贝还可以使用下面的方法：
+// var clone = tmpl.content.cloneNode(true);
+document.body.appendChild(clone);
+&lt;/pre&gt;
+&lt;p&gt;最后的效果和之前看到的其实是一样的。&lt;/p&gt;
+&lt;p data-height=&quot;170&quot; data-theme-id=&quot;0&quot; data-slug-hash=&quot;wglFf&quot; data-default-tab=&quot;result&quot; class=&quot;codepen&quot;&gt;See the Pen &lt;a href=&quot;http://codepen.io/clippit/pen/wglFf/&quot;&gt;wglFf&lt;/a&gt; by Letian Zhang (&lt;a href=&quot;http://codepen.io/clippit&quot;&gt;@clippit&lt;/a&gt;) on &lt;a href=&quot;http://codepen.io&quot;&gt;CodePen&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;当然了，这个模板的实现其实还是很原始的，并没有像 Mustache、Handlebars 等模板库的占位符替换的功能。&lt;/p&gt;
+&lt;h2&gt;Shadow DOM&lt;/h2&gt;
+&lt;p&gt;这个 Shadow 不太好翻译，反正理解成「隐藏在黑暗中的 DOM」就差不多了。所以说，Shadow DOM 其实是在文档的主 DOM 中生成了一块子 DOM，这个子 DOM 的 CSS 环境是和主文档隔离的。可以说，使用 Shadow DOM，我们就拥有了一个组件封装的原始模型。从外面看，它只是一个 DOM 节点，但是这其实是一个黑盒，里面还可以包含复杂的结构。这种抽象其实在大自然中随处可见，例如当我们谈论太阳系的时候，我们会把地球作为一个节点，但是当我们深入地球这个节点时，会发现还存在地月系这个结构。&lt;/p&gt;
+&lt;p&gt;使用 Shadow DOM，我们需要在一个元素上创建一个根（Root），然后将模板内文档添加到这个根上即可。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+&amp;lt;template id=&quot;appTmpl&quot;&amp;gt;
+  &amp;lt;style&amp;gt;
+  /* ... 将 CSS 移动到模板内 ... */
+  &amp;lt;/style&amp;gt;
+  ... 原来的模板内容 ...
+&amp;lt;/template&amp;gt;
+
+&amp;lt;div class=&quot;app&quot;&amp;gt;&amp;lt;/div&amp;gt;
+&lt;/pre&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+var tmpl = document.querySelector(&#39;#appTmpl&#39;);
+var host = document.querySelector(&#39;.app&#39;);
+var root = host.createShadowRoot();
+root.appendChild(document.importNode(tmpl.content, true));
+&lt;/pre&gt;
+&lt;p&gt;最终的效果看上去是一样的，但是我们已经将这个 App 信息组件封装了一层 DOM。&lt;/p&gt;
+&lt;p data-height=&quot;202&quot; data-theme-id=&quot;0&quot; data-slug-hash=&quot;xBpqn&quot; data-default-tab=&quot;result&quot; class=&quot;codepen&quot;&gt;See the Pen &lt;a href=&quot;http://codepen.io/clippit/pen/xBpqn/&quot;&gt;xBpqn&lt;/a&gt; by Letian Zhang (&lt;a href=&quot;http://codepen.io/clippit&quot;&gt;@clippit&lt;/a&gt;) on &lt;a href=&quot;http://codepen.io&quot;&gt;CodePen&lt;/a&gt;.&lt;/p&gt;
+&lt;h2&gt;自定义元素&lt;/h2&gt;
+&lt;p&gt;现在我们已经能够使用一句 &lt;code&gt;&amp;lt;div class=&quot;app&quot;&amp;gt;&amp;lt;/div&amp;gt;&lt;/code&gt; 外加一些 JS 来显示这个 App 信息的组件了（如果它够的上被称作是一个「组件」的话）。但是，我们能不能再给力一点，使用一个自己命名的元素呢？答案当然是肯定的。通过自定义元素的功能，就可以实现通过 &lt;code&gt;&amp;lt;app-info&amp;gt;&amp;lt;/app-info&amp;gt;&lt;/code&gt; 这样的方式来调用它了。&lt;/p&gt;
+&lt;p&gt;HTML 除了上文的那些模板以外，只需要一个简单的容器。同时，接下来的例子中，我们还可以看到如何使用属性来替换模版中的变量，因此模板中也要做出一些修改。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+&amp;lt;template id=&quot;appTmpl&quot;&amp;gt;
+  &amp;lt;style&amp;gt;
+    /* ... CSS 省略 ... */
+  &amp;lt;/style&amp;gt;
+  &amp;lt;div class=&quot;app-info&quot;&amp;gt;
+    &amp;lt;div class=&quot;app-bar&quot;&amp;gt;
+      &amp;lt;img class=&quot;app-icon&quot; src=&quot;&quot; width=&quot;36&quot; height=&quot;36&quot;/&amp;gt;
+      &amp;lt;div class=&quot;app-name&quot;&amp;gt;&amp;lt;/div&amp;gt;
+      &amp;lt;a class=&quot;app-downbtn&quot; href=&quot;&quot;&amp;gt;下载&amp;lt;/a&amp;gt;
+    &amp;lt;/div&amp;gt;
+    &amp;lt;div class=&quot;app-description&quot;&amp;gt;
+      &amp;lt;content selector=&quot;.description&quot;&amp;gt;&amp;lt;/content&amp;gt;
+    &amp;lt;/div&amp;gt;
+  &amp;lt;/div&amp;gt;
+&amp;lt;/template&amp;gt;
+
+&amp;lt;app-info name=&quot;百度手机助手&quot; downurl=&quot;http://gdown.baidu.com/data/wisegame/de5074e4e28aecec/baidushoujizhushou_16783385.apk&quot; iconurl=&quot;http://img.dayanjia.com/di/TOY7/6c2442a7d933c8950f39059ed31373f083020094.png&quot;&amp;gt;
+   &amp;lt;p class=&quot;description&quot;&amp;gt;百度手机助手是Android手机的权威资源平台，拥有最全最好的应用、游戏、壁纸资源，帮助您在海量资源中精准搜索、高速下载、轻松管理，万千汇聚，一触即得。海量资源：免费获取数十万款应用和游戏，更有海量独家正版壁纸，任你挑选。&amp;lt;/p&amp;gt;
+&amp;lt;/app-info&amp;gt;
+&lt;/pre&gt;
+&lt;p&gt;可以看到，Shadow DOM 也可以拥有子元素，而这些子元素在模板中将会使用 &lt;code&gt;&amp;lt;content&amp;gt;&lt;/code&gt; 标签进行定位并替换。接下来，我们使用 JavaScript 创建这个名叫 app-info 的自定义元素。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+var tmpl = document.querySelector(&#39;#appTmpl&#39;);
+
+// 创建新元素的 Prototype
+var appInfoProto = Object.create(HTMLElement.prototype);
+
+// 自定义元素在不同的生命周期有不同的 Callback 可以使用。
+// createdCallback 是在创建时调用的，此外还有
+// attachedCallback（插入 DOM 时的回调）、
+// detachedCallback（从 DOM 中移除时的回调）、
+// attributeChangedCallback（属性改变时的回调）
+appInfoProto.createdCallback = function() {
+  var root = this.createShadowRoot();
+  var name = this.getAttribute(&#39;name&#39;) || &#39;&#39;;
+  var downUrl = this.getAttribute(&#39;downurl&#39;) || &#39;&#39;;
+  var iconurl = this.getAttribute(&#39;iconurl&#39;) || &#39;&#39;;
+  tmpl.content.querySelector(&#39;.app-name&#39;).textContent = name;
+  tmpl.content.querySelector(&#39;.app-downbtn&#39;).href = downUrl;
+  tmpl.content.querySelector(&#39;.app-icon&#39;).src = iconurl;
+  // 将模板插入 Shadow DOM
+  root.appendChild(document.importNode(tmpl.content, true));
+};
+
+// 注册自定义元素
+var appInfo = document.registerElement(&#39;app-info&#39;, {
+    prototype: appInfoProto
+});
+&lt;/pre&gt;
+&lt;p&gt;最后看到的效果，其实和之前的没什么不同，但是我们很清楚，一个简单的 Web Component 雏形已经诞生了。&lt;/p&gt;
+&lt;p data-height=&quot;170&quot; data-theme-id=&quot;6588&quot; data-slug-hash=&quot;wdkgo&quot; data-default-tab=&quot;result&quot; class=&quot;codepen&quot;&gt;See the Pen &lt;a href=&quot;http://codepen.io/clippit/pen/wdkgo/&quot;&gt;wdkgo&lt;/a&gt; by Letian Zhang (&lt;a href=&quot;http://codepen.io/clippit&quot;&gt;@clippit&lt;/a&gt;) on &lt;a href=&quot;http://codepen.io&quot;&gt;CodePen&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;通过 Chrome 的开发工具我们可以很清楚地看到 &lt;code&gt;&amp;lt;template&amp;gt;&lt;/code&gt; 中的文档片段和我们自定义的 &lt;code&gt;&amp;lt;app-info&amp;gt;&lt;/code&gt; 元素中存在的 Shadow DOM。&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://bcs.duapp.com/mbuweb/shadow-dom.png&quot;&gt;&lt;img src=&quot;/images/mweb.baidu.com/64041d6ba7256ad606202108d9e21c6d.jpg&quot; alt=&quot;shadow-dom&quot; class=&quot;alignnone size-medium wp-image-494&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;导入&lt;/h2&gt;
+&lt;p&gt;Web Components 的最后一部分是导入，这就比较容易理解了，就是提供了一个可复用的途径。我们可以像导入 CSS 一样，导入外部文件中的 HTML 代码。&lt;/p&gt;
+&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
+&amp;lt;link rel=&quot;import&quot; href=&quot;app-info.html&quot;&amp;gt;
+&lt;/pre&gt;
+&lt;h2&gt;小结&lt;/h2&gt;
+&lt;p&gt;Web Components 这个东西还非常新，但是它代表了 Web 前端今后的一个发展方向。包括比较火的  AngularJS 等框架，其中的一些功能也或多或少地在使用 Web Components 的思想，并且推动其标准化（见 &lt;a href=&quot;https://docs.google.com/presentation/d/1Gv-dvU-yy6WY7SiNJ9QRo9XayPS6N2jtgWezdRpoI04/present&quot;&gt;the future of AngularJS&lt;/a&gt;）。&lt;/p&gt;
+&lt;p&gt;同时，也是因为它太新了，所以可能还会有非常大的改变，也许过几个月再来看这篇文章，部分内容就已经过时了:D 此外，当前浏览器对 Web Components 的支持也很有限，在 Chrome 35+ 中，本文中的全部例子都可以正常展现，其他浏览器就基本上悲剧了。对于这样一个新生状态，还处于快速变化期的事物，我也仅仅是浅尝辄止，本文更多在于抛砖引玉，若有疏漏还请读者多多指正。&lt;/p&gt;
+&lt;p&gt;针对 Web Components 的功能，Google 出了一个叫做 &lt;a href=&quot;http://www.polymer-project.org/&quot;&gt;polymer&lt;/a&gt; 的项目，用于填补目前浏览器尚不能实现的部分，此外还内建了许多做好的组件。其实这个项目也推出挺久的了，但是一直不温不火，风头赶不上同是出自 Google 的 AngularJS。但是今年 Google IO 大会中，它却被作为 Material Design 的一部分拿出来介绍了，可见其还是很受重视的。下次如果有机会，可以介绍一下它。&lt;/p&gt;
+&lt;p&gt;参考资料：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://w3c.github.io/webcomponents/explainer&quot;&gt;Introduction to Web Components – W3C Editor’s Draft 9 June 2014&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://css-tricks.com/modular-future-web-components/&quot;&gt;A Guide to Web Components&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://www.html5rocks.com/en/tutorials/webcomponents/template/&quot;&gt;HTML’s New Template Tag – standardizing client-side templating&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://www.html5rocks.com/en/tutorials/webcomponents/shadowdom/&quot;&gt;Shadow DOM 101&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+			&lt;!-- .entry-content --&gt;
+
+</description>
+        <pubDate>Sat, 26 Jul 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-07-26-web-components-introduction.html-e996e644c.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-26-web-components-introduction.html-e996e644c.html</guid>
         
         
       </item>
@@ -3922,864 +5102,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         <pubDate>Sat, 19 Jul 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-07-19-73517-816d30f94.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-19-73517-816d30f94.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>Building assert() in Swift, Part 1: Lazy Evaluation</title>
-        <description>
-assert()
-
-</description>
-        <pubDate>Fri, 18 Jul 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-07-18--id=4-6372976f7.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-18--id=4-6372976f7.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>React 的 diff 算法</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;&lt;a href=&quot;http://facebook.github.io/react/&quot; target=&quot;_blank&quot; rel=&quot;nofollow&quot;&gt;React&lt;/a&gt; 是 Facebook 开发的构建用户界面的类库。它从设计之初就将性能作为重点。这篇文章将展示 diff 算法和渲染过程怎样工作，你可以借鉴优化自己的应用。&lt;/p&gt;
-&lt;h2&gt;Diff 算法&lt;/h2&gt;
-&lt;p&gt;在深入实现的细节之前，需要了解一下 React 怎样工作的。&lt;/p&gt;
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;var MyComponent = React.createClass({
-  render: function() {
-    if (this.props.first) {
-      return &amp;lt;div className=&quot;first&quot;&amp;gt;&amp;lt;span&amp;gt;A Span&amp;lt;/span&amp;gt;&amp;lt;/div&amp;gt;;
-    } else {
-      return &amp;lt;div className=&quot;second&quot;&amp;gt;&amp;lt;p&amp;gt;A Paragraph&amp;lt;/p&amp;gt;&amp;lt;/div&amp;gt;;
-    }
-  }
-});&lt;/pre&gt;
-&lt;p&gt;任何时间，你描述的是你的 UI 看起来是什么样子。需要特别注意，render 执行的结果得到的不是真正的 DOM 节点。结果仅仅是轻量级的 JavaScript 对象，我们称之为 virtual DOM。&lt;/p&gt;
-&lt;p&gt;React 要从这个表现形式当中尝试找到前一个渲染结果到后一个的最小步数。比如，当我们挂载了 &lt;code&gt;&amp;lt;MyComponent first={true} /&amp;gt;&lt;/code&gt;，然后用 &lt;code&gt;&amp;lt;MyComponent first={false} /&amp;gt;&lt;/code&gt; 替换，然后又取消挂载，这样一个过程的 DOM 的指令是这样的:&lt;/p&gt;
-&lt;p&gt;从没有到第一步&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;创建节点:
-&lt;pre class=&quot;brush: html; gutter: true&quot;&gt;&amp;lt;div className=&quot;first&quot;&amp;gt;&amp;lt;span&amp;gt;A Span&amp;lt;/span&amp;gt;&amp;lt;/div&amp;gt;&lt;/pre&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;第一步到第二步替换属性:?&lt;code&gt;className=&quot;first&quot; 到 className=&quot;second&quot;&lt;/code&gt;&lt;br&gt;
-提盒节点:?&lt;code&gt;&amp;lt;span&amp;gt;A Span&amp;lt;/span&amp;gt;&lt;/code&gt;?到?&lt;code&gt;&amp;lt;p&amp;gt;A Paragraph&amp;lt;/p&amp;gt;&lt;/code&gt;&lt;/p&gt;
-&lt;p&gt;第二步到没有&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;删除节点:
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;&amp;lt;div className=&quot;second&quot;&amp;gt;&amp;lt;p&amp;gt;A Paragraph&amp;lt;/p&amp;gt;&amp;lt;/div&amp;gt;&lt;/pre&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h4&gt;按照层级&lt;/h4&gt;
-&lt;p&gt;找到两课任意的树之间最小的修改是一个复杂度为 &lt;code&gt;O(n^3)&lt;/code&gt; 的问题。你可以想象，我们的例子里这不是容易处理的。React 用了一种简单但是强大的技巧，达到了接近 &lt;code&gt;O(n)&lt;/code&gt; 的复杂度。&lt;/p&gt;
-&lt;p&gt;React 仅仅是尝试把树按照层级分解。 这彻底简化了复杂度，而且也不会失去很多，因为 Web 应用很少有 component 移动到树的另一个层级去。它们大部分只是在相邻的子节点之间移动。&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/5353c5a8ae864b68bae903cb71e106ce.png&quot; rel=&quot;lightbox[73701]&quot; title=&quot;React 的 diff 算法&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-73702&quot; alt=&quot;d1&quot; src=&quot;/images/jobbole.com/abe2c8e0d29baf5fc2084d7620a783a8.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;h4&gt;列表&lt;/h4&gt;
-&lt;p&gt;假设我们有个 component，一个循环渲染了 5 个 component，随后又在列表中间插入一个新的 component。只知道这些信息，要弄清两个 component 的列表怎么对应很难。&lt;/p&gt;
-&lt;p&gt;默认情况下，React 会将前一个列表第一个 component 和后一个第一个关联起来，后面也是。你可以写一个 &lt;code&gt;key&lt;/code&gt; 属性帮助 React 来处理它们之间的对应关系。世纪钟，在子元素中找到唯一的 key 通常很容易。&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/18be24308734e65e462e74629de57c95.png&quot; rel=&quot;lightbox[73701]&quot; title=&quot;React 的 diff 算法&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-73703&quot; alt=&quot;d2&quot; src=&quot;/images/jobbole.com/0b8617082291c2866018664f1cf02e23.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;h4&gt;Components&lt;/h4&gt;
-&lt;p&gt;React app 通常由用户定义的 component 组合而成，通常结果是一个主要是很多 &lt;code&gt;div&lt;/code&gt; 组成的树。这个信息也被 React 的 diff 算法考虑进去，React 只会匹配相同 class 的 component。&lt;/p&gt;
-&lt;p&gt;比如，如果有个 &lt;code&gt;&amp;lt;Header&amp;gt;&lt;/code&gt; 被 &lt;code&gt;&amp;lt;ExampleBlock&amp;gt;&lt;/code&gt; 替换掉了，React 会删除掉 header 再创建一个 example block。我们不需要化宝贵的时间去匹配两个不大可能又相似之处的 component。&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/8016bb213a31681fefb1236e8d74f18b.png&quot; rel=&quot;lightbox[73701]&quot; title=&quot;React 的 diff 算法&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-73704&quot; alt=&quot;d3&quot; src=&quot;/images/jobbole.com/6b5f8bea5a0ee0d68e5670754810a11e.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;h2&gt;事件代理&lt;/h2&gt;
-&lt;p&gt;往 DOM 节点上绑事件慢得人心碎啊，而且很费内存。&lt;/p&gt;
-&lt;p&gt;作为替代，React 部署了流行的技术，叫做”事件代理”。React 走得更远，重新实现了一遍符合 W3C 规范的事件系统。意味着 IE8 事件处理的 bug 成为过去了，所有时间名称跨浏览器保持一致。&lt;/p&gt;
-&lt;p&gt;这里解释一下怎么实现的。 事件 listener 被绑定到整个文档的根节点上。当事件被触发，浏览器会给出一个出发的目标的 DOM 节点。为了在 DOM 的层级传播事件，React 不会迭代 virtual DOM 的层级。而是，我们依靠每个 React component 各自独立的 id 来编码这个层级。&lt;/p&gt;
-&lt;p&gt;我们能通过简单的字符串操作来获取所有父级 component 的父级内容。把事件 listener 存储在 hash map 当中，我们发现性能比放到 virtual DOM 还要好。这个例子展示了，当一个事件广播到整个 virtual DOM 时发生什么。&lt;/p&gt;
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;// dispatchEvent(&#39;click&#39;，&#39;a.b.c&#39;，event)
-clickCaptureListeners[&#39;a&#39;](event);
-clickCaptureListeners[&#39;a.b&#39;](event);
-clickCaptureListeners[&#39;a.b.c&#39;](event);
-clickBubbleListeners[&#39;a.b.c&#39;](event);
-clickBubbleListeners[&#39;a.b&#39;](event);
-clickBubbleListeners[&#39;a&#39;](event);&lt;/pre&gt;
-&lt;p&gt;浏览器为每个事件和每个 listener 创建一个新的事件对象。这个事件对象的属性很不错，你能获取到事件的引用，甚至修改掉。然而这也意味着高额的内存分配。&lt;/p&gt;
-&lt;p&gt;React 在启动时就为那些对象分配了一个内存池。任何时候需要用到事件对象，就可以从这个内存池进行复用。这一点非常显著地减轻了垃圾回收的负担。&lt;/p&gt;
-&lt;h2&gt;渲染&lt;/h2&gt;
-&lt;h4&gt;批量化&lt;/h4&gt;
-&lt;p&gt;你调用 component 的 &lt;code&gt;setState&lt;/code&gt; 方法的时候，React 将其标记为 dirty。到每一个事件循环结束，React 检查所有标记 dirty 的 component 重新绘制。&lt;/p&gt;
-&lt;p&gt;这里的”批量化”是说，在一个事件循环当中，DOM 只会被更新一次。这个特性是构建高效的 app 的关键，而且用通常的 JavaScript 代码难以实现。而在 React 应用里，你默认就实现了。&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/7b7d59d08b4480b47a5b480a91f3f199.png&quot; rel=&quot;lightbox[73701]&quot; title=&quot;React 的 diff 算法&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-73705&quot; alt=&quot;d4&quot; src=&quot;/images/jobbole.com/f62a4c9f0c9c2808037d1dfadc28dbe6.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h4&gt;子树渲染&lt;/h4&gt;
-&lt;p&gt;调用 &lt;code&gt;setState&lt;/code&gt; 方法时，component 重新构建包括了子节点的 virtual DOM。如果你在根节点调用 &lt;code&gt;setState&lt;/code&gt;，整个 React 的应用都会被重新渲染。所有的 component，即便没有更新，都会调用他们的 &lt;code&gt;render&lt;/code&gt; 方法。这个听起来可怕，性能像是很低，但实际上我们不会触碰真实的 DOM，运行起来没问题。&lt;/p&gt;
-&lt;p&gt;首先，我们讨论的是展示用户界面. 因为屏幕空间有限，通常你需要一次渲染成败上千条指令。JavaScript 对于能处理的整个界面，在业务逻辑上已经足够快了。&lt;/p&gt;
-&lt;p&gt;另一点，在写 React 代码时，每当又数据更新，你不是都调用根节点的 &lt;code&gt;setState&lt;/code&gt;。你会在需要接收对应更新的 component 上调用，或者在上面的几个 component。你很少要一直到根节点上. 就是说更新只出现在用户产生交互的局部.&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/0c946ae9ee9fffc1a8d180d618568698.png&quot; rel=&quot;lightbox[73701]&quot; title=&quot;React 的 diff 算法&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-73706&quot; alt=&quot;d5&quot; src=&quot;/images/jobbole.com/c4de89fa3336f20696c0e31bae8d59f0.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h4&gt;选择性子树渲染&lt;/h4&gt;
-&lt;p&gt;最后，你还有可能截断一些子树的重新渲染。如果你在 component 上实现以下方法的话：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;boolean shouldComponentUpdate(object nextProps， object nextState)&lt;/pre&gt;
-&lt;p&gt;根据 component 的前一个和下一个 &lt;code&gt;props/state&lt;/code&gt;，你可以告诉 React 这个 component 没有更新，也不需要重新绘制。实现得好的话，可以带来巨大的性能提升。&lt;/p&gt;
-&lt;p&gt;要用这个方法，你要能够对 JavaScript Object 进行比对。这件有很多细节的因素，比如对比应该是深度的还是浅层的，如果要深的，我们是用不可变数据结构，还是进行深度拷贝。&lt;/p&gt;
-&lt;p&gt;而且你要注意，真个函数每次都会被调用，所以你要确保运行起来花的事件更少，比 React 的技巧，还有比渲染 component 需要的时间，即便重新绘制并不是必要的。&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/78334626370247b9ea8ed249b37a7196.png&quot; rel=&quot;lightbox[73701]&quot; title=&quot;React 的 diff 算法&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-73707&quot; alt=&quot;d6&quot; src=&quot;/images/jobbole.com/cd4c0dbd39755d85f843c53ed45572e7.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h2&gt;结论&lt;/h2&gt;
-&lt;p&gt;帮助 React 变快的技术并不新颖。 长久以来，我们到知道触碰 DOM 是费时的，你应该合并处理读和写的操作，事件代理会更快。&lt;/p&gt;
-&lt;p&gt;人们还是会经常讨论他们，因为在实际当中用 JavaScript 进行实现很是挺难的。React 突出的一个原因是这些优化默认就启动了。这就让你避免掉不小心把 app 写得很慢。&lt;/p&gt;
-&lt;p&gt;React 消耗性能的模型很简单，很好理解: 每次调用 &lt;code&gt;setState&lt;/code&gt; 会重新计算整个子树。如果你想要提高性能，尽量少调用 &lt;code&gt;setState&lt;/code&gt;，还有用 &lt;code&gt;shouldComponentUpdate&lt;/code&gt; 减少大的子树的重新计算。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-&lt;p&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow&quot; href=&quot;http://www.jobdeer.com/?fr=jobbole&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-	
-
-
-	
-
-</description>
-        <pubDate>Thu, 17 Jul 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-07-17-73701-418acf0a6.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-17-73701-418acf0a6.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>BASH的保护性编程技巧</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;div&gt;
-&lt;p&gt;这是我写BASH程序的招式。这里本没有什么新的内容，但是从我的经验来看，人们爱滥用BASH。他们忽略了计算机科学，而从他们的程序中创造的是“&lt;a href=&quot;http://en.wikipedia.org/wiki/Big_ball_of_mud&quot;&gt;大泥球&lt;/a&gt;”（译注：指架构不清晰的软件系统）。&lt;/p&gt;
-&lt;div&gt;在此我告诉你方法，以保护你的程序免于障碍，并保持代码的整洁。&lt;/div&gt;
-&lt;/div&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h2&gt;不可改变的全局变量&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;尽量少用全局变量&lt;/li&gt;
-&lt;li&gt;以大写命名&lt;/li&gt;
-&lt;li&gt;只读声明&lt;/li&gt;
-&lt;li&gt;用全局变量来代替隐晦的$0，$1等&lt;/li&gt;
-&lt;li&gt;
-&lt;div&gt;在我的程序中常使用的全局变量：&lt;/div&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;readonly PROGNAME=$(basename $0)
-readonly PROGDIR=$(readlink -m $(dirname $0))
-readonly ARGS=&quot;$@&quot;&lt;/pre&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h2&gt;一切皆是局部的&lt;/h2&gt;
-&lt;p&gt;所有变量都应为局部的。&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;change_owner_of_file() {
-    local filename=$1
-    local user=$2
-    local group=$3
-
-    chown $user:$group $filename
-}&lt;/pre&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;change_owner_of_files() {
-    local user=$1; shift
-    local group=$1; shift
-    local files=$@
-    local i
-
-    for i in $files
-    do
-        chown $user:$group $i
-    done
-}&lt;/pre&gt;
-&lt;ul&gt;
-&lt;li&gt;自注释（self documenting）的参数&lt;/li&gt;
-&lt;li&gt;通常作为循环用的变量i，把它声明为局部变量是很重要的。&lt;/li&gt;
-&lt;li&gt;局部变量不作用于全局域。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;kfir@goofy ~ $ local a
-bash: local: can only be used in a function&lt;/pre&gt;
-&lt;figure&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;/figure&gt;
-&lt;div&gt;
-&lt;h2&gt;main()&lt;/h2&gt;
-&lt;/div&gt;
-&lt;ul&gt;
-&lt;li&gt;有助于保持所有变量的局部性&lt;/li&gt;
-&lt;li&gt;直观的函数式编程&lt;/li&gt;
-&lt;li&gt;
-&lt;div&gt;代码中唯一的全局命令是：main&lt;/div&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;main() {
-    local files=&quot;/tmp/a /tmp/b&quot;
-    local i
-
-    for i in $files
-    do
-        change_owner_of_file kfir users $i
-    done
-}
-main&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;h2&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;一切皆是函数&lt;/span&gt;&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;唯一全局性运行的代码是：&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;- 不可变的全局变量声明&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;- main()函数&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;保持代码整洁&lt;/li&gt;
-&lt;li&gt;过程变得清晰&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;main() {
-    local files=$(ls /tmp | grep pid | grep -v daemon)
-}&lt;/pre&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;temporary_files() {
-    local dir=$1
-
-    ls $dir \
-        | grep pid \
-        | grep -v daemon
-}
-
-main() {
-    local files=$(temporary_files /tmp)
-}&lt;/pre&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;div&gt;第二个例子好得多。查找文件是temporary_files()的问题而非main()的。这段代码用temporary_files()的单元测试也是可测试的。&lt;/div&gt;
-&lt;/li&gt;
-&lt;li&gt;如果你一定要尝试第一个例子，你会得到查找临时文件以和main算法的大杂烩。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;test_temporary_files() {
-    local dir=/tmp
-
-    touch $dir/a-pid1232.tmp
-    touch $dir/a-pid1232-daemon.tmp
-
-    returns &quot;$dir/a-pid1232.tmp&quot; temporary_files $dir
-
-    touch $dir/b-pid1534.tmp
-
-    returns &quot;$dir/a-pid1232.tmp $dir/b-pid1534.tmp&quot; temporary_files $dir
-}&lt;/pre&gt;
-&lt;div&gt;如你所见，这个测试不关心main()。&lt;/div&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;h2&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;调试函数&lt;/span&gt;&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;带-x标志运行程序：&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;bash -x my_prog.sh&lt;/pre&gt;
-&lt;div&gt;只调试一小段代码，使用set-x和set+x，会只对被set -x和set +x包含的当前代码打印调试信息。&lt;/div&gt;
-&lt;div&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;temporary_files() {
-    local dir=$1
-
-    set -x
-    ls $dir \
-        | grep pid \
-        | grep -v daemon
-    set +x
-}&lt;/pre&gt;
-&lt;/div&gt;
-&lt;div&gt;
-&lt;div&gt;打印函数名和它的参数：&lt;/div&gt;
-&lt;div&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;temporary_files() {
-    echo $FUNCNAME $@
-    local dir=$1
-
-    ls $dir \
-        | grep pid \
-        | grep -v daemon
-}&lt;/pre&gt;
-&lt;/div&gt;
-&lt;/div&gt;
-&lt;p&gt;调用函数：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;temporary_files /tmp&lt;/pre&gt;
-&lt;p&gt;会打印到标准输出：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;temporary_files /tmp&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;div&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;h2&gt;代码的清晰度&lt;/h2&gt;
-&lt;/div&gt;
-&lt;p&gt;这段代码做了什么？&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;main() {
-    local dir=/tmp
-
-    [[ -z $dir ]] \
-        &amp;amp;&amp;amp; do_something...
-
-    [[ -n $dir ]] \
-        &amp;amp;&amp;amp; do_something...
-
-    [[ -f $dir ]] \
-        &amp;amp;&amp;amp; do_something...
-
-    [[ -d $dir ]] \
-        &amp;amp;&amp;amp; do_something...
-}
-main&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;p&gt;让你的代码说话：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;is_empty() {
-    local var=$1
-
-    [[ -z $var ]]
-}
-
-is_not_empty() {
-    local var=$1
-
-    [[ -n $var ]]
-}
-
-is_file() {
-    local file=$1
-
-    [[ -f $file ]]
-}
-
-is_dir() {
-    local dir=$1
-
-    [[ -d $dir ]]
-}
-
-main() {
-    local dir=/tmp
-
-    is_empty $dir \
-        &amp;amp;&amp;amp; do_something...
-
-    is_not_empty $dir \
-        &amp;amp;&amp;amp; do_something...
-
-    is_file $dir \
-        &amp;amp;&amp;amp; do_something...
-
-    is_dir $dir \
-        &amp;amp;&amp;amp; do_something...
-}
-main&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;h2&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;每一行只做一件事&lt;/span&gt;&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;div&gt;用反斜杠\来作分隔符。例如：&lt;/div&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;temporary_files() {
-    local dir=$1
-
-    ls $dir | grep pid | grep -v daemon
-}&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;p&gt;可以写得简洁得多：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;temporary_files() {
-    local dir=$1
-
-    ls $dir \
-        | grep pid \
-        | grep -v daemon
-}&lt;/pre&gt;
-&lt;div&gt;
-&lt;ul&gt;
-&lt;li&gt;符号在缩进行的开始&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;符号在行末的坏例子：（译注：原文在此例中用了temporary_files()代码段，疑似是贴错了。结合上下文，应为print_dir_if_not_empty()）&lt;/p&gt;
-&lt;/div&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;print_dir_if_not_empty() {
-    local dir=$1
-
-    is_empty $dir &amp;amp;&amp;amp; \
-        echo &quot;dir is empty&quot; || \
-        echo &quot;dir=$dir&quot;
-}&lt;/pre&gt;
-&lt;p&gt;好的例子：我们可以清晰看到行和连接符号之间的联系。&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;print_dir_if_not_empty() {
-    local dir=$1
-
-    is_empty $dir \
-        &amp;amp;&amp;amp; echo &quot;dir is empty&quot; \
-        || echo &quot;dir=$dir&quot;
-}&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;h2&gt;打印用法&lt;/h2&gt;
-&lt;p&gt;不要这样做：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;echo &quot;this prog does:...&quot;
-echo &quot;flags:&quot;
-echo &quot;-h print help&quot;&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;p&gt;它应该是个函数：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;usage() {
-    echo &quot;this prog does:...&quot;
-    echo &quot;flags:&quot;
-    echo &quot;-h print help&quot;
-}&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;p&gt;echo在每一行重复。因此我们得到了这个文档：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;usage() {
-    cat &amp;lt;&amp;lt;- EOF
-    usage: $PROGNAME options
-
-    Program deletes files from filesystems to release space. 
-    It gets config file that define fileystem paths to work on, and whitelist rules to 
-    keep certain files.
-
-    OPTIONS:
-       -c --config              configuration file containing the rules. use --help-config to see the syntax.
-       -n --pretend             do not really delete, just how what you are going to do.
-       -t --test                run unit test to check the program
-       -v --verbose             Verbose. You can specify more then one -v to have more verbose
-       -x --debug               debug
-       -h --help                show this help
-          --help-config         configuration help
-
-    Examples:
-       Run all tests:
-       $PROGNAME --test all
-
-       Run specific test:
-       $PROGNAME --test test_string.sh
-
-       Run:
-       $PROGNAME --config /path/to/config/$PROGNAME.conf
-
-       Just show what you are going to do:
-       $PROGNAME -vn -c /path/to/config/$PROGNAME.conf
-    EOF
-}&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;p&gt;注意在每一行的行首应该有一个真正的制表符‘\t’。&lt;/p&gt;
-&lt;p&gt;在vim里，如果你的tab是4个空格，你可以用这个替换命令：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;:s/^    /\t/&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;h2&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;命令行参数&lt;/span&gt;&lt;/h2&gt;
-&lt;p&gt;这里是一个例子，完成了上面usage函数的用法。我从&lt;a title=&quot;bash shell script to use getopts with gnu style long positional parameters&quot; href=&quot;http://kirk.webfinish.com/2009/10/bash-shell-script-to-use-getopts-with-gnu-style-long-positional-parameters/&quot;&gt;Kirk’s blog post – bash shell script to use getopts with gnu style long positional parameters&lt;/a&gt;得到这段代码&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;cmdline() {
-    # got this idea from here:
-    # http://kirk.webfinish.com/2009/10/bash-shell-script-to-use-getopts-with-gnu-style-long-positional-parameters/
-    local arg=
-    for arg
-    do
-        local delim=&quot;&quot;
-        case &quot;$arg&quot; in
-            #translate --gnu-long-options to -g (short options)
-            --config)         args=&quot;${args}-c &quot;;;
-            --pretend)        args=&quot;${args}-n &quot;;;
-            --test)           args=&quot;${args}-t &quot;;;
-            --help-config)    usage_config &amp;amp;amp;&amp;amp;amp; exit 0;;
-            --help)           args=&quot;${args}-h &quot;;;
-            --verbose)        args=&quot;${args}-v &quot;;;
-            --debug)          args=&quot;${args}-x &quot;;;
-            #pass through anything else
-            *) [[ &quot;${arg:0:1}&quot; == &quot;-&quot; ]] || delim=&quot;\&quot;&quot;
-                args=&quot;${args}${delim}${arg}${delim} &quot;;;
-        esac
-    done
-
-    #Reset the positional parameters to the short options
-    eval set -- $args
-
-    while getopts &quot;nvhxt:c:&quot; OPTION
-    do
-         case $OPTION in
-         v)
-             readonly VERBOSE=1
-             ;;
-         h)
-             usage
-             exit 0
-             ;;
-         x)
-             readonly DEBUG=&#39;-x&#39;
-             set -x
-             ;;
-         t)
-             RUN_TESTS=$OPTARG
-             verbose VINFO &quot;Running tests&quot;
-             ;;
-         c)
-             readonly CONFIG_FILE=$OPTARG
-             ;;
-         n)
-             readonly PRETEND=1
-             ;;
-        esac
-    done
-
-    if [[ $recursive_testing || -z $RUN_TESTS ]]; then
-        [[ ! -f $CONFIG_FILE ]] \
-            &amp;amp;amp;&amp;amp;amp; eexit &quot;You must provide --config file&quot;
-    fi
-    return 0
-}&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;p&gt;你像这样，使用我们在头上定义的不可变的ARGS变量：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;main() {
-    cmdline $ARGS
-}
-main&lt;/pre&gt;
-&lt;figure&gt;&lt;/figure&gt;
-&lt;h2&gt;&lt;/h2&gt;
-&lt;h2&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;单元测试&lt;/span&gt;&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;在更高级的语言中很重要。&lt;/li&gt;
-&lt;li&gt;
-&lt;div&gt;使用shunit2做单元测试&lt;/div&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;test_config_line_paths() {
-    local s=&#39;partition cpm-all, 80-90,&#39;
-
-    returns &quot;/a&quot; &quot;config_line_paths &#39;$s /a, &#39;&quot;
-    returns &quot;/a /b/c&quot; &quot;config_line_paths &#39;$s /a:/b/c, &#39;&quot;
-    returns &quot;/a /b /c&quot; &quot;config_line_paths &#39;$s   /a  :    /b : /c, &#39;&quot;
-}
-
-config_line_paths() {
-    local partition_line=&quot;$@&quot;
-
-    echo $partition_line \
-        | csv_column 3 \
-        | delete_spaces \
-        | column 1 \
-        | colons_to_spaces
-}
-
-source /usr/bin/shunit2&lt;/pre&gt;
-&lt;p&gt;这里是另一个使用df命令的例子：&lt;/p&gt;
-&lt;pre class=&quot;brush: bash; gutter: true&quot;&gt;DF=df
-
-mock_df_with_eols() {
-    cat &amp;amp;lt;&amp;amp;lt;- EOF
-    Filesystem           1K-blocks      Used Available Use% Mounted on
-    /very/long/device/path
-                         124628916  23063572 100299192  19% /
-    EOF
-}
-
-test_disk_size() {
-    returns 1000 &quot;disk_size /dev/sda1&quot;
-
-    DF=mock_df_with_eols
-    returns 124628916 &quot;disk_size /very/long/device/path&quot;
-}
-
-df_column() {
-    local disk_device=$1
-    local column=$2
-
-    $DF $disk_device \
-        | grep -v &#39;Use%&#39; \
-        | tr &#39;\n&#39; &#39; &#39; \
-        | awk &quot;{print \$$column}&quot;
-}
-
-disk_size() {
-    local disk_device=$1
-
-    df_column $disk_device 2
-}&lt;/pre&gt;
-&lt;p&gt;这里我有个例外，为了测试，我在全局域中声明了DF为非只读。这是因为shunit2不允许改变全局域函数。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-&lt;p&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow&quot; href=&quot;http://www.jobdeer.com/?fr=jobbole&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-	
-
-
-	
-
-</description>
-        <pubDate>Thu, 17 Jul 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-07-17-73257-503521781.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-17-73257-503521781.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>HTTP 的 POST 参数提交和上传的不同与 Mojolicious 的实现.</title>
-        <description>
-
-							&lt;p&gt;对于 HTTP 协议, 我们在使用 POST 上传的时候, 其实是有好几种不同的处理方式的, 所以对于客户端和服务器端, 也分别都有不同的处理. 正常普通的网页在提交参数上传到服务器的时候, 主要会根据内容的不同来使用不同的处理. 所体现在不同的地方在 Content-Type 的类型.&lt;br&gt;
-比如我们常常用 Mojolicious 处理这类接收到的参数和内容的时候, 会让很多人晕掉, 所以我在这, 基于协议的头, 来给大家介绍一下在参数和上传的时候有什么不同.&lt;br&gt;
-客户端, 比如浏览器网页中的 form 的表格的参数的不同, 客户端比如 Linux 命令行的 curl 的参数的不同和程序接口提交参数的不同, HTTP 协议在上传的时候, 大约会有三种不同, 这些体现在 Content-Type 的三种类型:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;
-		application/x-www-form-urlencoded&lt;/li&gt;
-&lt;li&gt;
-		multipart/form-data&lt;/li&gt;
-&lt;li&gt;
-		post 的 body 的内容&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;下面我们来详细介绍&lt;/p&gt;
-&lt;h3&gt;
-	1. application/x-www-form-urlencoded 默认&lt;/h3&gt;
-&lt;p&gt;&lt;strong&gt;浏览器:&lt;/strong&gt;  在 HTML 中 form 有个参数是 enctype 属性用于指定编码方式, 常用有前面讲的两种: application/x-www-form-urlencoded 和 multipart/form-data. 但默认的时候, 我们并不指定. 不指定的时候, 默认是 &quot;application/x-www-form-urlencoded&quot; , 所以其实, 我们平时都是使用的这种格式来提交数据. 因为是默认就不写出来了. 注意, 这个会对空格和特别的符号进行 url 的 encode.&lt;br&gt;
- &lt;br&gt;
-&lt;strong&gt;程序:&lt;/strong&gt; 我们现在以 Mojo::UserAgent 这个模块为例子, 我们提交一个参数 args 值为 test.&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; form =&amp;gt; { args =&amp;gt; &#39;test&#39;});
-
-&lt;/pre&gt;
-&lt;p&gt;命令:&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-$curl -svo /dev/null -d &quot;args=test&quot; http://www.php-oa.com/a/b
-&lt;/pre&gt;
-&lt;p&gt;
-&lt;strong&gt;HTTP 协议状态&lt;/strong&gt;&lt;br&gt;
-这个时候所发送的 HTTP 的头和内容分别如下. body 中会存着参数, 会有一个特别的 Header.&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
--- Blocking request (http://www.php-oa.com/a/b)
--- Connect (http:www.php-oa.com:80)
--- Client &amp;gt;&amp;gt;&amp;gt; Server (http://www.php-oa.com/a/b)
-POST /a/b HTTP/1.1
-User-Agent: Mojolicious (Perl)
-Connection: keep-alive
-Content-Type: application/x-www-form-urlencoded
-Accept-Encoding: gzip
-Content-Length: 9
-Host: www.php-oa.com
-
-args=test
-&lt;/pre&gt;
-&lt;p&gt;
-&lt;strong&gt;服务端接收方式&lt;/strong&gt;&lt;br&gt;
-这个时候, 服务器会根据因为是 POST 的方法, 并且头部的 Content-Type: application/x-www-form-urlencoded 会去解析 body 的参数. 这样在 Mojolicious 服务器&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-post &#39;/a/b&#39; =&amp;gt; sub {
-  my $self = shift;
-  my $foo  = $self-&amp;gt;param(&#39;args&#39;);
-  $self-&amp;gt;render(text =&amp;gt; &quot;Hello from $foo.&quot;);
-}
-
-&lt;/pre&gt;
-&lt;h3 style=&quot;padding:0px; margin:0px; font-family:微软雅黑,Verdana,sans-serif,宋体; line-height:24px; text-align:left&quot;&gt;
-	 &lt;/h3&gt;
-&lt;h3&gt;
-	2. multipart/form-data 大文件, 媒体文件&lt;/h3&gt;
-&lt;p&gt;对于比较大的, 有一些二进制数据和象视频文件之类大文件, 建议使用这种方式上传.&lt;br&gt;
-&lt;strong&gt;浏览器:&lt;/strong&gt;&lt;br&gt;
-普通的 HTTP 的写法如果要使用 enctype 的话, 只要象下面一样就行.&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-&amp;lt;form action=&quot;/path/to/login&quot; enctype=&quot;multipart/form-data&quot;&amp;gt;
-  &amp;lt;input disabled=&quot;disabled&quot; name=&quot;first_name&quot; type=&quot;text&quot; /&amp;gt;
-  &amp;lt;input value=&quot;Ok&quot; type=&quot;submit&quot; /&amp;gt;
-&amp;lt;/form&amp;gt;
-
-&lt;/pre&gt;
-&lt;p&gt;&lt;strong&gt;客户端:&lt;/strong&gt;&lt;br&gt;
-在 Mojo::UserAgent 考虑得非常周全, 当你提交的内容中包含二进制文件之类时, 就会自动帮你转换成 &quot;multipart/form-data&quot; 格式提交. 这个格式会生成一个随机字符来分割不同参数. 区分是否使用这种格式主要是, 当你提交的参数中, 又是一个引用, 并且引中可以使用 content 来指定内容或者 file 来指定路径.&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; form =&amp;gt; { args =&amp;gt; &#39;test&#39;, args_file =&amp;gt; { file =&amp;gt; &#39;/root/.bash_history&#39; } });
-
-# or
-$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; form =&amp;gt; { args =&amp;gt; &#39;test&#39;, args_file =&amp;gt; { content =&amp;gt; &#39;test&#39; } });
-
-
-&lt;/pre&gt;
-&lt;p&gt;
-&lt;strong&gt;HTTP 协议状态&lt;/strong&gt;&lt;br&gt;
-这个地方我们可以见到 Content-Type: multipart/form-data 的请求头, 告诉文件和参数是这种格式上传过来的.并且 boundary 用于指定一个参数之间的分割符.&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
--- Blocking request (http://www.php-oa.com/a/b)
--- Connect (http:www.php-oa.com:80)
--- Client &amp;gt;&amp;gt;&amp;gt; Server (http://www.php-oa.com/a/b)
-POST /a/b HTTP/1.1
-User-Agent: Mojolicious (Perl)
-Content-Type: multipart/form-data; boundary=WRoHX
-Connection: keep-alive
-Accept-Encoding: gzip
-Content-Length: 14428
-Host: www.php-oa.com
-
---WRoHX
-Content-Disposition: form-data; name=&quot;args&quot;
-test
---WRoHX
-Content-Disposition: form-data; name=&quot;args_file&quot;; filename=&quot;.bash_history&quot;
-........文件本身
-
-
-
-
-&lt;/pre&gt;
-&lt;p&gt;
-&lt;strong&gt;服务器接收方式&lt;/strong&gt;&lt;br&gt;
-在后端的服务器接收的时候 Mojolicious 想得非常周到. 对于这种格式能自动解析, 并且全程异步.不会多占内存. 这个会自动给大的文件使用一个叫 Mojo::Upload 的对象来处理, 我们可以通过 $self-&amp;gt;req-&amp;gt;upload(&#39;args_file&#39;); 这个方法取得这个内容的对象, 这个内容的对象是Mojo::Asset::File 这个对象, 存文件和取大文件之类可以直接调用.&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-post &#39;/a/b&#39; =&amp;gt; sub {
-  my $self = shift;
-  my $upload = $self-&amp;gt;req-&amp;gt;upload(&#39;args_file&#39;);
-  my $foo  = $self-&amp;gt;param(&#39;args&#39;);
-  $self-&amp;gt;render(text =&amp;gt; &quot;Hello from $foo.&quot;);
-}
-
-
-&lt;/pre&gt;
-&lt;h3&gt;
-	&lt;br&gt;
-	3. POST 的 body 的内容&lt;/h3&gt;
-&lt;p&gt;最后一种, 是有时我们做大文件上传, 和提交内容之类.这个时候, 整个 body 都是文件本体. 参数象 get 一样通过 url 传过去.&lt;br&gt;
-这个就不用抓头了, 没任何转换, 直接整个 body 是个大文件.&lt;br&gt;
-&lt;strong&gt;客户端提交:&lt;/strong&gt;&lt;br&gt;
-我们来看看客户端在这个时候怎么上传送. 同样,  我们使用 Mojo::UserAgent 为例子.&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-my $ua = Mojo::UserAgent-&amp;gt;new;
-$ua-&amp;gt;transactor-&amp;gt;add_generator(stream =&amp;gt; sub {
-    my ($transactor, $tx, $path) = @_; 
-    $tx-&amp;gt;req-&amp;gt;content-&amp;gt;asset(Mojo::Asset::File-&amp;gt;new(path =&amp;gt; $path));
-});
-$ua-&amp;gt;post(&#39;http://www.php-oa.com/a/b&#39; =&amp;gt; stream =&amp;gt; &#39;/root/.bash_history&#39; );
-
-&lt;/pre&gt;
-&lt;p&gt;&lt;strong&gt;服务器接收&lt;/strong&gt;&lt;br&gt;
-这个时候, 在服务器端怎么接收啦?&lt;/p&gt;
-&lt;pre class=&quot;brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;&quot;&gt;
-post &#39;/a/b&#39; =&amp;gt; sub {
-  my $self = shift;
-  my $body = $self-&amp;gt;req-&amp;gt;body;
-  my $foo  = $self-&amp;gt;param(&#39;args&#39;);
-  $self-&amp;gt;render(text =&amp;gt; &quot;Hello from $foo.&quot;);
-}
-
-&lt;/pre&gt;
-&lt;p&gt;这个, 我们直接取请求的 body 就可以了, 但这有个小问题, 这是这个文件上传完, 这个 body 会存着所有的文件, 比如这个上传的文件有 1G , 这个 1G 就都会占着内存. 这个情况, Mojolicious 并没有实现事件来根据块取文件. 晚点, 我有个有于大文件上传的文章, 会分享我在 Mojolicious 中实现异步以块方式存储文件. 这样用户上传多少, 我存多少, 并不会占用更多的内存.&lt;/p&gt;
-&lt;p&gt;好了整个三种方式都介绍完了, 大家一定注意区分哦 .&lt;/p&gt;
-
-			&lt;!--[syntaxhighlighter]--&gt;
-			&lt;!--代码高亮，请勿编辑--&gt;
-			&lt;script type=&quot;text/javascript&quot; src=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shCore.js&quot;&gt;&lt;/script&gt;&lt;script type=&quot;text/javascript&quot; src=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/scripts/shBrushPerl.js&quot;&gt;&lt;/script&gt;
-
-			&lt;link type=&quot;text/css&quot; rel=&quot;stylesheet&quot; href=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css&quot;&gt;
-			&lt;link type=&quot;text/css&quot; rel=&quot;stylesheet&quot; href=&quot;http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css&quot;&gt;
-			&lt;script type=&quot;text/javascript&quot;&gt;
-			SyntaxHighlighter.defaults[&#39;class-name&#39;]	= &#39;.syntaxhighlighter {     background-color: 999999 }&#39;;
-			SyntaxHighlighter.defaults[&#39;smart-tabs&#39;]	= true;
-			SyntaxHighlighter.defaults[&#39;tab-size&#39;]		= 4;
-			SyntaxHighlighter.defaults[&#39;gutter&#39;]		= true;
-			SyntaxHighlighter.defaults[&#39;quick-code&#39;]	= true;
-			SyntaxHighlighter.defaults[&#39;collapse&#39;] 		= false;
-			SyntaxHighlighter.defaults[&#39;auto-links&#39;]	= true;
-			SyntaxHighlighter.defaults[&#39;toolbar&#39;]		= true;
-			SyntaxHighlighter.all();
-			&lt;/script&gt;
-			&lt;!--[/syntaxhighlighter]--&gt;						
-
-</description>
-        <pubDate>Tue, 15 Jul 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-07-15-http-post-mojolicious.html-e69430dd0.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-15-http-post-mojolicious.html-e69430dd0.html</guid>
-        
-        
-      </item>
-    
-      <item>
-        <title>自动补完不算什么，一键直达目录才是终极神器！</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;在命令行中切换目录是最常用的操作，不过很少有比一遍又一遍重复“cd ls cd ls cd ls ……”更令人沮丧的事情了。如果你不是百分百确定你想要进入的下一个目录的名字，那么你不得不使用ls来确认，然后使用cd来进入你想要进的那一个。所幸的是，现在大量的终端和shell语言提供了强大的自动补全功能来处理该问题。但是，你仍然需要一直疯狂地敲击TAB键来干这事。如果你和我一样懒惰，你一定会对autojump感到惊喜。&lt;/p&gt;
-&lt;p&gt;autojump是一个命令行工具，它允许你可以直接跳转到你喜爱的目录，而不用管你现在身在何处。&lt;/p&gt;
-&lt;h3 id=&quot;toc_1&quot;&gt;在Linux上安装autojump&lt;/h3&gt;
-&lt;p&gt;在Ubuntu或Debian上安装autojump：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ sudo apt-get install autojump&lt;/pre&gt;
-&lt;p&gt;要在CentOS或Fedora上安装autojump，请使用yum命令。在CentOS上，你需要先&lt;a href=&quot;http://xmodulo.com/2013/03/how-to-set-up-epel-repository-on-centos.html&quot;&gt;启用EPEL仓库&lt;/a&gt;才行。&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ sudo yum install autojump&lt;/pre&gt;
-&lt;p&gt;在Archlinux上安装autojump：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ sudo pacman -S autojump&lt;/pre&gt;
-&lt;p&gt;如果你找不到适合你的版本的包，你可以从&lt;a href=&quot;https://github.com/joelthelion/autojump&quot;&gt;GitHub&lt;/a&gt;上下载源码包来编译。&lt;/p&gt;
-&lt;h3 id=&quot;toc_2&quot;&gt;autojump的基本用法&lt;/h3&gt;
-&lt;p&gt;autojump的工作方式很简单：它会在你每次启动命令时记录你当前位置，并把它添加进它自身的数据库中。这样，某些目录比其它一些目录添加的次数多，这些目录一般就代表你最重要的目录，而它们的“权重”也会增大。&lt;/p&gt;
-&lt;p&gt;现在不管你在哪个目录，你都可以使用下面的语法来直接跳转到这些目录：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;autojump [目录的名字或名字的一部分]&lt;/pre&gt;
-&lt;p&gt;注意，你不需要输入完整的名称，因为autojump会检索它的数据库，并返回最可能的结果。&lt;/p&gt;
-&lt;p&gt;例如，假定我们正在下面的目录结构中工作。&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/07/5ac2b235e8f05cf2e114fb3dfe2969d5.jpg&quot; rel=&quot;lightbox[73611]&quot; title=&quot;自动补完不算什么，一键直达目录才是终极神器！&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-73608&quot; alt=&quot;rger140043jbr5bwr2n1znj87c&quot; src=&quot;/images/jobbole.com/27ecc25eed09c8f3d23f5ec33fcad643.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;那么下面的命令将直接让你跳到/root/home/doc下，不管你当前位置在哪里。&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ autojump do&lt;/pre&gt;
-&lt;p&gt;如果你也很讨厌打字，那么我推荐你为autojump起个别名，或者使用默认的别名。&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ j [目录的名字或名字的一部分]&lt;/pre&gt;
-&lt;p&gt;另外一个引人注目的功能是，autojump支持zsh和自动补完。如果你不确认哪里是不是你要跳转的地方，敲击TAB键就会列出完整路径。&lt;/p&gt;
-&lt;p&gt;还是同样的例子，输入：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ autojump d&lt;/pre&gt;
-&lt;p&gt;然后敲击tab键，将会返回/root/home/doc或者/root/home/ddl。&lt;/p&gt;
-&lt;p&gt;最后，对于高级用户，你可以访问目录数据库，并修改它的内容。可以使用下面的命令来手动添加一个目录：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ autojump -a [目录]&lt;/pre&gt;
-&lt;p&gt;如果你突然想要把当前目录变成你的最爱和使用最频繁的文件夹，你可以在该目录通过命令的参数 i 来手工增加它的权重&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ autojump -i [权重]&lt;/pre&gt;
-&lt;p&gt;这将使得该目录更可能被选择跳转。相反的例子是在该目录使用参数 d 来减少权重：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ autojump -d [权重]&lt;/pre&gt;
-&lt;p&gt;要跟踪所有这些改变，输入：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ autojump -s&lt;/pre&gt;
-&lt;p&gt;这会显示数据库中的统计数据。而以下：&lt;/p&gt;
-&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ autojump --purge&lt;/pre&gt;
-&lt;p&gt;命令将会把不再存在的目录从数据库中移除。&lt;/p&gt;
-&lt;p&gt;简言之，autojump将会受到所有命令行高级用户的欢迎。不管你是在ssh进一台服务器，还是仅仅想要追随复古潮流，敲更少的键来减少导航时间总是件好事。如果你真的热衷于此类工具，你也肯定也想看看&lt;a href=&quot;https://github.com/clvv/fasd&quot;&gt;Fasd&lt;/a&gt;，它应该会给你一个惊喜——我们下次再介绍它。&lt;/p&gt;
-&lt;p&gt;你觉得autojump怎么样？你会经常用它么？发表一下你的评论吧。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-&lt;p&gt;&lt;a target=&quot;_blank&quot; rel=&quot;nofollow&quot; href=&quot;http://www.jobdeer.com/?fr=jobbole&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-	
-
-
-	
-
-</description>
-        <pubDate>Tue, 15 Jul 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-07-15-73611-c58e1239a.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-15-73611-c58e1239a.html</guid>
         
         
       </item>
