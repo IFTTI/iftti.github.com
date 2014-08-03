@@ -5,9 +5,176 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Sun, 03 Aug 2014 02:14:21 +0800</pubDate>
-    <lastBuildDate>Sun, 03 Aug 2014 02:14:21 +0800</lastBuildDate>
+    <pubDate>Sun, 03 Aug 2014 12:47:42 +0800</pubDate>
+    <lastBuildDate>Sun, 03 Aug 2014 12:47:42 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>浅谈服务化架构</title>
+        <description>
+&lt;pre&gt;&lt;code&gt;这两年来，在服务化架构设计上的实践比较多，在此对关于服务化设计一些经验稍作总结，
+知识经验水平有限，如有欠缺和不准确的地方，还请指出修正！     
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我在&lt;a href=&quot;http://sharecore.net/blog/2014/07/05/ke-kuo-zhan-jia-gou-de-san-ge-wei-du/&quot;&gt;《可扩展架构设计的三个维度》&lt;/a&gt;一文里，谈到服务化架构（SOA）在保证系统扩展性上，是一个比较好的架构设计实践。也谈到了通过服务网关的形式来进行多服务的注册与管理等。但困于篇幅，并未展开讲关于服务化架构实现层面上的具体细节。本文就结合我这两年来，在服务化架构设计上的一些实践经验，谈谈一个服务化框架其应该具备的一些功能以及其基本实现方式。&lt;/p&gt;
+
+&lt;p&gt;这里说到的“服务”，本质上来说，就是指“RPC”。单纯的RPC功能实现，其实很简单，无非就是client发起调用，中间某个组件（甚至就是client本身）拦截调用信息，序列化后将信息传输到server端，server端收到调用请求后反序列化，根据请求详细发起实际调用后返回响应传输回给client端。这样的RPC很常见，比如常见的存储过程调用就是一例。但是在一个复杂的业务环境，如何管理和协同这些大量的RPC才是最麻烦的事情。所以，在此谈的“服务化”更多指的是对RPC的管理。&lt;/p&gt;
+
+&lt;p&gt;一个复杂业务环境下的大量RPC究竟会遇到哪些问题呢？换句话说，一个服务化管理框架究竟应该具备哪些功能特性才算基本完备呢？以下是我的一些看法&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;1.协议选型&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;数据序列化&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;为整个环境里的服务采用统一的数据序列化协议，其益处是显而易见的，能大大降低服务提供者和服务调用者之间的沟通成本，同时也可以为服务提供者减少应对不同数据协议需求而带来的代码复杂性。所以，在开始设计一个服务化框架时，第一件重要的事情就是选定一个标准的数据序列化协议。如何选择合适的序列化协议重点需要从&lt;strong&gt;扩展性，传输性能以及业界通用性（换句话说就是不同技术/语言的支持程度）&lt;/strong&gt;三个因素里来协调选择。当前看来，在这三个方面都做的比较好，也是使用最广泛的就是&lt;strong&gt;Json&lt;/strong&gt;和&lt;strong&gt;Protobuf&lt;/strong&gt;了，基于文本的Json在可读性和灵活性上占优，而基于二进制的Protobuf在传输性能生更胜一筹。而如果整个环境开发的技术栈比较统一，比如全是Java/.NET，也可以选择对这一技术更加友好的序列化协议。我这一次选择的就是Json，因为从面对的业务情况来看，传输性能不是根本矛盾，而灵活性要求较高，同时服务使用者使用的技术也较为多样化。&lt;/p&gt;
+
+&lt;p&gt;在序列化协议的选定上&lt;strong&gt;要避免的一个误区就是采用自定义协议而不是业界通用协议&lt;/strong&gt;,自定义协议将很容易面临扩展性和使用推广方面的问题，同时，当有新的开发人员加入进来，其需要花费时间来学习与了解。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;通讯协议选择&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;通讯协议上的选择上灵活性比较大，有多种选择，可以在基于HTTP或TCP链接上建立自己的通讯协议。比如可以设计一个简单的header（定长）+body（序列化的请求/响应）。如果采取json作序列化协议的情况下，可以跟我本次的选择一样，采取一个类似&lt;a href=&quot;http://en.wikipedia.org/wiki/JSON-RPC&quot;&gt;json-rpc&lt;/a&gt;, 完全基于json的通讯协议：&lt;/p&gt;
+
+&lt;p&gt;Resust:&lt;/p&gt;
+
+&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
+&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;5&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;
+&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;json&quot;&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;ActionName&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Do&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;AppId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;xxxxxx&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;RequestContent&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{}&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
+
+
+&lt;p&gt;Response:&lt;/p&gt;
+
+&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
+&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;5&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;
+&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;json&quot;&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;err&quot;&gt;“RequestId”:“xxxxxxxxx”，&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;err&quot;&gt;“HasError”:false,&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;ResponseContent&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{}&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
+
+
+&lt;p&gt;对于服务访问对象主要为企业内部的情况，不太建议采取与http完全绑定的restful协议，这将牺牲链接层选择的灵活性。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;2.注册与授权管理&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;注册管理是解决系统交互复杂性的必备良药，我建议多余三个系统以上的系统交互，都应该具备注册管理功能。对于服务化架构来说，注册管理也是最为核心的一项功能。当服务数量和服务使用者数量爆发性增长时，最难回答的问题就是“服务被谁使用了？”以及“有哪些服务可供使用？”，注册管理就是解决这两个问题的最佳方式与实践。&lt;/p&gt;
+
+&lt;p&gt;注册管理的实现上其实也很简单，提供一个Config Server（配置中心），收集服务提供者的注册信息（包括服务名称，服务地址（可以多个），版本，超时时间控制等），我们称为&lt;strong&gt;服务的元信息&lt;/strong&gt;。而当服务使用者需要调用相应的服务时，就可以利用这些元信息来查找和调用相应的服务了。&lt;/p&gt;
+
+&lt;p&gt;不过，在元信息的使用上，存在两者架构方式&lt;/p&gt;
+
+&lt;p&gt;1.服务使用者访问统一的服务中转器，由服务中转器按照注册信息以及负载情况将请求转发到相应的服务地址上。服务执行后，响应信息返回到服务中心，服务中心将响应回送给调用方。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/256cb7f23c557856f23ab45f558e68dc.jpg&quot; alt=&quot;service_2&quot;&gt;&lt;/p&gt;
+
+&lt;p&gt;这种方式的优点是能比较好的控制所有请求的调度。当服务元信息发生变化时，能及时地调整请求转发（负载）与超时控制等。缺点是请求和响应均需要由中转中心负责转发，性能耗费较大。同时，中转中心的可用性也容易产生问题，必须通过集群的方式来解决。&lt;/p&gt;
+
+&lt;p&gt;2.服务使用者负责从配置中心获取服务地址等信息，然后有由服务使用者直接向相对应地址上的服务发送请求，请求也直接由服务提供者返回给服务调用者。同时，服务使用者本身可以缓存一定的服务元信息，防止每次访问都要从配置中心获取，以降低配置中心的负载，增强整个系统的可用性。当配置中心的服务元信息发生变化时，通过通知的方式告知服务使用者更新本地缓存。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/36ba0cc57c1e0c0a7b8e534de7be7c60.jpg&quot; alt=&quot;service_1&quot;&gt;&lt;/p&gt;
+
+&lt;p&gt;这种架构方式与第一种架构相比，能显著降低性能的损耗，以及服务使用者对中心节点的直接依赖。但代价是需要彻底改造服务使用者的调用方式，框架的代码必须侵入到客户端的开发中去。一般会针对不同的客户端提供clientLib，但当客户端实现方式多样化时，这种代价是非常大的。&lt;/p&gt;
+
+&lt;p&gt;由于我这次面对的客户端多样性，客户端开发也不在控制范围内，所以选择就是第一种方式。&lt;/p&gt;
+
+&lt;p&gt;关于授权，可以与注册管理相互结合，将授权信息同一保存到配置中心。对于企业内部访问的服务，做到通过IP+AppId授权应该就够了。这里有个经验是可以将授权和服务版本确认两者结合起来，即在&lt;strong&gt;授权的同时完成服务版本的确定&lt;/strong&gt;，而不采取由客户端发起访问时指定版本的方式，这样做的好处是框架和服务提供者对于服务版本变更和灰度发布具有更高的可控制性。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;3.路由与过载保护&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;在&lt;a href=&quot;http://sharecore.net/blog/2014/07/05/ke-kuo-zhan-jia-gou-de-san-ge-wei-du/&quot;&gt;《可扩展架构设计的三个维度》&lt;/a&gt;一文里谈到通过单元化架构以满足Z轴扩展，以满足差异性的需求或者做到安全隔离。而&lt;strong&gt;服务路由是实现这种单元化架构的基本保障&lt;/strong&gt;，以保证能将来自不同访问者请求或者不同的请求内容，分发到不同的服务提供区域去，形成单元化架构的闭环。当然，路由功能并不一定需要框架来独立实现，业界许多通用的（软）负载均衡器可以协助实现，如Nginx/HAProxy/LVS这些。但是这类通用的负载均衡软件的问题是路由算法比较通用，当需要扩展到与业务逻辑相关的路由绑定时，比较麻烦，比如需要用户ID按权重分配路由。在此建议，&lt;strong&gt;可以采取通用的负载均衡软件当第一层接入，而在服务节点之间采取自己实现路由模块的方式。&lt;/strong&gt;而在实现路由模块时，需要将扩展性上的考虑放在第一位。&lt;/p&gt;
+
+&lt;p&gt;对于服务化架构，保障提供服务提供者的业务系统不受“恶意”调用或突发性激增调用的破坏，过载保护功能至关重要，它能起到系统“保险丝”的效果。前文提到可用于接入的Nginx/HAProxy/LVS这些软件，也多少提供了过载保护的功能。如果自己实现过载保护模块，具体可参见我的&lt;a href=&quot;http://sharecore.net/blog/2014/06/21/guo-zai-bao-hu-suan-fa-qian-xi/&quot;&gt;《过载保护算法浅析》&lt;/a&gt;一文。对于过载保护的一个经验是：&lt;strong&gt;过载保护越靠近服务访问前端越好。&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;4.服务拆分与组合化&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;传统的SOA概念，指的是不同的应用系统之间相互通过大粒度服务的方式进行集成。而当今的服务化架构已经摆脱了这一概念的束缚，更多讲的是系统内部模块级甚至是功能级的服务化模式。也就是说服务实现的粒度更小了。这当然为应用和服务的实现带来了更强的灵活性，服务交付周期也大大缩短了。但这样的细粒度拆分服务，带来的问题是项功能的实现需要访问的服务数量成倍的增加。如下图所示：一个客户下订单的功能实现需要分别访问：客户信息服务，产品类别服务，库存服务，订单管理服务等。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/e310fe10a83859029875682319ae4959.jpg&quot; alt=&quot;service_3&quot;&gt;&lt;/p&gt;
+
+&lt;p&gt;这将显著增加功能实现的复杂性。为了解决这一问题，我们只能再次使用那条永远有效的“中间层定律”：&lt;strong&gt;任何计算机问题都可以通过中间加一层来解决。&lt;/strong&gt; 我们可以将相应的服务组合成一个新的服务提供出去，比如上面的例子，我们可以按以下方式组合：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/f8ede80d4eaaaa4ab773f3d973a34a46.jpg&quot; alt=&quot;service_4&quot;&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;5.基于配置的服务运行时提供&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;前文已经概述了一个服务化框架应该具有的一些基本功能以及一些基本的架构实现方式。但这个服务框架究竟如何与业务开发相结合呢？也就是说业务逻辑代码与框架代码之间如何隔离,而不是让框架的功能代码侵入到业务逻辑代码的开发中来?这里通用的做法就是&lt;strong&gt;通过基于配置，由框架提供运行时，动态加载业务代码的方式&lt;/strong&gt;。做到这点，只需要约束业务逻辑代码实现相应的接口/基类，然后打包成相应的组件（如jar/dll/so等）提供给框架加载运行即可，类似于java servlet的开发，业务开发完全不用关心服务化框架任何功能，专注开发业务逻辑即可。同时，对于既有代码的服务化也将变得简单，只需要稍加重构封装出实现相应的接口即可。&lt;/p&gt;
+
+&lt;p&gt;配置类似于：&lt;/p&gt;
+
+&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
+&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;
+&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;xml&quot;&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;serviceName=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Customer.GetCustomer&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.customer.getCustomer&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&amp;gt;&lt;/span&gt; 
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
+
+
+&lt;p&gt;同时，这种基于组件配置的服务实现，对于组合组件实现服务也非常简单。只需要将上面的配置改为嵌套的方式既可以实现组合。比如对于订单生成服务只要组合如下：&lt;/p&gt;
+
+&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
+&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;5&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;6&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;7&lt;/span&gt;
+&lt;span class=&quot;line-number&quot;&gt;8&lt;/span&gt;
+&lt;/pre&gt;&lt;/td&gt;
+&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;xml&quot;&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;serviceName=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Order.CreateOrder&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.inventory.checkInventory&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;      &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.order.createOrder&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;          &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.inventory.updateInventory&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;          &lt;span class=&quot;nt&quot;&gt;&amp;lt;/biz&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;      &lt;span class=&quot;nt&quot;&gt;&amp;lt;/biz&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&amp;gt;&lt;/span&gt; 
+&lt;/span&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&amp;gt;&lt;/span&gt;
+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
+&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
+
+
+&lt;p&gt;&lt;strong&gt;总结：&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;基本来看，服务化架构已经在业界完成了落地，尤其是互联网公司，更是基于这一架构的领先者，有许多经验值得借鉴。当然，这个落地的服务化架构，与当年被各大商业公司用WS-*和ESB玩坏的SOA概念相去甚远。也再一次证明，那些被鼓吹出来的技术概念，只有当那些商业公司不再炒作之时，方是其真正落地之日（SOA如此，当今热炒的“大数据”，“云计算”这些概念又何尝不会是如此呢？）。在技术被鼓吹得风头正劲时，千万要保持冷静，别被那些商业公司所忽悠,你完全可以自己实现更轻量级更具有扩展性的架构。不信的话，可以去问问，那些当年花大价钱去买SOA商业组件的公司，他们还好吗？&lt;/p&gt;
+
+&lt;hr&gt;
+
+&lt;p&gt;如果您觉得这篇文字有意思，欢迎转发！欢迎更多的朋友们关注我的微信公众号：&lt;strong&gt;JustinNotes&lt;/strong&gt;&lt;/p&gt;
+
+&lt;hr&gt;
+
+</description>
+        <pubDate>Sat, 02 Aug 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-08-02-qian-tan-fu-wu-hua-kuang-jia-de-ji-ben-gong-neng-25b061573.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-02-qian-tan-fu-wu-hua-kuang-jia-de-ji-ben-gong-neng-25b061573.html</guid>
+        
+        
+        <category>sharecore</category>
+        
+      </item>
     
       <item>
         <title>Files and Initialization</title>
@@ -4466,266 +4633,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         
         
         <category>sharecore</category>
-        
-      </item>
-    
-      <item>
-        <title>Chef入门（一）</title>
-        <description>
-
-	
-	
-
-	&lt;p&gt;&lt;img src=&quot;/images/weizhifeng.net/a21eddb15b6ddbe9e395938fd299dee1.jpg&quot; title=&quot;Chef&quot; alt=&quot;Chef&quot;&gt;&lt;/p&gt;
-
-&lt;h1&gt;Chef是什么&lt;/h1&gt;
-
-&lt;p&gt;官方的介绍是这样的：&lt;code&gt;Automation for Web-Scale IT.Chef delivers fast, scalable, flexible IT automation.&lt;/code&gt;简单来说Chef就是IT自动化工具，它把服务器的环境（软件、依赖库、网络等）进行抽象，以特有的配置语法（Ruby语言）对其进行管理，可以自动的进行服务器环境的初始化工作。Chef也是实践&lt;a href=&quot;http://www.infoq.com/cn/articles/devops-not-legend/&quot;&gt;DevOps&lt;/a&gt;和&lt;a href=&quot;http://martinfowler.com/articles/continuousIntegration.html&quot;&gt;Continuous Integration&lt;/a&gt;的重要工具，同类的工具还有&lt;a href=&quot;http://puppetlabs.com/&quot;&gt;puppet&lt;/a&gt;。&lt;/p&gt;
-
-&lt;h1&gt;为什么需要Chef&lt;/h1&gt;
-
-&lt;p&gt;Web开发者肯定对以下的情景熟悉：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;新开发的功能在开发环境运行得很好，可是一部署到生产环境就出错了，登录到服务器上一看，我靠，少个lib没装 = =&lt;/li&gt;
-&lt;li&gt;很多人入职一家新公司首先做的事情就是配环境，这个工作比较浪费时间，经常是缺这个库缺那个库，还有很多未知的坑，即使有完整的文档，手动的安装也是比较反人类的。&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;p&gt;以上的问题总结为一句话就是环境管理的混乱，或者说根本没有环境管理。环境管理可能是个不那么太引起开发者重视的一项事情，许多人对环境的要求只是能够跑起来，不管通过什么自虐的方式配置起来都没有问题，如果生产环境发生了变更，而开发环境没有及时变更，那么只能骂娘。其实环境管理和代码的版本控制是一样的重要，你能想象没有版本控制的开发方式吗？有人会说：我照着文档手动配置环境也很快，也不会出错啊。如果这样那么你可以关闭当前网页了。&lt;/p&gt;
-
-&lt;p&gt;Chef基本上做两件事：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;环境管理&lt;/li&gt;
-&lt;li&gt;以自动化的方式进行服务器环境初始化或变更工作&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;h1&gt;Chef环境&lt;/h1&gt;
-
-&lt;p&gt;Chef环境由三个部分组成：Chef server，Workstation, Node（此Node非Node.js）。&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;p&gt;Chef server是Chef环境的中枢，其中存储了基础设施环境的信息。你可以使用&lt;a href=&quot;http://www.getchef.com/chef/install/&quot;&gt;开源Chef server&lt;/a&gt;，也可以使用Chef官方提供的商业服务：&lt;a href=&quot;http://www.getchef.com/contact/on-premises/&quot;&gt;Enterprise Chef&lt;/a&gt;。&lt;/p&gt;&lt;/li&gt;
-&lt;li&gt;&lt;p&gt;Workstation是你的工作台，一般情况下就是你的开发机器。你会在Workstation中创建cookbook，并且上传到Chef server，以及其他与Chef相关的工作。&lt;/p&gt;&lt;/li&gt;
-&lt;li&gt;&lt;p&gt;一个Node就是你基础设施环境中的一台服务器，也就是你用Chef来管理的机器。一个Node可以是一台物理机器，一个虚拟机，也可以是cloud环境中的一个instance，甚至是你网络环境中的一个交换机或路由器。如果你想要在Node上部署环境，那么Node会与Chef server进行交互获取信息，并在Node上执行环境初始化操作。&lt;/p&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;p&gt;三者之间的关系是这样的：&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/weizhifeng.net/e12c12b86ad41150d7fb7b05974ec5bf.jpg&quot; title=&quot;chef-overview&quot; alt=&quot;chef-overview&quot;&gt;&lt;/p&gt;
-
-&lt;h1&gt;获取Chef Server&lt;/h1&gt;
-
-&lt;p&gt;为了节省时间和资源，本文使用Enterprise Chef作为自己的Chef Server，先&lt;a href=&quot;https://manage.opscode.com&quot;&gt;注册&lt;/a&gt;账号，然后登录并添加自己的ORGANIZATION，这里就不详细说明了，请自行摸索。&lt;/p&gt;
-
-&lt;h1&gt;安装Workstation&lt;/h1&gt;
-
-&lt;h2&gt;Omnibus installer&lt;/h2&gt;
-
-&lt;p&gt;我们首先安装&lt;a href=&quot;http://docs.opscode.com/install_omnibus.html&quot;&gt;omnibus installer&lt;/a&gt;，Mac或Ubuntu用户执行如下命令：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ curl -L https://www.opscode.com/chef/install.sh | sudo bash
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;以上命令会在机器上安装&lt;code&gt;chef-client&lt;/code&gt;，&lt;code&gt;Ruby语言&lt;/code&gt;，&lt;code&gt;Knife&lt;/code&gt;等一系列工具，安装结束后输入以下命令来确认安装没有问题：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ chef-client -v
-Chef: 11.12.8
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;chef-client安装完成之后，会在&lt;code&gt;/opt&lt;/code&gt;生成如下的目录结构：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;/opt
-   /chef
-      /bin
-      /embedded
-         /bin
-         /include
-         /lib
-         /share
-         /ssl
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;注意：如果我们使用的是自行安装的开源Chef server，那么需要安装git，git安装方法这里不再叙述。&lt;/p&gt;
-
-&lt;p&gt;以上完成之后，我们需要获取chef-repo，如果使用的是Enterprise Chef，那么你需要下载&lt;a href=&quot;https://manage.opscode.com/starter-kit&quot;&gt;Starter Kit&lt;/a&gt;&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/weizhifeng.net/9d43ca46dcedf9b0160ed7b18026fae5.jpg&quot; title=&quot;chef-starter-kit&quot; alt=&quot;chef-starter-kit&quot;&gt;&lt;/p&gt;
-
-&lt;p&gt;之后拷贝到home目录下：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ cp chef-repo ~/
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2&gt;获取配置文件&lt;/h2&gt;
-
-&lt;p&gt;为了能够与Chef server通讯，我们需要&lt;a href=&quot;https://manage.opscode.com&quot;&gt;登录&lt;/a&gt;到Enterprise Chef上获取三个配置文件：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;knife.rb&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;p&gt;&lt;img src=&quot;/images/weizhifeng.net/193f51d5d4d4caeeeb5c9aade1765432.jpg&quot; title=&quot;chef-get-knife.rb&quot; alt=&quot;chef-get-knife.rb&quot;&gt;&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;ORGANIZATION-validator.pem（注：ORGANIZATION为你自己组织的名字）&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;p&gt;&lt;img src=&quot;/images/weizhifeng.net/c01a4cf5bcdbaafb14553183b4c0f9b2.jpg&quot; title=&quot;chef-get-validator.pem&quot; alt=&quot;chef-get-validator.pem&quot;&gt;&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;USER.pem（注：USER为你的用户名）&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;p&gt;&lt;img src=&quot;/images/weizhifeng.net/68e34d68915b1691b2bfaeee9de968c7.jpg&quot; title=&quot;chef-get-USER.pem&quot; alt=&quot;chef-get-USER.pem&quot;&gt;&lt;/p&gt;
-
-&lt;p&gt;获取到以上三个文件之后，我们需要把它们拷贝到&lt;code&gt;~/chef-repo/.chef&lt;/code&gt;目录下：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ cp /path/to/knife.rb /path/to/ORGANIZATION-validator.pem /path/to/USERNAME.pem ~/chef-repo/.chef
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2&gt;把Ruby添加到$PATH&lt;/h2&gt;
-
-&lt;p&gt;由于Chef中的工具都是基于Ruby语言的，所以chef-client中包含了一个稳定版本的Ruby解释器，你需要把它添加到$PATH中，以便通过命令行可以执行Ruby脚本。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ echo &#39;export PATH=&quot;/opt/chef/embedded/bin:$PATH&quot;&#39; &amp;gt;&amp;gt; ~/.bash_profile &amp;amp;&amp;amp; source ~/.bash_profile
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2&gt;验证chef-client&lt;/h2&gt;
-
-&lt;p&gt;如果通过Knife可以和Chef server通信，那么代表Workstation安装成功，接下来需要验证。&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;
-&lt;p&gt;进入&lt;code&gt;chef-repo&lt;/code&gt;&lt;/p&gt;
-
-&lt;p&gt; $ cd ~/chef-repo&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;
-&lt;p&gt;执行以下命令&lt;/p&gt;
-
-&lt;p&gt; $ knife client list&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ol&gt;
-
-
-&lt;p&gt;如果执行成功会返回一个可以访问Chef server的client列表。比如：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;workstation
-registered_node
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1&gt;安装Node&lt;/h1&gt;
-
-&lt;p&gt;一个Node可以是任何可以连接上网络的电脑，你必须是它的管理员，并且拥有sudo或者root权限。官方推荐CentOS 6+，Windows Server 2008+，或者Ubuntu 12.04+。你还需要拥有它的SSH账号、密码以及端口。&lt;/p&gt;
-
-&lt;p&gt;虽然你可以自己折腾物理机器，不过如果只是想看看Chef有什么功能的话，Chef官方提供了一些配置好的虚拟机，君请自取：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&quot;http://opscode-cheflab.herokuapp.com/labs/learnchef/ubuntu/attend&quot;&gt;Ubuntu Training Lab&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://opscode-cheflab.herokuapp.com/labs/learnchef/centos/attend&quot;&gt;CentOS Training Lab&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://opscode-cheflab.herokuapp.com/labs/learnchef/windows/attend&quot;&gt;Windows Training Lab&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;p&gt;如果你想在自己的本地折腾，那么Chef官方也提供了&lt;a href=&quot;http://www.vagrantup.com/&quot;&gt;Vagrant&lt;/a&gt;方案：在你之前下载的&lt;code&gt;Starter Kit&lt;/code&gt;中已经包含了&lt;code&gt;Vagrantfile&lt;/code&gt;文件：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ll ~/chef-repo
--rw-r--r--  1 weizhifeng  staff       2405 Jul 18 06:26 README.md
--rw-r--r--  1 weizhifeng  staff       3747 Jul 18 16:24 Vagrantfile
-drwxr-xr-x  4 weizhifeng  staff        136 Jul 18 06:26 cookbooks
-drwxr-xr-x  3 weizhifeng  staff        102 Jul 18 06:26 roles
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;你可以直接执行&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ vagrant up
-Bringing machine &#39;default&#39; up with &#39;virtualbox&#39; provider...
-==&amp;gt; default: Clearing any previously set forwarded ports...
-==&amp;gt; default: Fixed port collision for 22 =&amp;gt; 2222. Now on port 2200.
-==&amp;gt; default: Clearing any previously set network interfaces...
-==&amp;gt; default: Preparing network interfaces based on configuration...
-    default: Adapter 1: nat
-==&amp;gt; default: Forwarding ports...
-    default: 8080 =&amp;gt; 9090 (adapter 1)
-    default: 22 =&amp;gt; 2200 (adapter 1)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;来启动VM。&lt;/p&gt;
-
-&lt;p&gt;接下来我们需要执行&lt;code&gt;knife bootstrap&lt;/code&gt;命令，这个命令会在VM上安装chef-client，并且chef-client会与Chef server进行交互。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ knife bootstrap localhost --sudo -x vagrant -P vagrant --ssh-port 2222 -N node1   
-Connecting to localhost
-localhost Starting first Chef Client run...
-....
-....
-localhost Starting Chef Client, version 11.12.8
-localhost resolving cookbooks for run list: []
-localhost Synchronizing Cookbooks:
-localhost Compiling Cookbooks...
-localhost [2014-07-19T13:50:55+00:00] WARN: Node node1 has an empty run list.
-localhost Converging 0 resources
-localhost 
-localhost Running handlers:
-localhost Running handlers complete
-localhost 
-localhost Chef Client finished, 0/0 resources updated in 76.501062463 seconds
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;注意：如果你运行了N个Vagrant VM，那么&lt;code&gt;--ssh-port 2222&lt;/code&gt;可能不正确，你可以在&lt;code&gt;vagrant up&lt;/code&gt;输出的日志中找到正确的网络转发端口。&lt;/p&gt;
-
-&lt;p&gt;为了确认Node是否已经bootstrap成功，访问&lt;a href=&quot;http://manage.opscode.com/organizations&quot;&gt;manage.opscode.com/organizations&lt;/a&gt;，在Nodes标签上你应该可以看到刚才bootstrap的node名称。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/weizhifeng.net/bd078a428c2ecc13b11602729b0c40d6.jpg&quot; title=&quot;chef-nodes&quot; alt=&quot;chef-nodes&quot;&gt;&lt;/p&gt;
-
-&lt;p&gt;恭喜，你现在拥有了一个Chef环境，下一篇文章我们开始介绍Chef怎么使用。&lt;/p&gt;
-
-&lt;h1&gt;参考&lt;/h1&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&quot;http://docs.opscode.com/install_workstation.html&quot;&gt;http://docs.opscode.com/install_workstation.html&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://docs.opscode.com/knife.html&quot;&gt;http://docs.opscode.com/knife.html&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://learn.getchef.com/legacy/get-started/&quot;&gt;http://learn.getchef.com/legacy/get-started/&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://docs.vagrantup.com/v2/getting-started/up.html&quot;&gt;http://docs.vagrantup.com/v2/getting-started/up.html&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-
-	(完)
-
-	&lt;div class=&quot;post-info&quot;&gt;
-		19 Jul 2014  
-	
-		
-	
-		
-	&lt;/div&gt;
-	
-	&lt;!-- disqus start --&gt;
-	
-	
-	&lt;noscript&gt;Please enable JavaScript to view the &lt;a href=&quot;http://disqus.com/?ref_noscript&quot;&gt;comments powered by Disqus.&lt;/a&gt;
-&lt;/noscript&gt;
-	
-	&lt;!-- disqus end --&gt;
-
-	&lt;!-- related start --&gt;
-	
-	&lt;!-- related end --&gt;
-
-</description>
-        <pubDate>Sat, 19 Jul 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-07-19-learn-chef-01.html-2708b97ab.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-19-learn-chef-01.html-2708b97ab.html</guid>
-        
-        
-        <category>weizhifeng</category>
         
       </item>
     
