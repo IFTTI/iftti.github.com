@@ -1,0 +1,81 @@
+---
+layout: post
+title: 'Boolean'
+time: 2014-08-05 00:00:00 +0800
+site_name: developer.apple.com/swift/blog
+source_url: https://developer.apple.com/swift/blog/?id=8
+---
+{% raw %}
+<p>The boolean <span class="keyword">Bool</span> type in Swift underlies a lot of primitive functionality, making it an interesting demonstration of how to build a simple type. This post walks through the creation of a new <span class="keyword">MyBool</span> type designed and implemented to be very similar to the <span class="keyword">Bool</span> type built into Swift. We hope this walk through the design of a simple Swift type will help you better understand how the language works.</p> <p>Let’s start with the basic definition. The <span class="keyword">MyBool</span> type models two different cases, perfect for an enum:</p> <pre><code><span class="key">enum</span> MyBool {
+	<span class="key">case</span> myTrue, myFalse
+}</code></pre> <p>To reduce confusion in this post, we’ve named the cases <span class="keyword">myTrue</span> and <span class="keyword">myFalse</span>. We want <span class="keyword">MyBool()</span> to produce a false value, and can do so by providing an <span class="keyword">init</span> method:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> {
+	<span class="key">init</span>() { <span class="key">self</span> = .<span class="enum">myFalse</span> }
+}</code></pre> <p>Swift enum declarations implicitly scope their enumerators within their body, allowing us to refer to <span class="keyword">MyBool.myFalse</span> and even <span class="keyword">.myFalse</span> when a contextual type is available.  However, we want our type to work with the primitive <span class="keyword">true</span> and <span class="keyword">false</span> literal keywords. To make this work, we can make <span class="keyword">MyBool</span> conform to the <span class="keyword">BooleanLiteralConvertible</span> protocol like this:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> : <span class="title">BooleanLiteralConvertible</span> {
+	<span class="key">static func</span> convertFromBooleanLiteral(value: <span class="title">Bool</span>) -&gt; <span class="pointer">MyBool</span> {
+		<span class="key">return</span> value ? <span class="enum">myTrue</span> : <span class="enum">myFalse</span>
+	}
+}
+
+<span class="comment">// We can now assign 'true' and 'false' to MyBool.</span>
+<span class="key">var</span> a : <span class="pointer">MyBool</span> = <span class="key">true</span></code></pre> <p>With this set up, we have our basic type, but we still can’t do much with it.  Booleans need to be testable within an <span class="keyword">if</span> condition.  Swift models this with the <span class="keyword">BooleanType</span> protocol, which allows any type to be used as a logical condition:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> : <span class="title">BooleanType</span> {
+	<span class="key">var</span> boolValue: <span class="title">Bool</span> {
+		<span class="key">switch self</span> {
+		<span class="key">case</span> .myTrue: <span class="key">return true</span>
+		<span class="key">case</span> .myFalse: <span class="key">return false</span>
+		}
+	}
+}
+
+<span class="comment">// Can now test MyBool in 'if' and 'while' statement conditions.</span>
+<span class="key">if</span> <span class="pointer">a</span> {}</code></pre> <p>We also want anything that conforms to <span class="keyword">BooleanType</span> to be castable to <span class="keyword">MyBool</span>, so we add:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> {
+	<span class="comment">// MyBool can be constructed from BooleanType</span>
+	<span class="key">init</span>(<span class="key">_</span> v : <span class="title">BooleanType</span>) {
+		<span class="key">if</span> v.<span class="title">boolValue</span> {
+			<span class="key">self</span> = .<span class="enum">myTrue</span>
+		} <span class="key">else</span> {
+			<span class="key">self</span> = .<span class="enum">myFalse</span>
+		}
+	}
+}
+
+<span class="comment">// Can now convert from other boolean-like types.</span>
+<span class="key">var</span> basicBool : <span class="title">Bool</span> = <span class="key">true</span>
+<span class="pointer">a</span> = <span class="pointer">MyBool</span>(<span class="pointer">basicBool</span>)</code></pre> <p>Note that the use of <span class="keyword">_</span> in the initializer argument list disables the keyword argument, which allows the <span class="keyword">MyBool(x)</span> syntax to be used instead of requiring <span class="keyword">MyBool(v: x)</span>.</p> <p>Now that we have basic functionality, let’s define some operators to work with it, starting with the <span class="keyword">==</span> operator.  Simple enums that have no associated data (like <span class="keyword">MyBool</span>) are automatically made <span class="keyword">Equatable</span> by the compiler, so no additional code is required. However, you can make arbitrary types equatable by conforming to the <span class="keyword">Equatable</span> protocol and implementing the <span class="keyword">==</span> operator. If <span class="keyword">MyBool</span> weren’t already <span class="keyword">Equatable</span>, this would look like this:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> : <span class="title">Equatable</span> {
+}
+
+<span class="key">func</span> ==(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="title">Bool</span> {
+	<span class="key">switch</span> (lhs, rhs) {
+	<span class="key">case</span> (.myTrue,.myTrue), (.myFalse,.myFalse):
+		<span class="key">return true
+	default</span>:
+		<span class="key">return false</span>
+	}
+}
+
+<span class="comment">// Can now compare with == and !=</span>
+<span class="key">if</span> <span class="pointer">a</span> == <span class="pointer">a</span> {}
+<span class="key">if</span> <span class="pointer">a</span> != <span class="pointer">a</span> {}</code></pre> <p>Here we’re using some simple pattern matching in the <span class="keyword">switch</span> statement to handle this. Since <span class="keyword">MyBool</span> is now <span class="keyword">Equatable</span>, we get a free implementation of the <span class="keyword">!=</span> operator.  Lets add binary operations:</p> <pre><code><span class="key">func</span> &amp;(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">if</span> lhs {
+		<span class="key">return</span> rhs
+	}
+	<span class="key">return false</span>
+}
+
+<span class="key">func</span> |(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">if</span> lhs {
+		<span class="key">return true</span>
+	}
+	<span class="key">return</span> rhs
+}
+
+<span class="key">func</span> ^(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">return</span> <span class="pointer">MyBool</span>(lhs != rhs)
+}</code></pre> <p>With the basic operators in place, we can implement a variety of helpful unary and compound assignment operators as well, for example:</p> <pre><code><span class="key">prefix func</span> !(a: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">return</span> a <span class="enum">^</span> <span class="key">true</span>
+}
+
+<span class="comment">// Compound assignment (with bitwise and)</span>
+<span class="key">func</span> &amp;=(<span class="key">inout</span> lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) {
+	lhs = lhs <span class="enum">&amp;</span> rhs
+}</code></pre> <p>The <span class="keyword">&amp;=</span> operator takes the left operand as <span class="keyword">inout</span> because it reads and writes to it, and the effect must be visible to the user of the operator.  Swift gives you complete control over mutability of operations on value types like <span class="keyword">enum</span> and <span class="keyword">struct</span>.</p> <p>With this, the simple <span class="keyword">MyBool</span> type has all of the basic operations and operators.  Hopefully this post gives you a few tips that you can apply to your own code when defining higher-level types.</p>
+{% endraw %}
