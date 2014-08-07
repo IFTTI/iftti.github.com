@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Interacting with C Pointers</title>
+    <title>Boolean</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-28--id=6-ea85867c5.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-08-05--id=8-1cf8664dd.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,57 +50,107 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>Interacting with C Pointers</h1>
-    <p class="meta"><span class="time">Jul 28, 2014</span><span class="source_url"> • 来自 developer.apple.com/swift/blog <a name="developer.apple.com/swift/blog" href="https://developer.apple.com/swift/blog/?id=6" target="_blank">[原文链接]</a></span></p>
+    <h1>Boolean</h1>
+    <p class="meta"><span class="time">Aug 5, 2014</span><span class="source_url"> • 来自 developer.apple.com/swift/blog <a name="developer.apple.com/swift/blog" href="https://developer.apple.com/swift/blog/?id=8" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-<p>Objective-C and C APIs often require the use of pointers. Data types in Swift are designed to feel natural when working with pointer-based Cocoa APIs, and Swift automatically handles several of the most common use cases for pointers as arguments. In this post we’ll look at how pointer parameters in C can be used with the variables, arrays, and strings in Swift.</p> <h3>Pointers as In/Out Parameters</h3> <p>C and Objective-C don’t support multiple return values, so Cocoa APIs frequently use pointers as a way of passing additional data in and out of functions. Swift allows pointer parameters to be treated like <span class="keyword">inout</span> parameters, so you can pass a reference to a <span class="keyword">var</span> as a pointer argument by using the same <span class="keyword">&amp;</span> syntax. For instance, <span class="keyword">UIColor</span>’s <span class="keyword">getRed(_:green:blue:alpha:)</span> method takes four <span class="keyword">CGFloat*</span> pointers to receive the components of the color. We can use <span class="keyword">&amp;</span> to collect these components into local variables:</p> <pre><code><span class="key">var</span> r: <span class="title">CGFloat</span> = <span class="number">0</span>, g: <span class="title">CGFloat</span> = <span class="numner">0</span>, b: <span class="title">CGFloat</span> = <span class="number">0</span>, a: <span class="title">CGFloat</span> = <span class="number">0</span>
-color.getRed(&amp;<span class="pointer">r</span>, green: &amp;<span class="pointer">g</span>, blue: &amp;<span class="pointer">b</span>, alpha: &amp;<span class="pointer">a</span>)</code></pre>
- <p>Another common case is the Cocoa <span class="keyword">NSError</span> idiom. Many methods take an <span class="keyword">NSError**</span> parameter to save an error in case of failure. For instance, we can list the contents of a directory using <span class="keyword">NSFileManager</span>’s <span class="keyword">contentsOfDirectoryAtPath(_:error:)</span> method, saving the potential error directly to an <span class="keyword">NSError?</span> variable:</p> <pre><code><span class="key">var</span> maybeError: <span class="title">NSError</span>?
-<span class="key">if let</span> contents = <span class="title">NSFileManager</span>.<span class="method">defaultManager</span>()
-	.<span class="method">contentsOfDirectoryAtPath</span>(<span class="string">"/usr/bin"</span>, error: &amp;<span class="pointer">maybeError</span>) {
-	<span class="comment">// Work with the directory contents</span>
-} <span class="key">else if let</span> error = <span class="pointer">maybeError</span> {
-	<span class="comment">// Handle the error</span>
+<p>The boolean <span class="keyword">Bool</span> type in Swift underlies a lot of primitive functionality, making it an interesting demonstration of how to build a simple type. This post walks through the creation of a new <span class="keyword">MyBool</span> type designed and implemented to be very similar to the <span class="keyword">Bool</span> type built into Swift. We hope this walk through the design of a simple Swift type will help you better understand how the language works.</p> <p>Let’s start with the basic definition. The <span class="keyword">MyBool</span> type models two different cases, perfect for an enum:</p> <pre><code><span class="key">enum</span> MyBool {
+	<span class="key">case</span> myTrue, myFalse
 }</code></pre>
- <p>For safety, Swift requires the variables to be initialized before being passed with <span class="keyword">&amp;</span>. This is because it cannot know whether the method being called tries to read from a pointer before writing to it.</p> <h3>Pointers as Array Parameters</h3> <p>Pointers are deeply intertwined with arrays in C, and Swift facilitates working with array-based C APIs by allowing <span class="keyword">Array</span> to be used as a pointer argument. An immutable array value can be passed directly as a <span class="keyword">const</span> pointer, and a mutable array can be passed as a non-<span class="keyword">const</span> pointer argument using the <span class="keyword">&amp;</span> operator, just like an <span class="keyword">inout</span> parameter. For instance, we can add two arrays <span class="keyword">a</span> and <span class="keyword">b</span> using the <span class="keyword">vDSP_vadd</span> function from the Accelerate framework, writing the result to a third <span class="keyword">result</span> array:</p> <pre><code><span class="key">import</span> Accelerate
-
-<span class="key">let</span> a: [<span class="title">Float</span>] = [<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>]
-<span class="key">let</span> b: [<span class="title">Float</span>] = [<span class="number">0.5</span>, <span class="number">0.25</span>, <span class="number">0.125</span>, <span class="number">0.0625</span>]
-<span class="key">var</span> result: [<span class="title">Float</span>] = [<span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>]
-
-<span class="method">vDSP_vadd</span>(a, <span class="number">1</span>, b, <span class="number">1</span>, &amp;<span class="pointer">result</span>, <span class="number">1</span>, <span class="number">4</span>)
-
-<span class="comment">// result now contains [1.5, 2.25, 3.125, 4.0625]</span></code></pre>
- <h3>Pointers as String Parameters</h3> <p>C uses <span class="keyword">const char*</span> pointers as the primary way to pass around strings. A Swift <span class="keyword">String</span> can be used as a <span class="keyword">const char*</span> pointer, which will pass the function a pointer to a null-terminated, UTF–8-encoded representation of the string. For instance, we can pass strings directly to standard C and POSIX library functions:</p> <pre><code><span class="method">puts</span>(<span class="string">"Hello from libc"</span>)
-<span class="key">let</span> fd = <span class="method">open</span>(<span class="string">"/tmp/scratch.txt"</span>, <span class="title">O_WRONLY</span>|<span class="title">O_CREAT</span>, <span class="number">0o666</span>)
-
-<span class="key">if</span> <span class="pointer">fd</span> &lt; <span class="number">0</span> {
-	<span class="method">perror</span>(<span class="string">"could not open /tmp/scratch.txt"</span>)
-} <span class="key">else</span> {
-	<span class="key">let</span> text = <span class="string">"Hello World"</span>
-	<span class="method">write</span>(<span class="pointer">fd</span>, text, <span class="method">strlen</span>(text))
-	<span class="method">close</span>(<span class="pointer">fd</span>)
+ <p>To reduce confusion in this post, we’ve named the cases <span class="keyword">myTrue</span> and <span class="keyword">myFalse</span>. We want <span class="keyword">MyBool()</span> to produce a false value, and can do so by providing an <span class="keyword">init</span> method:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> {
+	<span class="key">init</span>() { <span class="key">self</span> = .<span class="enum">myFalse</span> }
 }</code></pre>
- <h3>Safety with Pointer Argument Conversions</h3> <p>Swift works hard to make interaction with C pointers convenient, because of their pervasiveness within Cocoa, while providing some level of safety. However, interaction with C pointers is inherently unsafe compared to your other Swift code, so care must be taken. In particular:</p> <ul> <li>These conversions cannot safely be used if the callee saves the pointer value for use after it returns. The pointer that results from these conversions is only guaranteed to be valid for the duration of a call. Even if you pass the same variable, array, or string as multiple pointer arguments, you could receive a different pointer each time. An exception to this is global or static stored variables. You can safely use the address of a global variable as a persistent unique pointer value, e.g.: as a KVO context parameter.</li> <li>Bounds checking is not enforced when a pointer to an <span class="keyword">Array</span> or <span class="keyword">String</span> is passed. A C-based API can’t grow the array or string, so you must ensure that the array or string is of the correct size before passing it over to the C-based API.</li>
-</ul> <p>If you need to work with pointer-based APIs that don’t follow these guidelines, or you need to override Cocoa methods that accept pointer parameters, then you can work directly with raw memory in Swift using unsafe pointers. We’ll look at a more advanced case in a future post.</p>
+ <p>Swift enum declarations implicitly scope their enumerators within their body, allowing us to refer to <span class="keyword">MyBool.myFalse</span> and even <span class="keyword">.myFalse</span> when a contextual type is available.  However, we want our type to work with the primitive <span class="keyword">true</span> and <span class="keyword">false</span> literal keywords. To make this work, we can make <span class="keyword">MyBool</span> conform to the <span class="keyword">BooleanLiteralConvertible</span> protocol like this:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> : <span class="title">BooleanLiteralConvertible</span> {
+	<span class="key">static func</span> convertFromBooleanLiteral(value: <span class="title">Bool</span>) -&gt; <span class="pointer">MyBool</span> {
+		<span class="key">return</span> value ? <span class="enum">myTrue</span> : <span class="enum">myFalse</span>
+	}
+}
+
+<span class="comment">// We can now assign 'true' and 'false' to MyBool.</span>
+<span class="key">var</span> a : <span class="pointer">MyBool</span> = <span class="key">true</span></code></pre>
+ <p>With this set up, we have our basic type, but we still can’t do much with it.  Booleans need to be testable within an <span class="keyword">if</span> condition.  Swift models this with the <span class="keyword">BooleanType</span> protocol, which allows any type to be used as a logical condition:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> : <span class="title">BooleanType</span> {
+	<span class="key">var</span> boolValue: <span class="title">Bool</span> {
+		<span class="key">switch self</span> {
+		<span class="key">case</span> .myTrue: <span class="key">return true</span>
+		<span class="key">case</span> .myFalse: <span class="key">return false</span>
+		}
+	}
+}
+
+<span class="comment">// Can now test MyBool in 'if' and 'while' statement conditions.</span>
+<span class="key">if</span> <span class="pointer">a</span> {}</code></pre>
+ <p>We also want anything that conforms to <span class="keyword">BooleanType</span> to be castable to <span class="keyword">MyBool</span>, so we add:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> {
+	<span class="comment">// MyBool can be constructed from BooleanType</span>
+	<span class="key">init</span>(<span class="key">_</span> v : <span class="title">BooleanType</span>) {
+		<span class="key">if</span> v.<span class="title">boolValue</span> {
+			<span class="key">self</span> = .<span class="enum">myTrue</span>
+		} <span class="key">else</span> {
+			<span class="key">self</span> = .<span class="enum">myFalse</span>
+		}
+	}
+}
+
+<span class="comment">// Can now convert from other boolean-like types.</span>
+<span class="key">var</span> basicBool : <span class="title">Bool</span> = <span class="key">true</span>
+<span class="pointer">a</span> = <span class="pointer">MyBool</span>(<span class="pointer">basicBool</span>)</code></pre>
+ <p>Note that the use of <span class="keyword">_</span> in the initializer argument list disables the keyword argument, which allows the <span class="keyword">MyBool(x)</span> syntax to be used instead of requiring <span class="keyword">MyBool(v: x)</span>.</p> <p>Now that we have basic functionality, let’s define some operators to work with it, starting with the <span class="keyword">==</span> operator.  Simple enums that have no associated data (like <span class="keyword">MyBool</span>) are automatically made <span class="keyword">Equatable</span> by the compiler, so no additional code is required. However, you can make arbitrary types equatable by conforming to the <span class="keyword">Equatable</span> protocol and implementing the <span class="keyword">==</span> operator. If <span class="keyword">MyBool</span> weren’t already <span class="keyword">Equatable</span>, this would look like this:</p> <pre><code><span class="key">extension</span> <span class="pointer">MyBool</span> : <span class="title">Equatable</span> {
+}
+
+<span class="key">func</span> ==(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="title">Bool</span> {
+	<span class="key">switch</span> (lhs, rhs) {
+	<span class="key">case</span> (.myTrue,.myTrue), (.myFalse,.myFalse):
+		<span class="key">return true
+	default</span>:
+		<span class="key">return false</span>
+	}
+}
+
+<span class="comment">// Can now compare with == and !=</span>
+<span class="key">if</span> <span class="pointer">a</span> == <span class="pointer">a</span> {}
+<span class="key">if</span> <span class="pointer">a</span> != <span class="pointer">a</span> {}</code></pre>
+ <p>Here we’re using some simple pattern matching in the <span class="keyword">switch</span> statement to handle this. Since <span class="keyword">MyBool</span> is now <span class="keyword">Equatable</span>, we get a free implementation of the <span class="keyword">!=</span> operator.  Lets add binary operations:</p> <pre><code><span class="key">func</span> &amp;(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">if</span> lhs {
+		<span class="key">return</span> rhs
+	}
+	<span class="key">return false</span>
+}
+
+<span class="key">func</span> |(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">if</span> lhs {
+		<span class="key">return true</span>
+	}
+	<span class="key">return</span> rhs
+}
+
+<span class="key">func</span> ^(lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">return</span> <span class="pointer">MyBool</span>(lhs != rhs)
+}</code></pre>
+ <p>With the basic operators in place, we can implement a variety of helpful unary and compound assignment operators as well, for example:</p> <pre><code><span class="key">prefix func</span> !(a: <span class="pointer">MyBool</span>) -&gt; <span class="pointer">MyBool</span> {
+	<span class="key">return</span> a <span class="enum">^</span> <span class="key">true</span>
+}
+
+<span class="comment">// Compound assignment (with bitwise and)</span>
+<span class="key">func</span> &amp;=(<span class="key">inout</span> lhs: <span class="pointer">MyBool</span>, rhs: <span class="pointer">MyBool</span>) {
+	lhs = lhs <span class="enum">&amp;</span> rhs
+}</code></pre>
+ <p>The <span class="keyword">&amp;=</span> operator takes the left operand as <span class="keyword">inout</span> because it reads and writes to it, and the effect must be visible to the user of the operator.  Swift gives you complete control over mutability of operations on value types like <span class="keyword">enum</span> and <span class="keyword">struct</span>.</p> <p>With this, the simple <span class="keyword">MyBool</span> type has all of the basic operations and operators.  Hopefully this post gives you a few tips that you can apply to your own code when defining higher-level types.</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-07-27-using-pdl-on-macbook-0a2e8590f.html" title="Previous Post: 在 MacBook 上使用 PDL 绘图 " data-instant>&laquo; 在 MacBook 上使用 PDL 绘图 </a>
+    <a class="basic-alignment left" href="/posts/2014/2014-08-04-74795-7a8fff1f3.html" title="Previous Post: 对TCP/IP网络协议的深入浅出归纳" data-instant>&laquo; 对TCP/IP网络协议的深入浅出归纳</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-07-28--p=1536-67fe755a4.html" title="Next Post: 小米运维自动化 WOT 2014" data-instant>小米运维自动化 WOT 2014 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-08-05-74590-9247f11e1.html" title="Next Post: 我是如何绕过Google和Facebook等大站的两步验证的" data-instant>我是如何绕过Google和Facebook等大站的两步验证的 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>05 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-05--id=8-1cf8664dd.html">Boolean</a></li>
+      <li><span>28 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-28--id=6-ea85867c5.html">Interacting with C Pointers</a></li>
 
       <li><span>01 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-01--id=7-a729c023e.html">Files and Initialization</a></li>
 
