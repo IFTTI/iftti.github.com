@@ -73,7 +73,7 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <p>在大数据系统中，常常会碰到一个问题，整个大数据是由各个子系统组成，数据需要在各个子系统中高性能，低延迟的不停流转。传统的企业消息系统并不是非常适合大规模的数据处理。为了已在同时搞定在线应用（消息）和离线应用（数据文件，日志）Kafka就出现了。Kafka可以起到两个作用：</p>
 <ol>
 <li>降低系统组网复杂度。</li>
-
+<li>降低编程复杂度，各个子系统不在是相互协商接口，各个子系统类似插口插在插座上，Kafka承担高速数据总线的作用。</li>
 </ol>
 <p>Kafka主要特点：</p>
 <ol>
@@ -81,10 +81,10 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <li>可进行持久化操作。将消息持久化到磁盘，因此可用于批量消费，例如ETL，以及实时应用程序。通过将数据持久化到硬盘以及replication防止数据丢失。</li>
 <li>分布式系统，易于向外扩展。所有的producer、broker和consumer都会有多个，均为分布式的。无需停机即可扩展机器。</li>
 <li>消息被处理的状态是在consumer端维护，而不是由server端维护。当失败时能自动平衡。</li>
-
+<li>支持online和offline的场景。</li>
 </ol>
 <p>Kayka的架构：</p>
-<p></p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/08/975609a391574a15645c2d2e2494114f.png" rel="lightbox[75328]" title="分布式消息系统：Kafka"><img class="alignnone size-full wp-image-75329" alt="kafka" src="/images/jobbole.com/3802d534d36cb8eafd8110b2bb5d10ff.jpg"></a></p>
 <p> </p>
 <p>Kayka的整体架构非常简单，是显式分布式架构，producer、broker（kafka）和consumer都可以有多个。Producer，consumer实现Kafka注册的接口，数据从producer发送到broker，broker承担一个中间缓存和分发的作用。broker分发注册到系统中的consumer。broker的作用类似于缓存，即活跃的数据和离线处理系统之间的缓存。客户端和服务器端的通信，是基于简单，高性能，且与编程语言无关的TCP协议。几个基本概念：</p>
 <ol>
@@ -93,45 +93,45 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <li>Message：消息，是通信的基本单位，每个producer可以向一个topic（主题）发布一些消息。</li>
 <li>Producers：消息和数据生产者，向Kafka的一个topic发布消息的过程叫做producers。</li>
 <li>Consumers：消息和数据消费者，订阅topics并处理其发布的消息的过程叫做consumers。</li>
-
+<li>Broker：缓存代理，Kafa集群中的一台或多台服务器统称为broker。</li>
 </ol>
 <p>消息发送的流程：</p>
-<p></p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/08/cb5892023c894331a55de5ac7f64582d.png" rel="lightbox[75328]" title="分布式消息系统：Kafka"><img class="alignnone size-full wp-image-75330" alt="message" src="/images/jobbole.com/3e6f80a8240222771de43eb217ec2e6d.jpg"></a></p>
 <p> </p>
 <ol>
 <li>Producer根据指定的partition方法（round-robin、hash等），将消息发布到指定topic的partition里面</li>
 <li>kafka集群接收到Producer发过来的消息后，将其持久化到硬盘，并保留消息指定时长（可配置），而不关注消息是否被消费。</li>
-
+<li>Consumer从kafka集群pull数据，并控制获取消息的offset</li>
 </ol>
 <p>Kayka的设计：</p>
-<p></p>
+<p><strong>1、吞吐量</strong></p>
 <p>高吞吐是kafka需要实现的核心目标之一，为此kafka做了以下一些设计：</p>
 <ol>
 <li>数据磁盘持久化：消息不在内存中cache，直接写入到磁盘，充分利用磁盘的顺序读写性能</li>
 <li>zero-copy：减少IO操作步骤</li>
 <li>数据批量发送</li>
 <li>数据压缩</li>
-
+<li>Topic划分为多个partition，提高parallelism</li>
 </ol>
-<p></p>
+<p><strong>负载均衡</strong></p>
 <ol>
 <li>producer根据用户指定的算法，将消息发送到指定的partition</li>
 <li>存在多个partiiton，每个partition有自己的replica，每个replica分布在不同的Broker节点上</li>
 <li>多个partition需要选取出lead partition，lead partition负责读写，并由zookeeper负责fail over</li>
-
+<li>通过zookeeper管理broker与consumer的动态加入与离开</li>
 </ol>
-<p></p>
+<p><strong>拉取系统</strong></p>
 <p>由于kafka broker会持久化数据，broker没有内存压力，因此，consumer非常适合采取pull的方式消费数据，具有以下几点好处：</p>
 <ol>
 <li>简化kafka设计</li>
 <li>consumer根据消费能力自主控制消息拉取速度</li>
-
+<li>consumer根据自身情况自主选择消费模式，例如批量，重复消费，从尾端开始消费等</li>
 </ol>
-<p></p>
+<p><strong>可扩展性</strong></p>
 <p>当需要增加broker结点时，新增的broker会向zookeeper注册，而producer及consumer会根据注册在zookeeper上的watcher感知这些变化，并及时作出调整。</p>
 <p>Kayka的应用场景：</p>
 <p>1.消息队列</p>
-<p>比起大多数的消息系统来说，Kafka有更好的吞吐量，内置的分区，冗余及容错性，这让Kafka成为了一个很好的大规模消息处理应用的解决方案。消息系统一般吞吐量相对较低，但是需要更小的端到端延时，并尝尝依赖于Kafka提供的强大的持久性保障。在这个领域，Kafka足以媲美传统消息系统，如<a href="http://activemq.apache.org/">ActiveMR</a>或。</p>
+<p>比起大多数的消息系统来说，Kafka有更好的吞吐量，内置的分区，冗余及容错性，这让Kafka成为了一个很好的大规模消息处理应用的解决方案。消息系统一般吞吐量相对较低，但是需要更小的端到端延时，并尝尝依赖于Kafka提供的强大的持久性保障。在这个领域，Kafka足以媲美传统消息系统，如<a href="http://activemq.apache.org/">ActiveMR</a>或<a href="https://www.rabbitmq.com/">RabbitMQ</a>。</p>
 <p>2.行为跟踪</p>
 <p>Kafka的另一个应用场景是跟踪用户浏览页面、搜索及其他行为，以发布-订阅的模式实时记录到对应的topic里。那么这些结果被订阅者拿到后，就可以做进一步的实时处理，或实时监控，或放到hadoop/离线数据仓库里处理。</p>
 <p>3.元信息监控</p>
@@ -139,7 +139,7 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <p>4.日志收集</p>
 <p>日志收集方面，其实开源产品有很多，包括Scribe、Apache Flume。很多人使用Kafka代替日志聚合（log aggregation）。日志聚合一般来说是从服务器上收集日志文件，然后放到一个集中的位置（文件服务器或HDFS）进行处理。然而Kafka忽略掉文件的细节，将其更清晰地抽象成一个个日志或事件的消息流。这就让Kafka处理过程延迟更低，更容易支持多数据源和分布式数据处理。比起以日志为中心的系统比如Scribe或者Flume来说，Kafka提供同样高效的性能和因为复制导致的更高的耐用性保证，以及更低的端到端延迟。</p>
 <p>5.流处理</p>
-<p>这个场景可能比较多，也很好理解。保存收集流数据，以提供之后对接的Storm或其他流式计算框架进行处理。很多用户会将那些从原始topic来的数据进行阶段性处理，汇总，扩充或者以其他的方式转换到新的topic下再继续后面的处理。例如一个文章推荐的处理流程，可能是先从RSS数据源中抓取文章的内容，然后将其丢入一个叫做“文章”的topic中；后续操作可能是需要对这个内容进行清理，比如回复正常数据或者删除重复数据，最后再将内容匹配的结果返还给用户。这就在一个独立的topic之外，产生了一系列的实时数据处理的流程。<a href="http://storm.incubator.apache.org/">Strom</a>和是非常著名的实现这种类型数据转换的框架。</p>
+<p>这个场景可能比较多，也很好理解。保存收集流数据，以提供之后对接的Storm或其他流式计算框架进行处理。很多用户会将那些从原始topic来的数据进行阶段性处理，汇总，扩充或者以其他的方式转换到新的topic下再继续后面的处理。例如一个文章推荐的处理流程，可能是先从RSS数据源中抓取文章的内容，然后将其丢入一个叫做“文章”的topic中；后续操作可能是需要对这个内容进行清理，比如回复正常数据或者删除重复数据，最后再将内容匹配的结果返还给用户。这就在一个独立的topic之外，产生了一系列的实时数据处理的流程。<a href="http://storm.incubator.apache.org/">Strom</a>和<a href="http://samza.incubator.apache.org/">Samza</a>是非常著名的实现这种类型数据转换的框架。</p>
 <p>6.事件源</p>
 <p>事件源是一种应用程序设计的方式，该方式的状态转移被记录为按时间顺序排序的记录序列。Kafka可以存储大量的日志数据，这使得它成为一个对这种方式的应用来说绝佳的后台。比如动态汇总（News feed）。</p>
 <p>7.持久性日志（commit log）</p>
@@ -151,14 +151,14 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <p>4、显式分布式，即所有的producer、broker和consumer都会有多个，均为分布式的。Producer和broker之间没有负载均衡机制。broker和consumer之间利用zookeeper进行负载均衡。所有broker和consumer都会在zookeeper中进行注册，且zookeeper会保存他们的一些元数据信息。如果某个broker和consumer发生了变化，所有其他的broker和consumer都会得到通知。</p>
 <p>参考资料：</p>
 <ul>
-<li>
-<li>
-<li>
-<li>
-<li>
-<li>
-<li>
-
+<li><a href="http://kafka.apache.org/">Apache Kafka网站</a></li>
+<li><a href="http://kafka.apache.org/documentation.html#design">项目设计讨论</a></li>
+<li><a href="https://github.com/apache/kafka">Github镜像</a></li>
+<li><a href="http://vimeo.com/62298867">Morten Kjetland对Apache Kafka的介绍</a></li>
+<li><a href="http://www.quora.com/RabbitMQ/RabbitMQ-vs-Kafka-which-one-for-durable-messaging-with-good-query-features?share=1">Quora上与RabbitMQ的对比</a></li>
+<li><a href="http://research.microsoft.com/en-us/um/people/srikanth/netdb11/netdb11papers/netdb11-final12.pdf">Kafka: a Distributed Messaging System for Log Processing</a></li>
+<li><a href="https://www.ibm.com/developerworks/linux/library/j-zerocopy/">Zero-copy原理</a></li>
+<li><a href="http://sna-projects.com/sna/media/kafka_hadoop.pdf">Kafka与Hadoop</a></li>
 </ul>
 
 <!-- div id="ad1">
@@ -170,16 +170,18 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 
     <a class="basic-alignment left" href="/posts/2014/2014-08-15--id=10-9e7bc9520.html" title="Previous Post:  Value and Reference Types " data-instant>&laquo;  Value and Reference Types </a>
 
+    <a class="basic-alignment right" href="/posts/2014/2014-08-17-learn-vagrant-01.html-f54d13727.html" title="Next Post: Vagrant介绍" data-instant>Vagrant介绍 &raquo;</a>
+
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>05 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-05-74590-9247f11e1.html">我是如何绕过Google和Facebook等大站的两步验证的</a></li>
+      <li><span>21 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-21-73930-06f292316.html">Feature Flag 功能发布控制</a></li>
+
+      <li><span>06 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-06-72919-3361701f8.html">DDoS攻防战（一）：概述</a></li>
 
       <li><span>08 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-08-74672-5ee802e49.html">算法系列：电梯调度</a></li>
-
-      <li><span>31 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-31-74614-e5103064d.html">数字证书原理</a></li>
 
   </ul>
 </div>
