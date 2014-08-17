@@ -83,10 +83,10 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <li>消息被处理的状态是在consumer端维护，而不是由server端维护。当失败时能自动平衡。</li>
 <li>支持online和offline的场景。</li>
 </ol>
-<p>Kayka的架构：</p>
+<p>Kafka的架构：</p>
 <p><a href="http://jbcdn2.b0.upaiyun.com/2014/08/975609a391574a15645c2d2e2494114f.png" rel="lightbox[75328]" title="分布式消息系统：Kafka"><img class="alignnone size-full wp-image-75329" alt="kafka" src="/images/jobbole.com/3802d534d36cb8eafd8110b2bb5d10ff.jpg"></a></p>
 <p> </p>
-<p>Kayka的整体架构非常简单，是显式分布式架构，producer、broker（kafka）和consumer都可以有多个。Producer，consumer实现Kafka注册的接口，数据从producer发送到broker，broker承担一个中间缓存和分发的作用。broker分发注册到系统中的consumer。broker的作用类似于缓存，即活跃的数据和离线处理系统之间的缓存。客户端和服务器端的通信，是基于简单，高性能，且与编程语言无关的TCP协议。几个基本概念：</p>
+<p>Kafka的整体架构非常简单，是显式分布式架构，producer、broker（kafka）和consumer都可以有多个。Producer，consumer实现Kafka注册的接口，数据从producer发送到broker，broker承担一个中间缓存和分发的作用。broker分发注册到系统中的consumer。broker的作用类似于缓存，即活跃的数据和离线处理系统之间的缓存。客户端和服务器端的通信，是基于简单，高性能，且与编程语言无关的TCP协议。几个基本概念：</p>
 <ol>
 <li>Topic：特指Kafka处理的消息源（feeds of messages）的不同分类。</li>
 <li>Partition：Topic物理上的分组，一个topic可以分为多个partition，每个partition是一个有序的队列。partition中的每条消息都会被分配一个有序的id（offset）。</li>
@@ -103,7 +103,7 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <li>kafka集群接收到Producer发过来的消息后，将其持久化到硬盘，并保留消息指定时长（可配置），而不关注消息是否被消费。</li>
 <li>Consumer从kafka集群pull数据，并控制获取消息的offset</li>
 </ol>
-<p>Kayka的设计：</p>
+<p>Kafka的设计：</p>
 <p><strong>1、吞吐量</strong></p>
 <p>高吞吐是kafka需要实现的核心目标之一，为此kafka做了以下一些设计：</p>
 <ol>
@@ -129,7 +129,7 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 </ol>
 <p><strong>可扩展性</strong></p>
 <p>当需要增加broker结点时，新增的broker会向zookeeper注册，而producer及consumer会根据注册在zookeeper上的watcher感知这些变化，并及时作出调整。</p>
-<p>Kayka的应用场景：</p>
+<p>Kafka的应用场景：</p>
 <p>1.消息队列</p>
 <p>比起大多数的消息系统来说，Kafka有更好的吞吐量，内置的分区，冗余及容错性，这让Kafka成为了一个很好的大规模消息处理应用的解决方案。消息系统一般吞吐量相对较低，但是需要更小的端到端延时，并尝尝依赖于Kafka提供的强大的持久性保障。在这个领域，Kafka足以媲美传统消息系统，如<a href="http://activemq.apache.org/">ActiveMR</a>或<a href="https://www.rabbitmq.com/">RabbitMQ</a>。</p>
 <p>2.行为跟踪</p>
@@ -144,7 +144,7 @@ src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
 <p>事件源是一种应用程序设计的方式，该方式的状态转移被记录为按时间顺序排序的记录序列。Kafka可以存储大量的日志数据，这使得它成为一个对这种方式的应用来说绝佳的后台。比如动态汇总（News feed）。</p>
 <p>7.持久性日志（commit log）</p>
 <p>Kafka可以为一种外部的持久性日志的分布式系统提供服务。这种日志可以在节点间备份数据，并为故障节点数据回复提供一种重新同步的机制。Kafka中日志压缩功能为这种用法提供了条件。在这种用法中，Kafka类似于Apache BookKeeper项目。</p>
-<p>Kayka的设计要点：</p>
+<p>Kafka的设计要点：</p>
 <p>1、直接使用linux 文件系统的cache，来高效缓存数据。</p>
 <p>2、采用linux Zero-Copy提高发送性能。传统的数据发送需要发送4次上下文切换，采用sendfile系统调用之后，数据直接在内核态交换，系统上下文切换减少为2次。根据测试结果，可以提高60%的数据发送性能。Zero-Copy详细的技术细节可以参考：https://www.ibm.com/developerworks/linux/library/j-zerocopy/</p>
 <p>3、数据在磁盘上存取代价为O(1)。kafka以topic来进行消息管理，每个topic包含多个part（ition），每个part对应一个逻辑log，有多个segment组成。每个segment中存储多条消息（见下图），消息id由其逻辑位置决定，即从消息id可直接定位到消息的存储位置，避免id到位置的额外映射。每个part在内存中对应一个index，记录每个segment中的第一条消息偏移。发布者发到某个topic的消息会被均匀的分布到多个part上（随机或根据用户指定的回调函数进行分布），broker收到发布消息往对应part的最后一个segment上添加该消息，当某个segment上的消息条数达到配置值或消息发布时间超过阈值时，segment上的消息会被flush到磁盘，只有flush到磁盘上的消息订阅者才能订阅到，segment达到一定的大小后将不会再往该segment写数据，broker会创建新的segment。</p>
