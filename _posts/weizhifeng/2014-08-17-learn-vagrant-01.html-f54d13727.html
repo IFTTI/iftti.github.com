@@ -1,0 +1,183 @@
+---
+layout: post
+title: 'Vagrant介绍'
+time: 2014-08-17 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/learn-vagrant-01.html
+images:
+  3a784269d7a14c662d09ad64711997df: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/vagrant.png
+---
+{% raw %}
+
+	
+	
+
+	<p><img src="/images/weizhifeng.net/3a784269d7a14c662d09ad64711997df.jpg" title="Vagrant" alt="Vagrant"></p>
+
+<h1>介绍</h1>
+
+<p>Vagrant可以为你提供可配置、可再生、便携的工作环境，它主要是一个中间层技术，它的下层是VirtualBox, VMware, AWS或者其他<a href="http://docs.vagrantup.com/v2/providers/">provider</a>，它的上层是<a href="http://docs.vagrantup.com/v2/provisioning/">provisioning工具</a>，比如shell scripts, Chef, or Puppet等可以自动化安装和配置软件的工具。</p>
+
+<h1>对你有什么用</h1>
+
+<ul>
+<li><p>对于开发人员来说，Vagrant可以帮你统一团队成员的开发环境。如果你或者你的伙伴创建了一个<a href="http://docs.vagrantup.com/v2/vagrantfile/">Vagrantfile</a>，那么你只需要执行<code>vagrant up</code>就行了，所有的软件都会安装并且配置好。团队成员可以通过相同的Vagrantfile来创建他们的开发环境，无论他们是在Linux, Mac OS X, 或者Windows下，这样就可以保证你团队成员的代码是跑在相同的环境中，从而避免令人烦躁的【在我的机器上是可以的】问题。</p></li>
+<li><p>对于运维人员来说，Vagrant可以给你提供一次性，并且与线上一致的服务器环境，你可以利用VirtualBox或者VMware来测试你的shell scripts, Chef cookbooks, Puppet modules等管理脚本。你不需要再苦逼的登录到线上服务器提心吊胆的测试了，Vagrant可以解救你。</p></li>
+<li><p>对于设计人员来说，Vagrant可以帮你处理一切，你只需要专注在设计上就好了。一旦开发人员帮你配置好了Vagrant之后，你只需要执行<code>vagrant up</code>，然后开始设计。</p></li>
+</ul>
+
+
+<h1>安装</h1>
+
+<p>Vagrant的安装非常简单，直接<a href="http://www.vagrantup.com/downloads">下载</a>对应操作系统的版本就可以了。</p>
+
+<h1>第一印象</h1>
+
+<pre><code>$ vagrant init hashicorp/precise32
+$ vagrant up
+</code></pre>
+
+<p>执行以上命令之后，你已经拥有了一个Ubuntu 12.04 LTS 32-bit系统运行在VirtualBox中。
+你可以通过<code>vagrant ssh</code>登录到这个虚拟机中，如果你不需要它了，可以通过<code>vagrant destroy</code>来销毁。</p>
+
+<h1>建立项目</h1>
+
+<p>建立Vagrant项目的第一步是配置Vagrantfile。执行如下命令</p>
+
+<pre><code>$ mkdir my_vagrant
+$ cd my_vagrant
+$ vagrant init
+</code></pre>
+
+<p>这会在当前目录下生成一个Vagrantfile文件，这个文件就是一切的开始，对了，你最好把它添加到版本库中，这样你的小伙伴也可以通过它来初始化开发环境了。</p>
+
+<h1>Box</h1>
+
+<p>Vagrant使用的image叫做box，如果你执行过上面的命令，那么你已经在本地拥有了一个box。如果没有执行，那么你需要执行</p>
+
+<pre><code>$ vagrant box add hashicorp/precise32
+</code></pre>
+
+<p>这会从<a href="https://vagrantcloud.com/">Vagrant Cloud</a>中下载hashicorp/precise32。
+我们接下来需要配置我们的项目来使用这个box，编辑Vagrantfile文件并修改为：</p>
+
+<pre><code>Vagrant.configure("2") do |config|
+  config.vm.box = "hashicorp/precise32"
+end
+</code></pre>
+
+<p>除了hashicorp/precise32，你可以在Vagrant Cloud找到更多适合你的box。</p>
+
+<h1>启动</h1>
+
+<pre><code>$ vagrant up
+</code></pre>
+
+<p>就这么简单。完成之后，你就拥有了一个Ubuntu系统，你可以通过</p>
+
+<pre><code>$ vagrant ssh
+</code></pre>
+
+<p>登录它，然后随意执行任何命令，除了<code>rm -rf /</code>，原因接下来说明。</p>
+
+<h1>目录同步</h1>
+
+<p>虽说如此容易的启动一个虚拟机的确很酷，但不是所有人都喜欢通过终端来编辑文件（Vim党和Emacs党勿喷），所以Vagrant提供了一个目录同步的功能。默认情况下Vagrant会把你的项目目录（存储Vagrantfile的那个）与虚拟机中的<code>/vagrant</code>进行同步（这就是为什么你不要执行<code>rm -rf /</code>的原因，否则你会把项目目录删掉）。我们可以登录到虚拟机上验证一下。</p>
+
+<pre><code>$ vagrant up
+...
+$ vagrant ssh
+...
+vagrant@precise32:~$ ls /vagrant
+Vagrantfile
+</code></pre>
+
+<p>如果你不确信，可以创建一个文件看看：</p>
+
+<pre><code>vagrant@precise32:~$ touch /vagrant/foo
+vagrant@precise32:~$ exit
+$ ls
+foo Vagrantfile
+</code></pre>
+
+<p>怎么样？没骗你吧。通过目录同步功能，你还可以继续使用最爱的编辑器来修改虚拟机中的文件。</p>
+
+<h1>配置</h1>
+
+<p>假设我们的业务需要安装Apache，传统的做法是在虚拟机上手动安装并配置，如果这样那么使用Vagrant的人都需要重复一遍。幸好Vagrant提供了自动配置（automated provisioning）的功能。通过这个特性，Vagrant会在你执行<code>vagrant up</code>的时候自动安装所需的软件。</p>
+
+<p>在你的项目目录（即包含Vagrantfile的目录）下创建Bash脚本bootstrap.sh，内容如下：</p>
+
+<pre><code>#!/usr/bin/env bash
+
+apt-get update
+apt-get install -y apache2
+rm -rf /var/www
+ln -fs /vagrant /var/www
+</code></pre>
+
+<p>接下来，我们来配置让Vagrant在启动虚拟机的时候自动执行以上脚本，在Vagrantfile中添加如下内容：</p>
+
+<pre><code>Vagrant.configure("2") do |config|
+  config.vm.box = "hashicorp/precise32"
+  config.vm.provision :shell, path: "bootstrap.sh"
+end
+</code></pre>
+
+<p>provision这一行告诉Vagrant使用shell provisioner来配置虚拟机，要执行的脚本是bootstrap.sh。</p>
+
+<p>接下来执行<code>vagrant up</code>来启动虚拟机，之后你可以登录到虚拟机来验证Apache时候已经安装成功：</p>
+
+<pre><code>$ vagrant ssh
+...
+vagrant@precise32:~$ wget -qO- 127.0.0.1
+</code></pre>
+
+<h1>网络</h1>
+
+<p>总是在终端里边访问Apache不是什么好的主意，所以这个部分我们会对Vagrant的网络进行配置，让它可以通过宿主机器（Host machine）来访问。</p>
+
+<p>我们用端口映射来实现对Apache服务的访问，编辑Vagrantfile文件如下：</p>
+
+<pre><code>Vagrant.configure("2") do |config|
+  config.vm.box = "hashicorp/precise32"
+  config.vm.provision :shell, path: "bootstrap.sh"
+  config.vm.network :forwarded_port, host: 4567, guest: 80
+end
+</code></pre>
+
+<p><code>forwarded_port</code>这一行把宿主机器的4567端口映射到了客户机器（Guest machine）的80端口。然后通过<code>vagrant reload</code>重启虚拟机，重启完成之后你用浏览器打开
+http://127.0.0.1:4567就可以访问到WEB页面了。</p>
+
+<h1>参考</h1>
+
+<ul>
+<li><a href="http://docs.vagrantup.com/v2/getting-started/index.html">http://docs.vagrantup.com/v2/getting-started/index.html</a></li>
+<li><a href="http://docs.vagrantup.com/v2/getting-started/project_setup.html">http://docs.vagrantup.com/v2/getting-started/project_setup.html</a></li>
+<li><a href="http://docs.vagrantup.com/v2/getting-started/boxes.html">http://docs.vagrantup.com/v2/getting-started/boxes.html</a></li>
+<li><a href="http://docs.vagrantup.com/v2/getting-started/up.html">http://docs.vagrantup.com/v2/getting-started/up.html</a></li>
+<li><a href="http://docs.vagrantup.com/v2/getting-started/provisioning.html">http://docs.vagrantup.com/v2/getting-started/provisioning.html</a></li>
+</ul>
+
+
+	(完)
+
+	<div class="post-info">
+		17 Aug 2014  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}
