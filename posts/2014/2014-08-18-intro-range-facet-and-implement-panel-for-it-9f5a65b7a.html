@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Building assert() in Swift, Part 1: Lazy Evaluation</title>
+    <title>用 ES 的 RangeFacets 接口实现一个查看区间占比的 Kibana 面板 </title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-18--id=4-6372976f7.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-08-18-intro-range-facet-and-implement-panel-for-it-9f5a65b7a.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,32 +50,69 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>Building assert() in Swift, Part 1: Lazy Evaluation</h1>
-    <p class="meta"><span class="time">Jul 18, 2014</span><span class="source_url"> • 来自 developer.apple.com/swift/blog <a name="developer.apple.com/swift/blog" href="https://developer.apple.com/swift/blog/?id=4" target="_blank">[原文链接]</a></span></p>
+    <h1>用 ES 的 RangeFacets 接口实现一个查看区间占比的 Kibana 面板 </h1>
+    <p class="meta"><span class="time">Aug 18, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/08/18/intro-range-facet-and-implement-panel-for-it" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-assert()
+  <div style="background-color: #FFF;">
+    <p>公司用 kibana 的同事提出一个需求，希望查看响应时间在不同区间内占比的饼图。第一想法是用 1.3.0 新加的 percentile rank aggregation 接口。不过仔细想想，其实并不合适 —— 这个接口目的是计算固定的 <code>[0 TO $value]</code> 的比例。不同的区间反而还得自己做减法来计算。稍微查了一下，更适合的做法是专门的 range aggregation。考虑到 kibana 内大多数还是用 facet 接口，这里也沿用：<a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/search-facets-range-facet.html">http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/search-facets-range-facet.html</a>。</p>
+<p>range facet 本身的使用非常简单，就像官网示例那样，直接 curl 命令就可以完成调试：</p>
+<p><code>
+curl -XPOST http://localhost:9200/logstash-2014.08.18/_search?pretty=1 -d '{
+    "query" : {
+        "match_all" : {}
+    },
+    "facets" : {
+        "range1" : {
+            "range" : {
+                "field" : "resp_ms",
+                "ranges" : [
+                    { "to" : 100 },
+                    { "from" : 101, "to" : 500 },
+                    { "from" : 500 }
+                ]
+            }
+        }
+    }
+}'
+</code></p>
+<p>不过在 kibana 里，我们就不要再自己拼 JSON 发请求了 —— 虽然之前我实现 percentile panel 的时候就是这么做的 —— 前两天合并了 github 上一个 commit 后，现在可以用高版本的 elastic.js 了，所以我也把原来用原生 <code>$http.post</code> 方法写的 percentile panel 用 elastic.js 对象重写了。</p>
+<p>elastic.js 关于 range facet 的文档见：<a href="http://docs.fullscale.co/elasticjs/ejs.RangeFacet.html">http://docs.fullscale.co/elasticjs/ejs.RangeFacet.html</a></p>
+<p>因为 range facet 本身比较简单，所以 RangeFacet 对象支持的方法也比较少。一个 <code>addRange</code> 方法添加 ranges 数组，一个 <code>field</code> 方法添加 field 名称，就没了。</p>
+<p>所以这个新 panel 的实现，更复杂的地方在如何让 range 范围值支持自定义填写。这一部分借鉴了同样是前两天合并的 github 上另一个第三方面板 multifieldhistogram 的写法。</p>
+<p>另一个需要注意的地方是饼图出来以后，单击饼图区域，自动生成的 <code>filterSrv</code> 内容。一般的面板这里都是 <code>terms</code> 类型的 <code>filterSrv</code>，传递的是面板的 label 值。而我们这里 label 值显然不是 ES 有效的 terms 语法，还好 <code>filterSrv</code> 有 <code>range</code> 类型(histogram 面板的 <code>time</code> 类型的 <code>filterSrv</code> 是在 daterange 基础上实现的)，所以稍微修改就可以了。</p>
+<p>最终效果如下：</p>
+<p><img src="/images/chenlinux.com/346387fdd05063ce113983e8f47a4cab.jpg" alt=""></p>
+<p>面板的属性界面如下：</p>
+<p><img src="/images/chenlinux.com/7bd79c8c8c66f951098b2111084e5e25.jpg" alt=""></p>
+<p>代码已经上传到我个人 fork 的 kibana 项目里：<a href="https://github.com/chenryn/kibana.git">https://github.com/chenryn/kibana.git</a></p>
+<p><em>我这个 kibana 里已经综合了 8 个第三方面板或重要修改。在官方年底推出 4.0 版本之间，自觉还是值得推荐给大家用的。具体修改说明和效果图见 README。</em></p>
+    <hr>
+
+    <hr>
+  <!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-07-17-73701-418acf0a6.html" title="Previous Post: React 的 diff 算法" data-instant>&laquo; React 的 diff 算法</a>
-
-    <a class="basic-alignment right" href="/posts/2014/2014-07-19-73517-816d30f94.html" title="Next Post: 击败二分检索算法——插值检索、快速检索" data-instant>击败二分检索算法——插值检索、快速检索 &raquo;</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-08-17-learn-vagrant-01.html-f54d13727.html" title="Previous Post: Vagrant介绍" data-instant>&laquo; Vagrant介绍</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>19 Mar 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-03-19-2013-03-19-gerrit-review-system-management.html-66ca95e42.html">Gerrit代码评审的权限管理</a></li>
+      <li><span>17 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-17-implement-percentiles-aggregation-on-kibana-56567329d.html">给 Kibana 实现百分比统计图表</a></li>
 
-      <li><span>24 Jun 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-06-24-%25e3%2580%2590nlp%25e4%25b8%25bb%25e6%25b5%2581%25e6%259c%2580%25e5%25a4%25a7%25e7%259a%2584%25e5%2581%258f%25e8%25a7%2581%25ef%25bc%258c%25e8%25a7%2584%25e5%2588%2599%25e7%25b3%25bb%25e7%25bb%259f%25e7%259a%2584%25e6%2589%258b%25e5%25b7%25a5%25e6%2580%25a7%25e3%2580%2591-80ce5b21b.html">【NLP主流最大的偏见，规则系统的手工性】</a></li>
+      <li><span>07 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-07-howto-search-dynamic-url-in-elasticsearch-866359845.html">如何搜索 Elasticsearch 中存储的动态请求 URL</a></li>
 
-      <li><span>08 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-08-2014-05-08-convert-python-packages-to-rpm-with-fpm.html-a29b3455d.html">使用软件包神器fpm将Python包转为RPM包</a></li>
+      <li><span>28 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-28-dynamic-dashboard-for-kibana-91a5db924.html">Kibana 动态仪表板的使用 </a></li>
 
   </ul>
 </div>

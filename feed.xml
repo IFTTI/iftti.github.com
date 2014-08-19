@@ -5,9 +5,66 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Mon, 18 Aug 2014 23:28:52 +0800</pubDate>
-    <lastBuildDate>Mon, 18 Aug 2014 23:28:52 +0800</lastBuildDate>
+    <pubDate>Tue, 19 Aug 2014 18:03:40 +0800</pubDate>
+    <lastBuildDate>Tue, 19 Aug 2014 18:03:40 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>用 ES 的 RangeFacets 接口实现一个查看区间占比的 Kibana 面板 </title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;公司用 kibana 的同事提出一个需求，希望查看响应时间在不同区间内占比的饼图。第一想法是用 1.3.0 新加的 percentile rank aggregation 接口。不过仔细想想，其实并不合适 —— 这个接口目的是计算固定的 &lt;code&gt;[0 TO $value]&lt;/code&gt; 的比例。不同的区间反而还得自己做减法来计算。稍微查了一下，更适合的做法是专门的 range aggregation。考虑到 kibana 内大多数还是用 facet 接口，这里也沿用：&lt;a href=&quot;http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/search-facets-range-facet.html&quot;&gt;http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/search-facets-range-facet.html&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;range facet 本身的使用非常简单，就像官网示例那样，直接 curl 命令就可以完成调试：&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;
+curl -XPOST http://localhost:9200/logstash-2014.08.18/_search?pretty=1 -d &#39;{
+    &quot;query&quot; : {
+        &quot;match_all&quot; : {}
+    },
+    &quot;facets&quot; : {
+        &quot;range1&quot; : {
+            &quot;range&quot; : {
+                &quot;field&quot; : &quot;resp_ms&quot;,
+                &quot;ranges&quot; : [
+                    { &quot;to&quot; : 100 },
+                    { &quot;from&quot; : 101, &quot;to&quot; : 500 },
+                    { &quot;from&quot; : 500 }
+                ]
+            }
+        }
+    }
+}&#39;
+&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;不过在 kibana 里，我们就不要再自己拼 JSON 发请求了 —— 虽然之前我实现 percentile panel 的时候就是这么做的 —— 前两天合并了 github 上一个 commit 后，现在可以用高版本的 elastic.js 了，所以我也把原来用原生 &lt;code&gt;$http.post&lt;/code&gt; 方法写的 percentile panel 用 elastic.js 对象重写了。&lt;/p&gt;
+&lt;p&gt;elastic.js 关于 range facet 的文档见：&lt;a href=&quot;http://docs.fullscale.co/elasticjs/ejs.RangeFacet.html&quot;&gt;http://docs.fullscale.co/elasticjs/ejs.RangeFacet.html&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;因为 range facet 本身比较简单，所以 RangeFacet 对象支持的方法也比较少。一个 &lt;code&gt;addRange&lt;/code&gt; 方法添加 ranges 数组，一个 &lt;code&gt;field&lt;/code&gt; 方法添加 field 名称，就没了。&lt;/p&gt;
+&lt;p&gt;所以这个新 panel 的实现，更复杂的地方在如何让 range 范围值支持自定义填写。这一部分借鉴了同样是前两天合并的 github 上另一个第三方面板 multifieldhistogram 的写法。&lt;/p&gt;
+&lt;p&gt;另一个需要注意的地方是饼图出来以后，单击饼图区域，自动生成的 &lt;code&gt;filterSrv&lt;/code&gt; 内容。一般的面板这里都是 &lt;code&gt;terms&lt;/code&gt; 类型的 &lt;code&gt;filterSrv&lt;/code&gt;，传递的是面板的 label 值。而我们这里 label 值显然不是 ES 有效的 terms 语法，还好 &lt;code&gt;filterSrv&lt;/code&gt; 有 &lt;code&gt;range&lt;/code&gt; 类型(histogram 面板的 &lt;code&gt;time&lt;/code&gt; 类型的 &lt;code&gt;filterSrv&lt;/code&gt; 是在 daterange 基础上实现的)，所以稍微修改就可以了。&lt;/p&gt;
+&lt;p&gt;最终效果如下：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/346387fdd05063ce113983e8f47a4cab.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+&lt;p&gt;面板的属性界面如下：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/7bd79c8c8c66f951098b2111084e5e25.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+&lt;p&gt;代码已经上传到我个人 fork 的 kibana 项目里：&lt;a href=&quot;https://github.com/chenryn/kibana.git&quot;&gt;https://github.com/chenryn/kibana.git&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;我这个 kibana 里已经综合了 8 个第三方面板或重要修改。在官方年底推出 4.0 版本之间，自觉还是值得推荐给大家用的。具体修改说明和效果图见 README。&lt;/em&gt;&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Mon, 18 Aug 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-08-18-intro-range-facet-and-implement-panel-for-it-9f5a65b7a.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-18-intro-range-facet-and-implement-panel-for-it-9f5a65b7a.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
     
       <item>
         <title>Vagrant介绍</title>
@@ -3594,305 +3651,6 @@ color.getRed(&amp;amp;&lt;span class=&quot;pointer&quot;&gt;r&lt;/span&gt;, gree
         
         
         <category>chenlinux</category>
-        
-      </item>
-    
-      <item>
-        <title>Promise 初探</title>
-        <description>
-
-		&lt;p&gt;其实 Promise 这个东西提出来也挺久时间了，它是一种解决复杂异步回调逻辑的方法。大部分人类的正常思维方式都是线性连贯的，但是在 JavaScript 中，异步却是主流。所以，在遇到复杂逻辑时，我们往往会&lt;a href=&quot;http://tritarget.org/blog/2012/11/28/the-pyramid-of-doom-a-javascript-style-trap/&quot;&gt;写成这样&lt;/a&gt;：&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-// Code uses jQuery to illustrate the Pyramid of Doom
-(function($) {
-  $(function(){
-    $(&quot;button&quot;).click(function(e) {
-      $.get(&quot;/test.json&quot;, function(data, textStatus, jqXHR) {
-        $(&quot;.list&quot;).each(function() {
-          $(this).click(function(e) {
-            setTimeout(function() {
-              alert(&quot;Hello World!&quot;);
-            }, 1000);
-          });
-        });
-      });
-    });
-  });
-})(jQuery);
-&lt;/pre&gt;
-&lt;p&gt;这就是所谓的「回调金字塔」，每当看到这样的代码，我就会不由自主地唱起一首歌：&lt;/p&gt;
-&lt;blockquote&gt;&lt;p&gt;
-  如果你愿意一层一层一层地剥开我的心……
-&lt;/p&gt;&lt;/blockquote&gt;
-&lt;p&gt;解决这个方法最简单的方法，就是把匿名函数取个名字，单独提取出来定义。但是当遇到多变的业务场景时，具名函数的方法也不太管用，于是便有了各种高级的碾平异步回调的解决方案，Promise 就是其中一种。&lt;/p&gt;
-&lt;p&gt;在 ECMAScript 6 中，Promise 模式得到了原生的支持。我们就从原生模型说起。&lt;/p&gt;
-&lt;p&gt;&lt;span id=&quot;more-497&quot;&gt;&lt;/span&gt;&lt;/p&gt;
-&lt;h2&gt;ECMAScript 6 Promise&lt;/h2&gt;
-&lt;p&gt;为了简化各种各样的异步逻辑，我们先假设有一个会花一些时间来完成的 JS 函数。它的功能很简单，就是过一段时间以后调用传入的回调函数。&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-var wait = function(callback, param) {
-  setTimeout(function() {
-    callback(param)
-  }, 2000 + (Math.random() - 0.5) * 1000);
-}
-wait(console.log.bind(console), &#39;test&#39;);
-&lt;/pre&gt;
-&lt;p&gt;你可以想象多层嵌套的时候大概是什么样子：&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-wait(function() {
-  console.log(&#39;如果你愿意&#39;);
-  wait(function() {
-    console.log(&#39;一层&#39;);
-    wait(function() {
-      console.log(&#39;一层&#39;);
-      wait(function() {
-        console.log(&#39;一层地&#39;);
-        wait(console.log.bind(console), &#39;剥开我的心&#39;);
-      });
-    });
-  });
-});
-&lt;/pre&gt;
-&lt;p&gt;那么，在 Promise 的世界里是什么样的呢？这就不得不先枯燥地解释一些东西了。首先，什么叫做一个「promise」？一个 promise 可以是一个对象或者函数，它包含一个 &lt;code&gt;then&lt;/code&gt; 接口并且符合相应的规范。使用一个 promise 的方法就是这样：&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-promise.then(function(response) {
-    // onFulfilled 时执行
-}, function(error) {
-    // onRejected 时执行
-});
-&lt;/pre&gt;
-&lt;p&gt;于是问题又来了，什么叫做 fulfilled 和 rejected 呢？一个 promise 会有三种状态，大致可以理解为执行成功（fulfilled）、执行失败（rejected）和正在执行中（pending）。Promise 包含一个状态机，它内部的状态转换，只允许从 pending 到 fulfilled 或者 rejected 一次，不允许更多了。如果用大家喜闻乐见的薛定谔的猫来解释，就是打开盒子的时候，我们的猫要么死了，要么没死，要么不确定死没死，死的的猫无法复活，活猫也一定不会死:D&lt;/p&gt;
-&lt;p&gt;新建一个 promise 的时候，我们需要在代码中定义什么时候算成功了，什么时候算失败了。于是上面 wait 的例子便可以改写这样了：&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-function waitPromise(param) {
-  return new Promise(function(resolve, reject) {
-    setTimeout(function() {
-      resolve(param);
-    }, 2000 + (Math.random() - 0.5) * 1000);
-  });
-}
-
-waitPromise(&#39;如果你愿意&#39;).then(function(response) {
-  console.log(response);
-  return waitPromise(&#39;一层&#39;);
-}).then(function(response) {
-  console.log(response);
-  return waitPromise(&#39;一层&#39;);
-}).then(function(response) {
-  console.log(response);
-  return waitPromise(&#39;一层地&#39;);
-}).then(function(response) {
-  console.log(response);
-  return waitPromise(&#39;剥开我的心&#39;);
-}).then(console.log.bind(console));
-&lt;/pre&gt;
-&lt;p&gt;从上面的例子中，我们可以看出几点：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;一个 promise 它 resolve（或者 reject）的东西就是 &lt;code&gt;then&lt;/code&gt; 的两个回调接受的参数。&lt;/li&gt;
-&lt;li&gt;
-&lt;code&gt;then&lt;/code&gt; 可以链式调用，调用的顺序就是你定义的顺序。&lt;/li&gt;
-&lt;li&gt;在 &lt;code&gt;onFulfilled&lt;/code&gt;（或者 &lt;code&gt;onRejected&lt;/code&gt;）中，你可以返回一个 promise，此时 &lt;code&gt;then&lt;/code&gt; 会返回这个 promise 的一个代理，并响应它的状态变化（即给下一个 &lt;code&gt;then&lt;/code&gt; 使用）。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;&lt;code&gt;onFulfilled&lt;/code&gt; 和 &lt;code&gt;onRejected&lt;/code&gt; 中，除了可以返回一个 promise 以外，还可以返回一个对象，其中包含一个 &lt;code&gt;then&lt;/code&gt; 方法——这样的对象称作 &lt;em&gt;thenable&lt;/em&gt;。当 thenable 被返回时，代理的 promise 就会去调用该方法，并传入 &lt;code&gt;resolvePromise&lt;/code&gt; 和 &lt;code&gt;rejectPromise&lt;/code&gt; 两个参数，于是这个 promise 也就链式地传递下去了。除此之外，返回一个不是 thenable 的值也是可以的，这相当于一个简化，该返回值会被链式的 promise 立即 fulfill。&lt;/p&gt;
-&lt;p&gt;上面的例子比较一根筋，所有的 &lt;code&gt;then&lt;/code&gt; 只定义了第一个参数（即成功的回调），其实我们还可以通过调用 &lt;code&gt;onRejected&lt;/code&gt; 或者抛出一个异常来表示 Promise 执行失败，从而进入 &lt;code&gt;then&lt;/code&gt; 的第二个函数中（&lt;code&gt;then(func1, func2)&lt;/code&gt; 必定会调用且仅调用其中一个）。听上去是不是有点 try/catch 的味道，事实上，Promise 还真提供了一个语法糖，就是 &lt;code&gt;catch(func)&lt;/code&gt;，它其实相当于 &lt;code&gt;then(undefined, func)&lt;/code&gt;。链条中加入的 &lt;code&gt;catch&lt;/code&gt; 可以管上它之前所有的 promise 中的失败情况。&lt;/p&gt;
-&lt;p&gt;听上去好像很绕口的样子，而且这个 Promise 也不过是把回调拉平了而已嘛，至于这么复杂么？其实，依赖这些，我们可以方便地实现更多异步逻辑。在 ECMAScript 6中，Promise 还定义了两个接口：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;code&gt;Promise.all&lt;/code&gt;：接受一堆 promise 的数组（任何可迭代的对象都可以），只有当他们都解决了以后，才会解决&lt;/li&gt;
-&lt;li&gt;
-&lt;code&gt;Promise.race&lt;/code&gt;：也是接受一堆 promise，但是只要有一个成功或者失败了，就会立即解决或驳回它本身&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;怎么样，是不是突显出 JavaScript 的函数式风格了。就&lt;a href=&quot;http://kangax.github.io/compat-table/es6/#Promise&quot;&gt;目前的形势&lt;/a&gt;而言，Chrome 33 和 Firefox 30 以上的浏览器都已经实现了原生 Promise。&lt;/p&gt;
-&lt;h2&gt;Promises/A+&lt;/h2&gt;
-&lt;p&gt;之前说了那么多关于 Promise 的这个规定，那个规定，其实它是有一个统一的名称的，就叫做 Promises/A+。在&lt;a href=&quot;http://promisesaplus.com/&quot;&gt;它的网站&lt;/a&gt;上，你可以阅读到完整的规范文档。&lt;/p&gt;
-&lt;p&gt;基于这个标准，除了 ECMAScript 6 中比较简易的 Promise 以外，还有很多实现各不相同，功能各有千秋的实现，比较有名的有（按现有 Github Star 数排列）：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&quot;https://github.com/kriskowal/q&quot;&gt;Q&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://github.com/petkaantonov/bluebird&quot;&gt;Bluebird&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://github.com/cujojs/when&quot;&gt;when&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://github.com/tildeio/rsvp.js/&quot;&gt;rsvp.js&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;例如，Q 支持进度查询功能，执行时间较长的异步操作（例如文件上传）可以即时获取进度信息：&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-return uploadFile()
-.then(function () {
-    // Success uploading the file
-}, function (err) {
-    // There was an error, and we get the reason for error
-}, function (progress) {
-    // We get notified of the upload&#39;s progress as it is executed
-});
-&lt;/pre&gt;
-&lt;h2&gt;重新发明轮子&lt;/h2&gt;
-&lt;p&gt;尽管 Promise 的实现有很多，但是它们的核心都是一样的，就是围绕着 &lt;code&gt;then&lt;/code&gt; 方法展开。既然有了标准规范，其实我们可以自己实现一个简单的 Promise。&lt;/p&gt;
-&lt;p&gt;首先当然要创建一个 Promise 对象的构造函数，它接受一个函数作为参数，调用这个函数的时候，会传入 &lt;code&gt;resolve&lt;/code&gt; 和 &lt;code&gt;reject&lt;/code&gt; 方法。&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-function MyPromise(resolver) {
-    // 简单起见就不做类型检查了，假定 resolver 一定为函数
-
-    this.status = 0;  // 0: pending, 1: fulfilled, 2: rejected
-    this.value = null;
-    this.handlers = [];
-
-    doResolve.call(this, resolver);
-}
-
-function doResolve(resolver) {
-    var called = false;
-    function resolvePromise(value) {
-        if (called) {
-            return;
-        } else {
-            called = true;
-            resolve.call(this, value);
-        }
-    }
-
-    function rejectPromise(reason) {
-        if (called) {
-            return;
-        } else {
-            called = true;
-            reject.call(this, reason);
-        }
-    }
-
-    try {
-        resolver(resolvePromise.bind(this), rejectPromise.bind(this));
-    } catch(e) {
-        rejectPromise(e);
-    }
-}
-&lt;/pre&gt;
-&lt;p&gt;这样，当使用 &lt;code&gt;new Promise(function(resolve, reject) {...});&lt;/code&gt; 构造时，就会进入 &lt;code&gt;doResolve&lt;/code&gt;，这时会执行传入给 &lt;code&gt;new Promise&lt;/code&gt; 的参数，并给出 &lt;code&gt;resolve&lt;/code&gt; 和 &lt;code&gt;reject&lt;/code&gt; 的实现。可以看到为了保证 &lt;code&gt;resolve&lt;/code&gt; 或 &lt;code&gt;reject&lt;/code&gt; 总共只能被调用一次，这里用到了一个闭包。接下来来看具体的 &lt;code&gt;resolve&lt;/code&gt; 和 &lt;code&gt;reject&lt;/code&gt; 是怎么实现的。&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-function resolve(value) {
-    try {
-        if (this === value) {
-            throw new TypeError(&#39;A promise cannot be resolved with itself.&#39;);
-        }
-        if (value &amp;amp;&amp;amp; (typeof value === &#39;object&#39; || typeof value === &#39;function&#39;)) {
-            var then = value.then;
-            if (typeof then === &#39;function&#39;) {
-                doResolve.call(this, then.bind(value));
-                return;
-            }
-        }
-        this.status = 1;
-        this.value = value;
-        dequeue.call(this);
-    } catch(e) {
-        reject(e);
-    }
-}
-
-function reject(reason) {
-    this.status = 2;
-    this.value = reason;
-    dequeue.call(this);
-}
-&lt;/pre&gt;
-&lt;p&gt;具体的 &lt;code&gt;resolve&lt;/code&gt; 实现中，我们会判断解决的值是否是一个 thenable，如果是的话，就会去执行这个 &lt;code&gt;then&lt;/code&gt; 函数，并且接受它的状态和返回值。如果不是，就直接使用该值解决这个 promise。&lt;/p&gt;
-&lt;p&gt;可以想象，当我们执行 promise 的 &lt;code&gt;then&lt;/code&gt; 方法时，其实是完成了一个类似&lt;a href=&quot;http://zh.wikipedia.org/zh/%E8%A7%82%E5%AF%9F%E8%80%85%E6%A8%A1%E5%BC%8F&quot;&gt;观察者模式&lt;/a&gt;的注册过程。当 promise 还处于 pending 状态时，回调函数会被暂时存储起来，待到解决或失败时再执行，但是当 &lt;code&gt;then&lt;/code&gt; 发现这个 promise 已经完成了状态转换，便可以根据状态立即执行回调了。&lt;/p&gt;
-&lt;p&gt;在这里，我们使用了 &lt;code&gt;this.handlers&lt;/code&gt; 数组来暂存 &lt;code&gt;then&lt;/code&gt; 的回调函数，当状态改变时，会调用 &lt;code&gt;dequeue&lt;/code&gt; 方法来处理队列。&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-function dequeue() {
-    var handler;
-    while (this.handlers.length) {
-        handler = this.handlers.shift();
-        handle.call(this, handler.thenPromise, handler.onFulfilled, handler.onRejected);
-    }
-}
-&lt;/pre&gt;
-&lt;p&gt;最后便是核心方法 &lt;code&gt;then&lt;/code&gt; 的实现了。根据规范，它必须返回一个 promise，并根据 &lt;code&gt;onFulfilled&lt;/code&gt; 或 &lt;code&gt;onRejected&lt;/code&gt; 回调的返回值来决定是将它标记为完成还是失败。&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-MyPromise.prototype.then = function(onFulfilled, onRejected) {
-    var self = this;
-    var thenPromise = new MyPromise(function() {});
-
-    if (!self.status) {
-        self.handlers.push({
-            thenPromise: thenPromise,
-            onFulfilled: onFulfilled,
-            onRejected: onRejected
-        });
-    } else {
-        handle.call(self, thenPromise, onFulfilled, onRejected);
-    }
-
-    return thenPromise;
-};
-
-function handle(thenPromise, onFulfilled, onRejected) {
-    var self = this;
-
-    setTimeout(function() {
-        var callback, ret;
-        if (self.status == 1) {
-            callback = onFulfilled;
-        } else {
-            callback = onRejected;
-        }
-        if (typeof callback === &#39;function&#39;) {
-            try {
-                ret = callback(self.value);
-                resolve.call(thenPromise, ret);
-            } catch(e) {
-                reject.call(thenPromise, e);
-            }
-            return;
-        }
-        if (self.status == 1) {
-            resolve.call(thenPromise, self.value);
-        } else {
-            reject.call(thenPromise, self.value);
-        }
-    }, 1);
-}
-&lt;/pre&gt;
-&lt;p&gt;在上面的 &lt;code&gt;handle&lt;/code&gt; 函数中，我们立即调用回调函数，并且根据回调函数的类型来改变 &lt;code&gt;then&lt;/code&gt; 方法返回的 promise 的状态，这样就形成了一个 promise 链条。&lt;/p&gt;
-&lt;p&gt;大约 100 多行代码，我们就实现了一个粗糙的 Promise 库。当然，上面的代码可能还有很多 Bug，并且也不是严格符合 Promises/A+ 的。如果读者发现问题，请不吝指出。&lt;/p&gt;
-&lt;p&gt;有了这个核心的基础，实现外围的 API 例如 &lt;code&gt;Promise.all&lt;/code&gt;、&lt;code&gt;Promise.race&lt;/code&gt; 就比较简单了，这里就不给出了。其实，Promise 看似用起来很简单，想要自己严格实现一个，还是有不少难点的，其中最容易被绕晕的就是对 &lt;code&gt;then&lt;/code&gt;&lt;br&gt;
-的实现，以及如何处理 &lt;code&gt;then&lt;/code&gt; 的回调中又返回新的 promise 的逻辑。&lt;/p&gt;
-&lt;p&gt;我们回到文章开头的例子，使用我们自己的 MyPromise 试验一下。简单起见，就不写那么多层了。&lt;/p&gt;
-&lt;pre class=&quot;wp-code-highlight prettyprint&quot;&gt;
-function waitPromise(param) {
-  return new Promise(function(resolve, reject) {
-    setTimeout(function() {
-      resolve(param);
-    }, 2000 + (Math.random() - 0.5) * 1000);
-  });
-}
-
-waitPromise(&#39;如果你愿意&#39;).then(function(response) {
-  console.log(response);
-  return waitPromise(&#39;一层&#39;);
-}).then(console.log.bind(console));
-&lt;/pre&gt;
-&lt;p&gt;可以看到我们可以成功输出两行文字。你能根据上面的实现，看出这次调用事实上一共产生了多少个 promise 对象吗？&lt;/p&gt;
-&lt;p&gt;答案是五个：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;P0：第一次 &lt;code&gt;waitPromise(&#39;如果你愿意&#39;)&lt;/code&gt; 返回的&lt;/li&gt;
-&lt;li&gt;P1：第一个 &lt;code&gt;then&lt;/code&gt; 返回的&lt;/li&gt;
-&lt;li&gt;P2：第二个 &lt;code&gt;then&lt;/code&gt; 返回的&lt;/li&gt;
-&lt;li&gt;P3：第一个 &lt;code&gt;then&lt;/code&gt; 里，通过 &lt;code&gt;return waitPromise(&#39;一层&#39;)&lt;/code&gt; 返回的&lt;/li&gt;
-&lt;li&gt;P4：在处理 P1 时，会调用 P3 的 &lt;code&gt;then&lt;/code&gt; 方法，这时候又会返回一个 promise&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h2&gt;参考资料&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&quot;http://www.html5rocks.com/zh/tutorials/es6/promises/&quot;&gt;JavaScript Promises – There and back again&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://promisesaplus.com/&quot;&gt;Promises/A+&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;
-&lt;/ul&gt;
-			&lt;!-- .entry-content --&gt;
-
-</description>
-        <pubDate>Sun, 27 Jul 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-07-27-promise-introduction.html-f65f9ebff.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-07-27-promise-introduction.html-f65f9ebff.html</guid>
-        
-        
-        <category>baidu_mweb</category>
         
       </item>
     
