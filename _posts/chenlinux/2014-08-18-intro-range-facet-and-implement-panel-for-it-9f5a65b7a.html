@@ -1,0 +1,55 @@
+---
+layout: post
+title: '用 ES 的 RangeFacets 接口实现一个查看区间占比的 Kibana 面板 '
+time: 2014-08-18 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/08/18/intro-range-facet-and-implement-panel-for-it
+images:
+  346387fdd05063ce113983e8f47a4cab: https://github.com/chenryn/kibana/raw/master/src/img/chenryn_img/range-panel.jpg
+  7bd79c8c8c66f951098b2111084e5e25: https://github.com/chenryn/kibana/raw/master/src/img/chenryn_img/range-setting.jpg
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>公司用 kibana 的同事提出一个需求，希望查看响应时间在不同区间内占比的饼图。第一想法是用 1.3.0 新加的 percentile rank aggregation 接口。不过仔细想想，其实并不合适 —— 这个接口目的是计算固定的 <code>[0 TO $value]</code> 的比例。不同的区间反而还得自己做减法来计算。稍微查了一下，更适合的做法是专门的 range aggregation。考虑到 kibana 内大多数还是用 facet 接口，这里也沿用：<a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/search-facets-range-facet.html">http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/search-facets-range-facet.html</a>。</p>
+<p>range facet 本身的使用非常简单，就像官网示例那样，直接 curl 命令就可以完成调试：</p>
+<p><code>
+curl -XPOST http://localhost:9200/logstash-2014.08.18/_search?pretty=1 -d '{
+    "query" : {
+        "match_all" : {}
+    },
+    "facets" : {
+        "range1" : {
+            "range" : {
+                "field" : "resp_ms",
+                "ranges" : [
+                    { "to" : 100 },
+                    { "from" : 101, "to" : 500 },
+                    { "from" : 500 }
+                ]
+            }
+        }
+    }
+}'
+</code></p>
+<p>不过在 kibana 里，我们就不要再自己拼 JSON 发请求了 —— 虽然之前我实现 percentile panel 的时候就是这么做的 —— 前两天合并了 github 上一个 commit 后，现在可以用高版本的 elastic.js 了，所以我也把原来用原生 <code>$http.post</code> 方法写的 percentile panel 用 elastic.js 对象重写了。</p>
+<p>elastic.js 关于 range facet 的文档见：<a href="http://docs.fullscale.co/elasticjs/ejs.RangeFacet.html">http://docs.fullscale.co/elasticjs/ejs.RangeFacet.html</a></p>
+<p>因为 range facet 本身比较简单，所以 RangeFacet 对象支持的方法也比较少。一个 <code>addRange</code> 方法添加 ranges 数组，一个 <code>field</code> 方法添加 field 名称，就没了。</p>
+<p>所以这个新 panel 的实现，更复杂的地方在如何让 range 范围值支持自定义填写。这一部分借鉴了同样是前两天合并的 github 上另一个第三方面板 multifieldhistogram 的写法。</p>
+<p>另一个需要注意的地方是饼图出来以后，单击饼图区域，自动生成的 <code>filterSrv</code> 内容。一般的面板这里都是 <code>terms</code> 类型的 <code>filterSrv</code>，传递的是面板的 label 值。而我们这里 label 值显然不是 ES 有效的 terms 语法，还好 <code>filterSrv</code> 有 <code>range</code> 类型(histogram 面板的 <code>time</code> 类型的 <code>filterSrv</code> 是在 daterange 基础上实现的)，所以稍微修改就可以了。</p>
+<p>最终效果如下：</p>
+<p><img src="/images/chenlinux.com/346387fdd05063ce113983e8f47a4cab.jpg" alt=""></p>
+<p>面板的属性界面如下：</p>
+<p><img src="/images/chenlinux.com/7bd79c8c8c66f951098b2111084e5e25.jpg" alt=""></p>
+<p>代码已经上传到我个人 fork 的 kibana 项目里：<a href="https://github.com/chenryn/kibana.git">https://github.com/chenryn/kibana.git</a></p>
+<p><em>我这个 kibana 里已经综合了 8 个第三方面板或重要修改。在官方年底推出 4.0 版本之间，自觉还是值得推荐给大家用的。具体修改说明和效果图见 README。</em></p>
+    <hr>
+    
+    <hr>
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
