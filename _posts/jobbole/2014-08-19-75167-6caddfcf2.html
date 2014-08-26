@@ -1,0 +1,86 @@
+---
+layout: post
+title: '黑客故事：如何接管Java/Clojure/Scala程序员的电脑'
+time: 2014-08-19 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/75167/
+images:
+  8dc6daceea3036f60246b8ac26612f00: http://ww3.sinaimg.cn/large/7cc829d3gw1ejg1uu2rt3j20k90bfaat.jpg
+  333163c5f60b55e668e873e4cc12e7f2: http://ww3.sinaimg.cn/mw690/7cc829d3gw1ejg1uummb7j20hr0hdq5a.jpg
+  95eb51d5b251e469edde5cb3601a3ab3: http://ww4.sinaimg.cn/large/7cc829d3gw1ejg1uvfdy3j20zh0laadp.jpg
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>Sonatype已经对此帖做出了相应的反应，并在他们的<a href="http://blog.sonatype.com/2014/07/ssl_connectivity_for_central/" title="SSL Connectivity" target="_blank">博客</a>上声明将会对所有的用户开启SSL链接。这变化让Java程序的生态系统变得更加安全可靠，我为此感到非常高兴。</p>
+<p>虽说如此，但如果当你看到这个博客，并考虑花10美元来评估你的产品是否需要这个安全性的需要时，答案是否定的。这就好比汽车公司决定花10美元来评估他们的汽车是否需要气囊。幸运的是，现实生活中汽车公司必须安装气囊。</p>
+<p>Sonatype的这次机制修改令我感到很开心，希望他们能够继续减少安全性与产品的冲突。对于我们开发者而已，为用户提供最安全的最有保障的产品是我们的责任。用户对于不能处理好产品与安全性的容忍度能有多大。</p>
+<p>有一天，我看到我的防火墙是这么设置的，于是我开始对我的一个Clojure项目进行入侵：</p>
+<p><img src="/images/jobbole.com/8dc6daceea3036f60246b8ac26612f00.jpg"></p>
+<p>然后我通过80端口在 <a href="http://repo.maven.apache.org/" target="_blank">http//repo.maven.apache.org</a>下载了clojure.jar。这意味着我将能够通过一个未加密的http来下载包。我一开始认为这是<a href="http://leiningen.org/" target="_blank">leiningen</a>的<a href="https://github.com/technomancy/leiningen/issues/1604" target="_blank">问题</a>。但结果完全不是。Clojure.jar和其他许多的jar包在Java/Clojure/Scala领域都很重要，他们都会被正式的放在Sonatype提供的一个公共服务 -<a href="http://search.maven.org/" target="_blank"> Maven Central</a>。<a href="http://www.sonatype.com/" target="_blank">Sonatype</a>有一个机制：只有那些拥有身份标识的人才允许SSL链接。你需要通过捐给Apache基金会十美元，才能获得身份标识和SSL链接。如果你不相信我说的话，捐赠的网页<a href="http://www.sonatype.com/clm/secure-access-to-central" target="_blank">在这</a>，此机制<a href="http://www.sonatype.com/clm/secure-access-to-central" target="_blank">在此</a>博客上声明。这里面甚至提到了中间人攻击。</p>
+<p>因为身份标识是针对个人或者组织分发，所以像maven或者leiningen这些工具不能绑定它。如果你使用这些工具，那么下载java程序或者安装它的一些依赖不会通过SSL。经过我在twitter和Sonatype的一个员工对此事进行了争论，确认了此事。</p>
+<p><img src="/images/jobbole.com/333163c5f60b55e668e873e4cc12e7f2.jpg"></p>
+<p>你下载的jar包会来自中间人的，并且你执行的代码会被恶意软件替换过。要想阻止这类的事情发生，你需要小心的执行每一步操作，稍有不慎就会支付别人十美元。</p>
+<p>通常什么时候会发生这类事情？如果你曾链接过咖啡店的公共网络或者<a href="https://ettercap.github.io/ettercap/" target="_blank">别人的无线网络</a>，中间人就能和你通信了。你的网络服务提供者应能够随意的跟你通信，有的人这么做是为了打广告。或者，你也会还会遭受来自<a href="http://www.renesys.com/2013/11/mitm-internet-hijacking/" target="_blank">国家操纵</a>的这类攻击。</p>
+<p><strong>Dilettante</strong></p>
+<p>为了证明这有多么容易，我写了一个中间人代理<a href="https://github.com/mveytsman/dilettante" target="_blank">dilettante</a>，它功能是拦截来自于maven central的JAR包然后再注入恶意代码进去。</p>
+<p>通过dilettante来代理http的传输，然后给任何在maven central下载的JAR包设置后门。那个设置了后门的版本同时会保留原有的功能，但是当他们使用的这个类库的时候，将会提示一个友好的信息。你可以<a href="http://blog.ontoillogical.com/blog/2014/07/28/how-to-take-over-any-java-developer/" target="_blank">看这个视频</a>：<br>
+或者截图：</p>
+<p><img src="/images/jobbole.com/95eb51d5b251e469edde5cb3601a3ab3.jpg"></p>
+<p>源代码<a href="https://github.com/mveytsman/dilettante" target="_blank">在这</a>。</p>
+<p><strong>具体实现</strong></p>
+<p>JAR包从maven central 下载的时候，由于是通过HTTP进行传输的，因此中间人可以随意的替换。JAR包是可以被标识的，但是根据我对于标准工具使用的经验，这些标识是不会被检查的。其他唯一的方法可以验证一个也是通过HTTP传输的SHA1和。当dilettante发现有JAR来自maven central，它将会把一个拥有后门的版本来替换成原来的。然后替换后的版本将会在受害者的电脑上运行恶意的代码。由于SHA1仅是通过HTTP传输，那么dilettante会简单地将它所能看到的所有哈希表替换成对应的拥有后面JAR包的哈希表。</p>
+<p>我用优秀的mitproxy类库来创建我的工具。我先为代理写一个inline script，然后又用libmproxy创建一个独立的工具。</p>
+<pre class="brush: java; gutter: true">package dilettante;
+
+public class Dilettante {
+    public static void() {
+        // do some evil stuff
+    }
+}</pre>
+<p>JAR包只是一个包含资源，类和元数据的压缩包。我通过添加自己的类到JAR，从而给这个JAR设置了后门。</p>
+<p>稍微头疼的是想办法如何调用我的恶意代码。我知道受害者肯定会下载一些类库。然而我需要不管用户调用类库中的哪个类，它都能运行我的代码，并且还不能影响以前类库的正常使用。</p>
+<p>Java有静态类块这一概念，它能在类级别进行初始化。当类加载到内存的时候，静态类里面的代码会只被调用这一次。在我把恶意的类插入到Jar包之后，我就能像下面这样在静态块里面调用代码：</p>
+<pre class="brush: java; gutter: true">import dilettante.*;
+static {
+    Dilettante.backdoor();
+}</pre>
+<p>为了插入上面的代码，我需要将它直接插入到Java  class里面，而不是source文件。我是使用<a href="https://github.com/Storyyeller/Krakatau" target="_blank">Karakatau</a>将代码以<a href="http://jasmin.sourceforge.net/" target="_blank">Jasmin</a>的格式插入进去。Karakatau是一个针对Python的Java 反编译/编译类库。</p>
+<pre class="brush: java; gutter: true">.method static &lt;clinit&gt; : ()V
+  ; method code size: 4 bytes
+  .limit stack 0
+  .limit locals 0
+  invokestatic dilettante/Dilettante backdoor ()V
+  return
+.end method</pre>
+<p><strong>局限性</strong></p>
+<p>这只是个概念化的试验，同时它还是存在局限性。</p>
+<p>1.目前由于一些原因，它还不是很快：</p>
+<p>我必须进行反编译和编译。如果能够直接插入编译好的代码到类里面，那就更高效了。</p>
+<p>我实际上是通过使用Python的zipfile类库将压缩包的类文件都创建了个副本。从空间和速度方面而言，这是不高效的。如果能够更加了解zip的功能，可能会找到一个高效插入数据的方法。</p>
+<p>2.如果用户同时下载多个JAR包。那么我将会逐个设置后门。恶意的代码在每个JAR只会被执行一次。但是如果多个jar被设置了后门，那么它将会被执行多次。如果我们将那个猫的图片替换成一个高质量，稳定的后门并且它能够只影响系统一次，那么这个问题就不会再出现。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}

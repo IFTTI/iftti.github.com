@@ -1,0 +1,620 @@
+---
+layout: post
+title: '一个快速、高效的Levenshtein算法实现'
+time: 2014-08-18 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/75496/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>Levenshtein算法，用于计算两个字符串之间的Levenshtein距离。而<a href="http://baike.baidu.com/view/4123766.htm" target="_blank">Levenshtein</a>距离又称为编辑距离，是指两个字符串之间，由一个转换成另一个所需的最少编辑操作次数。许可的编辑操作包括将一个字符替换成另一个字符，插入一个字符，删除一个字符。</p>
+<h2>概述</h2>
+<p>Levenshtein距离用来描述两个字符串之间的差异。我在一个网络爬虫程序里面使用这个算法来比较两个网页之间的版本，如果网页的内容有足够多的变动，我便将它更新到我的数据库。</p>
+<h2>说明</h2>
+<p>原来的算法是创建一个大小为StrLen1*StrLen2的矩阵。如果所有字符串加起来是1000个字符那么长的话，那么这个矩阵就会是1M；如果字符串是10000个字符，那么矩阵就是100M。如果元素都是整数（这里是指数字，Int32）的话，那么矩阵就会是4*100M == 400MB这么大，唉……</p>
+<p>现在的算法版本只使用2*StrLen个元素，这使得后面给出的例子成为2*10,000*4 = 80 KB。其结果是，不但内存占用更少，而且速度也变快了！因为这使得内存分配只需要很少的时间来完成。当两个字符串的长度都是1k左右时，新算法的效率是旧算法的两倍！</p>
+<h2>示例</h2>
+<p>原来的版本将会创建一个矩阵[6+1, 5+1]，而我的新算法将会创建两个向量[6+1]（黄色元素）。在这两个算法版本中，字符串的顺序是无关紧要、无所谓的，也就是说，它也可以是矩阵[5+1, 6+1]和两个向量[5+1]。</p>
+<h2>新的算法</h2>
+<h3>步骤</h3>
+<table border="0" cellspacing="1" cellpadding="2" align="center">
+<tbody>
+<tr>
+<th bgcolor="#ffffcc">步骤</th>
+<th bgcolor="#ffffcc">说明</th>
+</tr>
+<tr>
+<td align="center" valign="top">1</td>
+<td>设置n为字符串s的长度。(“GUMBO”)<br>
+设置m为字符串t的长度。(“GAMBOL”)<br>
+如果n等于0，返回m并退出。<br>
+如果m等于0，返回n并退出。<br>
+构造两个向量v0[m+1] 和v1[m+1]，串联0..m之间所有的元素。</td>
+</tr>
+<tr>
+<td align="center" valign="top">2</td>
+<td>初始化 v0 to 0..m。</td>
+</tr>
+<tr>
+<td align="center" valign="top">3</td>
+<td>检查 s (i from 1 to n) 中的每个字符。</td>
+</tr>
+<tr>
+<td align="center" valign="top">4</td>
+<td>检查 t (j from 1 to m) 中的每个字符</td>
+</tr>
+<tr>
+<td align="center" valign="top">5</td>
+<td>如果 s[i] 等于 t[j]，则编辑代价为 0；<br>
+如果 s[i] 不等于 t[j]，则编辑代价为1。</td>
+</tr>
+<tr>
+<td align="center" valign="top">6</td>
+<td>设置单元v1[j]为下面的最小值之一：<br>
+a、紧邻该单元上方+1：v1[j-1] + 1<br>
+b、紧邻该单元左侧+1：v0[j] + 1<br>
+c、该单元对角线上方和左侧+cost：v0[j-1] + cost</td>
+</tr>
+<tr>
+<td align="center" valign="top">7</td>
+<td>在完成迭代 (3, 4, 5, 6) 之后，v1[m]便是编辑距离的值。</td>
+</tr>
+</tbody>
+</table>
+<p>本小节将演示如何计算”GUMBO”和”GAMBOL”两个字符串的Levenshtein距离。</p>
+<h4>步骤1、2</h4>
+<table border="1">
+<tbody>
+<tr>
+<td></td>
+<td bgcolor="yellow">v0</td>
+<td bgcolor="yellow">v1</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>G</td>
+<td>U</td>
+<td>M</td>
+<td>B</td>
+<td>O</td>
+</tr>
+<tr>
+<td></td>
+<td bgcolor="yellow">0</td>
+<td bgcolor="yellow">1</td>
+<td>2</td>
+<td>3</td>
+<td>4</td>
+<td>5</td>
+</tr>
+<tr>
+<td>G</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow"></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>A</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow"></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>M</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow"></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>B</td>
+<td bgcolor="yellow">4</td>
+<td bgcolor="yellow"></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>O</td>
+<td bgcolor="yellow">5</td>
+<td bgcolor="yellow"></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>L</td>
+<td bgcolor="yellow">6</td>
+<td bgcolor="yellow"></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4>步骤3-6，当 i = 1</h4>
+<p> </p>
+<table border="1">
+<tbody>
+<tr>
+<td></td>
+<td bgcolor="yellow">v0</td>
+<td bgcolor="yellow">v1</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>G</td>
+<td>U</td>
+<td>M</td>
+<td>B</td>
+<td>O</td>
+</tr>
+<tr>
+<td></td>
+<td bgcolor="yellow">0</td>
+<td bgcolor="yellow">1</td>
+<td>2</td>
+<td>3</td>
+<td>4</td>
+<td>5</td>
+</tr>
+<tr>
+<td>G</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow">0</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>A</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">1</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>M</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">2</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>B</td>
+<td bgcolor="yellow">4</td>
+<td bgcolor="yellow">3</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>O</td>
+<td bgcolor="yellow">5</td>
+<td bgcolor="yellow">4</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>L</td>
+<td bgcolor="yellow">6</td>
+<td bgcolor="yellow">5</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4>步骤3-6，当 i = 2</h4>
+<table border="1">
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td bgcolor="yellow">v0</td>
+<td bgcolor="yellow">v1</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>G</td>
+<td>U</td>
+<td>M</td>
+<td>B</td>
+<td>O</td>
+</tr>
+<tr>
+<td></td>
+<td>0</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow">2</td>
+<td>3</td>
+<td>4</td>
+<td>5</td>
+</tr>
+<tr>
+<td>G</td>
+<td>1</td>
+<td bgcolor="yellow">0</td>
+<td bgcolor="yellow">1</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>A</td>
+<td>2</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow">1</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>M</td>
+<td>3</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">2</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>B</td>
+<td>4</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">3</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>O</td>
+<td>5</td>
+<td bgcolor="yellow">4</td>
+<td bgcolor="yellow">4</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>L</td>
+<td>6</td>
+<td bgcolor="yellow">5</td>
+<td bgcolor="yellow">5</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4>步骤3-6，当 i = 3</h4>
+<p> </p>
+<table border="1">
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td bgcolor="yellow">v0</td>
+<td bgcolor="yellow">v1</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>G</td>
+<td>U</td>
+<td>M</td>
+<td>B</td>
+<td>O</td>
+</tr>
+<tr>
+<td></td>
+<td>0</td>
+<td>1</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">3</td>
+<td>4</td>
+<td>5</td>
+</tr>
+<tr>
+<td>G</td>
+<td>1</td>
+<td>0</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow">2</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>A</td>
+<td>2</td>
+<td>1</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow">2</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>M</td>
+<td>3</td>
+<td>2</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">1</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>B</td>
+<td>4</td>
+<td>3</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">2</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>O</td>
+<td>5</td>
+<td>4</td>
+<td bgcolor="yellow">4</td>
+<td bgcolor="yellow">3</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>L</td>
+<td>6</td>
+<td>5</td>
+<td bgcolor="yellow">5</td>
+<td bgcolor="yellow">4</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4>步骤3-6，当 i = 4</h4>
+<p> </p>
+<table border="1">
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td bgcolor="yellow">v0</td>
+<td bgcolor="yellow">v1</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>G</td>
+<td>U</td>
+<td>M</td>
+<td>B</td>
+<td>O</td>
+</tr>
+<tr>
+<td></td>
+<td>0</td>
+<td>1</td>
+<td>2</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">4</td>
+<td>5</td>
+</tr>
+<tr>
+<td>G</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">3</td>
+<td></td>
+</tr>
+<tr>
+<td>A</td>
+<td>2</td>
+<td>1</td>
+<td>1</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">3</td>
+<td></td>
+</tr>
+<tr>
+<td>M</td>
+<td>3</td>
+<td>2</td>
+<td>2</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow">2</td>
+<td></td>
+</tr>
+<tr>
+<td>B</td>
+<td>4</td>
+<td>3</td>
+<td>3</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">1</td>
+<td></td>
+</tr>
+<tr>
+<td>O</td>
+<td>5</td>
+<td>4</td>
+<td>4</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">2</td>
+<td></td>
+</tr>
+<tr>
+<td>L</td>
+<td>6</td>
+<td>5</td>
+<td>5</td>
+<td bgcolor="yellow">4</td>
+<td bgcolor="yellow">3</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4>步骤3-6，当 i = 5</h4>
+<p> </p>
+<table border="1">
+<tbody>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
+<td bgcolor="yellow">v0</td>
+<td bgcolor="yellow">v1</td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td>G</td>
+<td>U</td>
+<td>M</td>
+<td>B</td>
+<td>O</td>
+</tr>
+<tr>
+<td></td>
+<td>0</td>
+<td>1</td>
+<td>2</td>
+<td>3</td>
+<td bgcolor="yellow">4</td>
+<td bgcolor="yellow">5</td>
+</tr>
+<tr>
+<td>G</td>
+<td>1</td>
+<td>0</td>
+<td>1</td>
+<td>2</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">4</td>
+</tr>
+<tr>
+<td>A</td>
+<td>2</td>
+<td>1</td>
+<td>1</td>
+<td>2</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">4</td>
+</tr>
+<tr>
+<td>M</td>
+<td>3</td>
+<td>2</td>
+<td>2</td>
+<td>1</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">3</td>
+</tr>
+<tr>
+<td>B</td>
+<td>4</td>
+<td>3</td>
+<td>3</td>
+<td>2</td>
+<td bgcolor="yellow">1</td>
+<td bgcolor="yellow">2</td>
+</tr>
+<tr>
+<td>O</td>
+<td>5</td>
+<td>4</td>
+<td>4</td>
+<td>3</td>
+<td bgcolor="yellow">2</td>
+<td bgcolor="yellow">1</td>
+</tr>
+<tr>
+<td>L</td>
+<td>6</td>
+<td>5</td>
+<td>5</td>
+<td>4</td>
+<td bgcolor="yellow">3</td>
+<td bgcolor="yellow">2</td>
+</tr>
+</tbody>
+</table>
+<h4>步骤7</h4>
+<p>编辑距离就是矩阵右下角的值，v1[m] == 2。由”GUMBO”变换为”GAMBOL”的过程对于我来说是很只管的，即通过将”A”替换为”U”，并在末尾追加”L”这样子（实际上替换的过程是由移除和插入两个操作组合而成的）。</p>
+<h2>改良</h2>
+<p>如果您确信你的字符串永远不会超过2^16（65536）个字符，那么你可以使用ushort来表示而不是int，如果字符串少于2^8个，还可以使用byte。我觉得这个算法用非托管代码实现的话可能会更快，但我没有试过。</p>
+<h2>参考文献</h2>
+<ul>
+<li><a href="http://www.merriampark.com/ld.htm" target="_blank">Levenshtein Distance, in Three Flavors</a></li>
+</ul>
+<hr>
+<p>下载代码请前往原文：<a href="http://www.codeproject.com/Articles/13525/Fast-memory-efficient-Levenshtein-algorithm">http://www.codeproject.com/Articles/13525/Fast-memory-efficient-Levenshtein-algorithm</a></p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}

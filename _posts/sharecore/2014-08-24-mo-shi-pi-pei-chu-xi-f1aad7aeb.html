@@ -1,0 +1,141 @@
+---
+layout: post
+title: '模式匹配初析'
+time: 2014-08-24 00:00:00 +0800
+site_name: sharecore.net
+source_url: http://sharecore.net/blog/2014/08/24/mo-shi-pi-pei-chu-xi/
+---
+{% raw %}
+<pre><code>前几天看到篇C#6.0的draft spec，发现C#6.0里将惊现模式匹配。如是便在做了翻宣讲说“模式匹配”是一个很好用的特性，
+但是不知道跟C#的结合会怎么样。而同时却又发现周边了解“模式匹配”的人好少，于是诞生了写一篇文章稍微介绍下这
+一功能特性的想法。
+</code></pre>
+
+<p>如果说模式匹配这一概念有人不知道，但是正则表达式应该绝大多数的程序员都知道的了。而简言之，<strong>模式匹配就是更强大的正则表达式，或者说正则表达式是模式匹配这一概念在字符串处理上的一个应用</strong>。有了正则表达式为例，我们可以为模式匹配定义一个更为通用的定义：</p>
+
+<pre><code>模式匹配是判断输入的数据（信息）是否与特定的结构相匹配，并按模式从中取得数据（信息）。
+</code></pre>
+
+<p>如下以正则表达式为例，从输入数据value里按pattern提取数据digits的模式匹配过程。</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+<span class="line-number">3</span>
+</pre></td>
+<td class="code"><pre><code class="javascript"><span class="line"><span class="kd">var</span> <span class="nx">value</span><span class="o">=</span><span class="s2">"abc123"</span><span class="p">;</span>
+</span><span class="line"><span class="kd">var</span> <span class="nx">pattern</span><span class="o">=</span><span class="sr">/\d/g</span><span class="p">;</span><span class="c1">//定义模式</span>
+</span><span class="line"><span class="kd">var</span> <span class="nx">digits</span><span class="o">=</span><span class="nx">value</span><span class="p">.</span><span class="nx">match</span><span class="p">(</span><span class="nx">pattern</span><span class="p">);</span><span class="c1">//["1","2","3"]</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>那更广泛意义上的模式匹配是什么呢？其实很简单，就是输入/提取数据（信息）的范围不再局限为字符串了，甚至可以是编程语言支持的所有数据结构。第一次接触模式匹配这一概念，是前几年学习erlang的时候，下面就主要以erlang为例，来对模式匹配稍作介绍。</p>
+
+<p>先上点erlang里的”甜点”为例来说明：</p>
+
+<p>(erlang基础知识：大写字母开头的声明为变量，比如下面例子里的P，H,T;小写字母的声明是原子,比如abc)</p>
+
+<pre><code>模式{abc，P}与输入数据项{abc,123}匹配，并在匹配的同时，发生绑定P-&gt;123
+
+模式[H|T]与输入数据项[1,2,3,4]匹配，并在匹配的同时，发生绑定H-&gt;1,T-&gt;[2,3,4]
+</code></pre>
+
+<p>第一个例子匹配的过程如下：</p>
+
+<p>1.先进行类型匹配：模式和数据项都是一个元组（“{}”），匹配通过。</p>
+
+<p>2.模式元组的第一个元素为常量，进行匹配：模式和数据项都是“abc”,匹配通过。</p>
+
+<p>3.模式元组的第二个元素是一个变量P，同时后面不再有任何元素，结束匹配，并将P绑定到数据项第一个元素后的所有元素。</p>
+
+<p>第二个例子匹配过程如下：</p>
+
+<p>1.先进行类型匹配，模式和数据项都是一个列表（“[]”），匹配通过。</p>
+
+<p>2.模式”[H|T]”表示的是一个“首尾”匹配，用“|”分开两个变量（H，T），H表示的首元素匹配，T表示尾部（除首元素外的所有元素）匹配。匹配是通过的,并绑定H和T的值为首元素和尾元素。</p>
+
+<p>再来一个高级点的例子：<strong>使用模式匹配来处理消息的接收</strong>：</p>
+
+<p>(erlang基础知识：erlang的调用是基于CSP的，各个actor之间通过消息通讯带完成调用;receive原语是erlang提供的消息接收机制，可监听和接收来自其它actor发送来的消息;”！”标识符用于向对应的actor发送消息)。</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+<span class="line-number">3</span>
+<span class="line-number">4</span>
+<span class="line-number">5</span>
+<span class="line-number">6</span>
+<span class="line-number">7</span>
+<span class="line-number">8</span>
+<span class="line-number">9</span>
+<span class="line-number">10</span>
+<span class="line-number">11</span>
+<span class="line-number">12</span>
+<span class="line-number">13</span>
+<span class="line-number">14</span>
+</pre></td>
+<td class="code"><pre><code class="erlang"><span class="line"><span class="nf">loop</span><span class="p">(</span><span class="nv">Dict</span><span class="p">)</span> <span class="o">-&gt;</span>
+</span><span class="line">  <span class="k">receive</span>  <span class="c">%消息接收的原语，获取调用方的消息</span>
+</span><span class="line">      <span class="p">{</span><span class="n">store</span><span class="p">,</span> <span class="nv">Key</span><span class="p">,</span> <span class="nv">Value</span><span class="p">}</span> <span class="o">-&gt;</span> <span class="c">%匹配数据存储的消息，"store"</span>
+</span><span class="line">          <span class="n">loop</span><span class="p">(</span><span class="nn">dict</span><span class="p">:</span><span class="n">store</span><span class="p">(</span><span class="nv">Key</span><span class="p">,</span> <span class="nv">Value</span><span class="p">,</span> <span class="nv">Dict</span><span class="p">));</span> <span class="c">%真实的存储</span>
+</span><span class="line">      <span class="p">{</span><span class="nv">From</span><span class="p">,</span> <span class="p">{</span><span class="nb">get</span><span class="p">,</span> <span class="nv">Key</span><span class="p">}}</span> <span class="o">-&gt;</span> <span class="c">%匹配数据获取的消息, From匹配消息来源，</span>
+</span><span class="line">          <span class="nv">From</span> <span class="o">!</span> <span class="nn">dict</span><span class="p">:</span><span class="n">fetch</span><span class="p">(</span><span class="nv">Key</span><span class="p">,</span> <span class="nv">Dict</span><span class="p">),</span> <span class="c">%向查询请求消息来源发送查询结果消息</span>
+</span><span class="line">          <span class="n">loop</span><span class="p">(</span><span class="nv">Dict</span><span class="p">)</span> <span class="c">%尾递归：持续监听新的消息 </span>
+</span><span class="line"><span class="k">end</span><span class="p">.</span>
+</span><span class="line">
+</span><span class="line"><span class="nv">Pid</span> <span class="o">=</span> <span class="nb">spawn</span><span class="p">(</span><span class="n">loop</span><span class="p">)</span> <span class="c">%启动一个进程(actor)，Pid为进程号</span>
+</span><span class="line">
+</span><span class="line"><span class="nv">Pid</span><span class="o">!</span><span class="p">{</span><span class="n">store</span> <span class="p">,</span><span class="n">key1</span><span class="p">,</span><span class="s">"123"</span><span class="p">}</span> <span class="c">%向进程发送一个键值对存储消息</span>
+</span><span class="line">
+</span><span class="line"><span class="nv">Pid</span><span class="o">!</span><span class="p">{</span><span class="nb">get</span><span class="p">,</span><span class="n">key1</span><span class="p">}</span> <span class="c">%发送一个查询消息，获取"key1"对应的值</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>上面展示例子模式匹配在erlang中进行消息匹配的使用，需要注意的一点是，这里的<strong>匹配是从上到下来进行的</strong>，即会先进行“store”的匹配，匹配失败的话才进行“get”匹配。消息匹配是erlang里的一项杀手锏特性，它能大大减少在消息处理的代码量，代码只要专注于实际算法的实现即可，将相应消息的解析和内容提取，交给模式匹配来完成。</p>
+
+<p>从本质上来讲，<strong>模式匹配体现的是一个解构的过程和手段</strong>，解构是日常编程过程中一个非常常见的场景，比如编译器将程序代码解析为一个抽象语法树（AST）就是一个解构的过程，再比如，将XML/JSON进行反序列化为程序对象也是一例。对于许多语言，并未提供强大的模式匹配特性，但是为了提供<strong>可扩展</strong>的解构功能，一般都会采取一些设计模式来解决。比如面向对象编程里，将<strong>解析操作抽离出独立的模块</strong>，采取基于基类的虚方法/抽象方法扩展的方式，然后结合想对应的规则配置，来完成有区别性的模式解构。但是，这样的方式，稍显笨重，代码量也更多，与模式匹配相比，不在一个复杂度等级之上。</p>
+
+<p>去年我用golang写了一个web框架，其中的路由解析过程就采取了类似的方式（代码位置：<a href="https://github.com/JustinHuang917/gof">https://github.com/JustinHuang917/gof</a>）。通过如以下路由规则配置，匹配不同的URL模式，从URL中提取相应的参数：</p>
+
+<figure class="code"><figcaption><span></span></figcaption><div class="highlight"><table><tr>
+<td class="gutter"><pre class="line-numbers"><span class="line-number">1</span>
+<span class="line-number">2</span>
+<span class="line-number">3</span>
+<span class="line-number">4</span>
+<span class="line-number">5</span>
+<span class="line-number">6</span>
+<span class="line-number">7</span>
+<span class="line-number">8</span>
+<span class="line-number">9</span>
+<span class="line-number">10</span>
+</pre></td>
+<td class="code"><pre><code class="json"><span class="line"><span class="s2">"RouteRules"</span><span class="err">:</span><span class="p">[</span>
+</span><span class="line">      <span class="p">{</span>
+</span><span class="line">          <span class="nt">"/Order/{id:[0-9]+}"</span><span class="p">:</span>
+</span><span class="line">              <span class="p">{</span><span class="nt">"controller"</span><span class="p">:</span><span class="s2">"Order"</span><span class="p">,</span><span class="nt">"action"</span><span class="p">:</span><span class="s2">"Order"</span><span class="p">,</span><span class="nt">"id"</span><span class="p">:</span><span class="s2">"0"</span><span class="p">}</span>
+</span><span class="line">      <span class="p">},</span>
+</span><span class="line">      <span class="p">{</span>
+</span><span class="line">          <span class="nt">"/{controller}/{action}"</span><span class="p">:</span>
+</span><span class="line">              <span class="p">{</span><span class="nt">"controller"</span><span class="p">:</span><span class="s2">"Home"</span><span class="p">,</span><span class="nt">"action"</span><span class="p">:</span><span class="s2">"Index"</span><span class="p">}</span>
+</span><span class="line">      <span class="p">}</span>
+</span><span class="line">  <span class="p">]</span>
+</span></code></pre></td>
+</tr></table></div></figure>
+
+
+<p>这个看似简单功能，我花了200多行代码才得以完成，使用的还是堪称语法最为精简的Golang，而如果使用Java/C#来完成，代码量肯定还要增加不少。而如果语言本身具有强大的模式匹配的话，实现代码将会变得非常精简。而这一次C#6.0声称引入模式匹配，希望是面向对象语言领域的一次有益尝试。</p>
+
+<p>同时，我也希望我喜欢的Golang在模式匹配上迈开尝试的脚步，在现有的goroutine+channel的组合上应用模式匹配，将是一件非常有效率的实践。现在Golang提供”select..case…“机制只能识别不同channel返回的消息，而不能识别实际消息的内容，这一点来说，与erlang相比，降低了CSP的编程效率。</p>
+
+<p>总结：</p>
+
+<p>模式匹配是来自函数式编程领域的高效的编程功能特性，它能成倍增加“解构”代码的编写效率，明显降低代码复杂度。同时，尽管大多数的编程语言，尚未提供这一功能，但是实际代码编写过程中，我们可以借鉴其基于模式声明的思想，抽离出相应的模式匹配模块，在保证可扩展性的同时，控制数据（信息）匹配带来的代码复杂度。</p>
+
+<hr>
+
+<p>如果您觉得这篇文字有意思，欢迎转发！欢迎更多的朋友们关注我的微信公众号：<strong>JustinNotes</strong></p>
+
+<hr>
+{% endraw %}
