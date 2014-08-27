@@ -1,0 +1,121 @@
+---
+layout: post
+title: '实现键值对存储（一）：什么是键值对存储，为什么要实现它'
+time: 2014-08-26 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/75844/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>在本文中，我将会以键值对是什么的一个简短描述开始。然后我将解释本项目之后的一些理由，最后我将说明我打算实现的键值对存储的主要目标。这里是本文中将会包含内容的列表：</p>
+<ol>
+<li>键值对存储的概述</li>
+<li>键值对存储 vs 关系型数据库</li>
+<li>为什么要实现键值对存储</li>
+<li>计划</li>
+<li>引用</li>
+</ol>
+<p> </p>
+<h1 align="left">1. 键值对存储的概述<b></b>
+</h1>
+<p>基于很多文章已经有了很多详细的介绍，本节只是对于键值对存储的一个简短介绍。我已经选择了几篇放在本文底部的引用一节中。</p>
+<p>键值对存储是数据库最简单的组织形式。基本上所有的编程语言都带有应用在内存中的键值对存储。C++STL的映射容器（map container）和Java的HashMap以及Python的字典类型都是键值对存储。键值对存储通常都有如下接口：</p>
+<p><b>Get( key ):</b> 获取之前存储于某标示符“key”之下的一些数据，或者“key”下没有数据时报错。</p>
+<p><b>Set( key, value ):</b> 将“value”存储到存储空间中某标示符“key”下，使得我们可以通过调用相同的“key”来访问它。如果“key”下已经有了一些数据，旧的数据将被替换。</p>
+<p><b>Delete( key ):</b>  删除存储在“key”下的数据。</p>
+<p>大部分低层实现都是使用哈希表或者某种自平衡树（例如B-树或者红黑树）。有时候数据太大而不装不进内存，或者必须维持数据谨防系统因为未知原因而崩溃。在这些情况下，就必须使用到文件系统。</p>
+<p>键值对存储是NoSQL运动的一部分，NoSQL将所有不使用基于关系型数据库概念的数据库系统组合在一起。<a href="http://en.wikipedia.org/wiki/NoSQL">维基百科上的NoSQL词条</a>很好的总结了这些数据库的特征。</p>
+<ul>
+<li>不使用SQL查询语言</li>
+<li>可不全面支持<a href="http://en.wikipedia.org/wiki/ACID">ACID</a>（原子性、一致性、隔离性、持久性）。</li>
+<li>可提供分布式、容错强的结构</li>
+</ul>
+<p> </p>
+<h1>2. 键值对存储和关系型数据库</h1>
+<p>不像关系型数据库，键值对存储不需要了解值中的数据，也没有像MySQL或者PostgreSQL中那样的任何结构。这同时表示像SQL那样用WHERE语句或者通过任何形式的过滤来请求数据中的一部分是无法做到的。如果你不知道去哪找，你必须遍历所有的键，获取它们对应的值，应用某种你需要的过滤，然后保留你想要的东西。这将会需要大量的运算，也即表示只有当键已知的时候才能体现出最佳性能，否则键值对存储将无法胜任（注意：一些键值对存储能够存储结构化的数据并有字段索引）。</p>
+<p>因此，即使键值对存储在访问速度上经常比关系型数据库系统性能要好数个数量级，但对键已知的需求也限制着其应用。</p>
+<p> </p>
+<h1 align="left">3. 为什么要实现键值对存储<b></b>
+</h1>
+<p>我开始这个项目主要是作为充电的一种方式，学习和补充一些核心后端基本原理知识。读书和维基上的文章很无聊并且没有练习，因此我认为着手开始做并且实际写一写代码会更好。我要找的是一个可以让我复习如下内容的项目：</p>
+<ul>
+<li>C++编程语言</li>
+<li>面向对象设计</li>
+<li>算法和数据结构</li>
+<li>内存管理</li>
+<li>多进程或或多线程的并发管理</li>
+<li>服务器/客户端模式的网络</li>
+<li>磁盘访问的I/O问题和文件系统的使用</li>
+</ul>
+<p>一个使用文件系统作为永久存储，且提供网络接口的键值对存储将会包含上面列出的全部范围的内容。这个项目刚好能够处理后端工程的各个领域。但是让我们面对现实。市面上已经有了大量的键值对存储，其中一些是由很聪明的人实现的，并且已经在大公司的生产环境使用了。这包括Redis, MongoDB, memcached, BerkeleyDB, Kyoto Cabinet 和LevelDB。</p>
+<p>除此之外，近期出现了关于键值对存储的潮流。好像每人都有一个并且想给大家看自己的键值对存储系统有多么出色和快速。这个问题在<a href="http://randomfoo.net/2009/04/20/some-notes-on-distributed-key-stores">Leonard Lin博客中关于键值对存储的文章</a>中描述了。这些项目中大多数在那时还不成熟且不能应用于生产环境，但人们仍然想展示出来。在博客文章或会议幻灯片中经常可以看到对一些晦涩键值对存储系统性能的比较。这些图表基本上毫无意义，并且只是在自己的硬件上用自己的数据和应用进行的孤立测试，可以告诉你哪一种键值对存储最适用于解决你的问题。这里是性能所依赖的条件：</p>
+<ul>
+<li>硬件</li>
+<li>使用的文件系统</li>
+<li>实际应用和具体哪些键会被访问（<a href="http://en.wikipedia.org/wiki/Locality_of_reference">引用的局部性</a>）</li>
+<li>数据集，特别是键和值的长度，以及使用哈希表的时候键碰撞的可能性。</li>
+</ul>
+<p>因此，编写一个键值对存储系统并有一定的影响力是比较难的，因为其很有可能因为其它已存在的更好的键值对存储系统的存在而被忽视，或者被简单的淹没在半生不熟的业余项目中而没人关心。</p>
+<p>为了差异性，这个项目不能像其他人做的那样为了速度，而必须瞄准于填补现有解决方案间的空隙。这里是我发现的能够让键值对项目脱颖而出的几个方法。</p>
+<ul>
+<li>适应于某种特定数据类型（例如：图片，地理数据等）</li>
+<li>适应于某种特定操作（例如读取性能特别好或者写入性能特别好等）</li>
+<li>适应于某种特定问题 （例如：自动参数调节，很多键值对存储都有很多选项，而找到一个最好的参数设置有时候很棘手）</li>
+<li>提供更多数据访问选项。以LevelDB为例，数据可以向前或者向后访问，有迭代器，是按照键排序的。并不是所有的键值对存储都能做到这样。</li>
+<li>使自己的实现更平易近人：现在，很少有键值对存储系统有完全的代码。如果你需要快速搭建一个项目，而你必须为其自定义一个键值对存储。即便不是一个广为人知的项目，有代码的解决方案看起来确实平易近人并且会作为选项之一。实际上理解代码并相信这个解决方案会弥补这些不足。</li>
+<li> 明确应用。这儿有一个实际问题的例子：很多网络爬虫框架（网络蜘蛛）有一个粗劣的接口来管理他们需要爬的URL，这经常使得客户使用键值对存储来实现逻辑。所有的网络爬虫框架都能因一个统一的URL优化的键值对存储而受益。</li>
+</ul>
+<p> </p>
+<h1>4. 计划</h1>
+<p>项目的目标是用易于理解的C++代码开发一个轻量级键值对存储。事实上，我打算在本项目中遵从<a href="http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml">Google C++ 代码风格导引</a>。我将会使用哈希表作为底层数据结构，数据将会存储在硬盘上，同时将会实现一个网络接口。我不会项目进度而匆忙完成，而是要在设计和实现时简洁和清晰。我同样会尽我能力最小化硬盘上数据库文件的空间占用。</p>
+<p>我不想重新发明轮子，所以我会从查看别的C或者C++的键值对存储项目开始，然后从中选取比较出色的。我会逐渐学习他们的结构和代码，从中获取启示。后端工程是我的核心技能之一，我已经有了这个项目所需的大部分知识，但我知道我还要学很多新东西，这使其对我来说更加有意思。我同样乐于记录下其中的全部东西。以前我很喜欢逛核心技术博客，例如<a href="http://www.alexonlinux.com/" target="_blank">Alexander Sandler</a>和<a href="http://duartes.org/gustavo/blog/best-of" target="_blank">Gustavo Duarte</a>，我也想贡献出一些有用的，尽可能好的东西。</p>
+<p>我的研究结果和键值对存储的一些工作将在这个文章系列中记录。不要试图用文章的日期来推测键值对存储实现的时间：文章可能和实际研究或者做的事之间有相当大的延迟。</p>
+<p>在第二部分，我将搜索顶级的键值对存储项目并解释为什么我选择了其中的部分作为参考，而不选另一些。其他的文章你可以参考本系列的<a href="http://codecapsule.com/2012/11/07/ikvs-implementing-a-key-value-store-table-of-contents/">目录</a>。</p>
+<p>你可以在下边的“引用”一节中找到一些文章和书籍章节来学习更多关于键值对存储的知识。在阅读第二节之前，我强烈建议至少读一下<a href="http://www.aosabook.org/en/nosql.html" target="_blank">The NoSQL Ecosystem</a>和 <a href="http://blog.marc-seeger.de/2009/09/21/key-value-stores-a-practical-overview/" target="_blank">Key Value Stores: A Practical Overview</a>。</p>
+<p> </p>
+<h1 align="left">5. 参考</h1>
+<ul>
+<li>
+<a href="http://www.aosabook.org/en/nosql.html" target="_blank">The NoSQL Ecosystem</a>, from the book “Architecture of Open Source Applications, Volume 1″</li>
+<li>
+<a href="http://horicky.blogspot.com.es/2009/11/nosql-patterns.html" target="_blank">NoSQL Patterns</a>, by Ricky Ho</li>
+<li>
+<a href="http://nosql-database.org/" target="_blank">NoSQL Databases</a>, referencing all the NoSQL databases that matter at the moment</li>
+<li>
+<a href="http://highlyscalable.wordpress.com/2012/03/01/nosql-data-modeling-techniques/" target="_blank">NoSQL Data Modeling Techniques</a>, by Ilya Katsov</li>
+<li>
+<a href="http://www.networkworld.com/cgi-bin/mailto/x.cgi?pagetosend=/news/tech/2012/102212-nosql-263595.html" target="_blank">NoSQL databases benchmark: Cassandra, HBase, MongoDB, Riak</a>, and the discussion on <a href="http://news.ycombinator.com/item?id=4733212" target="_blank">Hacker News</a>
+</li>
+<li><a href="http://en.wikipedia.org/wiki/NoSQL" target="_blank">Wikipedia article on NoSQL</a></li>
+<li><a href="http://en.wikipedia.org/wiki/ACID" target="_blank">Wikipedia article on the ACID paradigm</a></li>
+<li>
+<a href="http://blog.marc-seeger.de/2009/09/21/key-value-stores-a-practical-overview/" target="_blank">Key Value Stores: A Practical Overview</a>, by Marc Seeger</li>
+<li>
+<a href="http://randomfoo.net/2009/04/20/some-notes-on-distributed-key-stores" target="_blank">Some Notes on Distributed Key Stores</a>, by Leonard Lin</li>
+</ul>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}
