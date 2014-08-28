@@ -5,9 +5,105 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Wed, 27 Aug 2014 09:37:58 +0800</pubDate>
-    <lastBuildDate>Wed, 27 Aug 2014 09:37:58 +0800</lastBuildDate>
+    <pubDate>Thu, 28 Aug 2014 17:00:24 +0800</pubDate>
+    <lastBuildDate>Thu, 28 Aug 2014 17:00:24 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>Optionals Case Study: valuesForKeys</title>
+        <description>
+
+						
+						
+
+						&lt;p&gt;This post explores how optionals help preserve strong type safety within Swift. We’re going to create a Swift version of an Objective-C API. Swift doesn’t really need this API, but it makes for a fun example.&lt;/p&gt;
+&lt;p&gt;In Objective-C, &lt;span class=&quot;keyword&quot;&gt;NSDictionary&lt;/span&gt; has a method &lt;span class=&quot;keyword&quot;&gt;-objectsForKeys:notFoundMarker:&lt;/span&gt; that takes an &lt;span class=&quot;keyword&quot;&gt;NSArray&lt;/span&gt; of keys, and returns an &lt;span class=&quot;keyword&quot;&gt;NSArray&lt;/span&gt; of corresponding values. From the documentation: “the &lt;em&gt;N&lt;/em&gt;-th object in the returned array corresponds to the &lt;em&gt;N&lt;/em&gt;-th key in [the input parameter] keys.” What if the third key isn’t actually in the dictionary? That’s where the &lt;span class=&quot;keyword&quot;&gt;notFoundMarker&lt;/span&gt; parameter comes in. The third element in the array will be this marker object rather than a value from the dictionary. The Foundation framework even provides a class for this case if you don’t have another to use: &lt;span class=&quot;keyword&quot;&gt;NSNull&lt;/span&gt;.&lt;/p&gt;
+&lt;p&gt;In Swift, the &lt;span class=&quot;keyword&quot;&gt;Dictionary&lt;/span&gt; class doesn’t have an &lt;span class=&quot;keyword&quot;&gt;objectsForKeys&lt;/span&gt; equivalent. For this exercise, we’re going to add one — as &lt;span class=&quot;keyword&quot;&gt;valuesForKeys&lt;/span&gt; in keeping with the common use of ‘value’ in Swift — using an extension:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;key&quot;&gt;extension&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;Dictionary&lt;/span&gt; {
+	&lt;span class=&quot;key&quot;&gt;func&lt;/span&gt; valuesForKeys(keys: [&lt;span class=&quot;title&quot;&gt;K&lt;/span&gt;], notFoundMarker: &lt;span class=&quot;title&quot;&gt;V&lt;/span&gt;) -&amp;gt; [&lt;span class=&quot;title&quot;&gt;V&lt;/span&gt;] {
+		&lt;span class=&quot;comment&quot;&gt;// To be implemented&lt;/span&gt;
+	}
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This is where our new implementation in Swift will differ from Objective-C. In Swift, the stronger typing restricts the resulting array to contain only a single type of element — we can’t put &lt;span class=&quot;keyword&quot;&gt;NSNull&lt;/span&gt; in an array of strings. However, Swift gives an even better option: we can return an &lt;em&gt;array of optionals&lt;/em&gt;. All our values get wrapped in optionals, and instead of &lt;span class=&quot;keyword&quot;&gt;NSNull&lt;/span&gt;, we just use &lt;span class=&quot;keyword&quot;&gt;nil&lt;/span&gt;.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;key&quot;&gt;extension&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;Dictionary&lt;/span&gt; {
+	&lt;span class=&quot;key&quot;&gt;func&lt;/span&gt; valuesForKeys(keys: [&lt;span class=&quot;title&quot;&gt;Key&lt;/span&gt;]) -&amp;gt; [&lt;span class=&quot;title&quot;&gt;Value&lt;/span&gt;?] {
+		&lt;span class=&quot;key&quot;&gt;var&lt;/span&gt; result = [Value?]()
+		result.reserve(keys.count)
+		&lt;span class=&quot;key&quot;&gt;for&lt;/span&gt; key &lt;span class=&quot;key&quot;&gt;in&lt;/span&gt; keys {
+			result.&lt;span class=&quot;method&quot;&gt;append&lt;/span&gt;(&lt;span class=&quot;method&quot;&gt;self&lt;/span&gt;[key])
+		}
+		&lt;span class=&quot;key&quot;&gt;return&lt;/span&gt; result
+	}
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;NOTE: Some of you may have guessed why a Swift &lt;span class=&quot;keyword&quot;&gt;Dictionary&lt;/span&gt; doesn’t need this API, and already imagined something like this:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;key&quot;&gt;extension&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;Dictionary&lt;/span&gt; {
+	&lt;span class=&quot;key&quot;&gt;func&lt;/span&gt; valuesForKeys(keys: [&lt;span class=&quot;title&quot;&gt;Key&lt;/span&gt;]) -&amp;gt; [&lt;span class=&quot;title&quot;&gt;Value&lt;/span&gt;?] {
+		&lt;span class=&quot;key&quot;&gt;return&lt;/span&gt; keys.&lt;span class=&quot;method&quot;&gt;map&lt;/span&gt; { &lt;span class=&quot;method&quot;&gt;self&lt;/span&gt;[$0] }
+	}
+}&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This has the exact same effect as the imperative version above, but all of the boilerplate has been wrapped up in the call to &lt;span class=&quot;keyword&quot;&gt;map&lt;/span&gt;. This is great example why Swift types often have a small API surface area, because it’s so easy to just call &lt;span class=&quot;keyword&quot;&gt;map&lt;/span&gt; directly.&lt;/p&gt;
+&lt;p&gt;Now we can try out some examples:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;key&quot;&gt;let&lt;/span&gt; dict = [&lt;span class=&quot;string&quot;&gt;&quot;A&quot;&lt;/span&gt;: &lt;span class=&quot;string&quot;&gt;&quot;Amir&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;B&quot;&lt;/span&gt;: &lt;span class=&quot;string&quot;&gt;&quot;Bertha&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;C&quot;&lt;/span&gt;: &lt;span class=&quot;string&quot;&gt;&quot;Ching&quot;&lt;/span&gt;]
+
+&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;([&lt;span class=&quot;string&quot;&gt;&quot;A&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;C&quot;&lt;/span&gt;])
+&lt;span class=&quot;comment&quot;&gt;// [Optional(&quot;Amir&quot;), Optional(&quot;Ching&quot;)]&lt;/span&gt;
+
+&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;([&lt;span class=&quot;string&quot;&gt;&quot;B&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;D&quot;&lt;/span&gt;])
+&lt;span class=&quot;comment&quot;&gt;// [Optional(&quot;Bertha&quot;), nil]&lt;/span&gt;
+
+&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;([])
+&lt;span class=&quot;comment&quot;&gt;// []&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;h3&gt;Nested Optionals&lt;/h3&gt;
+&lt;p&gt;Now, what if we asked for the &lt;span class=&quot;keyword&quot;&gt;last&lt;/span&gt; element of each result?&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;([&lt;span class=&quot;string&quot;&gt;&quot;A&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;C&quot;&lt;/span&gt;]).&lt;span class=&quot;title&quot;&gt;last&lt;/span&gt;
+&lt;span class=&quot;comment&quot;&gt;// Optional(Optional(&quot;Ching&quot;))&lt;/span&gt;
+
+&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;([&lt;span class=&quot;string&quot;&gt;&quot;B&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;D&quot;&lt;/span&gt;]).&lt;span class=&quot;title&quot;&gt;last&lt;/span&gt;
+&lt;span class=&quot;comment&quot;&gt;// Optional(nil)&lt;/span&gt;
+
+&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;([]).&lt;span class=&quot;title&quot;&gt;last&lt;/span&gt;
+&lt;span class=&quot;comment&quot;&gt;// nil&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;That’s strange — we have two levels of &lt;span class=&quot;keyword&quot;&gt;Optional&lt;/span&gt; in the first case, and &lt;span class=&quot;keyword&quot;&gt;Optional(nil)&lt;/span&gt; in the second case. What’s going on?&lt;/p&gt;
+&lt;p&gt;Remember the declaration of the &lt;span class=&quot;keyword&quot;&gt;last&lt;/span&gt; property:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;key&quot;&gt;var&lt;/span&gt; last: &lt;span class=&quot;title&quot;&gt;T&lt;/span&gt;? { get }&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;This says that the &lt;span class=&quot;keyword&quot;&gt;last&lt;/span&gt; property’s type is an &lt;span class=&quot;keyword&quot;&gt;Optional&lt;/span&gt; version of the array’s element type. In &lt;em&gt;this&lt;/em&gt; case, the element type is also optional (&lt;span class=&quot;keyword&quot;&gt;String?&lt;/span&gt;). So we end up with &lt;span class=&quot;keyword&quot;&gt;String??&lt;/span&gt;, a doubly-nested optional type.&lt;/p&gt;
+&lt;p&gt;So what does &lt;span class=&quot;keyword&quot;&gt;Optional(nil)&lt;/span&gt; mean?&lt;/p&gt;
+&lt;p&gt;Recall that in Objective-C we were going to use &lt;span class=&quot;keyword&quot;&gt;NSNull&lt;/span&gt; as a placeholder. The Objective-C version of these three calls looks like this:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;[&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt; valuesForKeys:@[@&lt;span class=&quot;string&quot;&gt;&quot;A&quot;&lt;/span&gt;, @&lt;span class=&quot;string&quot;&gt;&quot;C&quot;&lt;/span&gt;] notFoundMarker:[NSNull null]].lastObject
+&lt;span class=&quot;comment&quot;&gt;// @&quot;Ching&quot;&lt;/span&gt;
+
+[&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt; valuesForKeys:@[@&lt;span class=&quot;string&quot;&gt;&quot;B&quot;&lt;/span&gt;, @&lt;span class=&quot;string&quot;&gt;&quot;D&quot;&lt;/span&gt;] notFoundMarker:[NSNull null]].lastObject
+&lt;span class=&quot;comment&quot;&gt;// NSNull&lt;/span&gt;
+
+[&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt; valuesForKeys:@[] notFoundMarker:[NSNull null]].lastObject
+&lt;span class=&quot;comment&quot;&gt;// nil&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;In both the Swift and Objective-C cases, a return value of &lt;span class=&quot;keyword&quot;&gt;nil&lt;/span&gt; means “the array is empty, therefore there’s no last element.” The return value of &lt;span class=&quot;keyword&quot;&gt;Optional(nil)&lt;/span&gt; (or in Objective-C &lt;span class=&quot;keyword&quot;&gt;NSNull&lt;/span&gt;) means “the last element of this array exists, but it represents an absence.” Objective-C has to rely on a placeholder object to do this, but Swift can represent it in the type system.&lt;/p&gt;
+&lt;h3&gt;Providing a Default&lt;/h3&gt;
+&lt;p&gt;To wrap up, what if you &lt;em&gt;did&lt;/em&gt; want to provide a default value for anything that wasn’t in the dictionary? Well, that’s easy enough.&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;key&quot;&gt;extension&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;Dictionary&lt;/span&gt; {
+	&lt;span class=&quot;key&quot;&gt;func&lt;/span&gt; valuesForKeys(keys: [&lt;span class=&quot;title&quot;&gt;Key&lt;/span&gt;], notFoundMarker: &lt;span class=&quot;title&quot;&gt;Value&lt;/span&gt;) -&amp;gt; [&lt;span class=&quot;title&quot;&gt;Value&lt;/span&gt;] {
+		&lt;span class=&quot;key&quot;&gt;return self&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;(keys).&lt;span class=&quot;method&quot;&gt;map&lt;/span&gt; { $0 &lt;span class=&quot;method&quot;&gt;??&lt;/span&gt; notFoundMarker }
+	}
+}
+
+
+&lt;span class=&quot;pointer&quot;&gt;dict&lt;/span&gt;.&lt;span class=&quot;enum&quot;&gt;valuesForKeys&lt;/span&gt;([&lt;span class=&quot;string&quot;&gt;&quot;B&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;D&quot;&lt;/span&gt;], notFoundMarker: &lt;span class=&quot;string&quot;&gt;&quot;Anonymous&quot;&lt;/span&gt;)
+&lt;span class=&quot;comment&quot;&gt;// [&quot;Bertha&quot;, &quot;Anonymous&quot;]&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;While Objective-C has to rely on a placeholder object to do this, Swift can represent it in the type system, and provides rich syntactic support for handling optional results.&lt;/p&gt;
+
+						
+												
+											
+
+</description>
+        <pubDate>Wed, 27 Aug 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-08-27--id=12-253f68f80.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-27--id=12-253f68f80.html</guid>
+        
+        
+        <category>apple_swift</category>
+        
+      </item>
     
       <item>
         <title>实现键值对存储（一）：什么是键值对存储，为什么要实现它</title>
@@ -4767,21 +4863,6 @@ int main(){
         
         
         <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>Files and Initialization</title>
-        <description>
- &lt;p&gt;By now, most of you have written a small Swift app or experimented in the playground. You may even have experienced an error after you copied code from a playground into another file and wondered, “What is actually going on? What is the difference between a playground file, and other Swift source files?” This post will explain how Swift deals with the files in your project, and how global data is initialized.&lt;/p&gt; &lt;h3&gt;Files in an App&lt;/h3&gt; &lt;p&gt;A Swift app is composed of any number of files, each with the functions, classes, and other declarations that make up the app. Most Swift files in your app are &lt;strong&gt;order-independent&lt;/strong&gt;, meaning you can use a type before it is defined, and can even import modules at the bottom of the file (although that is not recommended Swift style.)&lt;/p&gt; &lt;p&gt;However, top-level code is not allowed in most of your Swift source files. For clarity, any executable statement not written within a function body, within a class, or otherwise encapsulated is considered top-level. We have this rule because if top-level code were allowed in all your files, it would be hard to determine where to start the program.&lt;/p&gt; &lt;h3&gt;Playgrounds, REPL, and Top-Level Code&lt;/h3&gt; &lt;p&gt;You may be wondering why the code below works perfectly in a playground. This example isn’t encapsulated in anything, so it must be top-level code:&lt;/p&gt; &lt;pre&gt;&lt;code&gt;&lt;span class=&quot;method&quot;&gt;println&lt;/span&gt;(&lt;span class=&quot;string&quot;&gt;&quot;Hello world&quot;&lt;/span&gt;)&lt;/code&gt;&lt;/pre&gt; &lt;p&gt;The above single-line program works — with no additional code at all — because playground files do support the execution of top-level code. Code within a playground file is &lt;strong&gt;order-dependent&lt;/strong&gt;, run in top-down lexical order. For example, you can’t use a type before you define it. Of course, Swift playground files can also define functions, classes, and any other legal Swift code, but they don’t need to.  This makes it easy to learn the Swift language or try a new API without writing a lot of code to get started.&lt;/p&gt; &lt;p&gt;In addition to playgrounds, top-level code can also be run in the REPL (Read-Eval-Print-Loop) or when launching Swift files as scripts. To use Swift for scripting, you can use shebang-style launching by starting your Swift file with “#!/usr/bin/xcrun swift” or type “xcrun swift myFile.swift” within Terminal.&lt;/p&gt; &lt;h3&gt;Application Entry Points and “main.swift”&lt;/h3&gt; &lt;p&gt;You’ll notice that earlier we said top-level code isn’t allowed in &lt;em&gt;most&lt;/em&gt; of your app’s source files. The exception is a special file named “main.swift”, which behaves much like a playground file, but is built with your app’s source code. The “main.swift” file can contain top-level code, and the order-dependent rules apply as well. In effect, the first line of code to run in “main.swift” is implicitly defined as the main entrypoint for the program. This allows the minimal Swift program to be a single line — as long as that line is in “main.swift”.&lt;/p&gt; &lt;p&gt;In Xcode, Mac templates default to including a “main.swift” file, but for iOS apps the default for new iOS project templates is to add &lt;span class=&quot;keyword&quot;&gt;@UIApplicationMain&lt;/span&gt; to a regular Swift file. This causes the compiler to synthesize a &lt;span class=&quot;keyword&quot;&gt;main&lt;/span&gt; entry point for your iOS app, and eliminates the need for a “main.swift” file.&lt;/p&gt; &lt;p&gt;Alternatively, you can link in an implementation of &lt;span class=&quot;keyword&quot;&gt;main&lt;/span&gt; written in Objective-C, common when incrementally migrating projects from Objective-C to Swift.&lt;/p&gt; &lt;h3&gt;Global Variables&lt;/h3&gt; &lt;p&gt;Given how Swift determines where to start executing an app, how should global variables work? In the following line of code, when should the initializer run?&lt;/p&gt; &lt;pre&gt;&lt;code&gt;&lt;span class=&quot;key&quot;&gt;var&lt;/span&gt; someGlobal = &lt;span class=&quot;pointer&quot;&gt;foo&lt;/span&gt;()&lt;/code&gt;&lt;/pre&gt; &lt;p&gt;In a single-file program, code is executed top-down, similar to the behavior of variables within a function.  Pretty simple. The answer for complex apps is less obvious, and we considered three different options:&lt;/p&gt; &lt;ul class=&quot;numbered&quot;&gt; &lt;li&gt;Restrict initializers of global variables to be simple constant expressions, as C does.&lt;/li&gt; &lt;li&gt;Allow any initializer, run as a static constructor at app load time, as C++ does.&lt;/li&gt; &lt;li&gt;Initialize lazily, run the initializer for a global the first time it is referenced, similar to Java.&lt;/li&gt; &lt;/ul&gt; &lt;p&gt;The first approach was ruled out because Swift doesn’t need constant expressions like C does. In Swift, constants are generally implemented as (inlined) function calls.  And there are good reasons to use complex initializers, e.g. to set up singletons or allocate a dictionary.&lt;/p&gt; &lt;p&gt;The second approach was ruled out because it is bad for the performance of large systems, as all of the initializers in all the files must run before the application starts up. This is also unpredictable, as the order of initialization in different files is unspecified.&lt;/p&gt; &lt;p&gt;Swift uses the third approach, which is the best of all worlds: it allows custom initializers, startup time in Swift scales cleanly with no global initializers to slow it down, and the order of execution is completely predictable.&lt;/p&gt; &lt;p&gt;The lazy initializer for a global variable (also for static members of structs and enums) is run the first time that global is accessed, and is launched as &lt;span class=&quot;keyword&quot;&gt;dispatch_once&lt;/span&gt; to make sure that the initialization is atomic.  This enables a cool way to use &lt;span class=&quot;keyword&quot;&gt;dispatch_once&lt;/span&gt; in your code: just declare a global variable with an initializer and mark it &lt;span class=&quot;keyword&quot;&gt;private&lt;/span&gt;.&lt;/p&gt; &lt;h3&gt;Summary&lt;/h3&gt; &lt;p&gt;Swift is designed to make it easy to experiment in a playground or to quickly build a script. A complete program can be a single line of code. Of course, Swift was also designed to scale to the most complex apps you can dream up. With “main.swift” you can take complete control over initialization or you can let &lt;span class=&quot;keyword&quot;&gt;@UIApplicationMain&lt;/span&gt; do the startup work for you on iOS.&lt;/p&gt;
-
-</description>
-        <pubDate>Fri, 01 Aug 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-08-01--id=7-a729c023e.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-01--id=7-a729c023e.html</guid>
-        
-        
-        <category>apple_swift</category>
         
       </item>
     

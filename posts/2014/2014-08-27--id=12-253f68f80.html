@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>PHP引用以及误区</title>
+    <title>Optionals Case Study: valuesForKeys</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2012/2012-03-13-php-reference.html-d0df28b64.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-08-27--id=12-253f68f80.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,223 +50,111 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>PHP引用以及误区</h1>
-    <p class="meta"><span class="time">Mar 13, 2012</span><span class="source_url"> • 来自 weizhifeng.net <a name="weizhifeng.net" href="http://weizhifeng.net/php-reference.html" target="_blank">[原文链接]</a></span></p>
+    <h1>Optionals Case Study: valuesForKeys</h1>
+    <p class="meta"><span class="time">Aug 27, 2014</span><span class="source_url"> • 来自 developer.apple.com/swift/blog <a name="developer.apple.com/swift/blog" href="https://developer.apple.com/swift/blog/?id=12" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-	<h3>什么是引用</h3>
+						<p>This post explores how optionals help preserve strong type safety within Swift. We’re going to create a Swift version of an Objective-C API. Swift doesn’t really need this API, but it makes for a fun example.</p>
+<p>In Objective-C, <span class="keyword">NSDictionary</span> has a method <span class="keyword">-objectsForKeys:notFoundMarker:</span> that takes an <span class="keyword">NSArray</span> of keys, and returns an <span class="keyword">NSArray</span> of corresponding values. From the documentation: “the <em>N</em>-th object in the returned array corresponds to the <em>N</em>-th key in [the input parameter] keys.” What if the third key isn’t actually in the dictionary? That’s where the <span class="keyword">notFoundMarker</span> parameter comes in. The third element in the array will be this marker object rather than a value from the dictionary. The Foundation framework even provides a class for this case if you don’t have another to use: <span class="keyword">NSNull</span>.</p>
+<p>In Swift, the <span class="keyword">Dictionary</span> class doesn’t have an <span class="keyword">objectsForKeys</span> equivalent. For this exercise, we’re going to add one — as <span class="keyword">valuesForKeys</span> in keeping with the common use of ‘value’ in Swift — using an extension:</p>
+<pre><code><span class="key">extension</span> <span class="title">Dictionary</span> {
+	<span class="key">func</span> valuesForKeys(keys: [<span class="title">K</span>], notFoundMarker: <span class="title">V</span>) -&gt; [<span class="title">V</span>] {
+		<span class="comment">// To be implemented</span>
+	}
+}</code></pre>
 
-<p>PHP中的引用可以理解成变量的别名。由于PHP的变量名是存储在符号表(symbol table)中的，变量内容是存储在堆中，引用就是用符号表中的不同符号(symbol)名称来访问同一存储内容，和Unix文件系统中的<a href="http://en.wikipedia.org/wiki/Hard_link" title="Hard link">hardlink</a>是同一个概念，比如：</p>
+<p>This is where our new implementation in Swift will differ from Objective-C. In Swift, the stronger typing restricts the resulting array to contain only a single type of element — we can’t put <span class="keyword">NSNull</span> in an array of strings. However, Swift gives an even better option: we can return an <em>array of optionals</em>. All our values get wrapped in optionals, and instead of <span class="keyword">NSNull</span>, we just use <span class="keyword">nil</span>.</p>
+<pre><code><span class="key">extension</span> <span class="title">Dictionary</span> {
+	<span class="key">func</span> valuesForKeys(keys: [<span class="title">Key</span>]) -&gt; [<span class="title">Value</span>?] {
+		<span class="key">var</span> result = [Value?]()
+		result.reserve(keys.count)
+		<span class="key">for</span> key <span class="key">in</span> keys {
+			result.<span class="method">append</span>(<span class="method">self</span>[key])
+		}
+		<span class="key">return</span> result
+	}
+}</code></pre>
 
-<pre><code>&lt;?php
-$a = 1;
-$b = &amp;$a; //$a与$b指向同一内容
-$b = 2;
-echo $b; //2
-echo $a; //2
-</code></pre>
+<p>NOTE: Some of you may have guessed why a Swift <span class="keyword">Dictionary</span> doesn’t need this API, and already imagined something like this:</p>
+<pre><code><span class="key">extension</span> <span class="title">Dictionary</span> {
+	<span class="key">func</span> valuesForKeys(keys: [<span class="title">Key</span>]) -&gt; [<span class="title">Value</span>?] {
+		<span class="key">return</span> keys.<span class="method">map</span> { <span class="method">self</span>[$0] }
+	}
+}</code></pre>
 
-<h3>传递引用</h3>
+<p>This has the exact same effect as the imperative version above, but all of the boilerplate has been wrapped up in the call to <span class="keyword">map</span>. This is great example why Swift types often have a small API surface area, because it’s so easy to just call <span class="keyword">map</span> directly.</p>
+<p>Now we can try out some examples:</p>
+<pre><code><span class="key">let</span> dict = [<span class="string">"A"</span>: <span class="string">"Amir"</span>, <span class="string">"B"</span>: <span class="string">"Bertha"</span>, <span class="string">"C"</span>: <span class="string">"Ching"</span>]
 
-<p>引用传递很简单，就是一个「&amp;」符号，比如：</p>
+<span class="pointer">dict</span>.<span class="enum">valuesForKeys</span>([<span class="string">"A"</span>, <span class="string">"C"</span>])
+<span class="comment">// [Optional("Amir"), Optional("Ching")]</span>
 
-<pre><code>&lt;?php
-function foo(&amp;$a) {
-  $a = 2;
+<span class="pointer">dict</span>.<span class="enum">valuesForKeys</span>([<span class="string">"B"</span>, <span class="string">"D"</span>])
+<span class="comment">// [Optional("Bertha"), nil]</span>
+
+<span class="pointer">dict</span>.<span class="enum">valuesForKeys</span>([])
+<span class="comment">// []</span></code></pre>
+
+<h3>Nested Optionals</h3>
+<p>Now, what if we asked for the <span class="keyword">last</span> element of each result?</p>
+<pre><code><span class="pointer">dict</span>.<span class="enum">valuesForKeys</span>([<span class="string">"A"</span>, <span class="string">"C"</span>]).<span class="title">last</span>
+<span class="comment">// Optional(Optional("Ching"))</span>
+
+<span class="pointer">dict</span>.<span class="enum">valuesForKeys</span>([<span class="string">"B"</span>, <span class="string">"D"</span>]).<span class="title">last</span>
+<span class="comment">// Optional(nil)</span>
+
+<span class="pointer">dict</span>.<span class="enum">valuesForKeys</span>([]).<span class="title">last</span>
+<span class="comment">// nil</span></code></pre>
+
+<p>That’s strange — we have two levels of <span class="keyword">Optional</span> in the first case, and <span class="keyword">Optional(nil)</span> in the second case. What’s going on?</p>
+<p>Remember the declaration of the <span class="keyword">last</span> property:</p>
+<pre><code><span class="key">var</span> last: <span class="title">T</span>? { get }</code></pre>
+
+<p>This says that the <span class="keyword">last</span> property’s type is an <span class="keyword">Optional</span> version of the array’s element type. In <em>this</em> case, the element type is also optional (<span class="keyword">String?</span>). So we end up with <span class="keyword">String??</span>, a doubly-nested optional type.</p>
+<p>So what does <span class="keyword">Optional(nil)</span> mean?</p>
+<p>Recall that in Objective-C we were going to use <span class="keyword">NSNull</span> as a placeholder. The Objective-C version of these three calls looks like this:</p>
+<pre><code>[<span class="pointer">dict</span> valuesForKeys:@[@<span class="string">"A"</span>, @<span class="string">"C"</span>] notFoundMarker:[NSNull null]].lastObject
+<span class="comment">// @"Ching"</span>
+
+[<span class="pointer">dict</span> valuesForKeys:@[@<span class="string">"B"</span>, @<span class="string">"D"</span>] notFoundMarker:[NSNull null]].lastObject
+<span class="comment">// NSNull</span>
+
+[<span class="pointer">dict</span> valuesForKeys:@[] notFoundMarker:[NSNull null]].lastObject
+<span class="comment">// nil</span></code></pre>
+
+<p>In both the Swift and Objective-C cases, a return value of <span class="keyword">nil</span> means “the array is empty, therefore there’s no last element.” The return value of <span class="keyword">Optional(nil)</span> (or in Objective-C <span class="keyword">NSNull</span>) means “the last element of this array exists, but it represents an absence.” Objective-C has to rely on a placeholder object to do this, but Swift can represent it in the type system.</p>
+<h3>Providing a Default</h3>
+<p>To wrap up, what if you <em>did</em> want to provide a default value for anything that wasn’t in the dictionary? Well, that’s easy enough.</p>
+<pre><code><span class="key">extension</span> <span class="title">Dictionary</span> {
+	<span class="key">func</span> valuesForKeys(keys: [<span class="title">Key</span>], notFoundMarker: <span class="title">Value</span>) -&gt; [<span class="title">Value</span>] {
+		<span class="key">return self</span>.<span class="enum">valuesForKeys</span>(keys).<span class="method">map</span> { $0 <span class="method">??</span> notFoundMarker }
+	}
 }
 
-$b = 1;
-foo($b);
-echo $b; //2
-</code></pre>
 
-<h3>返回引用</h3>
+<span class="pointer">dict</span>.<span class="enum">valuesForKeys</span>([<span class="string">"B"</span>, <span class="string">"D"</span>], notFoundMarker: <span class="string">"Anonymous"</span>)
+<span class="comment">// ["Bertha", "Anonymous"]</span></code></pre>
 
-<p>大多数情况下并不需要返回引用来提高性能，zend引擎会自己进行优化，但是如果你非得返回引用得话，可以按照以下方式来返回引用：</p>
-
-<pre><code>&lt;?php
-class foo {
-    public $value = 42;
-
-    public function &amp;getValue() { // 需要一个"&amp;"
-        return $this-&gt;value;
-    }
-}
-
-$obj = new foo;
-$myValue = &amp;$obj-&gt;getValue(); // 还需要一个"&amp;"，$myValue是对class foo中的$value的引用
-$obj-&gt;value = 2;              // 修改对象的$value属性
-echo $myValue;                // 输出2，$myValue与class foo中的$value值相同
-</code></pre>
-
-<h3>与指针的区别</h3>
-
-<p>引用与指针很像，但是其并不是指针，看如下的代码：</p>
-
-<pre><code>&lt;?php
-    $a = 0;
-    $b = &amp;a;
-    echo $a; //0
-    unset($b);
-    echo $a; //0
-</code></pre>
-
-<p>由于$b只是$a的别名，所以即使$b被释放了，$a没有任何影响，但是指针可不是这样的，看如下代码：</p>
-
-<pre><code>#include &lt;stdio.h&gt;
-int main(int argc, char const *argv[]) {
-    int a = 0;
-    int* b = &amp;a;
-
-    printf("%i\n", a); //0
-    free(b);
-    printf("%i\n", a); //*** error for object 0x7fff6350da08: pointer being freed was not allocated
-}
-</code></pre>
-
-<p>由于b是指向a的指针，所以释放了b的内存之后，再访问a就会出现错误，比较明显的说明了PHP引用与C指针的区别。</p>
-
-<h3>对象与引用</h3>
-
-<p>在PHP中使用对象的时候，大家总是被告知“对象是按照引用传递的”，其实这是个误区。PHP的对象变量存储的是此对象的一个标示符，在传递对象的时候，其实传递的就是这个标示符，而并不是引用，看如下代码：</p>
-
-<pre><code>&lt;?php
-$a = new A;
-$b = $a;    
-$b-&gt;testA = 2;
-
-/*
- * 此时$a,$b的关系：
- *        +-----------+      +-----------------+
- * $a --&gt; | object id | ---&gt; | object(Class A) |
- *        +-----------+      +-----------------+
- *                               ^
- *        +-----------+          |
- * $b --&gt; | object id | ---------+
- *        +-----------+    
- *
- *
- */
-
-$c = new B;
-$a = $c;
-$a-&gt;testB = "Changed Class B";
-
-/*
- * 此时$a,$b,$c的关系：
- *        +-----------+      +-----------------+
- * $b --&gt; | object id | ---&gt; | object(Class A) |
- *        +-----------+      +-----------------+
- *                               
- *        +------------+          
- * $a --&gt; | object id2 | -------------+
- *        +------------+              |
- *                                    v
- *        +------------+      +-----------------+
- * $c --&gt; | object id2 | ---&gt; | object(Class B) |
- *        +------------+      +-----------------+
- */
-
-echo "object a: "; var_dump($a); //["testB"]=&gt; string(15) "Changed Class B"
-echo "object b: "; var_dump($b); //["testA"] =&gt; int(2)
-echo "object c: "; var_dump($c); //["testB"]=&gt; string(15) "Changed Class B"
-</code></pre>
-
-<p>如果对象是按照引用传递的，那么$a, $b, $c输出的内容应该一样，事实上结果并非如此。 看下面通过引用传递对象的列子：</p>
-
-<pre><code>&lt;?php
-$aa = new A;
-$bb = &amp;$aa;  // 引用 
-$bb-&gt;testA = 2;
-
-/*
- * 此时$aa, $bb的关系：
- *
- *         +-----------+      +-----------------+
- * $bb --&gt; | object id | ---&gt; | object(Class A) |
- *         +-----------+      +-----------------+
- *              ^                  
- *              |
- * $aa ---------+ 
- *
- *
- */
-
-$cc = new B;
-$aa = $cc;
-$aa-&gt;testB = "Changed Class B";
-
-/*
- * 此时$aa, $bb, $cc的关系：
- *
- *         +-----------+      +-----------------+
- *         | object id | ---&gt; | object(Class A) |
- *         +-----------+      +-----------------+
- *              
- * $bb ----&gt;-----+      
- *               |
- * $aa ----&gt;-----+
- *               |  
- *               v   
- *         +------------+      
- *         | object id2 | --------------+ 
- *         +------------+               |
- *                                      v
- *         +------------+      +-----------------+
- * $cc --&gt; | object id2 | ---&gt; | object(Class B) |
- *         +------------+      +-----------------+
- */
-
-echo "object aa: "; var_dump($aa); //["testB"]=&gt;string(15) "Changed Class B"
-echo "object bb: "; var_dump($bb); //["testB"]=&gt;string(15) "Changed Class B"
-echo "object cc: "; var_dump($cc); //["testB"]=&gt;string(15) "Changed Class B"
-</code></pre>
-
-<p>此时$aa，$bb，$cc三者内容完全一样，所以可以看出对象并不是按照引用传递，要尽快走出这个误区。</p>
-
-<p>参考：</p>
-
-<p><a href="http://www.php.net/manual/en/language.references.php">http://www.php.net/manual/en/language.references.php</a>
-<a href="http://www.php.net/manual/en/language.oop5.references.php">http://www.php.net/manual/en/language.oop5.references.php</a></p>
-
-	(完)
-
-	<div class="post-info">
-		13 Mar 2012  
-
-	</div>
-
-	<!-- disqus start -->
-
-	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
-</noscript>
-
-	<!-- disqus end -->
-
-	<!-- related start -->
-
-	<!-- related end -->
+<p>While Objective-C has to rely on a placeholder object to do this, Swift can represent it in the type system, and provides rich syntactic support for handling optional results.</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2012/2012-03-11-php-clone.html-4b49ce14a.html" title="Previous Post: PHP克隆" data-instant>&laquo; PHP克隆</a>
-
-    <a class="basic-alignment right" href="/posts/2012/2012-03-18-wrong-with-curlwrappers.html-6ac57db3c.html" title="Next Post: PHP –with-curlwrappers 导致的问题" data-instant>PHP –with-curlwrappers 导致的问题 &raquo;</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-08-26-75844-f42bbf63c.html" title="Previous Post: 实现键值对存储（一）：什么是键值对存储，为什么要实现它" data-instant>&laquo; 实现键值对存储（一）：什么是键值对存储，为什么要实现它</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>11 Mar 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-03-11-php-clone.html-4b49ce14a.html">PHP克隆</a></li>
+      <li><span>05 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-05--id=8-1cf8664dd.html">Boolean</a></li>
 
-      <li><span>03 Feb 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-02-03-javascript-prototype.html-70122cc79.html">JavaScript Prototype</a></li>
+      <li><span>28 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-28--id=6-ea85867c5.html">Interacting with C Pointers</a></li>
 
-      <li><span>27 Oct 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-10-27-immediately-invoked-function-expression.html-410c6719c.html">JavaScript中的立即执行函数表达式</a></li>
+      <li><span>15 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-15--id=10-9e7bc9520.html"> Value and Reference Types </a></li>
 
   </ul>
 </div>
