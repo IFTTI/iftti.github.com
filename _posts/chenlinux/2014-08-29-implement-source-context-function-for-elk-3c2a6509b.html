@@ -1,0 +1,190 @@
+---
+layout: post
+title: '山寨一个 Splunk 的 source 上下文查看功能'
+time: 2014-08-29 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/08/29/implement-source-context-function-for-elk
+images:
+  f1599f34ddb906aca6c8d97c143a66b3: /images/uploads/splunk-source-context.jpg
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>跟很多朋友在聊 elk stack 的时候，都会不知不觉的开始跟 Splunk 做对比。最常见的两个抱怨就是：Splunk 的搜索构建语法 比 Kibana 方便，以及 Splunk 搜索出来的消息可以通过点击 <code>Source</code> 按钮查看其原始日志中的前后几条日志。</p>
+<p><img src="/images/chenlinux.com/f1599f34ddb906aca6c8d97c143a66b3.jpg" alt="splunk source context"></p>
+<p>平心而论，这个上下文查找的功能确实在排错过程中非常有用。但是在 elk 里却不那么容易实现，原因是：</p>
+<p><strong>elasticsearch 是一个分布式项目，其索引的 <code>_id</code> 默认使用的是 UUID 方式生成的随机字符串，你没法根据 UUID 来判断数据的先后。</strong></p>
+<p><code>LogStash::Outputs::Elasticsearch</code> 提供了让你指定 <code>_id</code> 内容的选项，但是在集群环境下，你很难自己搞定一个全局自增 ID。</p>
+<p><em>相反，虽然我不知道 splunk 的数据存储的内部实现，但是就他昂贵的报价来说，基本只见过单机案例。就单机而言，自增 id 太轻松了</em></p>
+<p>所以，从原理上来说，就很难实现一个通用的 elk 版上下文查看功能。</p>
+<p>不过我们缩小一下使用场景，却未必不能自己山寨一个对自己可用的办法来。</p>
+<p>假设我们一个最常见的场景，就是从各 web 服务器上收集不同日志到中心。那么这时候，通过 <code>%{host}</code> 和 <code>%{path}</code> 的 “AND” 过滤，我们就可以把范围缩小到一个单一的文件内容里。所以，我们只需要能够搞定这个文件的自增 id 就够了！</p>
+<h2 id="logstashconf-">logstash.conf 示例</h2>
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="n">input</span> <span class="p">{</span>
+    <span class="n">file</span> <span class="p">{</span>
+        <span class="n">path</span> <span class="o">=&gt;</span> <span class="o">[</span><span class="s2">"/var/log/*.log"</span><span class="o">]</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+<span class="n">filter</span> <span class="p">{</span>
+    <span class="n">ruby</span> <span class="p">{</span>
+        <span class="n">init</span> <span class="o">=&gt;</span> <span class="s1">'@incr={}'</span>
+        <span class="n">code</span> <span class="o">=&gt;</span> <span class="s2">"key = event['host']+event['path']</span>
+<span class="s2">                 if @incr.has_key?(key)</span>
+<span class="s2">                     @incr[key] += 1</span>
+<span class="s2">                 else</span>
+<span class="s2">                     @incr[key] = 1 </span>
+<span class="s2">                 end</span>
+<span class="s2">                 event['lineno'] = @incr[key]"</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+<span class="n">output</span> <span class="p">{</span>
+    <span class="n">elasticsearch</span> <span class="p">{</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre></div>
+<h2 id="curl-">上下文查询 curl 示例</h2>
+<p>使用上面的配置运行起来 logstash 之后，假设我们现在搜到一条 syslog 日志，其 <code>lineno</code> 是 20，那么查看它的前后 5 条记录的 curl 命令就是：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="err">curl</span> <span class="err">-XPOST</span> <span class="err">'http://localhost:</span><span class="mi">9200</span><span class="err">/logstash</span><span class="mf">-2014.08</span><span class="err">.</span><span class="mi">29</span><span class="err">/_search?pretty=</span><span class="mi">1</span><span class="err">'</span> <span class="err">-d</span> <span class="err">'</span>
+<span class="p">{</span>
+  <span class="nt">"query"</span><span class="p">:{</span>
+    <span class="nt">"range"</span><span class="p">:{</span>
+      <span class="nt">"lineno"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"gt"</span><span class="p">:</span><span class="mi">15</span><span class="p">,</span>
+        <span class="nt">"lte"</span><span class="p">:</span><span class="mi">25</span>
+      <span class="p">}</span>
+    <span class="p">}</span>   
+  <span class="p">},</span>  
+  <span class="nt">"filter"</span><span class="p">:{</span>
+    <span class="nt">"term"</span><span class="p">:{</span>
+      <span class="nt">"host.raw"</span><span class="p">:</span><span class="s2">"raochenlindeMacBook-Air.local"</span><span class="p">,</span>
+      <span class="nt">"path.raw"</span><span class="p">:</span><span class="s2">"/var/log/system.log"</span>
+    <span class="p">}</span>
+  <span class="p">},</span>
+  <span class="nt">"sort"</span><span class="p">:[{</span><span class="nt">"lineno"</span><span class="p">:</span><span class="s2">"asc"</span><span class="p">}],</span>
+  <span class="nt">"fields"</span><span class="p">:[</span><span class="s2">"message"</span><span class="p">],</span>
+  <span class="nt">"size"</span><span class="p">:</span><span class="mi">10</span>
+<span class="p">}</span><span class="err">'</span></code></pre></div>
+<p>得到的结果是：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="p">{</span>
+  <span class="nt">"took"</span> <span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+  <span class="nt">"timed_out"</span> <span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+  <span class="nt">"_shards"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="nt">"successful"</span> <span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="nt">"failed"</span> <span class="p">:</span> <span class="mi">0</span>
+  <span class="p">},</span>
+  <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+    <span class="nt">"max_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+    <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">[</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"ILkv4oZOQRGXkH5nxjPT6Q"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:34:44 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391727104]: Service [sproxy] accepted connection from 127.0.0.1:52673"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">16</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"frRzVZUDQr-dkRog9LEypQ"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:34:44 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391727104]: s_connect: connected 50.116.12.155:65080"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">17</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"fQ50VrbuSfy6AmhNOaHpFg"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:34:44 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391727104]: Service [sproxy] connected remote server from 192.168.0.102:52674"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">18</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"Bpza8x6gSQi3OFRfAz3vPA"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:35:23 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: Service [sproxy] accepted connection from 127.0.0.1:52710"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">19</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"I7SQ4o-aSr--em1WXO0y0A"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:35:24 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: s_connect: connected 50.116.12.155:65080"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">20</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"POLq7XA_QVe6E5f9cP9V-w"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:35:24 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: Service [sproxy] connected remote server from 192.168.0.102:52711"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">21</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"sXCLVr7URu-2uKhcOP3wjA"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:35:35 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: Connection closed: 0 byte(s) sent to SSL, 0 byte(s) sent to socket"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">22</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"3wxxElNuS7OgyvjSm8CQfg"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:36:25 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391571456]: Connection closed: 2825 byte(s) sent to SSL, 2407 byte(s) sent to socket"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">23</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"xdsiB1cmRpagWiMxtAjMzQ"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:36:52 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391493632]: Connection closed: 1109 byte(s) sent to SSL, 583 byte(s) sent to socket"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">24</span> <span class="p">]</span>
+    <span class="p">},</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-2014.08.29"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"logs"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"mLScPMbwTzSPMz9WqOPXlw"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="kc">null</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"message"</span> <span class="p">:</span> <span class="p">[</span> <span class="s2">"Aug 29 23:36:52 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391571456]: Service [sproxy] accepted connection from 127.0.0.1:52719"</span> <span class="p">]</span>
+      <span class="p">},</span>
+      <span class="nt">"sort"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">25</span> <span class="p">]</span>
+    <span class="p">}</span> <span class="p">]</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre></div>
+<p>没错，这就是我们想要的结果了！</p>
+<p><strong>注释</strong></p>
+<p>这里两个要点：</p>
+<ul>
+  <li>自增 id 为啥不用行号，因为 <code>LogStash::Inputs::File</code> 实现是通过 <code>File.seek</code> 和 <code>File.sysread(16394)</code> 完成的，这种时候 <code>File.lineno</code> 永远都是 0。获取真的行号很困难。</li>
+  <li>自增 id 为什么不指定成 <code>_id</code> 而是另外存字段，因为 <code>_id</code> 是特殊字段，要求在一个 <code>_index/_type</code> 里是唯一的。我们对 logstash 的使用一般情况下都是多个 host 内容存在同一个 <code>_index/_type</code> 下，会发生重复的(重复写入 <code>_id</code> 相同的数据等同于 <code>update</code> 操作)。</li>
+</ul>
+<h2 id="section">延伸</h2>
+<p>数据如何通过 kibana 展示，则是另外一个层面的内容。有时间可能我会也做一下。</p>
+<p>非 input/file 方式的其他场景，只要你能通过 event 中其他字段确定出来源唯一，都可以采用这个方式做。</p>
+    <hr>
+    
+    <hr>
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
