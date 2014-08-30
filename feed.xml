@@ -5,9 +5,202 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Thu, 28 Aug 2014 17:00:24 +0800</pubDate>
-    <lastBuildDate>Thu, 28 Aug 2014 17:00:24 +0800</lastBuildDate>
+    <pubDate>Sat, 30 Aug 2014 14:33:26 +0800</pubDate>
+    <lastBuildDate>Sat, 30 Aug 2014 14:33:26 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>山寨一个 Splunk 的 source 上下文查看功能</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;跟很多朋友在聊 elk stack 的时候，都会不知不觉的开始跟 Splunk 做对比。最常见的两个抱怨就是：Splunk 的搜索构建语法 比 Kibana 方便，以及 Splunk 搜索出来的消息可以通过点击 &lt;code&gt;Source&lt;/code&gt; 按钮查看其原始日志中的前后几条日志。&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/f1599f34ddb906aca6c8d97c143a66b3.jpg&quot; alt=&quot;splunk source context&quot;&gt;&lt;/p&gt;
+&lt;p&gt;平心而论，这个上下文查找的功能确实在排错过程中非常有用。但是在 elk 里却不那么容易实现，原因是：&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;elasticsearch 是一个分布式项目，其索引的 &lt;code&gt;_id&lt;/code&gt; 默认使用的是 UUID 方式生成的随机字符串，你没法根据 UUID 来判断数据的先后。&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;LogStash::Outputs::Elasticsearch&lt;/code&gt; 提供了让你指定 &lt;code&gt;_id&lt;/code&gt; 内容的选项，但是在集群环境下，你很难自己搞定一个全局自增 ID。&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;相反，虽然我不知道 splunk 的数据存储的内部实现，但是就他昂贵的报价来说，基本只见过单机案例。就单机而言，自增 id 太轻松了&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;所以，从原理上来说，就很难实现一个通用的 elk 版上下文查看功能。&lt;/p&gt;
+&lt;p&gt;不过我们缩小一下使用场景，却未必不能自己山寨一个对自己可用的办法来。&lt;/p&gt;
+&lt;p&gt;假设我们一个最常见的场景，就是从各 web 服务器上收集不同日志到中心。那么这时候，通过 &lt;code&gt;%{host}&lt;/code&gt; 和 &lt;code&gt;%{path}&lt;/code&gt; 的 “AND” 过滤，我们就可以把范围缩小到一个单一的文件内容里。所以，我们只需要能够搞定这个文件的自增 id 就够了！&lt;/p&gt;
+&lt;h2 id=&quot;logstashconf-&quot;&gt;logstash.conf 示例&lt;/h2&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ruby&quot; data-lang=&quot;ruby&quot;&gt;&lt;span class=&quot;n&quot;&gt;input&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;file&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;path&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;/var/log/*.log&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;filter&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;ruby&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;init&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;@incr={}&#39;&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;code&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;key = event[&#39;host&#39;]+event[&#39;path&#39;]&lt;/span&gt;
+&lt;span class=&quot;s2&quot;&gt;                 if @incr.has_key?(key)&lt;/span&gt;
+&lt;span class=&quot;s2&quot;&gt;                     @incr[key] += 1&lt;/span&gt;
+&lt;span class=&quot;s2&quot;&gt;                 else&lt;/span&gt;
+&lt;span class=&quot;s2&quot;&gt;                     @incr[key] = 1 &lt;/span&gt;
+&lt;span class=&quot;s2&quot;&gt;                 end&lt;/span&gt;
+&lt;span class=&quot;s2&quot;&gt;                 event[&#39;lineno&#39;] = @incr[key]&quot;&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;output&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;elasticsearch&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;h2 id=&quot;curl-&quot;&gt;上下文查询 curl 示例&lt;/h2&gt;
+&lt;p&gt;使用上面的配置运行起来 logstash 之后，假设我们现在搜到一条 syslog 日志，其 &lt;code&gt;lineno&lt;/code&gt; 是 20，那么查看它的前后 5 条记录的 curl 命令就是：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&lt;span class=&quot;err&quot;&gt;curl&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;-XPOST&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;&#39;http://localhost:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;9200&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;/logstash&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;-2014.08&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;29&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;/_search?pretty=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;&#39;&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;-d&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;&#39;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;query&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;range&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;lineno&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;gt&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;15&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;lte&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;25&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;   
+  &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;  
+  &lt;span class=&quot;nt&quot;&gt;&quot;filter&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;term&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;host.raw&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;raochenlindeMacBook-Air.local&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;path.raw&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;/var/log/system.log&quot;&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:[{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;lineno&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;asc&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}],&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;message&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;size&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;&#39;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;得到的结果是：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;took&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;timed_out&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;_shards&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;total&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;successful&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;failed&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;hits&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;total&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;max_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;hits&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;ILkv4oZOQRGXkH5nxjPT6Q&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:34:44 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391727104]: Service [sproxy] accepted connection from 127.0.0.1:52673&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;16&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;frRzVZUDQr-dkRog9LEypQ&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:34:44 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391727104]: s_connect: connected 50.116.12.155:65080&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;17&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;fQ50VrbuSfy6AmhNOaHpFg&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:34:44 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391727104]: Service [sproxy] connected remote server from 192.168.0.102:52674&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;18&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Bpza8x6gSQi3OFRfAz3vPA&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:35:23 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: Service [sproxy] accepted connection from 127.0.0.1:52710&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;19&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;I7SQ4o-aSr--em1WXO0y0A&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:35:24 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: s_connect: connected 50.116.12.155:65080&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;POLq7XA_QVe6E5f9cP9V-w&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:35:24 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: Service [sproxy] connected remote server from 192.168.0.102:52711&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;21&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;sXCLVr7URu-2uKhcOP3wjA&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:35:35 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391882752]: Connection closed: 0 byte(s) sent to SSL, 0 byte(s) sent to socket&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;22&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;3wxxElNuS7OgyvjSm8CQfg&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:36:25 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391571456]: Connection closed: 2825 byte(s) sent to SSL, 2407 byte(s) sent to socket&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;23&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;xdsiB1cmRpagWiMxtAjMzQ&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:36:52 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391493632]: Connection closed: 1109 byte(s) sent to SSL, 583 byte(s) sent to socket&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;24&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash-2014.08.29&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;mLScPMbwTzSPMz9WqOPXlw&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;null&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;fields&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Aug 29 23:36:52 raochenlindeMacBook-Air.local stunnel[304]: LOG5[4391571456]: Service [sproxy] accepted connection from 127.0.0.1:52719&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sort&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;25&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;没错，这就是我们想要的结果了！&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;注释&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;这里两个要点：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;自增 id 为啥不用行号，因为 &lt;code&gt;LogStash::Inputs::File&lt;/code&gt; 实现是通过 &lt;code&gt;File.seek&lt;/code&gt; 和 &lt;code&gt;File.sysread(16394)&lt;/code&gt; 完成的，这种时候 &lt;code&gt;File.lineno&lt;/code&gt; 永远都是 0。获取真的行号很困难。&lt;/li&gt;
+  &lt;li&gt;自增 id 为什么不指定成 &lt;code&gt;_id&lt;/code&gt; 而是另外存字段，因为 &lt;code&gt;_id&lt;/code&gt; 是特殊字段，要求在一个 &lt;code&gt;_index/_type&lt;/code&gt; 里是唯一的。我们对 logstash 的使用一般情况下都是多个 host 内容存在同一个 &lt;code&gt;_index/_type&lt;/code&gt; 下，会发生重复的(重复写入 &lt;code&gt;_id&lt;/code&gt; 相同的数据等同于 &lt;code&gt;update&lt;/code&gt; 操作)。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id=&quot;section&quot;&gt;延伸&lt;/h2&gt;
+&lt;p&gt;数据如何通过 kibana 展示，则是另外一个层面的内容。有时间可能我会也做一下。&lt;/p&gt;
+&lt;p&gt;非 input/file 方式的其他场景，只要你能通过 event 中其他字段确定出来源唯一，都可以采用这个方式做。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Fri, 29 Aug 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
     
       <item>
         <title>Optionals Case Study: valuesForKeys</title>
@@ -4712,154 +4905,6 @@ Apriori算法是发现频繁项集的一种方法。Apriori算法的两个输入
         <pubDate>Sat, 02 Aug 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-08-02-74716-e47d709de.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-02-74716-e47d709de.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>算法系列：计数排序</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;&lt;a href=&quot;https://en.wikipedia.org/wiki/Counting_sort&quot;&gt;计数排序&lt;/a&gt;可能是最简单的一种排序，它可以被用来对一个列表进行排序，并且是&lt;a href=&quot;https://en.wikipedia.org/wiki/Radix_sort&quot;&gt;基数排序&lt;/a&gt;的一个关键部分。这两者都是被发明的，这篇文章我将解释计数排序并且用C写出来。&lt;/p&gt;
-&lt;ul&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;计数排序非常基础，他的主要目的是对整数排序并且会比普通的排序算法性能更好。例如，输入{1, 3, 5, 2, 1, 4}给计数排序，会输出{1, 1, 2, 3, 4, 5}。这个算法由以下步骤组成：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;
-&lt;li&gt;遍历输入数组，遇到一个数就在计数数组对应的位置上加一。例如：遇到5，就将计数数组第五个位置的数加一。&lt;/li&gt;
-
-&lt;/ol&gt;
-&lt;ul&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;输入{3, 4, 3, 2, 1}，最大是4，数组长度是5。&lt;/p&gt;
-&lt;p&gt;建立计数数组{0, 0, 0, 0}。&lt;/p&gt;
-&lt;p&gt;遍历输入数组：&lt;/p&gt;
-&lt;p&gt;{&lt;strong&gt;3&lt;/strong&gt;, 4, 3, 2, 1} -&amp;gt; {0, 0, &lt;strong&gt;1&lt;/strong&gt;, 0}&lt;br&gt;
-{3, &lt;strong&gt;4&lt;/strong&gt;, 3, 2, 1} -&amp;gt; {0, 0, 1, &lt;strong&gt;1&lt;/strong&gt;}&lt;br&gt;
-{3, 4, &lt;strong&gt;3&lt;/strong&gt;, 2, 1} -&amp;gt; {0, 0, &lt;strong&gt;2&lt;/strong&gt;, 1}&lt;br&gt;
-{3, 4, 3, &lt;strong&gt;2&lt;/strong&gt;, 1} -&amp;gt; {0, &lt;strong&gt;1&lt;/strong&gt;, 2, 1}&lt;br&gt;
-{3, 4, 3, 2, &lt;strong&gt;1&lt;/strong&gt;} -&amp;gt; {, 1, 2, 1}&lt;/p&gt;
-&lt;p&gt;计数数组现在是{1, 1, 2, 1}，我们现在把它写回到输入数组里：&lt;/p&gt;
-&lt;p&gt;{&lt;strong&gt;0&lt;/strong&gt;, 1, 2, 1} -&amp;gt; {&lt;strong&gt;1&lt;/strong&gt;, 4, 3, 2, 1}&lt;br&gt;
-{o, &lt;strong&gt;o&lt;/strong&gt;, 2, 1} -&amp;gt; {1, &lt;strong&gt;2&lt;/strong&gt;, 3, 2, 1}&lt;br&gt;
-{o, o, &lt;strong&gt;1&lt;/strong&gt;, 1} -&amp;gt; {1, 2, &lt;strong&gt;3&lt;/strong&gt;, 2, 1}&lt;br&gt;
-{o, o, &lt;strong&gt;o&lt;/strong&gt;, 1} -&amp;gt; {1, 2, 3, &lt;strong&gt;3&lt;/strong&gt;, 1}&lt;br&gt;
-{o, o, o, &lt;strong&gt;o&lt;/strong&gt;} -&amp;gt; {1, 2, 3, 3, }&lt;/p&gt;
-&lt;p&gt;这样就排好序了。&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;
-
-&lt;/ul&gt;
-&lt;ul&gt;
-
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;#include &amp;lt;stdio.h&amp;gt;
-#include &amp;lt;stdlib.h&amp;gt;
-
-void printArray(int * array, int size){
-
-  int curr;
-  for(curr = 0; curr &amp;lt; size; curr++){
-    printf(&quot;%d, &quot;, array[curr]);
-  }
-  printf(&quot;\n&quot;);
-}
-
-int maximum(int * array, int size){
-
-  int curr = 0;
-  int max = 0;
-
-  for(curr = 0; curr &amp;lt; size; curr++){
-    if(array[curr] &amp;gt; max){ max = array[curr]; }
-  }
-
-  return max;
-}
-
-void countingSort(int * array, int size){
-
-  int curr = 0;
-  int max = maximum(array, size);
-  int * counting_array = calloc(max, sizeof(int)); // Zeros out the array
-
-  for(curr = 0; curr &amp;lt; size; curr ++){
-    counting_array[array[curr]]++;
-  }
-
-  int num = 0;
-  curr = 0;
-
-  while(curr &amp;lt;= size){
-    while(counting_array[num] &amp;gt; 0){
-      array[curr] = num;
-      counting_array[num]--;
-      curr++;
-      if(curr &amp;gt; size){ break; }
-    }
-    num++;
-  }
-  printArray(array, size);
-}
-
-int main(){
-
-  int test1[] = {2, 6, 4, 3, 2, 3, 4, 6, 3, 4, 3, 5, 2, 6};
-  int size1 = 14;
-
-  countingSort(test1, size1);
-
-  int test2[] = {5, 6, 7, 8, 5};
-  int size2 = 5;
-
-  countingSort(test2, size2);
-
-  int test3[] = {8, 1, 2, 3, 3, 4};
-  int size3 = 6;
-
-  countingSort(test3, size3);
-
-  return 0;
-}&lt;/pre&gt;
-&lt;p&gt;插播一句：如果你编程有困难，无妨看看。&lt;/p&gt;
-&lt;ul&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;不幸的是，这个算法的简洁性同时也是它的弱点。很多程序员不需要对整数排序，至少他们觉得他们不需要。其实通常非整数都可以被规约为整数，然后再用计数排序或者基数排序（基数排序就是多加了一层，这样会快一些）。谷歌一下可以有不少结果，比如。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Fri, 01 Aug 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-08-01-74574-360ecc2bb.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-01-74574-360ecc2bb.html</guid>
         
         
         <category>jobbole</category>
