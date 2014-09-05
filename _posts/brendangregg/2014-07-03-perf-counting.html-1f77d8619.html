@@ -1,0 +1,132 @@
+---
+layout: post
+title: 'perf Counting'
+time: 2014-07-03 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-07-03/perf-counting.html
+---
+{% raw %}
+
+<p>"I just want to know how many times this is called."... This is a question I'm often asking for kernel, device, and application events, and there is an efficient way to answer them: using Linux <tt>perf</tt> <tt>stat</tt>.</p>
+
+<p>The <tt>perf</tt> tool (aka perf_events) has different modes of operation. My previous examples on <a href="http://www.brendangregg.com/blog/2014-06-22/perf-cpu-sample.html">CPU sampling</a>, <a href="http://www.brendangregg.com/blog/2014-06-29/perf-static-tracepoints.html">static tracepoints</a>, and <a href="http://www.brendangregg.com/blog/2014-07-01/perf-heat-maps.html">heat maps</a>, used a mode perf_events calls "sampling", where a binary perf.data file is written containing event data. Another mode, "counting", summarizes events in-kernel and passes the summary to user space. This is more efficient, costing less overhead in terms of CPU and storage.</p>
+
+<h3>Process Counts</h3>
+
+<p>How many processes are being created and destroyed? Using <tt>perf</tt> <tt>stat</tt> to <i>count</i> the sched_process tracepoints for 5 seconds:</p>
+
+<pre>
+# <b>perf stat -e 'sched:sched_process_*' -a sleep 5</b>
+
+ Performance counter stats for 'system wide':
+
+                20      sched:sched_process_free                     [100.00%]
+                21      sched:sched_process_exit                     [100.00%]
+                37      sched:sched_process_wait                     [100.00%]
+                20      sched:sched_process_fork                     [100.00%]
+                41      sched:sched_process_exec                     [100.00%]
+                 0      sched:sched_process_hang                     
+
+       5.001391328 seconds time elapsed
+</pre>
+
+<p>Neat. So there were 20 fork()s and 21 exit()s during 5 seconds. I used -a to match on all CPUs, and <tt>sleep 5</tt> as a dummy command to set the counting duration. You can use <tt>-p PID</tt> instead, to match a process, and skip the sleep command so that <tt>perf</tt> runs until Ctrl-C.</p>
+
+<p>This works for any event (see <tt>perf</tt> <tt>list</tt>) including all static and dynamic tracepoints.</p>
+
+<h3>Syscall Counts</h3>
+
+<p>Here's syscalls:</p>
+
+<pre>
+# <b>perf stat -e 'syscalls:sys_enter_*' -a sleep 5 | awk '$1'</b>
+# started on Wed Jul  2 23:39:50 2014
+ Performance counter stats for 'system wide':
+                60      syscalls:sys_enter_socket                    [99.95%]
+                68      syscalls:sys_enter_connect                    [99.95%]
+               148      syscalls:sys_enter_epoll_wait                    [99.97%]
+                 8      syscalls:sys_enter_statfs                    [99.97%]
+                18      syscalls:sys_enter_dup2                      [99.98%]
+                18      syscalls:sys_enter_getcwd                    [99.98%]
+               155      syscalls:sys_enter_select                    [99.98%]
+               226      syscalls:sys_enter_poll                      [99.98%]
+[...]
+</pre>
+
+<p>I used awk to strip out syscalls that had zero counts. If that doesn't work for you, add "-o /dev/stdout" to the <tt>perf</tt> command, which can be needed for older versions (eg, Linux 3.2). Another issue I've had with older versions is the need to increase the file descriptor limit (ulimit -n), when matching this many probes.</p>
+
+<p>This one-liner can be a quick way to determine which syscalls are in use, before moving to using <tt>perf</tt> <tt>record</tt> for a closer look, eg, with arguments and stack traces.</p>
+
+<h3>Interval Summary</h3>
+
+<p><tt>perf</tt> <tt>stat</tt> can also print an interval summary in more recent versions, using <tt>-I</tt> and a duration in milliseconds. For example, showing the per-second rate of context switches:</p>
+
+<pre>
+# <b>perf stat -I 1000 -e sched:sched_switch -a sleep 5</b>
+#           time             counts unit events
+     1.000205453                314      sched:sched_switch       
+     2.000456051                290      sched:sched_switch       
+     3.000644420                322      sched:sched_switch       
+     4.000836009                305      sched:sched_switch       
+     5.001022382                198      sched:sched_switch       
+     5.001442140                  7      sched:sched_switch 
+</pre>
+
+<p>Nice. Again, this works for any event.</p>
+
+<h3>By CPU-ID</h3>
+
+<p>You can also decompose by CPU id:</p>
+
+<pre>
+# <b>perf stat -A -e sched:sched_switch -a sleep 5</b>
+
+ Performance counter stats for 'system wide':
+
+CPU0                   495      sched:sched_switch                                          
+CPU1                   632      sched:sched_switch                                          
+
+       5.001377216 seconds time elapsed
+</pre>
+
+<h3>Filtering</h3>
+
+<p>Finally, --filter can be added to only increment the counter based on a boolean test. For example, counting read() syscalls where the requested size is greater than 4 Kbytes:</p>
+
+<pre>
+# <b>perf stat -e syscalls:sys_enter_read --filter 'count &gt; 4096' -a sleep 5</b>
+
+ Performance counter stats for 'system wide':
+
+                 1      syscalls:sys_enter_read                                     
+
+       5.001407932 seconds time elapsed
+</pre>
+
+<p>Notice that I used a "count" variable. Where did that come from, and what else is there?</p>
+
+<p>You can figure out many of the variables by reading the static tracepoint definitions in the kernel source (see the example in my <a href="http://www.brendangregg.com/blog/2014-06-29/perf-static-tracepoints.html">static tracepoints</a> post). Another way is to print their format files:</p>
+
+<pre>
+# <b>cat /sys/kernel/debug/tracing/events/syscalls/sys_enter_read/format</b>
+name: sys_enter_read
+ID: 509
+format:
+    field:unsigned short common_type;   offset:0;   size:2; signed:0;
+    field:unsigned char common_flags;   offset:2;   size:1; signed:0;
+    field:unsigned char common_preempt_count;   offset:3;   size:1; signed:0;
+    field:int common_pid;   offset:4;   size:4; signed:1;
+
+    field:int nr;   offset:8;   size:4; signed:1;
+    field:unsigned int fd;  offset:16;  size:8; signed:0;
+    field:char * buf;   offset:24;  size:8; signed:0;
+    field:size_t count; offset:32;  size:8; signed:0;
+
+print fmt: "fd: 0x%08lx, buf: 0x%08lx, count: 0x%08lx", ((unsigned long)(REC-&gt;fd)), ((unsigned long)(REC-&gt;buf)), ((unsigned long)(REC-&gt;count))
+</pre>
+
+<p>If it's a dynamic tracepoint, you can use <tt>perf</tt> <tt>probe</tt> <tt>-V</tt> to list available variables. I wish there was a similar option for static tracepoints, as well.</p>
+
+<p>So that's a quick tour of basic perf_events counting capabilities. More is possible; see my <a href="/perf.html">perf_events</a> page and the <a href="https://perf.wiki.kernel.org/index.php/Main_Page">perf_events wiki</a>.</p>
+
+{% endraw %}

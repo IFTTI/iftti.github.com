@@ -1,0 +1,150 @@
+---
+layout: post
+title: 'perf Hacktogram'
+time: 2014-07-10 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-07-10/perf-hacktogram.html
+---
+{% raw %}
+
+<p>What is the distribution of sent packet sizes for my Linux system?</p>
+
+<pre>
+# <b>./perf-stat-hist net:net_dev_xmit len 10</b>
+Tracing net:net_dev_xmit, power-of-4, max 16384, for 10 seconds...
+
+            Range          : Count    Distribution
+            0              : 0        |                                      |
+            1 -&gt; 3         : 0        |                                      |
+            4 -&gt; 15        : 0        |                                      |
+           16 -&gt; 63        : 6        |#                                     |
+           64 -&gt; 255       : 385      |######################################|
+          256 -&gt; 1023      : 133      |##############                        |
+         1024 -&gt; 4095      : 155      |################                      |
+         4096 -&gt; 16383     : 0        |                                      |
+        16384 -&gt;           : 0        |                                      |
+</pre>
+
+<p>Great! So about half are between 64 and 255 bytes, and the rest are between 256 and 4095 bytes.</p>
+
+<p>How about the requested size of read() syscalls?</p>
+
+<pre>
+# <b>time ./perf-stat-hist syscalls:sys_enter_read count 10</b>
+Tracing syscalls:sys_enter_read, power-of-4, max 1048576, for 10 seconds...
+
+            Range          : Count    Distribution
+            0              : 0        |                                      |
+            1 -&gt; 3         : 1361     |#                                     |
+            4 -&gt; 15        : 2        |#                                     |
+           16 -&gt; 63        : 8        |#                                     |
+           64 -&gt; 255       : 60       |#                                     |
+          256 -&gt; 1023      : 1933859  |######################################|
+         1024 -&gt; 4095      : 59       |#                                     |
+         4096 -&gt; 16383     : 146      |#                                     |
+        16384 -&gt; 65535     : 21       |#                                     |
+        65536 -&gt; 262143    : 554007   |###########                           |
+       262144 -&gt; 1048575   : 0        |                                      |
+      1048576 -&gt;           : 0        |                                      |
+
+real    0m10.056s
+user    0m0.012s
+sys     0m0.008s
+</pre>
+
+<p>Neat! The most common are in the 256 - 1023 byte range.</p>
+
+<p>This time I added a <tt>time</tt> command, to show that extracting this information from the kernel cost little.</p>
+
+<p>The script I'm using, <a href="https://github.com/brendangregg/perf-tools/blob/master/misc/perf-stat-hist">perf-stat-hist</a>, is demonstrating a custom distribution capability that is bread-and-butter for more advanced tracers like SystemTap, ktap, and DTrace. However, I'm not using those.</p>
+
+<p>I'm using Linux perf_events on the 3.2 kernel. Aka, the <tt>perf</tt> command.</p>
+
+<p>To do <strong>in-kernel histograms</strong>.</p>
+
+<p>Stock, standard, perf_events.</p>
+
+<h2>Via user-space</h2>
+
+<p>Yes, for the current version of perf_events (3.16 and earlier) this is supposed to be impossible. perf_events can do in-kernel tracepoint counts, but anything beyond that requires dumping data to user-space for post-processing, like this:</p>
+
+<pre>
+# <b>perf record -e 'syscalls:sys_enter_read' -a sleep 5</b>
+[ perf record: Woken up 25 times to write data ]
+[ perf record: Captured and wrote 132.355 MB perf.data (~5782677 samples) ]
+</pre>
+
+<p>Now I have two problems. This perf.data file has over 5 million entries, which will cost some CPU to process. How much CPU just to read it? Lets dump it using <tt>perf</tt> <tt>script</tt> to /dev/null:</p>
+
+<pre>
+window1# <b>time perf script &gt; /dev/null</b>
+<i>...hang...</i>
+window2# <b>top</b>
+<i>...hang...</i>
+</pre>
+
+<p>Both windows have frozen. Now I have four problems.</p>
+
+<p>When top finally runs, I can see what's wrong:</p>
+
+<pre>
+# <b>top</b>
+top - 23:21:58 up 25 days,  2:56,  2 users,  load average: 1.68, 1.42, 1.09
+Tasks: 142 total,   2 running, 136 sleeping,   0 stopped,   4 zombie
+Cpu(s): 18.9%us, 54.1%sy,  0.0%ni, 27.0%id,  0.0%wa,  0.0%hi,  0.0%si,  0.0%st
+Mem:   3839240k total,  3813020k used,    26220k free,      448k buffers
+Swap:        0k total,        0k used,        0k free,   167712k cached
+
+  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND
+27328 root      20   0 3437m <b>3.3g</b>  68m R  100 88.8   0:06.02 <b>perf</b>
+   34 root      20   0     0    0    0 S   26  0.0   0:45.04 kswapd0   
+26289 root      20   0     0    0    0 S   10  0.0   0:00.04 kworker/u4:0
+26290 root      20   0 17344  712  340 R    5  0.0   0:00.90 top        
+[...]
+</pre>
+
+<p><tt>perf</tt> has not only eaten one CPU, but also exhausted the memory on this system.</p>
+
+<p>perf_events <em>does</em> have an excellent architecture for passing data from the kernel to user-level programs, minimizing overhead and CPU costs. What I'm testing is an extreme case. In many other cases, a <tt>perf report</tt> and <tt>perf</tt> <tt>script</tt> cycle will work fine, and the overhead will be negligible. A perf-stat-hist script using that cycle would merely bucketize the <tt>perf</tt> <tt>script</tt> output and print a report: a trivial program.</p>
+
+<p>I could reduce overheads further by reading the binary perf.data file directly, or even better, calling perf_event_open() and mmap() to read the binary buffer, and process data without a trip via the file system. But there's also another way...</p>
+
+<h2>The hacktogram</h2>
+
+<p>This is based on <tt>perf</tt> <tt>stat</tt>, which does efficient in-kernel counts. I gave a quick tour of basic <a href="http://www.brendangregg.com/blog/2014-07-03/perf-counting.html">perf Counting</a> capabilities in my previous post.</p>
+
+<p><tt>perf</tt> <tt>stat</tt> lets you instrument the same tracepoint multiple times, with different filters. The trick is to use a tracepoint and filter pair for each histogram bucket. For example:</p>
+
+<pre>
+# <b>perf stat -e syscalls:sys_enter_read --filter 'count = 1024 &amp;&amp; count  1048576' -a sleep 5</b>
+
+ Performance counter stats for 'system wide':
+
+         1,522,160      syscalls:sys_enter_read                      [100.00%]
+           401,805      syscalls:sys_enter_read                      [100.00%]
+                18      syscalls:sys_enter_read                     
+
+       5.001822069 seconds time elapsed
+</pre>
+
+<p>This shows that there were 1,522,160 read() syscalls requesting less than 1 Kbyte, 401,805 requesting between 1 Kbyte and 1 Mbyte, and 18 requesting over 1 Mbyte.</p>
+
+<p>That's the approach I used in perf-stat-hist. Tracing the same tracepoint multiple times <em>does</em> incur additional overhead, so this approach is not ideal, and can slow my target by up to 50% when using over a dozen tracepoints (buckets). It's a hack.</p>
+
+<p>As for the variable I'm using, in this case "count": those come from the tracepoint. See the end of my previous post on <a href="http://www.brendangregg.com/blog/2014-07-03/perf-counting.html">perf Counting</a>, and the contents of the /sys/.../format file.</p>
+
+<h2>Ideal</h2>
+
+<p>What would be ideal is for <tt>perf</tt> <tt>stat</tt> to provide a histogram option. Eg:</p>
+
+<pre>
+# <b>perf stat -e syscalls:sys_enter_read --hist "pow2 count"</b>
+</pre>
+
+<p>For a power-of-2 histogram of the count variable.</p>
+
+<p>I think it's likely perf_events will get this capability in the future, especially thanks to recent kernel developments (more on this soon). So my perf-stat-hist workaround has a limited lifespan.</p>
+
+<p>For more on perf_events, see my <a href="/perf.html">perf_events examples</a> page and the <a href="https://perf.wiki.kernel.org/index.php/Main_Page">perf_events wiki</a>.</p>
+
+{% endraw %}

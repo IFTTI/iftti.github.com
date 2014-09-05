@@ -1,0 +1,112 @@
+---
+layout: post
+title: 'Java Flame Graphs'
+time: 2014-06-12 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-06-12/java-flame-graphs.html
+images:
+  28b5d4f0615b43e050bb1e185a949aa7: /blog/images/2014/cpu-vertx-flamegraph.zng
+  8e45313c7f99f8338b2006eb335410c7: /blog/images/2014/cpu-vertx-flamegraph.svg
+---
+{% raw %}
+
+<p>Java flame graphs are a hot new way to visualize CPU usage. I'll show how to create them using free and open source tools: Google's <a href="https://code.google.com/p/lightweight-java-profiler/wiki/GettingStarted">lightweight-java-profiler</a> (code.google.com) and my <a href="https://github.com/brendangregg/FlameGraph">flame graph software</a> (github). Hopefully, one day, flame graphs will be a standard feature on all Java profilers, alongside the call tree graphs that are standard today.</p>
+
+<p>Flame Graphs show the big picture. Here is <a href="http://vertx.io">vert.x</a> serving a simple JavaScript program:</p>
+
+<p><object data="/images/brendangregg.com/8e45313c7f99f8338b2006eb335410c7.svg" type="image/svg+xml" width="720" height="958">
+<img src="/images/brendangregg.com/28b5d4f0615b43e050bb1e185a949aa7.jpg" width="720" height="958">
+</object></p>
+
+<p>Awesome! Mouse over elements to see details. Here is the direct <a href="/blog/images/2014/cpu-vertx-flamegraph.svg">SVG</a>, and a non-interactive <a href="/blog/images/2014/cpu-vertx-flamegraph.png">PNG</a> version.</p>
+
+<p>The y-axis is stack depth, and the x-axis spans the sample population. Each rectangle is a stack frame. Color is not important, it's randomized to differentiate frames. The ordering from left to right is also unimportant.</p>
+
+<p>You look for the widest frames, from bottom up, and forks in the "flames", which indicate different code paths taken. See my <a href="http://www.brendangregg.com/FlameGraphs/cpuflamegraphs.html">CPU flame graphs</a> page for a longer explanation, and the <a href="http://www.brendangregg.com/flamegraphs.html#Presentation">flame graphs presentation</a> from USENIX/LISA`13. Once you get the hang of these, you can quickly identify and quantify CPU usage.</p>
+
+<p>The large tower on the left is the Mozilla Rhino JavaScript engine, which is eating 42.70% CPU (look for the lowest mozilla frame; the percentage is inclusive of all child frames above it). vert.x with Java doesn't need to run this engine, freeing up those CPU resources, and roughly doubling maximum possible performance.</p>
+
+<p>Other details are also interesting: the large plateau in write0(), at 31.99%, is desirable – that's vert.x responding to requests and doing work. To improve the performance further (aside from tuning write0()), examine and reduce time spent in other code paths. Eliminating Rhino provides the biggest win.</p>
+
+<p>Collect flame graphs over different days or software versions, and you can also quickly quantify performance changes by comparing them.</p>
+
+<h2>Profile Collection</h2>
+
+<p>These flame graphs visualize sampled stack traces that were running on-CPU. You can use any profiler that gives you full stack traces, provided the profiler is accurate. I first tried CPU sampling using hprof, but found that it had <a href="http://www.brendangregg.com/blog/2014-06-09/java-cpu-sampling-using-hprof.html">issues</a>.</p>
+
+<p>For this example, I used the <a href="https://code.google.com/p/lightweight-java-profiler/wiki/GettingStarted">lightweight-java-profiler</a> by Jeremy Manson. This is an open source demonstration of an accurate profiling technique, and not a point-and-click production-ready product, so some assembly (and caution) is required. My steps were:</p>
+
+<h3>1. Get software</h3>
+
+<pre>
+svn checkout http://lightweight-java-profiler.googlecode.com/svn/trunk/ lightweight-java-profiler-read-only
+cd lightweight-java-profiler-read-only
+</pre>
+
+<h3>2. Customize Makefile</h3>
+
+<p>I edited the Makefile using vi, and set BITS to 64, and added an include path for my system. My changes looked like this (diff), yours may vary depending on include paths required:</p>
+
+<pre>
+4c4
+ BITS?=64
+49c49
+ INCLUDES=-I$(JAVA_HOME)/$(HEADERS) -I$(JAVA_HOME)/$(HEADERS)/$(UNAME) -I/usr/include/x86_64-linux-gnu
+</pre>
+
+<h3>3. Build software:</h3>
+
+<pre>
+make all
+</pre>
+
+<h3>4. Set agent</h3>
+
+<p>I added the following option when running java (change path to match yours):</p>
+
+<pre>
+-agentpath:/usr/local/lightweight-java-profiler-read-only/build-64/liblagent.so
+</pre>
+
+<p>This samples when java starts until it exits, writing the report to a traces.txt file, which has a similar layout to hprof. The flame graph software will read this traces.txt file.</p>
+
+<p>There are some overheads to have this running. For my program it was negligible (~1% loss in request rate, and a 7% increase in CPU consumption, for which headroom was available), but your mileage will vary. See the later Customizing the Profiler section for reducing the sampling rate if needed.</p>
+
+<h2>Flame Graph</h2>
+
+<p>Now to turn traces.txt into a flame graph:</p>
+
+<pre>
+git clone http://github.com/brendangregg/FlameGraph
+cd FlameGraph
+./stackcollapse-ljp.awk  ../traces.svg
+</pre>
+
+<p>stackcollapse-ljp.awk is a simple awk program to convert the output of lightweight-java-profiler into the stack trace format that flame graph reads (one stack per line). The flamegraph.pl program has various options (list using -h) to customize the output, including changing the title.</p>
+
+<p>Now open the traces.svg file in a browser.</p>
+
+<h2>Customizing the Profiler</h2>
+
+<p>It's worth mentioning that you can configure some options in lightweight-java-profiler by editing the source. See src/globals.h for:</p>
+
+<pre>
+// Number of times per second that we profile
+static const int kNumInterrupts = 100;
+
+// Maximum number of stack traces
+static const int kMaxStackTraces = 3000;
+
+// Maximum number of frames to store from the stack traces sampled.
+static const int kMaxFramesToCapture = 128;
+</pre>
+
+<p>I may be inclined to reduce the sampling rate from 100 hertz to 50, or lower, if I'd like to collect data over a long run (minutes), to reduce the sampling overheads. I'd also increase the maximum stack frames, if my code exceeded 128. Flame graphs need full stacks to be drawn.</p>
+
+<p>There's also Richard Warburton's <a href="https://github.com/RichardWarburton/honest-profiler">honest-profiler</a>, which builds upon the same accurate profiling technique. Like the lightweight-java-profiler, some assembly is required.</p>
+
+<p>While these profilers see inside Java, my ideal profiler would include native user-level and kernel stacks. This would allow us to include JVM GC code paths, as well as other JVM internals, and kernel internals.</p>
+
+<p>Flame graphs already have a history of proving their usefulness in other areas, including for kernel performance, Node.JS, Ruby, Perl, and others. See the <a href="http://www.brendangregg.com/flamegraphs.html#Updates">updates</a> section on my <a href="http://www.brendangregg.com/flamegraphs.html">Flame Graphs</a> page.</p>
+
+{% endraw %}

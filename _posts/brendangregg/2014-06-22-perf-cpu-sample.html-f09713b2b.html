@@ -1,0 +1,137 @@
+---
+layout: post
+title: 'perf CPU Sampling'
+time: 2014-06-22 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-06-22/perf-cpu-sample.html
+---
+{% raw %}
+
+<p>top(1) shows a process is burning CPU – what do you do next? Depending on the application and context, you might use an application profiler to see why, or reads its logs, or even kill it. However, there's one answer that works for any application, even the kernel: use a <em>system profiler</em> like Linux <tt>perf</tt> (aka perf_events).</p>
+
+<p><tt>perf</tt> isn't some random tool: it's part of the Linux kernel, and is actively developed and enhanced. It is also powerful: it can instrument hardware counters, static tracepoints, and dynamic tracepoints.</p>
+
+<p>In this post I'll restrain myself to one feature: CPU sampling. Lets pretend this is our target:</p>
+
+<pre>
+top - 04:38:41 up 29 days, 9 min,  2 users,  load average: 2.82, 3.26, 1.67
+Tasks: 133 total,   9 running, 123 sleeping,   0 stopped,   1 zombie
+Cpu(s): 28.0%us, 72.0%sy,  0.0%ni,  0.0%id,  0.0%wa,  0.0%hi,  0.0%si,  0.0%st
+Mem:   7629464k total,  1481328k used,  6148136k free,   285412k buffers
+Swap:        0k total,        0k used,        0k free,   566712k cached
+
+  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND                                                                                               
+ 6336 root      20   0  117m  976  488 R   25  0.0   0:01.35 fio                                                                                                    
+ 6338 root      20   0  117m  972  484 R   25  0.0   0:01.35 fio                                                                                                    
+ 6339 root      20   0  117m  976  488 R   25  0.0   0:01.35 fio                                                                                                    
+ 6340 root      20   0  117m  976  488 R   25  0.0   0:01.33 fio                                                                                                    
+ 6342 root      20   0  117m  976  488 R   25  0.0   0:01.33 fio                                                                                                    
+ 6335 root      20   0  117m  972  484 R   25  0.0   0:01.32 fio                                                                                                    
+ 6341 root      20   0  117m  972  484 R   25  0.0   0:01.33 fio                                                                                                    
+ 6337 root      20   0  117m  960  472 R   24  0.0   0:01.31 fio                                                                                                    
+ 2337 bgregg-t  20   0  149m 5608 4436 S    0  0.1   3:42.93 postgres                                                                                               
+[...]
+</pre>
+
+<p>This top(1) output shows several <tt>fio</tt> processes eating 25% CPU each. Why? What are they doing?</p>
+
+<h3>1. Check perf is installed</h3>
+
+<p>With no arguments, it should print a help message:</p>
+
+<pre>
+# <b>perf</b>
+
+ usage: perf [--version] [--help] COMMAND [ARGS]
+
+ The most commonly used perf commands are:
+[...]
+</pre>
+
+<p>If it's not there, you may find it can be added from the linux-tools-common package. It's also under tools/perf in the Linux kernel source.</p>
+
+<h3>2. Profile CPUs</h3>
+
+<pre>
+# <b>sudo perf record -F 99 -a -g -- sleep 20</b>
+[ perf record: Woken up 1 times to write data ]
+[ perf record: Captured and wrote 0.560 MB perf.data (~24472 samples) ]
+</pre>
+
+<p>Options are:</p>
+
+<ul>
+<li>
+<tt>-F 99</tt>: sample at 99 Hertz (samples per second). I'll sometimes sample faster than this (up to 999 Hertz), but that also costs overhead. 99 Hertz should be negligible. Also, the value '99' and not '100' is to avoid lockstep sampling, which can produce skewed results.</li>
+<li>
+<tt>-a</tt>: samples on all CPUs. Without it, it only samples a supplied command or PID.</li>
+<li>
+<tt>-g</tt>: include stack traces.</li>
+<li>
+<tt>--</tt>: skips providing a -g argument (in newer <tt>perf</tt> versions, -g can pick the stack unwinding method).</li>
+<li>
+<tt>sleep 20</tt>: a dummy command, used to set the duration of our sampling.</li>
+</ul>
+
+<p>As <tt>perf</tt> tells you, it writes a perf.data file.</p>
+
+<h3>3. Read profile</h3>
+
+<pre>
+# <b>sudo perf report -n --stdio</b>
+[...]
+# Overhead  Samples     Command       Shared Object                             Symbol
+# ........ ..........  ........  ..................  .................................
+#
+    20.97%        208       fio  [kernel.kallsyms]   [k] hypercall_page
+                 |
+                 --- hypercall_page
+                     check_events
+                    |          
+                    |--63.94%-- 0x7fff695c398f
+                    |          
+                    |--18.27%-- 0x7f0c5b72bd2d
+                    |          
+                     --17.79%-- 0x7f0c5b72c46d
+
+    14.21%        141       fio  [kernel.kallsyms]   [k] copy_user_generic_string
+                 |
+                 --- copy_user_generic_string
+                     do_generic_file_read.constprop.33
+                     generic_file_aio_read
+                     do_sync_read
+                     vfs_read
+                     sys_read
+                     system_call_fastpath
+                     0x7f0c5b72bd2d
+
+    10.79%        107       fio  [vdso]              [.] 0x7fff695c398f  
+                 |
+                 --- 0x7fff695c398f
+                     clock_gettime
+[...]
+</pre>
+
+<p>You can just run <tt>perf report</tt> for the interactive text user-interface, and drill down stacks using the arrow keys. I find that mode laborious, and usually use this <tt>--stdio</tt> mode instead. <tt>-n</tt> prints sample counts.</p>
+
+<p>The percentages show the breakdowns at each level. Multiply them to see the percentage for each leaf. For example, 0x7fff695c398f (whatever that is) was sampled 20.97% x 63.94% of the time (= %13.40). If you want <tt>perf</tt> to do the multiplications for you, and always show the absolute percentages, use <tt>-g graph</tt>.</p>
+
+<p>The code <tt>perf</tt> is showing may be alien to you, but it shouldn't take long to learn at least the "hottest" (most frequently sampled) stacks. Often the function names are enough of a clue. <tt>clock_gettime</tt> is probably ... getting the time. Can <tt>fio</tt> avoid doing that, or do it differently, to eliminate this overhead? (yes, in this case.)</p>
+
+<h3>Common Issues</h3>
+
+<p>Hexidecimal numbers are printed if perf_events can't translate the symbols, which can happen with stripped binaries, or JIT'd code. For the former, look for dbgsym packages (debug symbols), or recompile and don't strip applications, and also make sure the kernel has CONFIG_KALLSYMS. For the latter, that's a bigger topic I'll write about another time (perf's JIT support).</p>
+
+<p>Incomplete stacks usually mean -fomit-frame-pointer was used – a compiler optimization that makes little positive difference in the real world, but breaks stack profilers. Always compile with -fno-omit-frame-pointer. More recent <tt>perf</tt> has a <tt>-g dwarf</tt> option, to use the alternate libunwind/dwarf method for retrieving stacks.</p>
+
+<p>While it can be a bit of work to get full stacks with symbols, a partially working profile can be enough to solve some problems. For example, I may not be able to see Java methods in the JVM, but I can see JVM system library usage, kernel CPU usage, and GC.</p>
+
+<h3>Flame Graphs</h3>
+
+<p>If the output of <tt>perf report</tt> is too long to read quickly, you can reprocess the perf.data file using <tt>perf script</tt> and visualize it using <a href="http://www.brendangregg.com/perf.html#FlameGraphs">perf Flame Graphs</a>. I use them all the time.</p>
+
+<h3>But wait, there's more!</h3>
+
+<p>I wanted to write a simple, short example of <tt>perf</tt>, that wasn't long and intimidating. There's a <strong>lot</strong> more to perf_events: see my <a href="http://www.brendangregg.com/perf.html">perf examples</a> page and the official <a href="https://perf.wiki.kernel.org/index.php/Main_Page">perf wiki</a>.</p>
+
+{% endraw %}

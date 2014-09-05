@@ -1,0 +1,139 @@
+---
+layout: post
+title: 'What Color Is Your Xen?'
+time: 2014-05-07 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-05-07/what-color-is-your-xen.html
+images:
+  91eab86de94adb6d7b254ffb67146b4c: /blog/images/2014/xen-virt-spectrum-crop-800.png
+  85c2749fb95206343592a796ad62b1bb: /blog/images/2014/cosby-xen-modes.jpg
+  f7f5f4a8eb0f2b6c1bb9ba2a8b9b2e06: /blog/images/2014/xen-mode-flow.png
+  fb437d0318f7ace4ea33b80953557ef1: /blog/images/2014/xen-colors.png
+---
+{% raw %}
+
+<p>What's faster: <strong>PV</strong>, <strong>HVM</strong>, <strong>HVM with PV drivers</strong>, <strong>PVHVM</strong>, or <strong>PVH</strong>? Cloud computing providers using <a href="http://www.xenproject.org">Xen</a> can offer different virtualization "modes", based on paravirtualization (PV), hardware virtual machine (HVM), or a hybrid of them. As a customer, you may be required to choose one of these. So, which one?</p>
+
+<p>Rackspace offers <a href="http://www.rackspace.com/knowledge_center/article/choosing-a-virtualization-mode-pv-versus-pvhvm">PV or PVHVM</a>, and Amazon EC2 offers <a href="http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html">PV or HVM</a>. I'd summarize the choice today as:</p>
+
+<blockquote>The best performance is the latest PV/HVM hybrid mode that Xen supports.</blockquote>
+
+<p>For most places right now, PVHVM should deliver the best performance. On AWS EC2, if you create a "HVM" instance, and Linux supports it, you get PVHVM.
+In the future (Xen 4.4+) the fastest mode will be <a href="http://blog.xen.org/index.php/2014/01/31/linux-3-14-and-pvh/">PVH</a>. </p>
+
+<p>Not picking the latest hybrid mode should only make sense for some corner cases. You can test this yourself, as your mileage and requirements may vary.</p>
+
+<p>Now, if you search for <a href="http://lmgtfy.com/?q=PV+vs+HVM">PV vs HVM</a>, the more you read the more confused you may become.  My first hit was a post from 2012 discussing EC2 choices, concluding with:</p>
+
+<blockquote>"If you want a good performance for Linux/Unix then use PV"</blockquote>
+
+<p>You might still be thinking the same, and a while ago this was right, before many changes in the world of Xen (before PV drivers on HVM, PVHVM, and PVH). At least the post from 2012 has a date on it (like this one).</p>
+
+<p>What makes this even more confusing is that never versions of the hybrid model have been named as separate "modes". In this post, I'll summarize the current virtualization spectrum model, and suggest a slightly different explanation: instead of focusing on the choice of modes, I'll show them as an evolution of versions.</p>
+
+<p>Note that I'm not a Xen developer, so I'm not an official source of Truth for this: I'm a performance architect for a large EC2 user, and I'm hoping to contribute to our collective understanding of Xen choices.</p>
+
+<h2>The Virtualization Spectrum</h2>
+
+<div style="float:right;padding:10px;padding-top:0px"><a href="/blog/images/2014/xen-virt-spectrum-crop-800.png"><img border="0" src="/images/brendangregg.com/91eab86de94adb6d7b254ffb67146b4c.jpg" width="400"></a></div>
+
+<p>In the articles <a href="http://blog.xen.org/index.php/2012/10/23/the-paravirtualization-spectrum-part-1-the-ends-of-the-spectrum/">The Ends of the Spectrum</a> and <a href="http://blog.xen.org/index.php/2012/10/31/the-paravirtualization-spectrum-part-2-from-poles-to-a-spectrum/">From Poles to a Spectrum</a>, George Dunlap introduced the idea that there are no longer two modes of Xen virtualization – PV or HVM – but, rather, a spectrum of modes, where PV and HVM are the poles.</p>
+
+<p>This is pictured in the right diagram <a href="http://www.slideshare.net/xen_com_mgr/linuxcon-eu-virtualization-in-the-cloud-featuring-xen-and-xcp/16">from Lars Kurth</a>, which lists different Xen virtualization modes as rows, and features as columns. Full HVM mode is the top row, full PV mode is the bottom, and hybrid modes are in-between. (This shows PVH as a Xen 4.3 feature; it's now Xen 4.4.)</p>
+
+<p>The HVM and PV technologies provide their own performance benefits:</p>
+
+<ul>
+<li>
+<strong>HVM</strong>: A processor technology for accelerating CPU virtualization (privileged instructions, syscalls) and the MMU (page tables). This is supported by Intel (VT-x) and AMD (AMD-V).</li>
+<li>
+<strong>PV</strong>: A software technology where the guest kernel can use an accelerated interface for virtualized components, including disks and network interfaces, rather than emulating hardware.</li>
+</ul>
+
+<p>Xen has been developing additional hybrid modes for the best of both words, where a HVM guest can use faster PV kernel parts, or vice versa. At first, PV disk and network drivers on HVM were possible. Then, interrupts and timers. Each of these moves reduced the need for slower emulation, such as via QEMU, improving performance. This is all summarized pretty well by the spectrum diagram.</p>
+
+<p>You can find more detailed explanations of the modes in those <a href="http://blog.xen.org/index.php/2012/10/23/the-paravirtualization-spectrum-part-1-the-ends-of-the-spectrum/">two</a> <a href="http://blog.xen.org/index.php/2012/10/31/the-paravirtualization-spectrum-part-2-from-poles-to-a-spectrum/">articles</a>. As George suggested, PVH is expected to be the best hybrid mode, and that other modes could eventually be dropped from the Linux kernel, simplifying it. And, if HVM existed (the Intel VT-x or AMD-V processor features) when Xen was written, PVH would probably have been the chosen mode.</p>
+
+<h2>The Colors of Xen</h2>
+
+<p>So Xen today is something of a mess – the result of evolving software and hardware features, aiming to provide the best performance possible. And, as George noted in his first article, the terminology has been a little unclear, and has evolved over time.</p>
+
+<p>The spectrum of modes is great way to make sense of this, but there are some loose ends. One is that a spectrum of modes can imply a choice when doesn't need to be one: if my instance supports PVHVM, should I study its pros and cons versus PV drivers over HVM? No, PVHVM is just the latest version of the same thing. So, instead of a spectrum of modes, is it more a spectrum of versions?</p>
+
+<div style="float:right;padding:10px;padding-top:0px"><a href="/blog/images/2014/cosby-xen-modes.jpg"><img border="0" src="/images/brendangregg.com/85c2749fb95206343592a796ad62b1bb.jpg" width="250"></a></div>
+
+<p>There are other sources of confusion: George's <a href="http://blog.xen.org/index.php/2012/10/31/the-paravirtualization-spectrum-part-2-from-poles-to-a-spectrum/">article</a> describes "PVHVM mode" and "PVH mode", then depicts them inside "HVM mode" and "PV mode" groups, which are labeled as "mode/domain" in the above figure. So "PVHVM <em>mode</em>" is a <em>mode</em>, but "PV <em>mode</em>" is a <em>domain</em> or group of modes?</p>
+
+<p>His article also warns about PVHVM mode confusion:</p>
+
+<blockquote>("PVHVM" mode should not be confused with "PV-on-HVM" mode, which is a term sometimes used in the past for "fully virtualized with PV drivers".)</blockquote>
+
+<p>I understand this statement, however, many sources seem to still misuse the terms: the Xen wiki page on <a href="http://wiki.xen.org/wiki/PV_on_HVM">PV on HVM</a> describes this as "also called PVHVM or PV-on-HVM drivers", which seems to contradict the warning. Also, what I think are the developer's slides on PVHVM are actually titled "<a href="http://www.slideshare.net/xen_com_mgr/6-stefano-spvhvm">Linux PV on HVM</a>". Maybe I'm wrong and these are consistent, but I struggle to see how.</p>
+
+<h2>Back to Poles</h2>
+
+<p>Here's a different way to think about the modes, if it helps. Lets go back to the poles model (PV and HVM), before the spectrum, and explain the current state of Xen in that context.</p>
+
+<div style="float:right;padding:10px;padding-top:0px"><a href="/blog/images/2014/xen-mode-flow.png"><img border="0" src="/images/brendangregg.com/f7f5f4a8eb0f2b6c1bb9ba2a8b9b2e06.jpg" width="270"></a></div>
+
+<p>In this model, there are only two modes to worry about, PV and HVM, and each mode may support additional features to improve performance:</p>
+
+<ul>
+<li>
+<strong>PV</strong>: Use this if the PVH feature is supported, which boots the best type of hybrid. You may also need to choose this if the processor doesn't do HVM: eg, following the EC2 <a href="http://aws.amazon.com/amazon-linux-ami/instance-type-matrix/">instance type matrix</a>, where you will end up with a fully PV mode instance.</li>
+<li>
+<strong>HVM</strong>: Until PVH, choose this. Xen, and the guest kernel, are likely to support a number of enhancements which use PV code paths, so the booted instance will be a hybrid. The number of enhancements depends on the Xen and guest kernel versions: newer for more.</li>
+</ul>
+
+<p>This selection of instances is pictured in the flowchart on the right. It shows what can be selected to achieve the highest performance, in general. You may have a corner case that differs, due to different requirements.</p>
+
+<p>PVHVM and PVH can be thought of as features and not modes. The choices are PV or HVM, which describes how the instance boots, and your choice may be influenced by the features available. Currently, on EC2, PVH is not available, but PVHVM is: so the best choice for Linux (in general) would be booting a "HVM" instance with PVHVM enabled (eg, setting CONFIG_XEN_PVHVM).</p>
+
+<div style="float:right;padding:10px;padding-top:0px"><a href="/blog/images/2014/xen-colors.png"><img border="0" src="/images/brendangregg.com/fb437d0318f7ace4ea33b80953557ef1.jpg" width="400"></a></div>
+
+<p>I've redrawn the spectrum picture on the right to emphasize the two modes, and to group all mixed types as "Hybrid", showing that they are a progression of Xen versions, rather than a group of modes to choose from. Is this helpful?</p>
+
+<p>If you don't find this an improvement, I'll try a different way to clarify what your Xen guest is doing in my next post, where I'll cover tools for feature detection.</p>
+
+<h2>Enhanced Networking</h2>
+
+<p>While my spectrum diagram may be an improvement, I've left a loose end untied: <a href="http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/enhanced-networking.html">SR-IOV for enhanced networking</a>. If the instance type supports it, this uses hardware virtualization enhancements to improve performance and provide an interface better suited for virtualization. In some ways, this is an evolution of I/O controllers that is similar to what processors have done, with their own virtualization extensions.</p>
+
+<p>SR-IOV, if you can enable it, should provide the best I/O performance. So perhaps the first feature column in the spectrum diagram should really show two options: P (paravirt) as yellow, and VH (SR-IOV) as green. Here's how it <a href="/blog/images/2014/xen-colors-sriov.png">looks</a> (although I'm not sure all the hybrid types support SR-IOV).</p>
+
+<h2>Conclusion</h2>
+
+<p>Nowadays, there are various hybrid Xen modes (or versions), which obsolete older advice that "PV is fastest". On AWS EC2 today, "HVM" mode (which supports PVHVM) should be fastest. In the future, it will be PVH. If you can, you can also enable SR-IOV to improve I/O performance further.</p>
+
+<p>In this post I summarized the spectrum model of the modes, and described them a little differently in terms of the earlier PV or HVM model. The number of Xen modes is a little confusing, and is a result of an evolution of software and hardware, and Xen development work to deliver the fastest guests they can.</p>
+
+<p>A while ago I wrote a post on <a href="http://dtrace.org/blogs/brendan/2013/01/11/virtualization-performance-zones-kvm-xen/">the performance of Zones vs KVM vs Xen</a>, and for Xen I pictured a fully HVM instance with the QEMU I/O proxy, mentioning that paravirtualization drivers could improve I/O performance. That how I'd draw the digram today: as I/O should be using the faster PV drivers, even for <a href="http://docs.aws.amazon.com/AWSEC2/latest/WindowsGuide/Upgrading_PV_drivers.html">Windows</a>.</p>
+
+<p>Despite the Xen improvements, Solaris Zones, or Linux containers, should still be the fastest possible virtualization option, allowing guests to run bare-metal everything. But there is still a road ahead for their widespread adoption: a topic for another post.</p>
+
+<p>In my <a href="/blog/2014-05-09/xen-feature-detection.html">next post</a>, I show various tools you can use from your Linux Xen guest to detect which HVM and PV features are enabled.</p>
+
+<h2>References and Resources</h2>
+
+<ul>
+<li>George Dunlap's <a href="http://blog.xen.org/index.php/2012/10/23/the-paravirtualization-spectrum-part-1-the-ends-of-the-spectrum/">The Ends of the Spectrum</a> and <a href="http://blog.xen.org/index.php/2012/10/31/the-paravirtualization-spectrum-part-2-from-poles-to-a-spectrum/">From Poles to a Spectrum</a> are the best summary of all the modes, and how these have been developed (evolved) little by little.</li>
+<li>Lars Kurth's talk <a href="http://www.slideshare.net/xen_com_mgr/linuxcon-eu-virtualization-in-the-cloud-featuring-xen-and-xcp/16">Virtualization in the Cloud Featuring Xen</a>.</li>
+<li>Stefano Stabellini's <a href="http://www.slideshare.net/xen_com_mgr/6-stefano-spvhvm">Linux PV on HVM</a>, and especially the <a href="http://vimeo.com/33056481">video</a>, give the best insight into why the PVHVM features were developed, and the value they bring.</li>
+<li>The <a href="http://wiki.xen.org/wiki/Xen_Linux_PV_on_HVM_drivers">Xen Linux PV on HVM drivers</a> shows more commands for studying Xen configuration.</li>
+<li>Also see the Xen wiki <a href="http://wiki.xen.org/wiki/PV_on_HVM">PV on HVM</a> page.</li>
+<li>
+<a href="http://blog.xen.org/index.php/2014/01/31/linux-3-14-and-pvh/">Linux 3.14 and PVH</a>, describing how to get the development version working.</li>
+<li>See the <a href="http://www.slideshare.net/xen_com_mgr/xen-project-4-4-features-and-futures">Xen Project 4.4</a> slides by Russell Pavlicek, Mar 27, 2014, for a recent summary.</li>
+<li>The AWS <a href="http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-types.html">EC2 instance types</a> does explain that "HVM" isn't fully "HVM".</li>
+<li>The AWS <a href="http://docs.aws.amazon.com/general/latest/gr/glos-chap.html#H">glossary</a> also defines "HVM".</li>
+<li>Rackspace <a href="http://www.rackspace.com/knowledge_center/article/choosing-a-virtualization-mode-pv-versus-pvhvm">choosing PV vs PVHVM</a>.</li>
+<li>EC2 <a href="http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/enhanced-networking.html">enhanced nerworking (SR-IOV)</a>.</li>
+<li>The first hit from google for <a href="http://palakonda.org/2012/10/30/aws-virtualization-hvm-vs-paravirtualization/">PV vs HVM</a> (out of date).</li>
+<li>Moolah ecommerce <a href="http://moolah-ecommerce.com/blog/36-2014/219-amazon-vs-rackspace-performance">benchmarked</a> the difference between PV and PVHVM, using <em><a href="http://www.brendangregg.com/blog/2014-05-02/compilers-love-messing-with-benchmarks.html">UnixBench</a></em>?</li>
+<li>Xen Orchestra has also benchmarked <a href="https://xen-orchestra.com/debian-pvhvm-vs-pv/">Debian PVHVM vs PV</a> using ... <em>UnixBench? again?? (flips desk.)</em>
+</li>
+</ul>
+
+<p>Thanks to the AWS performance engineers for helping me understand this better.</p>
+
+{% endraw %}

@@ -1,0 +1,114 @@
+---
+layout: post
+title: 'perf Static Tracepoints'
+time: 2014-06-29 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-06-29/perf-static-tracepoints.html
+images:
+  c6190ed37a75629839875483a1861a73: /blog/images/2014/static_tracepoints.png
+---
+{% raw %}
+
+<p>Here's a simple example of Linux perf_events static tracepoints: tracing disk I/O.</p>
+
+<p>We'll do this using the block I/O tracepoints. There are many to choose from, and these can show fine detail of what your storage devices have been asked to do, and how they are performing. Listing the tracepoints:</p>
+
+<pre>
+# <b>sudo perf list 'block:*'</b>
+  block:block_touch_buffer                           [Tracepoint event]
+  block:block_dirty_buffer                           [Tracepoint event]
+  block:block_rq_abort                               [Tracepoint event]
+  block:block_rq_requeue                             [Tracepoint event]
+  block:block_rq_complete                            [Tracepoint event]
+  block:block_rq_insert                              [Tracepoint event]
+  block:block_rq_issue                               [Tracepoint event]
+  block:block_bio_bounce                             [Tracepoint event]
+  block:block_bio_complete                           [Tracepoint event]
+  block:block_bio_backmerge                          [Tracepoint event]
+[...]
+</pre>
+
+<p>These are only visible to the root user. I'll use block_rq_complete, which traces I/O completions, and trace it for 10 seconds. This writes events ("samples") to a perf.data file, which I'll then print:</p>
+
+<pre>
+# <b>sudo perf record -e block:block_rq_complete -a sleep 10</b>
+[ perf record: Woken up 1 times to write data ]
+[ perf record: Captured and wrote 0.428 MB perf.data (~18687 samples) ]
+# <b>sudo perf script</b>
+        run 30339 [000] 2083345.722767: block:block_rq_complete: 202,1 W () 12984648 + 8 [0]
+        run 30339 [000] 2083345.722857: block:block_rq_complete: 202,1 W () 12986336 + 8 [0]
+        run 30339 [000] 2083345.723180: block:block_rq_complete: 202,1 W () 12986528 + 8 [0]
+    swapper     0 [000] 2083345.723489: block:block_rq_complete: 202,1 W () 12986496 + 8 [0]
+    swapper     0 [000] 2083346.745840: block:block_rq_complete: 202,1 WS () 1052984 + 144 [0]
+  supervise 30342 [000] 2083346.746571: block:block_rq_complete: 202,1 WS () 1053128 + 8 [0]
+  supervise 30342 [000] 2083346.746663: block:block_rq_complete: 202,1 W () 12986608 + 8 [0]
+        run 30342 [000] 2083346.747003: block:block_rq_complete: 202,1 W () 12986832 + 8 [0]
+[...]
+</pre>
+
+<p>I traced this on an AWS EC2 instance, so these are virtual disk devices. Virtual disks can exhibit slower I/O due to virtualization overheads, and higher variance due to neighbors, so any information that can help us tune and reduce I/O can be even more important here than on bare-metal systems.</p>
+
+<p>Each disk I/O completion is shown as a line of output. The 4th and 5th columns are obvious: a timestamp (in seconds) and tracepoint description. The first few columns are some bonus info: the on-CPU command and PID, and the CPU number that hit the tracepoint.</p>
+
+<p>The remaining columns (6+), show details on the block I/O. For example, reading the first line:</p>
+
+<ul>
+<li>202,1: storage device major and minor number</li>
+<li>W: type of I/O (W=write, R=read, A=readahead, S=sync, ...)</li>
+<li>(): can contain block command details (eg, SCSI command in hex)</li>
+<li>12984648: storage device offset</li>
+<li>8: size of I/O (in sectors)</li>
+<li>[0]: errors</li>
+</ul>
+
+<p>This is really convenient, and a similar string of goodies is baked into all static tracepoints. Of course, if you want to access this in binary, or access custom data, you can do that too.</p>
+
+<p>Note that the tracepoint strings can change between kernel versions, so if you start consuming these you'll need to watch out for changes. Here's where this example comes from in the 3.14.5 kernel source:</p>
+
+<pre>
+<b>include/trace/events/block.h</b>:
+TRACE_EVENT(block_rq_complete,
+[...]
+        TP_printk("%d,%d %s (%s) %llu + %u [%d]",
+                  MAJOR(__entry-&gt;dev), MINOR(__entry-&gt;dev),
+                  __entry-&gt;rwbs, __get_str(cmd),
+                  (unsigned long long)__entry-&gt;sector,
+                  __entry-&gt;nr_sector, __entry-&gt;errors)
+</pre>
+
+<p>You can also dump the tracepoint format file as a reminder:</p>
+
+<pre>
+# <b>sudo cat /sys/kernel/debug/tracing/events/block/block_rq_complete/format </b>
+name: block_rq_complete
+ID: 942
+format:
+    field:unsigned short common_type;   offset:0;   size:2; signed:0;
+    field:unsigned char common_flags;   offset:2;   size:1; signed:0;
+    field:unsigned char common_preempt_count;   offset:3;   size:1; signed:0;
+    field:int common_pid;   offset:4;   size:4; signed:1;
+
+    field:dev_t dev;    offset:8;   size:4; signed:0;
+    field:sector_t sector;  offset:16;  size:8; signed:0;
+    field:unsigned int nr_sector;   offset:24;  size:4; signed:0;
+    field:int errors;   offset:28;  size:4; signed:1;
+    field:char rwbs[8]; offset:32;  size:8; signed:1;
+    field:__data_loc char[] cmd;    offset:40;  size:4; signed:1;
+
+print fmt: "%d,%d %s (%s) %llu + %u [%d]", ((unsigned int) ((REC-&gt;dev) &gt;&gt; 20)), ((unsigned int) ((REC-&gt;dev) &amp; ((1U rwbs, __get_str(cmd), (unsigned long long)REC-&gt;sector, REC-&gt;nr_sector, REC-&gt;errors
+</pre>
+
+<p>This ends with the format string that perf_events reads by default.</p>
+
+<p>perf_events can do more than just capture this tracepoint and its format string: it can also capture stack traces that led to the event, and perform custom in-kernel filtering as desired.</p>
+
+<p>Apart from block I/O, there are also static tracepoints for many areas of the Linux kernel:</p>
+
+<p></p>
+<center><img border="0" src="/images/brendangregg.com/c6190ed37a75629839875483a1861a73.jpg" width="500"></center>
+
+<p>You can also use perf_events to create dynamic tracepoints (dynamic tracing), to see areas not covered with a static tracepoint. The possibilities are endless.</p>
+
+<p>See my <a href="/perf.html">perf_events</a> page for more examples, and my <a href="http://www.brendangregg.com/blog/2014-06-22/perf-cpu-sample.html">previous post</a> on using perf_events for CPU sampling.</p>
+
+{% endraw %}

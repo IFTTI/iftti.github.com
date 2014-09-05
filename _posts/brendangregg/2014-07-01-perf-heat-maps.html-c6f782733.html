@@ -1,0 +1,167 @@
+---
+layout: post
+title: 'perf Heat Maps'
+time: 2014-07-01 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-07-01/perf-heat-maps.html
+images:
+  c9d91e1e73c77cd0bcb3ababf6d0875d: /blog/images/2014/out.lat.png
+  913e84879a964b276b8ce31e93910294: /blog/images/2014/storageio.png
+  3d6418b5fc36d04c3abc6ccc2c157acb: /blog/images/2014/out.sizes.png
+  7cf8d6897b732c21b22f3ba407279cc7: /blog/images/2014/out.offset.png
+  9e327a674a2878211776c55ed09ad18e: /blog/images/2014/out.ssd.png
+  f5a783dfad4eaca6e68faaebb4438687: /blog/images/2014/out.read.png
+  e41e2543061e82e5e5f0d1ab269e45a6: /blog/images/2014/out.lat.svg
+  06d8447a0f0c469c86dc03061104567b: /blog/images/2014/out.sizes.svg
+  95b3d6adf0fac262374439ae8d80b70e: /blog/images/2014/out.offset.svg
+  dba50b96443fde49ffa206339219393c: /blog/images/2014/out.ssd.svg
+  def0548c491bff065d0983297cc5c800: /blog/images/2014/out.read.svg
+---
+{% raw %}
+
+<p>This is disk latency of an AWS EC2 c3.large instance (ubuntu), shown as a <a href="/HeatMaps/latency.html">latency heat map</a>:</p>
+
+<p><object data="/images/brendangregg.com/e41e2543061e82e5e5f0d1ab269e45a6.svg" type="image/svg+xml" width="720" height="363">
+<img src="/images/brendangregg.com/c9d91e1e73c77cd0bcb3ababf6d0875d.jpg" width="720" height="363">
+</object></p>
+
+<p>Woah, aren't these disks supposed to be SSDs?</p>
+
+<p>Mouse over pixels for details. Here is the <a href="/blog/images/2014/out.lat.svg">SVG</a>, and a zoomed <a href="/blog/images/2014/out.latzoom.svg">SVG to 15ms</a>. Time is on the x-axis, and latency on the y-axis. The color shows how many I/O fell into that time and latency range: darker for more.</p>
+
+<p>There is a latency spike at the 63 second mark, which exceeds 237 ms. Yikes. Around the 43 second mark a cloud of latency begins, reaching around 30 ms, which is also worrying for SSDs.</p>
+
+<p>Perhaps there is a simple explanation: load. Bursts of I/O could cause the spikes, thanks to queueing on the device. And the latency cloud could be explained by an increase in the rate of requested I/O at the 43 second mark. I generated line graphs to check these theories:</p>
+
+<p><a href="/blog/images/2014/storageio.png"><img border="0" src="/images/brendangregg.com/913e84879a964b276b8ce31e93910294.jpg" width="700" height="163"></a></p>
+
+<p>This shows no workload bursts or increases that would explain the changes in latency.</p>
+
+<p>I was creating an example of a disk latency heat map, and as a simple workload I ran tar(1) to archive the entire system. This turned out to be more than I had bargained for. Explaining it is pretty interesting, and demonstrates the different types of disk I/O heat maps you can generate on Linux.</p>
+
+<h2>Latency Heat Map Generation</h2>
+
+<p>In my previous post on Linux <a href="http://www.brendangregg.com/blog/2014-06-29/perf-static-tracepoints.html">perf static tracepoints</a>, I showed how the block:block_rq_complete probe provided a wealth of useful info by default. Along with the block:block_rq_issue probe, you can use the issue to complete tracepoint timestamps to calculate I/O time, or "latency".</p>
+
+<p>Here's how I captured the disk events:</p>
+
+<pre>
+# <b>perf record -e block:block_rq_issue -e block:block_rq_complete -a sleep 120</b>
+[ perf record: Woken up 217 times to write data ]
+[ perf record: Captured and wrote 54.507 MB perf.data (~2381448 samples) ]
+# <b>perf script &gt; out.blockio</b>
+# <b>more out.blockio</b>
+     tar 16072 [001] 2199495.030133: block:block_rq_issue: 202,16 R 0 () 21997888 + 8 [tar]
+ swapper     0 [000] 2199495.030286: block:block_rq_complete: 202,16 R () 21997888 + 8 [0]
+     tar 16072 [001] 2199495.030327: block:block_rq_issue: 202,16 R 0 () 21997896 + 8 [tar]
+ swapper     0 [000] 2199495.030512: block:block_rq_complete: 202,16 R () 21997896 + 8 [0]
+[...]
+</pre>
+
+<p>This uses <tt>perf</tt> to instrument both tracepoints for 120 seconds, then dumps the capture file to out.blockio: a text file of the data.</p>
+
+<p>Here's the commands I used to generate the previous heatmaps. This includes trace2heatmap.pl, which you can download from my github <a href="https://github.com/brendangregg/HeatMap">HeatMap</a> project.</p>
+
+<pre>
+$ <b>awk '{ gsub(/:/, "") } $5 ~ /issue/ { ts[$6, $10] = $4 }
+    $5 ~ /complete/ { if (l = ts[$6, $9]) { printf "%.f %.f\n", $4 * 1000000,
+    ($4 - l) * 1000000; ts[$6, $10] = 0 } }' out.blockio &gt; out.lat_us</b>
+$ <b>./trace2heatmap.pl --unitstime=us --unitslat=us --grid out.lat_us &gt; out.lat.svg</b>
+$ <b>./trace2heatmap.pl --unitstime=us --unitslat=us --grid --maxlat=15000 \
+    --title="Latency Heat Map: 15ms max" out.lat_us &gt; out.latzoom.svg</b>
+</pre>
+
+<p>The trace2heatmap.pl program takes two columns: a timestamp and a latency. I used awk to associate block_rq_issue timestamps with block_rq_complete, based on the device ID and offset, so that latency can be calculated from their timestamps.</p>
+
+<p>You might need to adjust the field numbers ($4, $5, ...) to match your output, as the perf_events tracepoints can change between kernel versions. This kernel version is 3.14.5.</p>
+
+<p>If you want, you can combine steps to skip the intermediate files. I find them handy to browse, to look for patterns event by event.</p>
+
+<h2>Size Heat Map</h2>
+
+<p>There are two main workload factors that cause SSDs to perform differently: reads vs writes, and I/O size. As this is archiving an entire system, it might have encountered larger files at the 43 second mark, changing the I/O sizes used.</p>
+
+<p>I/O size information is part of the capture I already have: field 11, in sectors. Building an I/O size heat map:</p>
+
+<pre>
+$ <b>awk '{ gsub(/:/, "") } $5 ~ /complete/ { print $4 * 1000000, ($11 * 512) }' \
+    out.blockio &gt; out.sizes</b>
+$ <b>./trace2heatmap.pl --unitstime=us --unitslat=bytes out.sizes \
+    --title="Size Heat Map" &gt; out.sizes.svg</b>
+</pre>
+
+<p>Produces (<a href="/blog/images/2014/out.sizes.svg">SVG</a>):</p>
+
+<p><object data="/images/brendangregg.com/06d8447a0f0c469c86dc03061104567b.svg" type="image/svg+xml" width="720" height="363">
+<img src="/images/brendangregg.com/3d6418b5fc36d04c3abc6ccc2c157acb.jpg" width="720" height="363">
+</object></p>
+
+<p>The y-axis is now I/O size. In this case, that's not consistent with the latency seen. I/O size actually tends to be smaller after 43 seconds, not larger, which should mean quicker I/O...</p>
+
+<h2>Offset Heat Map</h2>
+
+<p>It's worth showing the following while I'm here, although it shouldn't make much difference for SSDs: the disk I/O offset heat map. This uses the sector offset field from the block_rq_complete probe.</p>
+
+<pre>
+$ <b>awk '{ gsub(/:/, "") } $5 ~ /complete/ { print $4 * 1000000, ($9 * 512) / (1024 * 1024) }' \
+    out.blockio &gt; out.offset</b>
+$ <b>./trace2heatmap.pl --unitstime=us --unitslat=Mbytes out.offset \
+    --title="Offset Heat Map" &gt; out.offset.svg</b>
+</pre>
+
+<p>Produces (<a href="/blog/images/2014/out.offset.svg">SVG</a>):</p>
+
+<p><object data="/images/brendangregg.com/95b3d6adf0fac262374439ae8d80b70e.svg" type="image/svg+xml" width="720" height="363">
+<img src="/images/brendangregg.com/7cf8d6897b732c21b22f3ba407279cc7.jpg" width="720" height="363">
+</object></p>
+
+<p>You can use this to quickly identify random disk I/O vs sequential, based on the spread of the offset distribution. For rotational disks this can make a 10x difference to the delivered latency (although to do this properly, you should generate a heat map for each disk). For SSDs it shouldn't matter: no mechanical disk arm to move, or platter to wait for rotation.</p>
+
+<p>Something does happen at the 43 second mark. Before that, I/O looks quite random across the 16 Gbyte range (size of each SSD). After that, the pattern shows more sequential components. In fact, it looks a bit like a file system optimizing placement for rotational disks. Am I sure that I'm only looking at SSDs here?</p>
+
+<h2>SSD Latency Only</h2>
+
+<p>My archive workload read all file systems, including the boot drive. For this instance, that's rotational magnetic disks. I can exclude it from my heat map by filtering the device ID, which was "202,1" (you'll need to adjust this to match your instance type):</p>
+
+<pre>
+$ awk '{ gsub(/:/, "") } $5 ~ /issue/ &amp;&amp; <b>$6 != "202,1"</b> { ts[$6, $10] = $4 }
+    $5 ~ /complete/ { if (l = ts[$6, $9]) { printf "%.f %.f\n", $4 * 1000000,
+    ($4 - l) * 1000000; ts[$6, $10] = 0 } }' out.blockio &gt; out.ssd_lat
+$ <b>./trace2heatmap.pl --unitstime=us --unitslat=us \
+    --title="Latency Heat Map: SSDs only" out.ssd_lat &gt; out.ssd.svg</b>
+</pre>
+
+<p>This produces a heat map that shows SSD I/O only (<a href="/blog/images/2014/out.ssd.svg">SVG</a>):</p>
+
+<p><object data="/images/brendangregg.com/dba50b96443fde49ffa206339219393c.svg" type="image/svg+xml" width="720" height="363">
+<img src="/images/brendangregg.com/9e327a674a2878211776c55ed09ad18e.jpg" width="720" height="363">
+</object></p>
+
+<p>All right! So the latency cloud and spikes after 43 were fore rotational disk I/O only, not SSD.</p>
+
+<h2>Read Latency Only</h2>
+
+<p>I've seen such latency spikes before, caused by flushing batches of writes. Filtering out writes:</p>
+
+<pre>
+$ awk '{ gsub(/:/, "") } $5 ~ /issue/ &amp;&amp; <b>$7 ~ /R/</b> { ts[$6, $10] = $4 }
+    $5 ~ /complete/ { if (l = ts[$6, $9]) { printf "%.f %.f\n", $4 * 1000000,
+    ($4 - l) * 1000000; ts[$6, $10] = 0 } }' out.blockio &gt; out.read_lat
+$ <b>./trace2heatmap.pl --unitstime=us --unitslat=us out.read_lat &gt; out.read.svg</b>
+</pre>
+
+<p>Produces (<a href="/blog/images/2014/out.read.svg">SVG</a>):</p>
+
+<p><object data="/images/brendangregg.com/def0548c491bff065d0983297cc5c800.svg" type="image/svg+xml" width="720" height="363">
+<img src="/images/brendangregg.com/f5a783dfad4eaca6e68faaebb4438687.jpg" width="720" height="363">
+</object></p>
+
+<p>Ah, latency spikes gone. These are bursts of writes, likely file system flushes. Also notice that the reads were unaffected: what's likely happening is that the disk devices are prioritizing reads over writes.</p>
+
+<h2>Conclusion</h2>
+
+<p>While the main storage on my c3.large is SSDs, my example workload accessed the rotational boot disk, changing the latency distribution dramatically. It's an easy configuration mistake to watch out for. There were also occasions where bursts of writes to this disk occurred, likely file system flushes, causing spikes in latency. These are normal, and usually don't affect synchronous I/O (drives can queue and service these differently).</p>
+
+<p>These behaviors were visualized using heat maps for latency, I/O size, and I/O offset. These were generated using Linux <a href="/perf.html">perf_events</a> to capture disk I/O events, some awk to process the output, and my <a href="https://github.com/brendangregg/HeatMap">heat map</a> (github) software. You can do this too. Usual warning applys about running commands as root in production: understand what you are doing first.</p>
+
+{% endraw %}
