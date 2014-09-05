@@ -1,0 +1,66 @@
+---
+layout: post
+title: '用 Spark 处理数据导入 Elasticsearch'
+time: 2014-09-04 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/09/04/spark-to-elasticsearch
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>Logstash 说了这么多。其实运用 Kibana 和 Elasticsearch 不一定需要 logstash，其他各种工具导入的数据都可以。今天就演示一个特别的~用 Spark 来处理导入数据。</p>
+<p>首先分别下载 spark 和 elasticsearch-hadoop 的软件包。注意 elasticsearch-hadoop 从最新的 2.1 版开始才带有 spark 支持，所以要下新版：</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">wget http://d3kbcqa49mib13.cloudfront.net/spark-1.0.2-bin-cdh4.tgz
+wget http://download.elasticsearch.org/hadoop/elasticsearch-hadoop-2.1.0.Beta1.zip</code></pre></div>
+<p>分别解压开后，运行 spark 交互命令行 <code>ADD_JARS=../elasticsearch-hadoop-2.1.0.Beta1/dist/elasticsearch-spark_2.10-2.1.0.Beta1.jar ./bin/spark-shell</code> 就可以逐行输入 scala 语句测试了。</p>
+<p><strong>注意 elasticsearch 不支持 1.6 版本的 java，所以在 MacBook 上还设置了一下 <code>JAVA_HOME="/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home"</code> 启用自己从 Oracle 下载安装的 1.7 版本的 Java。</strong></p>
+<h1 id="section">基础示例</h1>
+<p>首先来个最简单的测试，可以展示写入 ES 的用法：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.SparkConf</span>
+<span class="kn">import</span> <span class="nn">org.elasticsearch.spark._</span>
+<span class="c1">// 更多 ES 设置，见&lt;http://www.elasticsearch.org/guide/en/elasticsearch/hadoop/2.1.Beta/configuration.html&gt;</span>
+<span class="n">val</span> <span class="n">conf</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkConf</span><span class="o">()</span>
+<span class="n">conf</span><span class="o">.</span><span class="na">set</span><span class="o">(</span><span class="s">"es.index.auto.create"</span><span class="o">,</span> <span class="s">"true"</span><span class="o">)</span>
+<span class="n">conf</span><span class="o">.</span><span class="na">set</span><span class="o">(</span><span class="s">"es.nodes"</span><span class="o">,</span> <span class="s">"127.0.0.1"</span><span class="o">)</span>
+<span class="c1">// 在spark-shell下默认已建立</span>
+<span class="c1">// import org.apache.spark.SparkContext    </span>
+<span class="c1">// import org.apache.spark.SparkContext._</span>
+<span class="c1">// val sc = new SparkContext(conf)</span>
+<span class="n">val</span> <span class="n">numbers</span> <span class="o">=</span> <span class="n">Map</span><span class="o">(</span><span class="s">"one"</span> <span class="o">-&gt;</span> <span class="mi">1</span><span class="o">,</span> <span class="s">"two"</span> <span class="o">-&gt;</span> <span class="mi">2</span><span class="o">,</span> <span class="s">"three"</span> <span class="o">-&gt;</span> <span class="mi">3</span><span class="o">)</span>
+<span class="n">val</span> <span class="n">airports</span> <span class="o">=</span> <span class="n">Map</span><span class="o">(</span><span class="s">"OTP"</span> <span class="o">-&gt;</span> <span class="s">"Otopeni"</span><span class="o">,</span> <span class="s">"SFO"</span> <span class="o">-&gt;</span> <span class="s">"San Fran"</span><span class="o">)</span>
+<span class="n">sc</span><span class="o">.</span><span class="na">makeRDD</span><span class="o">(</span><span class="n">Seq</span><span class="o">(</span><span class="n">numbers</span><span class="o">,</span> <span class="n">airports</span><span class="o">)).</span><span class="na">saveToEs</span><span class="o">(</span><span class="s">"spark/docs"</span><span class="o">)</span></code></pre></div>
+<p>这就 OK 了。尝试访问一下：</p>
+<pre><code>$ curl '127.0.0.1:9200/spark/docs/_search?q=*'
+</code></pre>
+<p>返回结果如下：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="p">{</span><span class="nt">"took"</span><span class="p">:</span><span class="mi">66</span><span class="p">,</span><span class="nt">"timed_out"</span><span class="p">:</span><span class="kc">false</span><span class="p">,</span><span class="nt">"_shards"</span><span class="p">:{</span><span class="nt">"total"</span><span class="p">:</span><span class="mi">5</span><span class="p">,</span><span class="nt">"successful"</span><span class="p">:</span><span class="mi">5</span><span class="p">,</span><span class="nt">"failed"</span><span class="p">:</span><span class="mi">0</span><span class="p">},</span><span class="nt">"hits"</span><span class="p">:{</span><span class="nt">"total"</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">"max_score"</span><span class="p">:</span><span class="mf">1.0</span><span class="p">,</span><span class="nt">"hits"</span><span class="p">:[{</span><span class="nt">"_index"</span><span class="p">:</span><span class="s2">"spark"</span><span class="p">,</span><span class="nt">"_type"</span><span class="p">:</span><span class="s2">"docs"</span><span class="p">,</span><span class="nt">"_id"</span><span class="p">:</span><span class="s2">"BwNJi8l2TmSRTp42GhDmww"</span><span class="p">,</span><span class="nt">"_score"</span><span class="p">:</span><span class="mf">1.0</span><span class="p">,</span> <span class="nt">"_source"</span> <span class="p">:</span> <span class="p">{</span><span class="nt">"one"</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span><span class="nt">"two"</span><span class="p">:</span><span class="mi">2</span><span class="p">,</span><span class="nt">"three"</span><span class="p">:</span><span class="mi">3</span><span class="p">}},{</span><span class="nt">"_index"</span><span class="p">:</span><span class="s2">"spark"</span><span class="p">,</span><span class="nt">"_type"</span><span class="p">:</span><span class="s2">"docs"</span><span class="p">,</span><span class="nt">"_id"</span><span class="p">:</span><span class="s2">"7f7ar-9kSb6WEiLS8ROUCg"</span><span class="p">,</span><span class="nt">"_score"</span><span class="p">:</span><span class="mf">1.0</span><span class="p">,</span> <span class="nt">"_source"</span> <span class="p">:</span> <span class="p">{</span><span class="nt">"OTP"</span><span class="p">:</span><span class="s2">"Otopeni"</span><span class="p">,</span><span class="nt">"SFO"</span><span class="p">:</span><span class="s2">"San Fran"</span><span class="p">}}]}}</span></code></pre></div>
+<h1 id="section-1">文件处理</h1>
+<p>下一步，我们看如何读取文件和截取字段。scala 也提供了正则和捕获的方法：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">var</span> <span class="n">text</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="na">textFile</span><span class="o">(</span><span class="s">"/var/log/system.log"</span><span class="o">)</span>
+<span class="n">var</span> <span class="n">Pattern</span> <span class="o">=</span> <span class="s">"""(\w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2}) (\S+) (\S+)\[(\d+)\]: (.+)"""</span><span class="o">.</span><span class="na">r</span>
+<span class="n">var</span> <span class="n">entries</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="na">map</span> <span class="o">{</span>
+    <span class="k">case</span> <span class="nf">Pattern</span><span class="o">(</span><span class="n">timestamp</span><span class="o">,</span> <span class="n">host</span><span class="o">,</span> <span class="n">program</span><span class="o">,</span> <span class="n">pid</span><span class="o">,</span> <span class="n">message</span><span class="o">)</span> <span class="o">=&gt;</span> <span class="n">Map</span><span class="o">(</span><span class="s">"timestamp"</span> <span class="o">-&gt;</span> <span class="n">timestamp</span><span class="o">,</span> <span class="s">"host"</span> <span class="o">-&gt;</span> <span class="n">host</span><span class="o">,</span> <span class="s">"program"</span> <span class="o">-&gt;</span> <span class="n">program</span><span class="o">,</span> <span class="s">"pid"</span> <span class="o">-&gt;</span> <span class="n">pid</span><span class="o">,</span> <span class="s">"message"</span> <span class="o">-&gt;</span> <span class="n">message</span><span class="o">)</span>
+    <span class="k">case</span> <span class="o">(</span><span class="n">line</span><span class="o">)</span> <span class="o">=&gt;</span> <span class="n">Map</span><span class="o">(</span><span class="s">"message"</span> <span class="o">-&gt;</span> <span class="n">line</span><span class="o">)</span>
+<span class="o">}</span>
+<span class="n">entries</span><span class="o">.</span><span class="na">saveToEs</span><span class="o">(</span><span class="s">"spark/docs"</span><span class="o">)</span></code></pre></div>
+<p>这里示例写了两个 <code>case</code> ，因为 Mac 上的 “system.log” 不知道用的什么 syslog 协议，有些在 <code>[pid]</code> 后面居然还有一个 <code>(***)</code> 才是 <code>:</code>。正好就可以用这个来示例如果匹配失败的情况如何处理。不加这个默认 <code>case</code> 的话，匹配失败的就直接报错不会存进 <code>entries</code> 对象了。</p>
+<p><strong>注意：<code>.textFile</code> 不是 scala 标准的读取文件函数，而是 sparkContext 对象的方法，返回的是 RDD 对象(包括后面的 <code>.map</code> 返回的也是新的 RDD 对象)。所以后面就不用再 <code>.makeRDD</code> 了。</strong></p>
+<h1 id="section-2">网络数据</h1>
+<p>Spark 还有 Spark streaming 子项目，用于从其他网络协议读取数据，比如 flume，kafka，zeromq 等。官网上有一个配合 <code>nc -l</code> 命令的示例程序。</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.streaming._</span>
+<span class="n">val</span> <span class="n">ssc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">StreamingContext</span><span class="o">(</span><span class="n">sc</span><span class="o">,</span> <span class="n">Seconds</span><span class="o">(</span><span class="mi">1</span><span class="o">))</span>
+<span class="n">val</span> <span class="n">lines</span> <span class="o">=</span> <span class="n">ssc</span><span class="o">.</span><span class="na">socketTextStream</span><span class="o">(</span><span class="s">"localhost"</span><span class="o">,</span> <span class="mi">9999</span><span class="o">)</span>
+<span class="o">...</span>
+<span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
+<span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span></code></pre></div>
+<p>有时间我会继续尝试 Spark 其他功能。</p>
+    <hr>
+    
+    <hr>
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
