@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>strace Wow Much Syscall</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-05-11-strace-wow-much-syscall.html-998ad76a5.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>strace Wow Much Syscall</h1>
+    <p class="meta"><span class="time">May 11, 2014</span><span class="source_url"> • 来自 brendangregg.com <a name="brendangregg.com" href="http://www.brendangregg.com/blog/2014-05-11/strace-wow-much-syscall.html" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+<div style="float:right;padding:10px;padding-top:0px"><a href="http://en.wikipedia.org/wiki/Doge_%28meme%29"><img border="0" src="/images/brendangregg.com/abe4573bfb01d0eecf41b8d67a01c0f5.jpg" width="300"></a></div>
+
+<p>I wouldn't dare run strace(1) in production without seriously considering the consequences, and first trying the alternates. While it's widely known (and continually rediscovered) that strace is an amazing tool, it's much less known that it currently is – and always has been – dangerous.</p>
+
+<p>strace is the system call tracer for Linux. It currently uses the arcane ptrace() (process trace) debugging interface, which operates in a violent manner: pausing the target process for each syscall so that the debugger can read state. And doing this twice: when the syscall begins, and when it ends.</p>
+
+<p>This means strace pauses your application twice for each syscall, and context-switches each time between the application and strace. It's like putting traffic metering lights on your application.</p>
+
+<blockquote style="margin-bottom:5px">BUGS: A traced process runs slowly.</blockquote>
+
+<ul style="margin-top:5px">– <i>strace(1) man page</i>
+</ul>
+
+<p>In some cases this doesn't matter. Your application might be completely broken to start with, or you could be running it in a test environment where speed is not a concern. In production, you'll want to be really careful, and think though the consequences (eg, could this cause the target to fail-over due to exceeding latency thresholds?). Better, look for alternates to try first, like Linux <a href="http://www.brendangregg.com/perf.html">perf_events</a>.</p>
+
+<h2>Overhead</h2>
+
+<p>The performance overhead of strace is relative to the system call rate it is instrumenting. To put something of an upper bound on it, here is a simple worst-case test:</p>
+
+<pre>
+$ <b>dd if=/dev/zero of=/dev/null bs=1 count=500k</b>
+512000+0 records in
+512000+0 records out
+512000 bytes (512 kB) copied, <b>0.103851 s</b>, 4.9 MB/s
+</pre>
+
+<p>That finished in 0.103851 seconds.</p>
+
+<p>Now with strace (here I'm tracing a syscall that is never called, accept(), but we pay the overhead anyway):</p>
+
+<pre>
+$ <b>strace -eaccept dd if=/dev/zero of=/dev/null bs=1 count=500k</b>
+512000+0 records in
+512000+0 records out
+512000 bytes (512 kB) copied, <b>45.9599 s</b>, 11.1 kB/s
+</pre>
+
+<p>That's <strong>442x slower</strong>. It is worst-case, since dd(1) is performing syscalls as fast as it can.</p>
+
+<h2>Handy strace One-Liners</h2>
+
+<pre>
+# Slow the target command and print details for each syscall:
+strace command
+
+# Slow the target PID and print details for each syscall:
+strace -p PID
+
+# Slow the target PID and any newly created child process, printing syscall details:
+strace -fp PID
+
+# Slow the target PID and record syscalls, printing a summary:
+strace -cp PID
+
+# Slow the target PID and trace open() syscalls only:
+strace -eopen -p PID
+
+# Slow the target PID and trace open() and stat() syscalls only:
+strace -eopen,stat -p PID
+
+# Slow the target PID and trace connect() and accept() syscalls only:
+strace -econnect,accept -p PID
+
+# Slow the target command and see what other programs it launches (slow them too!):
+strace -qfeexecve command
+
+# Slow the target PID and print time-since-epoch with (distorted) microsecond resolution:
+strace -ttt -p PID
+
+# Slow the target PID and print syscall durations with (distorted) microsecond resolution:
+strace -T -p PID
+</pre>
+
+<h2>How To Learn strace</h2>
+
+<p>There's much you can learn about interpreting strace output. The following two steps should get you started with key system calls.</p>
+
+<h2>1. Learn Key Syscalls</h2>
+
+<p>You should know what the following 12 key system calls do, which you'll see regularly in strace output. Test your knowledge! How many of these do you know? Mouse-over for answers.</p>
+
+<style type="text/css">
+  #div1, #div2, #div3, #div4, #div5, #div6, #div7, #div8, #div9, #div10, #div11, #div12 {
+    visibility: hidden;
+  }
+</style>
+
+<script>
+  function show(id) {
+    document.getElementById(id).style.visibility = "visible";
+  }
+  function hide(id) {
+    document.getElementById(id).style.visibility = "hidden";
+  }
+</script>
+
+<table border="1" style="margin-left:20px">
+<tr>
+<th>syscall</th>
+<th>what it does</th>
+</tr>
+<tr>
+<td><tt>read</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div1')" onmouseout="hide('div1')"><div id="div1">read bytes from a file descriptor (file, socket)</div></div></td>
+</tr>
+<tr>
+<td><tt>write</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div2')" onmouseout="hide('div2')"><div id="div2">write bytes from a file descriptor (file, socket)</div></div></td>
+</tr>
+<tr>
+<td><tt>open</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div3')" onmouseout="hide('div3')"><div id="div3">open a file (returns a file descriptor)</div></div></td>
+</tr>
+<tr>
+<td><tt>close</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div4')" onmouseout="hide('div4')"><div id="div4">close a file descriptor</div></div></td>
+</tr>
+<tr>
+<td><tt>fork</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div5')" onmouseout="hide('div5')"><div id="div5">create a new process (current process is forked)</div></div></td>
+</tr>
+<tr>
+<td><tt>exec</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div6')" onmouseout="hide('div6')"><div id="div6">execute a new program</div></div></td>
+</tr>
+<tr>
+<td><tt>connect</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div7')" onmouseout="hide('div7')"><div id="div7">connect to a network host</div></div></td>
+</tr>
+<tr>
+<td><tt>accept</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div8')" onmouseout="hide('div8')"><div id="div8">accept a network connection</div></div></td>
+</tr>
+<tr>
+<td><tt>stat</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div9')" onmouseout="hide('div9')"><div id="div9">read file statistics</div></div></td>
+</tr>
+<tr>
+<td><tt>ioctl</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div10')" onmouseout="hide('div10')"><div id="div10">set I/O properties, or other miscellaneous functions</div></div></td>
+</tr>
+<tr>
+<td><tt>mmap</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div11')" onmouseout="hide('div11')"><div id="div11">map a file to the process memory address space</div></div></td>
+</tr>
+<tr>
+<td><tt>brk</tt></td>
+<td><div style="cursor: pointer" onmouseover="show('div12')" onmouseout="hide('div12')"><div id="div12">extend the heap pointer</div></div></td>
+</tr>
+</table>
+
+<p><span style="cursor: pointer" onclick="show('div1'); show('div2'); show('div3'); show('div4'); show('div5'); show('div6'); show('div7'); show('div8'); show('div9'); show('div9'); show('div10'); show('div11'); show('div12');"><u>Click here</u> to reveal all.</span> Each syscall has a man page, so if you are at the command line, it should only take a few seconds to jog your memory.</p>
+
+<p>There are variants of these syscalls, so you may see "execve" for "exec", and "pread" as well as "read". There should be man pages for these, too.</p>
+
+<h2>2. Simple strace Example</h2>
+
+<p>You can practice and learn strace by aiming it at some basic commands: ls(1), sleep(1), ssh(1), etc.</p>
+
+<p>Lets strace the venerable <tt>ls -l</tt> as our first example. We'll list /etc so that there are plenty of files to examine, and the output is mostly what you expect (listing files) and not program startup and initialization.</p>
+
+<p>The output starts by showing program initialization:</p>
+
+<pre>
+$ <b>strace ls -l /etc</b>
+execve("/bin/ls", ["ls", "-l", "/etc"], [/* 35 vars */]) = 0
+brk(0)                                  = 0x9a5000
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f9336828000
+access("/etc/ld.so.preload", R_OK)      = -1 ENOENT (No such file or directory)
+open("/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+fstat(3, {st_mode=S_IFREG|0644, st_size=19218, ...}) = 0
+mmap(NULL, 19218, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f9336823000
+close(3)                                = 0
+[...]
+</pre>
+
+<p>The execve() variant is used to run /bin/ls, then libraries are pulled in. There'll be multiple groups beginning with an open() of a /lib* location and ending in close().</p>
+
+<p>As an example of reading a single line: take a look at the open() line, and also the open(2) man page. The man page summarizes this syscall as:</p>
+
+<pre>
+       int open(const char *pathname, int flags);
+       int open(const char *pathname, int flags, mode_t mode);
+</pre>
+
+<p>It also explains these arguments in detail, and the return value. So, our "pathname" was "/etc/ld.so.cache", and the flags were O_RDONLY|O_CLOEXEC. It returned 3, a file descriptor for later use with other syscalls.</p>
+
+<p>Later in the output the real action begins:</p>
+
+<pre>
+openat(AT_FDCWD, "/etc", O_RDONLY|O_NONBLOCK|O_DIRECTORY|O_CLOEXEC) = 3
+getdents(3, /* 169 entries */, 32768)   = 5280
+lstat("/etc/motd", {st_mode=S_IFLNK|0777, st_size=25, ...}) = 0
+lgetxattr("/etc/motd", "security.selinux", 0x9b58f0, 255) = -1 ENODATA (No data available)
+readlink("/etc/motd", "/var/lib/update-motd/motd", 26) = 25
+lstat("/etc/gdbinit.d", {st_mode=S_IFDIR|0755, st_size=4096, ...}) = 0
+lgetxattr("/etc/gdbinit.d", "security.selinux", 0x9b5950, 255) = -1 ENODATA (No data available)
+getxattr("/etc/gdbinit.d", "system.posix_acl_access", 0x0, 0) = -1 ENODATA (No data available)
+getxattr("/etc/gdbinit.d", "system.posix_acl_default", 0x0, 0) = -1 ENODATA (No data available)
+[...]
+</pre>
+
+<p>This opens /etc and reads the directory entries (getdents()), then for each file it calls lstat(), a stat() variant, and two extended attribute varients: lgetxattr() and getxattr(). getxattr() is called twice, once for each namespace: see its second argument.</p>
+
+<p>After collecting all this file information, ls(1) begins printing it out, sorted:</p>
+
+<pre>
+clock_gettime(CLOCK_REALTIME, {1399855888, 841769117}) = 0
+write(1, "drwxr-xr-x  4 root root    4096 "..., 50drwxr-xr-x  4 root root    4096 Dec 10 23:47 acpi
+) = 50
+stat("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(1, "-rw-r--r--  1 root root      16 "..., 53-rw-r--r--  1 root root      16 Dec 10 23:48 adjtime
+) = 53
+stat("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(1, "-rw-r--r--  1 root root    1512 "..., 53-rw-r--r--  1 root root    1512 Jan 12  2010 aliases
+) = 53
+stat("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(1, "-rw-r-----  1 root smmsp  12288 "..., 56-rw-r-----  1 root smmsp  12288 Dec 10 23:47 aliases.db
+) = 56
+stat("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(1, "drwxr-xr-x  2 root root    4096 "..., 58drwxr-xr-x  2 root root    4096 Apr 25 20:47 alternatives
+) = 58
+[...]
+</pre>
+
+<p>The output is a little messed up since <tt>ls -l</tt> and <tt>strace</tt> are writing to the same terminal. The write() syscalls are printing a line of output for each file, and ...</p>
+
+<p>WTF?? Why is ls(1) running stat() on /etc/localtime for <em>every line of output?</em> </p>
+
+<h2>Performance Tuning ls(1)</h2>
+
+<p>A quick search online (I would have hit up the ls(1) source next) explained the <a href="http://stackoverflow.com/questions/4554271/how-to-avoid-excessive-stat-etc-localtime-calls-in-strftime-on-linux">problem</a> seen here: my TZ environment variable is not set. Setting it eliminated those stat() /etc/localtime calls.</p>
+
+<p>So I just found a performance win with this simple example. Oh, um, I meant it this way, of course!</p>
+
+<p>Coaxing ls(1) to run long enough to take a performance measurement:</p>
+
+<pre>
+$ <b>time ls -l `perl -e 'print "/etc " x 1000'` &gt;/dev/null</b>
+
+real    0m3.562s
+user    0m1.004s
+sys 0m2.464s
+</pre>
+
+<p>And with the fix:</p>
+
+<pre>
+$ <b>time TZ=US/Pacific ls -l `perl -e 'print "/etc " x 1000'` &gt;/dev/null</b>
+
+real    0m2.753s
+user    0m0.804s
+sys 0m1.868s
+</pre>
+
+<p>I just <strong>improved performance by 23%</strong> (2.753s vs 3.562s). Not bad. (I wouldn't get too excited about finding and eliminating stat()s, though, as they are a fast syscall, and wins are not usually this high.)</p>
+
+<p>This is a good example of the type of performance issues that strace is good at identifying: problems of the load applied. While we discovered it by fishing around with strace, this would also be found by following a performance methodology: <a href="http://www.slideshare.net/brendangregg/velocity-stoptheguessing2013/32">workload characterization</a>, for system calls.</p>
+
+<p>Since it it can distort time measurements so severely (although it does have a "-O overhead" option, and heuristic, to try to compensate), strace is not so good at determining performance issues involving latency. It also is of much less use outside of the syscall interface, for example if the performance issue was deeper in the kernel or application.</p>
+
+<h2>Versus Advanced Tracers</h2>
+
+<p>Comparing the current version of strace (eg, ver 4.8) vs current versions of perf_events/ktap/SystemTap/LTTng/dtrace4linux (as per 2014).</p>
+
+<p>Pros:</p>
+
+<ul>
+<li>strace is simple. Syscalls only. POSIX command line interface.</li>
+<li>Automatic meaningful output for each syscall type. Don't have to code this yourself.</li>
+<li>Widely available and mature.</li>
+</ul>
+
+<p>Cons:</p>
+
+<ul>
+<li>WARNING: Can cause significant and sometimes <em>massive</em> performance overhead, in the worst case, slowing the target application by over 100x. This may not only make it unsuitable for production use, but any timing information may also be so distorted as to be misleading.</li>
+<li>Can't trace multiple processes simultaneously (with the exception of followed children).</li>
+<li>Visibility is limited to the system call interface.</li>
+</ul>
+
+<p>There is a possible con: in the past, strace has had bugs which can leave the target process, or its followed children, in the STOP state (eg, <a href="https://bugzilla.redhat.com/show_bug.cgi?id=590172">here</a>, <a href="http://lethargy.org/%7Ejesus/writes/beware-of-strace">here</a>). This could cause a serious production outage, as the application is now frozen mid-flight. If you realize this immediately and can fix it (kill strace, then <tt>kill -CONT</tt> the process), then you may avoid a serious outage. However, you may still have caused a burst of application requests with multi-second latency (outliers), depending on how quickly you typed in the kill command.</p>
+
+<p>If you'd like to write a blog post about how awesome strace is and show a case study of its use, then great, but please copy the above WARNING bullet point.</p>
+
+<h2>Did you know?</h2>
+
+<ul>
+<li>strace is banned in France, where it is classified as a cracking tool (it can trace plain-text I/O).</li>
+<li>strace is designed to operate at the system call layer, also called its "test depth". </li>
+<li>In the latest development version (12.1), strace has an easter egg: with "-VV" it begins the trace by printing "DIVE! DIVE!", and playing an aah-WOO-gah alarm on /dev/audio.</li>
+<li>The first strace is on display at the Computer History Museum in San Jose. It was made in 1961 using wire wrapped circuitry and core memory, and could trace up to 12 system calls per second. Within its sheet metal enclosure are four seats: for the surgeon, co-pilot, and their two secretaries. It could stay submerged at syscall depth for up to 9 hours.</li>
+<li>In 1963, Digital Electronics released a cheaper 2-seater version of strace, which was enormously popular.</li>
+<li>The largest strace is the Soviet "Tacti-call" class, which can remain at syscall depth for over 120 days, and has a maximum crew of 160. It is nuclear powered, and has 4 forward and 2 aft signal tubes, each typically armed with type 9 signals.</li>
+<li>On the bottom of San Francisco bay are several thousand unused straces, which were intended for Y2K issues that never arose, and so were scuttled.</li>
+<li>The rarely seen presidential "strace one" is an advanced model that is rumored to operate below syscall depth; however, its specifications are classified.</li>
+<li>In the worst Twitter outage of 2013, engineers were forced to take their strace below crush depth (also called "collapse depth"). They survived the depth and located the root cause, but were then eaten by the fail whale.</li>
+</ul>
+
+<h2>More About strace</h2>
+
+<script type="text/javascript">
+var warn = "WARNING: Before reading this page, please confirm that you understand that the current versions of strace (based on ptrace()) can cause significant and sometimes massive performance overhead, in the worst case, slowing the target application by over 100x. This may not only make it unsuitable for production use, but any timing information may also be so distorted it may be misleading.";
+</script>
+
+<p>Since the following appear to lack overhead warnings, I added a confirmation box on the links:</p>
+
+<ul>
+<li>
+<a onclick="return confirm(warn)" href="http://chadfowler.com/blog/2014/01/26/the-magic-of-strace/">The Magic of Strace</a> (2014)</li>
+<li>
+<a onclick="return confirm(warn)" href="http://blog.endpoint.com/2013/06/debugging-obscure-postgres-problems.html">Debugging obscure Postgres problems with strace</a> (2013)</li>
+<li>
+<a onclick="return confirm(warn)" href="http://www.caktusgroup.com/blog/2013/10/30/using-strace-debug-stuck-celery-tasks/">Using strace to Debug Stuck Celery Tasks</a> (2013)</li>
+<li>
+<a onclick="return confirm(warn)" href="https://www.iweb-hosting.co.uk/blog/diagnosing-magento-speed-issues-with-strace.html">Diagnosing Magento speed issues with strace</a> (2012)</li>
+<li>
+<a onclick="return confirm(warn)" href="https://blogs.oracle.com/ksplice/entry/strace_the_sysadmin_s_microscope">Strace -- The Sysadmin's Microscope</a> (2010)</li>
+<li>
+<a onclick="return confirm(warn)" href="http://timetobleed.com/hello-world/">strace: for fun, profit, and debugging.</a> (2008)</li>
+<li>
+<a onclick="return confirm(warn)" href="http://linuxgazette.net/148/saha.html">Introducing strace - a System call tracing and Signal reporting tool</a> (2008)</li>
+<li>
+<a onclick="return confirm(warn)" href="http://www.hokstad.com/5-simple-ways-to-troubleshoot-using-strace">5 simple ways to troubleshoot using Strace</a> (2008)</li>
+</ul>
+
+<p>These can be useful as they show case studies for real issues, and also provide different perspectives based on each author's area of interest and expertise for applying strace.</p>
+
+<p>If you'd like to learn more about strace internals and ptrace(), I recommend: </p>
+
+<ul>
+<li><a href="https://blog.nelhage.com/2010/08/write-yourself-an-strace-in-70-lines-of-code/">Write Yourself an Strace in 70 Lines of Code</a></li>
+</ul>
+
+<h2>Beyond strace</h2>
+
+<div style="float:right;padding:10px;padding-top:0px;padding-bottom:5px"><a href="http://www.brendangregg.com/linuxperf.html"><img border="0" src="/images/brendangregg.com/fa330fbeaf44ca5869fb95812d74bab3.jpg" width="300"></a></div>
+
+<p>There are many articles and posts on strace(1), as well as tcpdump(8) and top(1), but few on harder Linux observability tools and frameworks, like ltrace (library trace), perf_events, tracepoints, kprobes, uprobes, etc. I joked about this in my <a href="http://www.youtube.com/watch?v=6TYC5h4yz1o">SCaLE12x keynote</a>, showing a <a href="http://www.slideshare.net/brendangregg/what-linux-can-learn-from-solaris-performance-and-viceversa/101">simplified</a> Linux internals diagram composed of only top, strace, and tcpdump!</p>
+
+<p>strace has limited visibility: (an instrumentable version of) the syscall interface. My Linux performance observability tools diagram on the right shows the scope of strace vs other tools. Now, much can be inferred about kernel activity from the syscall requests, but there are plenty of areas for which you have no direct visibility. Browse the diagram to see the other tools you can use to go beyond strace.</p>
+
+<p>I usually skip strace and go straight to these other tools, like perf (<a href="http://www.brendangregg.com/perf.html">perf_events</a>) or one of the other in-development Linux dynamic tracers. These give me deeper visibility, lower overhead, and customizable output. Although, sometimes the quickest route is just firing up strace, and I will, if the overhead is acceptable.</p>
+
+<h2>strace Future</h2>
+
+<p>strace(1) is a great tool, but the current version (using ptrace()) can slow down the target severely. Be aware of the overhead strace causes, and consider other alternates for Linux that use lower-cost buffered tracing. These include perf_events, sysdig, ktap, and SystemTap. Many of these also allow custom kernel summaries, reducing overheads further.</p>
+
+<p>Linux 3.7 introduced <a href="http://www.brendangregg.com/perf.html#More">perf trace</a>, a buffered strace-like subcommand for perf_events, which was introduced as an "<a href="http://kernelnewbies.org/Linux_3.7#head-5f16e5d3f07c2a1601c98f4b81e522c12f6cae7b">alternate to strace</a>". There is also <a href="http://www.sysdig.org/">sysdig</a>, which allows custom filters and output. It's quite possible that in the future strace will become a wrapper to one of these, and all my warnings about the overheads will be out of date (it won't mean that overheads can be ignored, though!).</p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-05-09-xen-feature-detection.html-3e54c1709.html" title="Previous Post: Xen Feature Detection" data-instant>&laquo; Xen Feature Detection</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-05-13-%25e7%25a7%25bb%25e5%258a%25a8web%25e5%25ad%2597%25e4%25bd%2593%25e6%2598%25be%25e7%25a4%25ba%25e8%25b0%2583%25e7%25a0%2594%25e6%25b5%258b%25e8%25af%2595.html-7d2d31d9b.html" title="Next Post: 移动web字体显示调研测试" data-instant>移动web字体显示调研测试 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>16 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-16-iosnoop-for-linux.html-3e14ce40a.html">iosnoop For Linux</a></li>
+
+      <li><span>09 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-09-java-cpu-sampling-using-hprof.html-6086da145.html">Java CPU Sampling Using hprof</a></li>
+
+      <li><span>23 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-23-osx-10.9.3-is-toxic.html-e091501b2.html">OS X 10.9.3 Recurring Panics</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

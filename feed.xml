@@ -5,9 +5,80 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Tue, 02 Sep 2014 20:02:24 +0800</pubDate>
-    <lastBuildDate>Tue, 02 Sep 2014 20:02:24 +0800</lastBuildDate>
+    <pubDate>Fri, 05 Sep 2014 13:28:16 +0800</pubDate>
+    <lastBuildDate>Fri, 05 Sep 2014 13:28:16 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>用 Spark 处理数据导入 Elasticsearch</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;Logstash 说了这么多。其实运用 Kibana 和 Elasticsearch 不一定需要 logstash，其他各种工具导入的数据都可以。今天就演示一个特别的~用 Spark 来处理导入数据。&lt;/p&gt;
+&lt;p&gt;首先分别下载 spark 和 elasticsearch-hadoop 的软件包。注意 elasticsearch-hadoop 从最新的 2.1 版开始才带有 spark 支持，所以要下新版：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;wget http://d3kbcqa49mib13.cloudfront.net/spark-1.0.2-bin-cdh4.tgz
+wget http://download.elasticsearch.org/hadoop/elasticsearch-hadoop-2.1.0.Beta1.zip&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;分别解压开后，运行 spark 交互命令行 &lt;code&gt;ADD_JARS=../elasticsearch-hadoop-2.1.0.Beta1/dist/elasticsearch-spark_2.10-2.1.0.Beta1.jar ./bin/spark-shell&lt;/code&gt; 就可以逐行输入 scala 语句测试了。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;注意 elasticsearch 不支持 1.6 版本的 java，所以在 MacBook 上还设置了一下 &lt;code&gt;JAVA_HOME=&quot;/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home&quot;&lt;/code&gt; 启用自己从 Oracle 下载安装的 1.7 版本的 Java。&lt;/strong&gt;&lt;/p&gt;
+&lt;h1 id=&quot;section&quot;&gt;基础示例&lt;/h1&gt;
+&lt;p&gt;首先来个最简单的测试，可以展示写入 ES 的用法：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-java&quot; data-lang=&quot;java&quot;&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.apache.spark.SparkConf&lt;/span&gt;
+&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.elasticsearch.spark._&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// 更多 ES 设置，见&amp;lt;http://www.elasticsearch.org/guide/en/elasticsearch/hadoop/2.1.Beta/configuration.html&amp;gt;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;conf&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;SparkConf&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;conf&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;es.index.auto.create&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;true&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;conf&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;es.nodes&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;127.0.0.1&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// 在spark-shell下默认已建立&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// import org.apache.spark.SparkContext    &lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// import org.apache.spark.SparkContext._&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// val sc = new SparkContext(conf)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Map&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;one&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;two&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;three&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;airports&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Map&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;OTP&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;Otopeni&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;SFO&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;San Fran&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;sc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;makeRDD&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Seq&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;airports&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)).&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;saveToEs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;spark/docs&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;这就 OK 了。尝试访问一下：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;$ curl &#39;127.0.0.1:9200/spark/docs/_search?q=*&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;返回结果如下：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;took&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;66&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;timed_out&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_shards&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;total&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;successful&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;failed&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;hits&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;total&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;max_score&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;hits&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:[{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;spark&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;docs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;BwNJi8l2TmSRTp42GhDmww&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;&quot;_source&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;one&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;two&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;three&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}},{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_index&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;spark&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_type&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;docs&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_id&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;7f7ar-9kSb6WEiLS8ROUCg&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;_score&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nt&quot;&gt;&quot;_source&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;OTP&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Otopeni&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&quot;SFO&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;San Fran&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;}}]}}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;h1 id=&quot;section-1&quot;&gt;文件处理&lt;/h1&gt;
+&lt;p&gt;下一步，我们看如何读取文件和截取字段。scala 也提供了正则和捕获的方法：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-java&quot; data-lang=&quot;java&quot;&gt;&lt;span class=&quot;n&quot;&gt;var&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;text&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;textFile&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;/var/log/system.log&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;var&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Pattern&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;&quot;&quot;(\w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2}) (\S+) (\S+)\[(\d+)\]: (.+)&quot;&quot;&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;r&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;var&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;entries&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;text&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;map&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;case&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Pattern&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;timestamp&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;program&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pid&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Map&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;timestamp&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;timestamp&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;host&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;program&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;program&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;pid&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pid&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;case&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;line&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Map&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;message&quot;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;line&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;entries&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;saveToEs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;spark/docs&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;这里示例写了两个 &lt;code&gt;case&lt;/code&gt; ，因为 Mac 上的 “system.log” 不知道用的什么 syslog 协议，有些在 &lt;code&gt;[pid]&lt;/code&gt; 后面居然还有一个 &lt;code&gt;(***)&lt;/code&gt; 才是 &lt;code&gt;:&lt;/code&gt;。正好就可以用这个来示例如果匹配失败的情况如何处理。不加这个默认 &lt;code&gt;case&lt;/code&gt; 的话，匹配失败的就直接报错不会存进 &lt;code&gt;entries&lt;/code&gt; 对象了。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;注意：&lt;code&gt;.textFile&lt;/code&gt; 不是 scala 标准的读取文件函数，而是 sparkContext 对象的方法，返回的是 RDD 对象(包括后面的 &lt;code&gt;.map&lt;/code&gt; 返回的也是新的 RDD 对象)。所以后面就不用再 &lt;code&gt;.makeRDD&lt;/code&gt; 了。&lt;/strong&gt;&lt;/p&gt;
+&lt;h1 id=&quot;section-2&quot;&gt;网络数据&lt;/h1&gt;
+&lt;p&gt;Spark 还有 Spark streaming 子项目，用于从其他网络协议读取数据，比如 flume，kafka，zeromq 等。官网上有一个配合 &lt;code&gt;nc -l&lt;/code&gt; 命令的示例程序。&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-java&quot; data-lang=&quot;java&quot;&gt;&lt;span class=&quot;kn&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.apache.spark.streaming._&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ssc&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;StreamingContext&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Seconds&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;))&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;lines&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ssc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;socketTextStream&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;localhost&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;9999&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;ssc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;start&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;ssc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;awaitTermination&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;有时间我会继续尝试 Spark 其他功能。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Thu, 04 Sep 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-09-04-spark-to-elasticsearch-b436fd476.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-04-spark-to-elasticsearch-b436fd476.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
     
       <item>
         <title>MogileFS 根据不同网段使用不同 IP</title>
@@ -56,6 +127,70 @@ Help for &#39;host-add&#39; command:
         
         
         <category>php-oa</category>
+        
+      </item>
+    
+      <item>
+        <title>ftrace: The Hidden Light Switch</title>
+        <description>
+
+&lt;p&gt;If you&#39;ve been following my previous posts about Linux ftrace, you&#39;ll want to read my recent &lt;a href=&quot;http://lwn.net/&quot;&gt;lwn.net&lt;/a&gt; article: &lt;a href=&quot;http://lwn.net/Articles/608497/&quot;&gt;Ftrace: The Hidden Light Switch&lt;/a&gt;. This showed how I used ftrace at Netflix to confirm whether a kernel tunable change took affect immediately, and how it was set. It was also a tour of some ftrace capabilities. &lt;/p&gt;
+
+&lt;p&gt;ftrace is particularly useful for us since it is already available in all our Linux systems, and has been for years. The biggest problem is that it&#39;s not very well known. I&#39;ve hopefully helped raise awareness with this article, and I also included ftrace in my &lt;a href=&quot;http://www.brendangregg.com/blog/2014-08-23/linux-perf-tools-linuxcon-na-2014.html&quot;&gt;Linux Performance Tools&lt;/a&gt; talk at LinuxCon.&lt;/p&gt;
+
+&lt;p&gt;I mentioned the following commands, but didn&#39;t include screenshots. Here I&#39;m checking if the deadline or noop I/O schedulers are active, based on counting the function calls:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;./funccount -i 1 &#39;deadline*&#39;&lt;/b&gt;
+Tracing &quot;deadline*&quot;... Ctrl-C to end.
+
+FUNC                              COUNT
+deadline_add_request                178
+deadline_merge                      178
+deadline_remove_request.isra.4      178
+deadline_dispatch_requests          712
+
+FUNC                              COUNT
+deadline_add_request                698
+deadline_merge                      698
+deadline_remove_request.isra.4      698
+deadline_dispatch_requests         2792
+^C
+FUNC                              COUNT
+deadline_add_request                316
+deadline_merge                      316
+deadline_remove_request.isra.4      316
+deadline_dispatch_requests         1264
+
+Ending tracing...
+# &lt;b&gt;./funccount -i 1 &#39;noop*&#39;&lt;/b&gt;
+Tracing &quot;noop*&quot;... Ctrl-C to end.
+
+FUNC                              COUNT
+
+FUNC                              COUNT
+^C
+FUNC                              COUNT
+
+Ending tracing...
+&lt;/pre&gt;
+
+&lt;p&gt;So, deadline is active right now...&lt;/p&gt;
+
+&lt;p&gt;These and the other ftrace capabilities have been invaluable so far, which we&#39;ve been using via my &lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt; wrappers. If you want to do more with ftrace, see &lt;a href=&quot;http://git.kernel.org/cgit/linux/kernel/git/rostedt/trace-cmd.git&quot;&gt;trace-cmd&lt;/a&gt; by Steven Rostedt, which is a more powerful multi-tool.&lt;/p&gt;
+
+&lt;p&gt;ftrace can&#39;t yet do everything that I want from a kernel tracer. For example, I can&#39;t yet do custom in-kernel aggregations. But it can do a lot more than I previously thought possible.&lt;/p&gt;
+
+&lt;p&gt;Thanks to &lt;a href=&quot;http://www.beginningwithi.com/&quot;&gt;Deirdré Straughan&lt;/a&gt; and Jonathan Corbet for editing help with the article. For more about ftrace, see the resources I linked to at the end (many also on lwn.net), and my previous posts on &lt;a href=&quot;http://www.brendangregg.com/linuxperf.html#Documentation&quot;&gt;ftrace&lt;/a&gt;.&lt;/p&gt;
+
+
+</description>
+        <pubDate>Sat, 30 Aug 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-08-30-ftrace-the-hidden-light-switch.html-2c60798c9.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-30-ftrace-the-hidden-light-switch.html-2c60798c9.html</guid>
+        
+        
+        <category>brendangregg</category>
         
       </item>
     
@@ -1376,6 +1511,56 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         
         
         <category>sharecore</category>
+        
+      </item>
+    
+      <item>
+        <title>Linux Performance Tools at LinuxCon North America 2014</title>
+        <description>
+
+&lt;p&gt;This week I spoke at &lt;a href=&quot;http://events.linuxfoundation.org/events/linuxcon-north-america&quot;&gt;LinuxCon North America 2014&lt;/a&gt; in Chicago, which was also my first LinuxCon. I really enjoyed the conference, and it was a privilege to take part and contribute. I&#39;ll be returning to work with some useful ideas from talks and talking with attendees.&lt;/p&gt;
+
+&lt;p&gt;I included my latest Linux performance observability tools diagram, which I keep updated &lt;a href=&quot;/linuxperf.html&quot;&gt;here&lt;/a&gt;:&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+&lt;center&gt;&lt;a href=&quot;/Perf/linux_observability_tools.png&quot;&gt;&lt;img src=&quot;/images/brendangregg.com/386f03345157c7fac26406e42798f874.jpg&quot; width=&quot;500&quot; height=&quot;350&quot;&gt;&lt;/a&gt;&lt;/center&gt;
+
+&lt;p&gt;But I was really excited to share some new diagrams, which are all in the slides:&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+&lt;center&gt;&lt;iframe src=&quot;http://www.slideshare.net/slideshow/embed_code/38175637&quot; width=&quot;427&quot; height=&quot;356&quot; frameborder=&quot;0&quot; marginwidth=&quot;0&quot; marginheight=&quot;0&quot; scrolling=&quot;no&quot; style=&quot;border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;&quot; allowfullscreen&gt; &lt;/iframe&gt;&lt;/center&gt;
+
+&lt;p&gt;I gave a similar talk two years ago at &lt;a href=&quot;/linuxperf.html#SCaLE11x&quot;&gt;SCaLE11x&lt;/a&gt;, where I covered performance observability tools. This time, I covered observability, benchmarking, and tuning tools, providing a more complete picture of the performance tools landscape. I hope these help you in a similar way, when you move from observability to performing load tests with benchmarks, and finally tuning the system.&lt;/p&gt;
+
+&lt;p&gt;I also presented an updated summary on the state of tracing, after my recent discoveries with ftrace, which is able to serve some tracing needs in existing kernels. For more about ftrace, see my lwn.net article &lt;a href=&quot;http://lwn.net/Articles/608497/&quot;&gt;Ftrace: The hidden light switch&lt;/a&gt;, which was made open the same day as my talk.&lt;/p&gt;
+
+&lt;p&gt;At one point I included a blank template for observability tools (&lt;a href=&quot;/Perf/linux_observability_blank.png&quot;&gt;PNG&lt;/a&gt;):&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+&lt;center&gt;&lt;a href=&quot;/Perf/linux_observability_blank.png&quot;&gt;&lt;img src=&quot;/images/brendangregg.com/bbd77b077806661bb4f36e09416f89e3.jpg&quot; width=&quot;500&quot; height=&quot;350/&quot;&gt;&lt;/a&gt;&lt;/center&gt;
+
+&lt;p&gt;My suggestion was to print this out and fill it in with whatever observability tools make most sense in your environment. This may include monitoring tools, both in-house and commercial, and can be supplemented by the server tools from my diagram above.&lt;/p&gt;
+
+&lt;div style=&quot;float:right;padding-left:10px;padding-bottom:5px&quot;&gt;
+&lt;img src=&quot;/images/brendangregg.com/b3d7dffab3dfd3ea401415c84de75633.jpg&quot; width=&quot;250&quot; height=&quot;283&quot;&gt;&lt;br&gt;&lt;center&gt;&lt;font size=&quot;-1&quot;&gt;&lt;i&gt;Photo by &lt;a href=&quot;https://www.flickr.com/photos/linuxfoundation/sets/72157646259218139/&quot;&gt;Linux Foundation&lt;/a&gt;&lt;/i&gt;&lt;/font&gt;&lt;/center&gt;
+&lt;/div&gt;
+
+&lt;p&gt;At Netflix, we have our own monitoring system to observe our thousands of cloud instances, and this diagram helps to see which Linux and server components it currently measures, and what can be developed next. (This monitoring tool also includes many application metrics.) As I said in the talk, we&#39;ll sometimes need to login to an instance using ssh, and run the regular server tools.&lt;/p&gt;
+
+&lt;p&gt;This diagram may also help you develop your own monitoring tools, by showing what would ideally be observed. It can also help rank commercial products: next time a salesperson tells you their tool can see everything, hand them this diagram and a pen. :-)&lt;/p&gt;
+
+&lt;p&gt;My talk was standing room only, and some people couldn&#39;t get in the room and missed out. Unfortunately, it wasn&#39;t videoed, either. Sorry, I should have figured this out sooner and arranged something in time. Given how popular it was, I suspect I&#39;ll give it again some time, and will hopefully get it on video.&lt;/p&gt;
+
+&lt;p&gt;Thanks to those who attended, and the Linux Foundation for having me and organizing a great event!&lt;/p&gt;
+
+
+</description>
+        <pubDate>Sat, 23 Aug 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-08-23-linux-perf-tools-linuxcon-na-2014.html-9762d47cf.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-23-linux-perf-tools-linuxcon-na-2014.html-9762d47cf.html</guid>
+        
+        
+        <category>brendangregg</category>
         
       </item>
     
@@ -4355,374 +4540,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         
         
         <category>apple_swift</category>
-        
-      </item>
-    
-      <item>
-        <title>对TCP/IP网络协议的深入浅出归纳</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;前段时间做了一个开发，涉及到网络编程，开发过程比较顺利，但任务完成后始终觉得有一些疑惑。主要是因为对网络协议不太熟悉，对一些概念也没弄清楚。后来 我花了一些时间去了解这些网络协议，现在对TCP/IP网络协议有了初步的认识，在这里总结出来，可以梳理一下我对网络协议的理解，加深印象.&lt;/p&gt;
-&lt;p&gt;话说两台电脑要通讯就必须遵守共同的规则，就好比两个人要沟通就必须使用共同的语言一样。一个只懂英语的人，和一个只懂中文的人由于没有共同的语言（规则）就没办法沟通。两台电脑之间进行通讯所共同遵守的规则，就是网络协议。&lt;/p&gt;
-&lt;p&gt;那么谁来制定这个网络协议？&lt;/p&gt;
-&lt;p&gt;国际标准化组织(ISO)定义了网络协议的基本框架，被称为OSI模型。要制定通讯规则，内容会很多，比如要考虑A电脑如何找到B电脑，A电脑在发送信息 给B电脑时是否需要B电脑进行反馈，A电脑传送给B电脑的数据的格式又是怎样的？内容太多太杂，所以OSI模型将这些通讯标准进行层次划分，每一层次解决 一个类别的问题，这样就使得标准的制定没那么复杂。OSI模型制定的七层标准模型，分别是：应用层，表示层，会话层，传输层，网络层，数据链路层，物理 层。&lt;/p&gt;
-&lt;p&gt;虽然国际标准化组织制定了这样一个网络协议的模型，但是实际上互联网通讯使用的网络协议是TCP/IP网络协议。&lt;/p&gt;
-&lt;p&gt;TCP/IP 是一个协议族，也是按照层次划分。共四层：应用层，传输层，互连网络层，网络接口层。 那么TCP/IP协议和OSI模型有什么区别呢？OSI网络协议模型，是一个参考模型，而TCP/IP协议是事实上的标准。TCP/IP协议参考了OSI 模型，但是并没有严格按照OSI规定的七层去划分标准，而只划分了四层，个人觉得这样会更简单点，当划分太多层次时，你很难区分某个协议是属于哪个层次 的。TCP/IP协议和OSI模型也并不冲突，TCP/IP协议中的应用层协议，就对应于OSI中的应用层，表示层，会话层。就像以前有工业部和信息产业 部，现在实行大部制后只有工业和信息化部一个部门，但是这个部门还是要做以前两个部门一样多的事情，本质上没有多大的差别。TCP/IP中有两个重要的协 议，传输层的TCP协议和互连网络层的IP协议，因此就拿这两个协议做代表，来命名整个协议族了，在说TCP/IP协议时，是指整个协议族。&lt;/p&gt;
-&lt;p&gt;TCP/IP协议分为四个层次，但我们并不需要了解所有层次的协议，我觉得主要关注应用层和传输层的协议就可以了。拿寄送邮件举例， A寄邮件给B，A关心的是用什么格式写什么内容给B（应用层内容），是寄挂号信还是寄平信（传输层内容），但是A是不会去关注邮件传送过程中采用了那条路 线，邮递员是如何把信件递送到B手里的（互连网络层，网络接口层）。&lt;/p&gt;
-&lt;p&gt;先说传输层，传输层有多个协议，但最主要的是TCP和UDP协议。两则的区别在于TCP协议需要接收方反馈，UDP协议不需要接收方反馈。TCP就像挂号 信，A电脑发信息给B电脑后，需要得到B电脑的反馈，这样A电脑就能知道B电脑是否已经收到信息。UDP就像平信，A电脑发信息给B电脑后，B电脑并不给 A电脑发聩，A电脑发送信息出去后并不知道B电脑是否已经收到。 因此，TCP传输比UDP传送更可靠，但是TCP传输的效率就不如UDP了。至于，在传送过程中具体选择哪种传送方式，需要具体问题具体分析。在不可靠的 网络传送过程中一般选择TCP传送方式。在讲求效率，或者不在乎传送失误的情况下可以选择UDP方式来提高传输速率。&lt;/p&gt;
-&lt;p&gt;应用层的协议有很多，每一个协议代表一种类型的服务。HTTP协议，万维网服务。FTP协议，文件传送服务。POP3，邮件服务，SOAP协议webService服务。&lt;/p&gt;
-&lt;p&gt;在理解TCP/IP协议的过程中，我遇到了三个困惑。&lt;/p&gt;
-&lt;p&gt;1.什么是socket?&lt;/p&gt;
-&lt;p&gt;以前有听说过socket编程这种说法，也有的说套接字编程。我在搜索关于socket的资料时，发现有的说socket是指一个连接，有的说 socket是一指一个端点。拿打电话做比喻，A电话机和B电话机正在通话，那么socket是指的A和B之间的连接线呢，还是指电话机（端点）？&lt;/p&gt;
-&lt;p&gt;我现在的理解是，socket就是一个连接中的一个端点，一次通讯（连接）a,b端都会有一个socket。一个socket对应一个连接。&lt;/p&gt;
-&lt;p&gt;2.http协议属于应用层还是传输层？&lt;/p&gt;
-&lt;p&gt;http 超文本传送协议，听上去像是传输层的协议一样。但事实上大家都知道http和ftp一样都是属于应用层的协议，我先前很纳闷的是，既然是应用层的协议，怎 么就取这样一个误导人的名称啊。在对TCP/IP协议还不熟悉的时候，这很容易让人误解和纳闷的。后来，我在wiki上发现这么一段话：&lt;/p&gt;
-&lt;p&gt;http中文译名问题
-HTTP 在中国大陆被翻译为“超文本传输协议”，因为“transfer”在中文里有“传输”的含意。但依据 HTTP 定制者之一的 Roy Fielding博士的论文[1]（6.5.3节），作者专门强调“transfer”表示的是“（表述状态的）转移” （Representational State Transfer），而不是“传输”（transport）。故其中文译名“超文本传输协议”恰恰引种反映了这种误解。更符合原义的译名应该为“超文本转 移协议”。&lt;/p&gt;
-&lt;p&gt;这段话解除了我的疑惑。那么http协议当然是应用层的协议。&lt;/p&gt;
-&lt;p&gt;3.SOAP可以使用HTTP协议进行传输吗？&lt;/p&gt;
-&lt;p&gt;在了解SOAP协议的过程中，看到介绍说soap可以通过tcp,udp,http协议来传送。这也是让人困惑的描述。一看这句话，就会感觉http怎么 和tcp,udp协议并列了呢？难道http还是属于传输层的协议？再加上http中文译名的问题，名字听上去像传输层，初学者又要开始头大了。&lt;/p&gt;
-&lt;p&gt;事实上，http是应用层的协议，这一点可以毫无怀疑。那么现在新的问题来了。soap和http都是应用层协议，怎么说soap能用http协议来传输呢？应用层的协议可以用应用层的协议传送吗？&lt;/p&gt;
-&lt;p&gt;我查阅了资料，是这样一回事情，soap将信息进行XML的序列化后，再用http协议的方式再打包进行传送，传送的方式还是tcp或者udp。做个比喻 就好理解了。tcp 和 udp 都是公路，暂且把tcp认为是一般公路，udp高速公路，soap和http就都是汽车，那么soap和http都可以在tcp和udp上跑。说soap 可以通过http来传送，实际就是说soap是小轿车，http是装轿车的卡车，把soap的信息装到http里面，然后再运输，当然走的道路还是tcp 或udp。&lt;/p&gt;
-&lt;p&gt;说soap可以通过http协议来传输，这句话不太准确，比较准确第说法是：soap信息可以通过http协议包装后通过tcp或udp传输。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 04 Aug 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-08-04-74795-7a8fff1f3.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-04-74795-7a8fff1f3.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>你或许想要用到的三个新的Javascript API</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;如果你是一个SitePoint的老读者并且是我的粉丝的话，那么你已经知道我写了很多关于HTML5以及JS API的文章。到目前为止，我已经发布了一些介绍你现在就可以马上使用的API，尽管可能会用到polyfill的方式。（译注：不知道什么是polyfill请。）&lt;/p&gt;
-&lt;p&gt;但是今天我可能要打破这个常规来给大家介绍一些仍然还处在初期阶段的API。大家必须知道这些API是非常新的，在这三个里面有两个都是在几天之前刚刚发布的。正因如此，这些API现目前都还无法使用。但是如果你有兴趣了解它们具体是用来做什么的，你可以继续阅读下面关于它们的详细介绍，同时也欢迎留下你的看法和回应。&lt;/p&gt;
-&lt;p&gt;废话不多说，现在开始！&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h2&gt;Web Alarms API&lt;/h2&gt;
-&lt;p&gt;让你可以配置设备的闹铃设置，从而能够安排通知消息或让某个特定的应用在指定的时间点启动。这个API最典型的用法会涉及到像闹钟，日历，或其他任何需要在特定时间进行特定操作的程序。&lt;/p&gt;
-&lt;p&gt;自从去年开始，这个API刚刚成为了一个W3C的设计草案。因此所有有待成为W3C官方推荐的相关细节都还在初期阶段。这个API需要通过&lt;span style=&quot;color: #008000;&quot;&gt;window.navigator&lt;/span&gt;对象下的&lt;span style=&quot;color: #008000;&quot;&gt;alarms&lt;/span&gt;属性来使用。属性会提供三个函数：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;
-&lt;span style=&quot;color: #008000;&quot;&gt;&lt;/span&gt;从设备获取全部已有的闹铃并以包含对象的数组形式返回。&lt;/li&gt;
-&lt;li&gt;
-&lt;span style=&quot;color: #008000;&quot;&gt;&lt;/span&gt;注册一个基于&lt;span style=&quot;color: #008000;&quot;&gt;Date&lt;/span&gt;对象的闹铃并返回一个对象。&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;为了向大家演示理想情况下这些函数应当如何使用，这里有一个添加闹铃的例子（请记住现目前任何浏览器都不支持这段代码）&lt;/p&gt;
-&lt;pre class=&quot;brush: javascript; gutter: true&quot;&gt;var alarmId;
-var request = navigator.alarms.add(
-    new Date(&quot;June 29, 2012 07:30:00&quot;),
-    &quot;respectTimezone&quot;,
-);
-
-request.onsuccess = function (e) {
-    alarmId = e.target.result;
-};
-
-request.onerror = function (e) {
-    alert(e.target.error.name);
-};&lt;/pre&gt;
-&lt;p&gt;然后，如果你想要移除之前添加的闹铃，可以这样写：&lt;/p&gt;
-&lt;pre class=&quot;brush: javascript; gutter: true&quot;&gt;var request = navigator.alarms.remove(alarmId);
-
-request.onsuccess = function (e) {
-    alert(&quot;alarm removed&quot;);
-};
-
-request.onerror = function (e) {
-    alert(e.target.error.name);
-};&lt;/pre&gt;
-&lt;p&gt;如果你想要了解更多关于Web Alarms API，请参阅。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h2&gt;Presentation API&lt;/h2&gt;
-&lt;p&gt;的目标就是让投影仪或TV这样的第二显示设备能够被Web使用，包括所有通过有线（HDMI，DVI等）连接以及通过无线（MiraCast, Chromecast, DLNA, AirPlay等）的设备。这个API所做的就是在请求页面与第二显示设备上的演示页面之间实现消息互通。&lt;/p&gt;
-&lt;p&gt;请注意该API细节并不属于W3C标准，也不在W3C标准计划当中。这个API需要通过&lt;span style=&quot;color: #008000;&quot;&gt;window.navigator&lt;/span&gt;对象下的&lt;span style=&quot;color: #008000;&quot;&gt;presentation&lt;/span&gt;属性来使用。该属性提供了一个叫&lt;span style=&quot;color: #008000;&quot;&gt;requestSession()&lt;/span&gt;函数，以及&lt;span style=&quot;color: #008000;&quot;&gt;present&lt;/span&gt;和&lt;span style=&quot;color: #008000;&quot;&gt;availablechange&lt;/span&gt;两个事件。&lt;span style=&quot;color: #008000;&quot;&gt;requestSession()&lt;/span&gt;函数可以用来启动或恢复第二显示设备上的演示。它会返回一个&lt;span style=&quot;color: #008000;&quot;&gt;session&lt;/span&gt;对象指代当前的演示。当通过&lt;span style=&quot;color: #008000;&quot;&gt;requestSession()&lt;/span&gt;传入的url里面的演示内容被加载完成后，演示屏幕的页面会收到&lt;span style=&quot;color: #008000;&quot;&gt;present&lt;/span&gt;事件。最后，在第一张演示出现后或者最后一张演示完成后会发出事件。&lt;/p&gt;
-&lt;p&gt;举个例子，来自细节文档，该API的用法如下所示：&lt;/p&gt;
-&lt;pre class=&quot;brush: javascript; gutter: true&quot;&gt;&amp;lt;button disabled&amp;gt;Show&amp;lt;/button&amp;gt;
-
-&amp;lt;script&amp;gt;
-var presentation = navigator.presentation,
-    showButton = document.querySelector(&#39;button&#39;);
-
-presentation.onavailablechange = function(e) {
-  showButton.disabled = !e.available;
-  showButton.onclick = show;
-};
-
-function show() {
-  var session = presentation.requestSession(&#39;http://example.org/&#39;);
-
-  session.onstatechange = function() {
-    switch (session.state) {
-      case &#39;connected&#39;:
-        session.postMessage(/*...*/);
-        session.onmessage = function() { /*...*/ };
-        break;
-      case &#39;disconnected&#39;:
-        console.log(&#39;Disconnected.&#39;);
-        break;
-    }
-  };
-}
-&amp;lt;/script&amp;gt;&lt;/pre&gt;
-&lt;p&gt;如果你想要了解更多关于Presentation API的消息，可以看看。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h2&gt;Standby API&lt;/h2&gt;
-&lt;p&gt;让你可以在顶层浏览器页面中请求屏幕持续显示锁。这可以防止设备进入省电状态（例如屏幕自动关闭）。这个功能对有些web应用来说至关重要。例如，想像一下你正在驾车并在手机上使用基于web的导航软件（非本地应用）。如果你不去触碰屏幕的话，你的手机的屏幕会自动关闭，除非你事前在手机上进行过相关的设置。在这样的情况下，通常你是想要让屏幕保持显示状态的。这恰恰是这个API适用的地方。&lt;/p&gt;
-&lt;p&gt;这个API需要通过&lt;span style=&quot;color: #008000;&quot;&gt;window.navigator&lt;/span&gt;对象下的属性来使用。它会提供两个函数：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt; 使当前应用能让屏幕保持显示状态。&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;这两个函数都只接受一个参数，其只能是&lt;span style=&quot;color: #008000;&quot;&gt;“screen”&lt;/span&gt;或。前者表示操作针对的是设备屏幕，而后者针对的是除屏幕之外如CPU或广播之类的其他设备资源。&lt;/p&gt;
-&lt;p&gt;以下例子会演示如何适用该API让设备屏幕保持显示状态：&lt;/p&gt;
-&lt;pre class=&quot;brush: javascript; gutter: true&quot;&gt;navigator.wakeLock.request(&quot;display&quot;).then(
-    function successFunction() {
-        // do something
-    },
-    function errorFunction() {
-        // do something else
-    }
-);&lt;/pre&gt;
-&lt;p&gt;要让设备允许屏幕关闭，我们可以用以下方法：&lt;/p&gt;
-&lt;pre class=&quot;brush: javascript; gutter: true&quot;&gt;navigator.wakeLock.release(&quot;display&quot;);&lt;/pre&gt;
-&lt;p&gt;如果你想要了解关于Standby API的更多信息，可以参考这个。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h2&gt;总结&lt;/h2&gt;
-&lt;p&gt;在这篇文章里我给大家介绍了一些崭新的JS API。我要再次强调因为它们都还处在非常早期的阶段，所以目前没有浏览器支持。因此我们也没法实际地操作它们。然而正因为它们如此之新大家现在都有机会跟进它们接下来的发展甚至参与帮助它们的细节设计的完善。&lt;/p&gt;
-&lt;p&gt;Web开发的未来一片光明，加入进来吧！&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 04 Aug 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-08-04-74773-b877a4741.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-04-74773-b877a4741.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>浅谈服务化架构</title>
-        <description>
-&lt;pre&gt;&lt;code&gt;这两年来，在服务化架构设计上的实践比较多，在此对关于服务化设计一些经验稍作总结，
-知识经验水平有限，如有欠缺和不准确的地方，还请指出修正！     
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;我在&lt;a href=&quot;http://sharecore.net/blog/2014/07/05/ke-kuo-zhan-jia-gou-de-san-ge-wei-du/&quot;&gt;《可扩展架构设计的三个维度》&lt;/a&gt;一文里，谈到服务化架构（SOA）在保证系统扩展性上，是一个比较好的架构设计实践。也谈到了通过服务网关的形式来进行多服务的注册与管理等。但困于篇幅，并未展开讲关于服务化架构实现层面上的具体细节。本文就结合我这两年来，在服务化架构设计上的一些实践经验，谈谈一个服务化框架其应该具备的一些功能以及其基本实现方式。&lt;/p&gt;
-
-&lt;p&gt;这里说到的“服务”，本质上来说，就是指“RPC”。单纯的RPC功能实现，其实很简单，无非就是client发起调用，中间某个组件（甚至就是client本身）拦截调用信息，序列化后将信息传输到server端，server端收到调用请求后反序列化，根据请求详细发起实际调用后返回响应传输回给client端。这样的RPC很常见，比如常见的存储过程调用就是一例。但是在一个复杂的业务环境，如何管理和协同这些大量的RPC才是最麻烦的事情。所以，在此谈的“服务化”更多指的是对RPC的管理。&lt;/p&gt;
-
-&lt;p&gt;一个复杂业务环境下的大量RPC究竟会遇到哪些问题呢？换句话说，一个服务化管理框架究竟应该具备哪些功能特性才算基本完备呢？以下是我的一些看法&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;1.协议选型&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;数据序列化&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;为整个环境里的服务采用统一的数据序列化协议，其益处是显而易见的，能大大降低服务提供者和服务调用者之间的沟通成本，同时也可以为服务提供者减少应对不同数据协议需求而带来的代码复杂性。所以，在开始设计一个服务化框架时，第一件重要的事情就是选定一个标准的数据序列化协议。如何选择合适的序列化协议重点需要从&lt;strong&gt;扩展性，传输性能以及业界通用性（换句话说就是不同技术/语言的支持程度）&lt;/strong&gt;三个因素里来协调选择。当前看来，在这三个方面都做的比较好，也是使用最广泛的就是&lt;strong&gt;Json&lt;/strong&gt;和&lt;strong&gt;Protobuf&lt;/strong&gt;了，基于文本的Json在可读性和灵活性上占优，而基于二进制的Protobuf在传输性能生更胜一筹。而如果整个环境开发的技术栈比较统一，比如全是Java/.NET，也可以选择对这一技术更加友好的序列化协议。我这一次选择的就是Json，因为从面对的业务情况来看，传输性能不是根本矛盾，而灵活性要求较高，同时服务使用者使用的技术也较为多样化。&lt;/p&gt;
-
-&lt;p&gt;在序列化协议的选定上&lt;strong&gt;要避免的一个误区就是采用自定义协议而不是业界通用协议&lt;/strong&gt;,自定义协议将很容易面临扩展性和使用推广方面的问题，同时，当有新的开发人员加入进来，其需要花费时间来学习与了解。&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;通讯协议选择&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;通讯协议上的选择上灵活性比较大，有多种选择，可以在基于HTTP或TCP链接上建立自己的通讯协议。比如可以设计一个简单的header（定长）+body（序列化的请求/响应）。如果采取json作序列化协议的情况下，可以跟我本次的选择一样，采取一个类似&lt;a href=&quot;http://en.wikipedia.org/wiki/JSON-RPC&quot;&gt;json-rpc&lt;/a&gt;, 完全基于json的通讯协议：&lt;/p&gt;
-
-&lt;p&gt;Resust:&lt;/p&gt;
-
-&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
-&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;5&lt;/span&gt;
-&lt;/pre&gt;&lt;/td&gt;
-&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;json&quot;&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;ActionName&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Do&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;AppId&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;xxxxxx&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;RequestContent&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{}&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
-&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
-
-
-&lt;p&gt;Response:&lt;/p&gt;
-
-&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
-&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;5&lt;/span&gt;
-&lt;/pre&gt;&lt;/td&gt;
-&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;json&quot;&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;err&quot;&gt;“RequestId”:“xxxxxxxxx”，&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;err&quot;&gt;“HasError”:false,&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&quot;ResponseContent&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:{}&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
-&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
-
-
-&lt;p&gt;对于服务访问对象主要为企业内部的情况，不太建议采取与http完全绑定的restful协议，这将牺牲链接层选择的灵活性。&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;2.注册与授权管理&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;注册管理是解决系统交互复杂性的必备良药，我建议多余三个系统以上的系统交互，都应该具备注册管理功能。对于服务化架构来说，注册管理也是最为核心的一项功能。当服务数量和服务使用者数量爆发性增长时，最难回答的问题就是“服务被谁使用了？”以及“有哪些服务可供使用？”，注册管理就是解决这两个问题的最佳方式与实践。&lt;/p&gt;
-
-&lt;p&gt;注册管理的实现上其实也很简单，提供一个Config Server（配置中心），收集服务提供者的注册信息（包括服务名称，服务地址（可以多个），版本，超时时间控制等），我们称为&lt;strong&gt;服务的元信息&lt;/strong&gt;。而当服务使用者需要调用相应的服务时，就可以利用这些元信息来查找和调用相应的服务了。&lt;/p&gt;
-
-&lt;p&gt;不过，在元信息的使用上，存在两者架构方式&lt;/p&gt;
-
-&lt;p&gt;1.服务使用者访问统一的服务中转器，由服务中转器按照注册信息以及负载情况将请求转发到相应的服务地址上。服务执行后，响应信息返回到服务中心，服务中心将响应回送给调用方。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/256cb7f23c557856f23ab45f558e68dc.jpg&quot; alt=&quot;service_2&quot;&gt;&lt;/p&gt;
-
-&lt;p&gt;这种方式的优点是能比较好的控制所有请求的调度。当服务元信息发生变化时，能及时地调整请求转发（负载）与超时控制等。缺点是请求和响应均需要由中转中心负责转发，性能耗费较大。同时，中转中心的可用性也容易产生问题，必须通过集群的方式来解决。&lt;/p&gt;
-
-&lt;p&gt;2.服务使用者负责从配置中心获取服务地址等信息，然后有由服务使用者直接向相对应地址上的服务发送请求，请求也直接由服务提供者返回给服务调用者。同时，服务使用者本身可以缓存一定的服务元信息，防止每次访问都要从配置中心获取，以降低配置中心的负载，增强整个系统的可用性。当配置中心的服务元信息发生变化时，通过通知的方式告知服务使用者更新本地缓存。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/36ba0cc57c1e0c0a7b8e534de7be7c60.jpg&quot; alt=&quot;service_1&quot;&gt;&lt;/p&gt;
-
-&lt;p&gt;这种架构方式与第一种架构相比，能显著降低性能的损耗，以及服务使用者对中心节点的直接依赖。但代价是需要彻底改造服务使用者的调用方式，框架的代码必须侵入到客户端的开发中去。一般会针对不同的客户端提供clientLib，但当客户端实现方式多样化时，这种代价是非常大的。&lt;/p&gt;
-
-&lt;p&gt;由于我这次面对的客户端多样性，客户端开发也不在控制范围内，所以选择就是第一种方式。&lt;/p&gt;
-
-&lt;p&gt;关于授权，可以与注册管理相互结合，将授权信息同一保存到配置中心。对于企业内部访问的服务，做到通过IP+AppId授权应该就够了。这里有个经验是可以将授权和服务版本确认两者结合起来，即在&lt;strong&gt;授权的同时完成服务版本的确定&lt;/strong&gt;，而不采取由客户端发起访问时指定版本的方式，这样做的好处是框架和服务提供者对于服务版本变更和灰度发布具有更高的可控制性。&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;3.路由与过载保护&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;在&lt;a href=&quot;http://sharecore.net/blog/2014/07/05/ke-kuo-zhan-jia-gou-de-san-ge-wei-du/&quot;&gt;《可扩展架构设计的三个维度》&lt;/a&gt;一文里谈到通过单元化架构以满足Z轴扩展，以满足差异性的需求或者做到安全隔离。而&lt;strong&gt;服务路由是实现这种单元化架构的基本保障&lt;/strong&gt;，以保证能将来自不同访问者请求或者不同的请求内容，分发到不同的服务提供区域去，形成单元化架构的闭环。当然，路由功能并不一定需要框架来独立实现，业界许多通用的（软）负载均衡器可以协助实现，如Nginx/HAProxy/LVS这些。但是这类通用的负载均衡软件的问题是路由算法比较通用，当需要扩展到与业务逻辑相关的路由绑定时，比较麻烦，比如需要用户ID按权重分配路由。在此建议，&lt;strong&gt;可以采取通用的负载均衡软件当第一层接入，而在服务节点之间采取自己实现路由模块的方式。&lt;/strong&gt;而在实现路由模块时，需要将扩展性上的考虑放在第一位。&lt;/p&gt;
-
-&lt;p&gt;对于服务化架构，保障提供服务提供者的业务系统不受“恶意”调用或突发性激增调用的破坏，过载保护功能至关重要，它能起到系统“保险丝”的效果。前文提到可用于接入的Nginx/HAProxy/LVS这些软件，也多少提供了过载保护的功能。如果自己实现过载保护模块，具体可参见我的&lt;a href=&quot;http://sharecore.net/blog/2014/06/21/guo-zai-bao-hu-suan-fa-qian-xi/&quot;&gt;《过载保护算法浅析》&lt;/a&gt;一文。对于过载保护的一个经验是：&lt;strong&gt;过载保护越靠近服务访问前端越好。&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;4.服务拆分与组合化&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;传统的SOA概念，指的是不同的应用系统之间相互通过大粒度服务的方式进行集成。而当今的服务化架构已经摆脱了这一概念的束缚，更多讲的是系统内部模块级甚至是功能级的服务化模式。也就是说服务实现的粒度更小了。这当然为应用和服务的实现带来了更强的灵活性，服务交付周期也大大缩短了。但这样的细粒度拆分服务，带来的问题是项功能的实现需要访问的服务数量成倍的增加。如下图所示：一个客户下订单的功能实现需要分别访问：客户信息服务，产品类别服务，库存服务，订单管理服务等。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/e310fe10a83859029875682319ae4959.jpg&quot; alt=&quot;service_3&quot;&gt;&lt;/p&gt;
-
-&lt;p&gt;这将显著增加功能实现的复杂性。为了解决这一问题，我们只能再次使用那条永远有效的“中间层定律”：&lt;strong&gt;任何计算机问题都可以通过中间加一层来解决。&lt;/strong&gt; 我们可以将相应的服务组合成一个新的服务提供出去，比如上面的例子，我们可以按以下方式组合：&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&quot;/images/sharecore.net/f8ede80d4eaaaa4ab773f3d973a34a46.jpg&quot; alt=&quot;service_4&quot;&gt;&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;5.基于配置的服务运行时提供&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;前文已经概述了一个服务化框架应该具有的一些基本功能以及一些基本的架构实现方式。但这个服务框架究竟如何与业务开发相结合呢？也就是说业务逻辑代码与框架代码之间如何隔离,而不是让框架的功能代码侵入到业务逻辑代码的开发中来?这里通用的做法就是&lt;strong&gt;通过基于配置，由框架提供运行时，动态加载业务代码的方式&lt;/strong&gt;。做到这点，只需要约束业务逻辑代码实现相应的接口/基类，然后打包成相应的组件（如jar/dll/so等）提供给框架加载运行即可，类似于java servlet的开发，业务开发完全不用关心服务化框架任何功能，专注开发业务逻辑即可。同时，对于既有代码的服务化也将变得简单，只需要稍加重构封装出实现相应的接口即可。&lt;/p&gt;
-
-&lt;p&gt;配置类似于：&lt;/p&gt;
-
-&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
-&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
-&lt;/pre&gt;&lt;/td&gt;
-&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;xml&quot;&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;serviceName=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Customer.GetCustomer&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.customer.getCustomer&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&amp;gt;&lt;/span&gt; 
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
-&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
-
-
-&lt;p&gt;同时，这种基于组件配置的服务实现，对于组合组件实现服务也非常简单。只需要将上面的配置改为嵌套的方式既可以实现组合。比如对于订单生成服务只要组合如下：&lt;/p&gt;
-
-&lt;figure class=&quot;code&quot;&gt;&lt;figcaption&gt;&lt;span&gt;&lt;/span&gt;&lt;/figcaption&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;
-&lt;td class=&quot;gutter&quot;&gt;&lt;pre class=&quot;line-numbers&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;1&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;2&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;3&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;4&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;5&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;6&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;7&lt;/span&gt;
-&lt;span class=&quot;line-number&quot;&gt;8&lt;/span&gt;
-&lt;/pre&gt;&lt;/td&gt;
-&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;code class=&quot;xml&quot;&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;serviceName=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;Order.CreateOrder&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.inventory.checkInventory&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;      &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.order.createOrder&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;          &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;imp=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;com.inventory.updateInventory&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;          &lt;span class=&quot;nt&quot;&gt;&amp;lt;/biz&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;      &lt;span class=&quot;nt&quot;&gt;&amp;lt;/biz&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;nt&quot;&gt;&amp;lt;biz&amp;gt;&lt;/span&gt; 
-&lt;/span&gt;&lt;span class=&quot;line&quot;&gt; &lt;span class=&quot;nt&quot;&gt;&amp;lt;service&amp;gt;&lt;/span&gt;
-&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/td&gt;
-&lt;/tr&gt;&lt;/table&gt;&lt;/div&gt;&lt;/figure&gt;
-
-
-&lt;p&gt;&lt;strong&gt;总结：&lt;/strong&gt;&lt;/p&gt;
-
-&lt;p&gt;基本来看，服务化架构已经在业界完成了落地，尤其是互联网公司，更是基于这一架构的领先者，有许多经验值得借鉴。当然，这个落地的服务化架构，与当年被各大商业公司用WS-*和ESB玩坏的SOA概念相去甚远。也再一次证明，那些被鼓吹出来的技术概念，只有当那些商业公司不再炒作之时，方是其真正落地之日（SOA如此，当今热炒的“大数据”，“云计算”这些概念又何尝不会是如此呢？）。在技术被鼓吹得风头正劲时，千万要保持冷静，别被那些商业公司所忽悠,你完全可以自己实现更轻量级更具有扩展性的架构。不信的话，可以去问问，那些当年花大价钱去买SOA商业组件的公司，他们还好吗？&lt;/p&gt;
-
-&lt;hr&gt;
-
-&lt;p&gt;如果您觉得这篇文字有意思，欢迎转发！欢迎更多的朋友们关注我的微信公众号：&lt;strong&gt;JustinNotes&lt;/strong&gt;&lt;/p&gt;
-
-&lt;hr&gt;
-
-</description>
-        <pubDate>Sat, 02 Aug 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-08-02-qian-tan-fu-wu-hua-kuang-jia-de-ji-ben-gong-neng-25b061573.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-02-qian-tan-fu-wu-hua-kuang-jia-de-ji-ben-gong-neng-25b061573.html</guid>
-        
-        
-        <category>sharecore</category>
         
       </item>
     

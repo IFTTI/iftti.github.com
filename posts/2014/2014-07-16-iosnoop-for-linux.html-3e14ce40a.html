@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>iosnoop For Linux</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-16-iosnoop-for-linux.html-3e14ce40a.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>iosnoop For Linux</h1>
+    <p class="meta"><span class="time">Jul 16, 2014</span><span class="source_url"> • 来自 brendangregg.com <a name="brendangregg.com" href="http://www.brendangregg.com/blog/2014-07-16/iosnoop-for-linux.html" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+<p>I'm probably dreaming. I just ported my popular <a href="https://github.com/brendangregg/perf-tools/blob/master/iosnoop">iosnoop tool to Linux</a>:</p>
+
+<pre>
+# <b>./iosnoop</b>
+Tracing block I/O. Ctrl-C to end.
+COMM             PID    TYPE DEV      BLOCK        BYTES     LATms
+supervise        1689   W    202,1    17040376     4096       0.49
+supervise        1684   W    202,1    17039744     4096       0.59
+supervise        1687   W    202,1    17039752     4096       0.62
+supervise        1684   W    202,1    17039768     4096       0.59
+java             17705  R    202,1    5849560      4096      16.48
+supervise        3055   W    202,1    12862528     4096       5.56
+java             17705  R    202,1    5882792      4096       6.31
+java             17705  R    202,1    5882984      40960     17.79
+[...]
+</pre>
+
+<p>This shows a one line summary per block device I/O (disk I/O). It's like tcpdump for your disks.</p>
+
+<p>Here's a random I/O workload, on a system with rotational disks:</p>
+
+<pre>
+COMM             PID    TYPE DEV      <b>BLOCK</b>        BYTES     <b>LATms</b>
+randread         6199   R    202,16   <b>71136208</b>     8192      <b> 5.32</b>
+randread         6199   R    202,16   <b>83134400</b>     8192      <b> 9.26</b>
+randread         6199   R    202,16   <b>88477928</b>     8192      <b> 3.46</b>
+randread         6199   R    202,16   <b>66953696</b>     8192      <b>10.69</b>
+randread         6199   R    202,16   <b>87832704</b>     8192      <b> 3.68</b>
+randread         6199   R    202,16   <b>74963120</b>     8192      <b> 4.62</b>
+[...]
+</pre>
+
+<p>Notice the random disk location (BLOCK), which results in latencies (I/O time) between 3 and 10 milliseconds.</p>
+
+<p>Running the same workload on SSDs:</p>
+
+<pre>
+COMM             PID    TYPE DEV      BLOCK        BYTES     <b>LATms</b>
+randread         20125  R    202,16   24803976     8192       <b>0.15</b>
+randread         20125  R    202,32   17527272     8192       <b>0.15</b>
+randread         20125  R    202,16   13382360     8192       <b>0.15</b>
+randread         20125  R    202,32   29727160     8192       <b>0.19</b>
+randread         20125  R    202,32   26965272     8192       <b>0.18</b>
+randread         20125  R    202,32   27222376     8192       <b>0.17</b>
+[...]
+</pre>
+
+<p>Excellent, latencies are much better!</p>
+
+<p>In this post I'll summarize iosnoop(8) options and usage, provide an example of debugging a latency outlier, and discuss caveats, tool internals, overhead, and why I wrote this.</p>
+
+<h2>Options</h2>
+
+<p>These are summarized by the USAGE message (there's also a <a href="https://github.com/brendangregg/perf-tools/blob/master/man/man8/iosnoop.8">man page</a> and <a href="https://github.com/brendangregg/perf-tools/blob/master/examples/iosnoop_example.txt">examples file</a>):</p>
+
+<pre>
+# <b>./iosnoop -h</b>
+USAGE: iosnoop [-hQst] [-d device] [-i iotype] [-p PID] [-n name]
+               [duration]
+                 -d device       # device string (eg, "202,1)
+                 -i iotype       # match type (eg, '*R*' for all reads)
+                 -n name         # process name to match on I/O issue
+                 -p PID          # PID to match on I/O issue
+                 -Q              # use queue insert as start time
+                 -s              # include start time of I/O (s)
+                 -t              # include completion time of I/O (s)
+                 -h              # this usage message
+                 duration        # duration seconds, and use buffers
+  eg,
+       iosnoop                   # watch block I/O live (unbuffered)
+       iosnoop 1                 # trace 1 sec (buffered)
+       iosnoop -Q                # include queueing time in LATms
+       iosnoop -ts               # include start and end timestamps
+       iosnoop -i '*R*'          # trace reads
+       iosnoop -p 91             # show I/O issued when PID 91 is on-CPU
+       iosnoop -Qp 91            # show I/O queued by PID 91, queue time
+
+See the man page and example file for more info.
+</pre>
+
+<p>I use the -s and -t options when post-processing the output in R or gnuplot, or for digging into harder issues, including latency outliers.</p>
+
+<h2>Latency Outlier</h2>
+
+<p>My randread program on an SSD server (which is an AWS EC2 instance) usually experiences about 0.15 ms I/O latency, but there are some outliers as high as 20 milliseconds. Here's an excerpt:</p>
+
+<pre>
+# <b>./iosnoop -ts &gt; out</b>
+# <b>more out</b>
+Tracing block I/O. Ctrl-C to end.
+STARTs         ENDs           COMM         PID    TYPE DEV      BLOCK      BYTES   LATms
+6037559.121523 6037559.121685 randread     22341  R    202,32   29295416   8192     0.16
+6037559.121719 6037559.121874 randread     22341  R    202,16   27515304   8192     0.16
+[...]
+6037595.999508 6037596.000051 supervise    1692   W    202,1    12862968   4096     0.54
+6037595.999513 6037596.000144 supervise    1687   W    202,1    17040160   4096     0.63
+6037595.999634 6037596.000309 supervise    1693   W    202,1    17040168   4096     0.68
+6037595.999937 6037596.000440 supervise    1693   W    202,1    17040176   4096     0.50
+6037596.000579 6037596.001192 supervise    1689   W    202,1    17040184   4096     0.61
+6037596.000826 6037596.001360 supervise    1689   W    202,1    17040192   4096     0.53
+<b>6037595.998302</b> 6037596.018133 randread     22341  R    202,32   954168     8192    <b>20.03</b>
+<b>6037595.998303</b> 6037596.018150 randread     22341  R    202,32   954200     8192    <b>20.05</b>
+6037596.018182 6037596.018347 randread     22341  R    202,32   18836600   8192     0.16
+[...]
+</pre>
+
+<p>It's important to sort on the I/O completion time (ENDs). In this case it's already in the correct order.</p>
+
+<p>So my 20 ms reads happened after a large group of supervise writes were completed (I truncated dozens of supervise write lines to keep this example short). Other latency outliers in this output file showed the same sequence: slow reads after a batch of writes.</p>
+
+<p>Note the I/O request timestamp (STARTs), which shows that these 20 ms reads were issued <em>before</em> the supervise writes – so they had been sitting on a queue. I've debugged this type of issue many times before, but this one is different: those writes were to a different device (202,1), so I would have assumed they would be on different queues, and wouldn't interfere with each other. Somewhere in this system (Xen guest) it looks like there is a shared queue. (Having <em>just</em> discovered this using iosnoop, I can't yet tell you which queue, but I'd hope that after identifying it there would be a way to tune its queueing behavior, so that we can eliminate or reduce the severity of these outliers. UPDATE: See comments.)</p>
+
+<p>While the output contains COMM and PID columns, as explained in the man page, you should treat these (and the -p and -n options) as best-effort.</p>
+
+<h2>COMMs and PIDs</h2>
+
+<p>Like my original iosnoop tool, the COMM and PID columns show who is on-CPU when the I/O was issued, which is usually the task who issued it, but it could be unrelated. I had driven a system under high write load, and started seeing entries like these:</p>
+
+<pre>
+<b>COMM</b>             PID    TYPE DEV      BLOCK        BYTES     LATms
+<b>awk</b>              6179   W    202,16   597439928    4096      73.86
+<b>sshd</b>             2357   W    202,16   597448128    4096      73.94
+<b>awk</b>              6179   W    202,16   597456328    4096      73.94
+<b>awk</b>              6179   W    202,16   597464528    4096      74.08
+<b>awk</b>              6179   W    202,16   597472728    4096      74.30
+<b>awk</b>              6179   W    202,16   597480928    4096      74.91
+<b>sshd</b>             2357   W    202,16   597489128    4096      74.19
+<b>awk</b>              6179   W    202,16   597497328    4096      74.94
+[...]
+</pre>
+
+<p>Well, while awk and sshd were on-CPU, but aren't likely to be the origin of the I/O. This can be misleading.</p>
+
+<p>I captured stack traces when block I/O was issued (using perf_events) to find you an example. Most of the stacks showed the correct process, but here's one showing awk instead:</p>
+
+<pre>
+<b>awk</b> 11774 [000] 3495819.879203: block:block_rq_issue: 202,16 <b>W</b> 0 () 19337224 + 256 [awk]
+        ffffffff8133c980 blk_peek_request ([kernel.kallsyms])
+        ffffffff8149d114 do_blkif_request ([kernel.kallsyms])
+        ffffffff81336377 __blk_run_queue ([kernel.kallsyms])
+        ffffffff813364ad blk_start_queue ([kernel.kallsyms])
+        ffffffff8149d9f5 <b>kick_pending_request_queues</b> ([kernel.kallsyms])
+        ffffffff8149dd86 blkif_interrupt ([kernel.kallsyms])
+        ffffffff810c258d handle_irq_event_percpu ([kernel.kallsyms])
+        ffffffff810c2788 handle_irq_event ([kernel.kallsyms])
+        ffffffff810c50a7 handle_edge_irq ([kernel.kallsyms])
+        ffffffff81421764 evtchn_2l_handle_events ([kernel.kallsyms])
+        ffffffff8141f210 __xen_evtchn_do_upcall ([kernel.kallsyms])
+        ffffffff81420e1f xen_evtchn_do_upcall ([kernel.kallsyms])
+        ffffffff81709f3e xen_do_hypervisor_callback ([kernel.kallsyms])
+            7f8e91ff2b1a __brk (/lib/x86_64-linux-gnu/libc-2.15.so)
+</pre>
+
+<p>awk is doing a brk() syscall, likely normal behavior as it expands its heap. Since this is an AWS EC2 Xen guest, it performs a hypercall (xen_do_hypervisor_callback) to optimize memory operations. This happens to call kick_pending_request_queues(), to issue more work that is already queued, which calls _blk_run_queue(), leading to issuing block I/O that was likely queued by another process.</p>
+
+<p>I can fetch the originating PID by tracing higher up the stack, although it may be best to keep iosnoop as a simple block device-level tracer. I could also dig out the file system pathname (if any) that this I/O is related to. My earlier iosnoop versions did this, but, (like PID and COMM) it wasn't reliable, and depended on the file system type. iosnoop with ZFS can't really get filenames at the moment, but with HFS+ on OS X it does get partial pathnames, which can be very useful.</p>
+
+<p>UPDATE: I've added a -Q option to iosnoop, which uses block queue insertion as the starting tracepoint instead of block I/O issue. This provides times that include block I/O queueing, to analyze problems of queueing and load. But it also improves the acccuracy of the PID and COMM columns, since the originating process is much more likely to be still on-CPU at the time of queue insert. I'm tempted to trace both insert and issue tracepoints at the same time so I can do it all at once – better PID and COMM, and show both I/O queued time and device time separately – but this would cost a lot more overhead. (I'll do that when the Linux kernel has an enhanced tracing framework, and I can do this all more cheaply.)</p>
+
+<h2>Why iosnoop</h2>
+
+<p>Why not use blktrace for disk I/O? I first wrote iosnoop before blktrace existed. Why port it now? Well...</p>
+
+<p>I showed the source to a colleague. He was stunned.</p>
+
+<blockquote>How does this work? This is just a shell script?!</blockquote>
+
+<p>Not only that, but it works on the large number of servers I use that are running the 3.2 kernel, without any software additions. I'm not using SystemTap, ktap, dtrace4linux, or even perf_events.</p>
+
+<p>I'm using the bash shell, awk, and some files under /sys. Those files control the kernel's <strong>ftrace</strong> framework.</p>
+
+<p>This was an experiment that began with <a href="http://www.brendangregg.com/perf.html">perf_events</a>, but I hit some problems with its scripting mode, since my use case is a little different to what's it's been designed for. perf_events provides the "perf" command, and in some ways is the nicer and safer front-end to the same frameworks (tracepoints and kprobes) that ftrace uses. iosnoop should at least be a perf_events script (after it can handle my use case), if not a script for a more advanced framework (if/when they are integrated).</p>
+
+<p>So that leaves the present. I realized I could whip up an ftrace-based iosnoop, and use it to solve real issues until the nicer future arrived. I was also curious to see what problems I'd run into with the ftrace interface. It worked really well. (I had some issues with snapshots losing events, so I didn't use them, and also write errors with marker events, so I didn't use them either. I'm still debugging, and I don't know if I was just using them wrong, of if there are some issues with their implementation.)</p>
+
+<p>My previous post used a lower-overhead mode of ftrace for <a href="/blog/2014-07-13/linux-ftrace-function-counting.html">function counting</a>, which does the counts in-kernel. iosnoop(8) reads individual event data from ftrace and processes it in user space, so I was particularly interested in the overhead of this approach.</p>
+
+<h2>Overhead</h2>
+
+<p>This iosnoop version will print events as they happen. This produces snappy output, but for high IOPS systems it can consume noticeable CPU resources. The duration mode uses buffering instead, which populates the buffer once, then reads it. For example, using a duration of 5 seconds:</p>
+
+<pre>
+# <b>time ./iosnoop -ts 5 &gt; out</b>
+
+real    0m5.566s
+user    0m0.336s
+sys     0m0.140s
+# <b>wc out</b>
+  27010  243072 2619744 out
+</pre>
+
+<p>iosnoop ate half a second of CPU (all at once) to process the buffer of 27k events. That's really not bad. (I did analyze and tune awk performance for this script, and reduced CPU overhead by 3.2x.) The downside of using a buffer like this is that it has a limited size, and if you overflow it you'll lose events. With the default settings (bufsize_kb), that will happen at around 50k I/O.</p>
+
+<p>There's a lot of different ways to handle this if you need to. The easiest way is drop the duration, so that events are printed without buffering. It does cost much more CPU; here's 30 seconds:</p>
+
+<pre>
+# <b>time ./iosnoop -ts &gt; out</b>
+^C
+real    0m33.992s
+user    0m4.704s
+sys     0m7.524s
+# <b>wc out</b>
+  169687  1527164 16459401 out
+# <b>ls -lh out</b>
+-rwxrwsr-x 1 root other 16M Jul 16 05:58 out
+</pre>
+
+<p>It captured 170k events, and wrote a 16 Mbyte output file, but did cost over 12 seconds of CPU time to do so. About 36% of one CPU, during the run. This also means we can calculate the upper bound for the unbuffered approach (on this hardware and software versions): which would be about 15k IOPS.</p>
+
+<p>But if you really want to trace more than 10k IOPS, for long durations, you're beyond the scope of this temporary tool. In the future, I imagine ditching this iosnoop implementation and rewriting it, at which point it will handle higher loads.  </p>
+
+<h2>Conclusion</h2>
+
+<p><a href="https://github.com/brendangregg/perf-tools/blob/master/iosnoop">iosnoop(8)</a> is a useful tool, and can be implemented using nothing more than Linux ftrace, which has been part of the kernel since the 2.6.x days. It should be implemented in something more robust, like perf_events or an advanced tracer (SystemTap, ktap), which can handle buffering and concurrent users more sensibly. This ftrace-based iosnoop was really an experiment to see how far I could go. I surprised myself – just dropping a shell script on different kernels and having it work has been amazing. I hope I'm not dreaming.</p>
+
+<p>Warnings apply: this ftrace tool is a hack, so know what you are doing, test first, and use at your own risk. With future kernel developments it should, one day, be rewritten, and move from a hack to a stable tool.</p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-07-15-http-post-mojolicious.html-e69430dd0.html" title="Previous Post: HTTP 的 POST 参数提交和上传的不同与 Mojolicious 的实现." data-instant>&laquo; HTTP 的 POST 参数提交和上传的不同与 Mojolicious 的实现.</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-07-17-73257-503521781.html" title="Next Post: BASH的保护性编程技巧" data-instant>BASH的保护性编程技巧 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>11 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-11-strace-wow-much-syscall.html-998ad76a5.html">strace Wow Much Syscall</a></li>
+
+      <li><span>09 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-09-java-cpu-sampling-using-hprof.html-6086da145.html">Java CPU Sampling Using hprof</a></li>
+
+      <li><span>23 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-23-osx-10.9.3-is-toxic.html-e091501b2.html">OS X 10.9.3 Recurring Panics</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

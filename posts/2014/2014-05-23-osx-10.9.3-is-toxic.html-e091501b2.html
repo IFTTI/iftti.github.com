@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>OS X 10.9.3 Recurring Panics</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-05-23-osx-10.9.3-is-toxic.html-e091501b2.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>OS X 10.9.3 Recurring Panics</h1>
+    <p class="meta"><span class="time">May 23, 2014</span><span class="source_url"> • 来自 brendangregg.com <a name="brendangregg.com" href="http://www.brendangregg.com/blog/2014-05-23/osx-10.9.3-is-toxic.html" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+<p>I give up. After upgrading to OS X 10.9.3, I've experienced the least reliable computer of my life. I've had 16 kernel panics in 4 days, usually when plugging in remote displays, but sometimes just spontaneously.</p>
+
+<p>In a meeting yesterday, a coworker exclaimed how reliable and awesome 10.9.3 was, and that he didn't have any kernel panics at all. I fantasized that his macbook spontaneously panic'd as he said that, proving him wrong in theatrical fashion, preferably with a loud bang and smoke. (It would also show that it wasn't just me.)</p>
+
+<p>I settled for some debugging to see why his macbook was different, but he shooed me away from his keyboard as he was about to do an IMPORTANT DEMO, and didn't want me to jinx it. He plugged in a data projector.</p>
+
+<p><strong>Instant kernel panic.</strong></p>
+
+<p>He was now the third co-worker to experience this after upgrading to 10.9.3.</p>
+
+<p><strong>tl;dr: Jump to <a href="#update8">Update 8</a> for the workaround.</strong></p>
+
+<p>OS X saves diagnostic reports for each panic in /Library/Logs/DiagnosticReports. Note the dates:</p>
+
+<pre>
+/Library/Logs/DiagnosticReports&gt; <b>ls -1 Kernel_2014-05-2*</b>
+Kernel_2014-05-20-120403_lgml-bgregg.panic
+Kernel_2014-05-20-120755_lgml-bgregg.panic
+Kernel_2014-05-20-120907_lgml-bgregg.panic
+Kernel_2014-05-20-141252_lgml-bgregg.panic
+Kernel_2014-05-20-154123_lgml-bgregg.panic
+Kernel_2014-05-20-154336_lgml-bgregg.panic
+Kernel_2014-05-20-160644_lgml-bgregg.panic
+Kernel_2014-05-20-161112_lgml-bgregg.panic
+Kernel_2014-05-20-181513_lgml-bgregg.panic
+Kernel_2014-05-22-005541_lgml-bgregg.panic
+Kernel_2014-05-22-111027_lgml-bgregg.panic
+Kernel_2014-05-22-112412_lgml-bgregg.panic
+Kernel_2014-05-22-140044_lgml-bgregg.panic
+Kernel_2014-05-22-155309_lgml-bgregg.panic
+Kernel_2014-05-23-095455_lgml-bgregg.panic
+Kernel_2014-05-23-103228_lgml-bgregg.panic
+</pre>
+
+<p>These can be useful to browse for patterns. Maybe it's just one application which I can stop using?</p>
+
+<pre>
+/Library/Logs/DiagnosticReports&gt; <b>sed -n '/BSD/s/.*thread: //p' Kernel_2014-05-2*</b>
+Google Chrome He
+Dock
+Google Chrome He
+launchd
+Terminal
+WindowServer
+WindowServer
+Google Chrome
+SophosManagement
+update_dyld_shar
+WindowServer
+Dock
+mdworker
+UserEventAgent
+Adium
+nsupdate
+</pre>
+
+<p>No, it's completely random. This looks a lot like bad or misseated DRAM, so our helpdesk performed what they called a "<strong>shell swap</strong>". This means they replace everything except the SSD. Or put differently, they take out the SSD and put it in a "known to be good" macbook pro, to see if the panics continue.</p>
+
+<p>They continued.</p>
+
+<p>Here's an example report:</p>
+
+<pre>
+Anonymous UUID:       D8327F80-E08D-3888-3350-4270EEFAB36C
+
+Fri May 23 10:32:28 2014
+panic(cpu 0 caller 0xffffff8007cdbf5e): Kernel trap at 0xffffff8007ca6968, type 14=page fault, registers:
+CR0: 0x0000000080010033, CR2: 0x000000000000007a, CR3: 0x00000000465ce071, CR4: 0x00000000001606e0
+RAX: 0x0000000000000000, RBX: 0xffffff8028576630, RCX: 0x0000000000000000, RDX: 0x0000000000000000
+RSP: 0xffffff81f295b9d0, RBP: 0xffffff81f295ba00, RSI: 0x0000000000001000, RDI: 0xffffff8028576630
+R8:  0x0000000000000000, R9:  0x0000000000001000, R10: 0x0000000000000000, R11: 0x0000000000000246
+R12: 0x0000000000000000, R13: 0x0000000000000000, R14: 0x0000000000000000, R15: 0xffffff8028576638
+RFL: 0x0000000000010246, RIP: 0xffffff8007ca6968, CS:  0x0000000000000008, SS:  0x0000000000000010
+Fault CR2: 0x000000000000007a, Error code: 0x0000000000000000, Fault CPU: 0x0
+
+Backtrace (CPU 0), Frame : Return Address
+0xffffff81f295b660 : 0xffffff8007c22fa9 
+0xffffff81f295b6e0 : 0xffffff8007cdbf5e 
+0xffffff81f295b8b0 : 0xffffff8007cf3456 
+0xffffff81f295b8d0 : 0xffffff8007ca6968 
+0xffffff81f295ba00 : 0xffffff8007c6cf58 
+0xffffff81f295bb90 : 0xffffff8007dd2ae3 
+0xffffff81f295bbf0 : 0xffffff8007e1568d 
+0xffffff81f295bcf0 : 0xffffff8007f6b6fa 
+0xffffff81f295bd80 : 0xffffff8007dfdd21 
+0xffffff81f295be00 : 0xffffff8007df38d5 
+0xffffff81f295be50 : 0xffffff8007ff1cfe 
+0xffffff81f295bef0 : 0xffffff8007ff1e79 
+0xffffff81f295bf50 : 0xffffff8008040653 
+0xffffff81f295bfb0 : 0xffffff8007cf3c56 
+
+BSD process name corresponding to current thread: nsupdate
+
+Mac OS version:
+13D65
+
+Kernel version:
+Darwin Kernel Version 13.2.0: Thu Apr 17 23:03:13 PDT 2014; root:xnu-2422.100.13~1/RELEASE_X86_64
+Kernel UUID: ADD73AE6-88B0-32FB-A8BB-4F7C8BE4092E
+Kernel slide:     0x0000000007a00000
+Kernel text base: 0xffffff8007c00000
+System model name: MacBookPro11,2 (Mac-3CBD00234E554E41)
+
+System uptime in nanoseconds: 2243382927147
+last loaded kext at 2230133368380: com.apple.driver.AppleUSBCDC 4.2.1b5 (addr 0xffffff7f89d04000, size 20480)
+last unloaded kext at 1237316107990: com.apple.driver.AppleIntelMCEReporter 104 (addr 0xffffff7f89d55000, size 32768)
+loaded kexts:
+com.apple.driver.AppleUSBCDC    4.2.1b5
+com.apple.driver.AppleUSBOHCI   656.4.1
+com.apple.driver.AppleIntelMCEReporter  104
+com.apple.filesystems.smbfs 2.0.2
+com.apple.filesystems.autofs    3.0
+com.apple.driver.AppleUpstreamUserClient    3.5.13
+com.apple.iokit.IOBluetoothSerialManager    4.2.4f1
+com.apple.driver.AppleGraphicsDevicePolicy  3.5.26
+com.apple.driver.AudioAUUC  1.60
+com.apple.driver.ApplePlatformEnabler   2.0.9d1
+com.apple.driver.AGPM   100.14.15
+com.apple.driver.X86PlatformShim    1.0.0
+com.apple.iokit.IOUserEthernet  1.0.0d1
+com.apple.driver.AppleHDA   2.6.1f2
+com.apple.Dont_Steal_Mac_OS_X   7.0.0
+com.apple.driver.AppleHWAccess  1
+com.apple.driver.AppleIntelHD5000Graphics   8.2.6
+com.apple.driver.AppleUSBDisplays   360.8.14
+com.apple.driver.AppleSMCLMU    2.0.4d1
+com.apple.driver.AppleLPC   1.7.0
+com.apple.driver.AppleCameraInterface   4.26.0
+com.apple.driver.AppleThunderboltIP 1.1.2
+com.apple.driver.AppleIntelFramebufferAzul  8.2.6
+com.apple.iokit.BroadcomBluetoothHostControllerUSBTransport 4.2.4f1
+com.apple.driver.AppleBacklight 170.3.5
+com.apple.driver.AppleMCCSControl   1.1.12
+com.apple.driver.AppleUSBTCButtons  240.2
+com.apple.driver.AppleUSBTCKeyboard 240.2
+com.apple.driver.AppleUSBCardReader 3.4.1
+com.apple.AppleFSCompression.AppleFSCompressionTypeDataless 1.0.0d1
+com.apple.AppleFSCompression.AppleFSCompressionTypeZlib 1.0.0d1
+com.apple.BootCache 35
+com.apple.driver.XsanFilter 404
+com.apple.iokit.IOAHCIBlockStorage  2.5.1
+com.apple.driver.AppleAHCIPort  3.0.0
+com.apple.driver.AppleUSBHub    666.4.0
+com.apple.driver.AppleUSBEHCI   660.4.0
+com.apple.iokit.AppleBCM5701Ethernet    3.8.1b2
+com.apple.driver.AppleFWOHCI    5.0.2
+com.apple.driver.AirPort.Brcm4360   831.21.63
+com.apple.driver.AppleUSBXHCI   677.4.0
+com.apple.driver.AppleSmartBatteryManager   161.0.0
+com.apple.driver.AppleRTC   2.0
+com.apple.driver.AppleACPIButtons   2.0
+com.apple.driver.AppleHPET  1.8
+com.apple.driver.AppleSMBIOS    2.1
+com.apple.driver.AppleACPIEC    2.0
+com.apple.driver.AppleAPIC  1.7
+com.apple.nke.applicationfirewall   153
+com.apple.security.quarantine   3
+com.apple.kext.triggers 1.0
+com.apple.iokit.IOSerialFamily  10.0.7
+com.apple.iokit.IOBluetoothFamily   4.2.4f1
+com.apple.driver.DspFuncLib 2.6.1f2
+com.apple.vecLib.kext   1.0.0
+com.apple.iokit.IOSurface   91.1
+com.apple.driver.AppleHDAController 2.6.1f2
+com.apple.iokit.IOHDAFamily 2.6.1f2
+com.apple.driver.X86PlatformPlugin  1.0.0
+com.apple.driver.IOPlatformPluginFamily 5.7.0d11
+com.apple.AppleGraphicsDeviceControl    3.5.26
+com.apple.iokit.IOAcceleratorFamily2    98.20
+com.apple.driver.AppleSMC   3.1.8
+com.apple.driver.AppleUSBAudio  2.9.5f4
+com.apple.iokit.IOAudioFamily   1.9.7fc2
+com.apple.kext.OSvKernDSPLib    1.14
+com.apple.iokit.IOBluetoothHostControllerUSBTransport   4.2.4f1
+com.apple.iokit.IOFireWireIP    2.2.6
+com.apple.driver.AppleGraphicsControl   3.5.26
+com.apple.driver.AppleBacklightExpert   1.0.4
+com.apple.iokit.IONDRVSupport   2.4.1
+com.apple.driver.AppleSMBusController   1.0.11d1
+com.apple.iokit.IOGraphicsFamily    2.4.1
+com.apple.driver.AppleUSBMultitouch 240.9
+com.apple.iokit.IOUSBHIDDriver  660.4.0
+com.apple.iokit.IOSCSIBlockCommandsDevice   3.6.6
+com.apple.iokit.IOUSBMassStorageClass   3.6.0
+com.apple.iokit.IOSCSIArchitectureModelFamily   3.6.6
+com.apple.driver.AppleThunderboltPCIUpAdapter   1.4.5
+com.apple.driver.AppleThunderboltDPInAdapter    3.1.7
+com.apple.driver.AppleThunderboltDPOutAdapter   3.1.7
+com.apple.driver.AppleThunderboltDPAdapterFamily    3.1.7
+com.apple.driver.AppleThunderboltPCIDownAdapter 1.4.5
+com.apple.driver.AppleUSBMergeNub   650.4.0
+com.apple.driver.AppleUSBComposite  656.4.1
+com.apple.iokit.IOAHCIFamily    2.6.5
+com.apple.iokit.IOUSBUserClient 660.4.2
+com.apple.iokit.IOEthernetAVBController 1.0.3b4
+com.apple.iokit.IOFireWireFamily    4.5.5
+com.apple.driver.AppleThunderboltNHI    2.0.1
+com.apple.iokit.IOThunderboltFamily 3.2.7
+com.apple.iokit.IO80211Family   630.35
+com.apple.driver.mDNSOffloadUserClient  1.0.1b5
+com.apple.iokit.IONetworkingFamily  3.2
+com.apple.iokit.IOUSBFamily 677.4.0
+com.apple.driver.AppleEFINVRAM  2.0
+com.apple.driver.AppleEFIRuntime    2.0
+com.apple.iokit.IOHIDFamily 2.0.0
+com.apple.iokit.IOSMBusFamily   1.1
+com.apple.security.sandbox  278.11
+com.apple.kext.AppleMatch   1.0.0d1
+com.apple.security.TMSafetyNet  7
+com.apple.driver.AppleKeyStore  2
+com.apple.driver.DiskImages 371.1
+com.apple.iokit.IOStorageFamily 1.9
+com.apple.iokit.IOReportFamily  23
+com.apple.driver.AppleFDEKeyStore   28.30
+com.apple.driver.AppleACPIPlatform  2.0
+com.apple.iokit.IOPCIFamily 2.9
+com.apple.iokit.IOACPIFamily    1.4
+com.apple.kec.corecrypto    1.0
+com.apple.kec.pthread   1
+
+System Profile:
+Model: MacBookPro11,2, BootROM MBP112.0138.B07, 4 processors, Intel Core i7, 2 GHz, 16 GB, SMC 2.18f6
+Graphics: Intel Iris Pro, Intel Iris Pro, Built-In
+Memory Module: BANK 0/DIMM0, 8 GB, DDR3, 1600 MHz, 0x80AD, 0x484D54343147533641465238412D50422020
+Memory Module: BANK 1/DIMM0, 8 GB, DDR3, 1600 MHz, 0x80AD, 0x484D54343147533641465238412D50422020
+AirPort: spairport_wireless_card_type_airport_extreme (0x14E4, 0x134), Broadcom BCM43xx 1.0 (6.30.223.154.63)
+Bluetooth: Version 4.2.4f1 13674, 3 services, 15 devices, 1 incoming serial ports
+Network Service: Wi-Fi, AirPort, en0
+Serial ATA Device: APPLE SSD SM0256F, 251 GB
+USB Device: Internal Memory Card Reader
+USB Device: BRCM20702 Hub
+USB Device: Bluetooth USB Host Controller
+USB Device: Apple Internal Keyboard / Trackpad
+Thunderbolt Bus: MacBook Pro, Apple Inc., 17.1
+</pre>
+
+<p>So, CR2 (0x000000000000007a) looks bogus, leading to the panic. I can't infer much more than that, since I'm missing kernel symbols, and the stack trace is hex.</p>
+
+<p>It would be nice if the kernel wasn't stripped, or, if it was easier to get the Kernel Debug Kit (please put them on opensource.apple.com). I'd help debug this further, but can't without symbols (at least, easily).</p>
+
+<p>A few of us are now have the recurring 10.9.3 panics. After sending Apple many diagnostic reports with additional details, I'm switching back to 10.9.2. 10.9.3 is toxic with remote displays.</p>
+
+<p>A coworker suggested the <a href="https://wiki.debian.org/MacBook#Debian_installation">fix</a>.</p>
+
+<p>While I hope Apple fix this in 10.9.4, I'm now leery of OS X updates. I'd feel a lot better if I could debug this on my own further.</p>
+
+<p>I should add that I've used Apple products and OS X for many years, and have been impressed by the reliability and quality of their work. 10.9.2 on the same laptop worked fine, and I'd have prior OS X releases with hundreds of days of uptime. I'd still recommend their products, as I hope this experience was an outlier.</p>
+
+<h2>Update 1</h2>
+
+<p>Symbols for this stack below (thanks <a href="https://twitter.com/pajp">Rasmus</a>!)</p>
+
+<pre>
+panic (in mach_kernel) (debug.c:353)
+kernel_trap (in mach_kernel) (trap.c:790)
+trap_from_kernel (in mach_kernel) + 38
+vm_page_lru (in mach_kernel) (vm_resident.c:3238)
+memory_object_control_uiomove (in mach_kernel) (bsd_vm.c:499)
+cluster_copy_ubc_data_internal (in mach_kernel) (vfs_cluster.c:5816)
+decmpfs_read_compressed (in mach_kernel) (decmpfs.c:1227)
+hfs_vnop_read (in mach_kernel) (hfs_readwrite.c:154)
+VNOP_READ (in mach_kernel) (kpi_vfs.c:3247)
+vn_read (in mach_kernel) (vfs_vnops.c:939)
+dofileread (in mach_kernel) (sys_generic.c:377)
+pread_nocancel (in mach_kernel) (sys_generic.c:266)
+unix_syscall64 (in mach_kernel) (systemcalls.c:370)
+hndl_unix_scall64 (in mach_kernel) + 22
+</pre>
+
+<h2>Update 2</h2>
+
+<p>Based on the hackernews <a href="https://news.ycombinator.com/item?id=7790806">comments</a>, some people have hit this and others haven't, and using external displays is a factor. Some have said that they have had issues with 10.9.2 as well, or all the 10.9 series. Perhaps it is a problem with a particular graphics card driver (myself and my coworkers have the retina Macbook Pros), but that's just a guess. The decoded stack above includes HFS calls, but that makes no sense, unless the graphics driver was stepping on random memory (which are among the worst panics to debug).</p>
+
+<p>EDIT: After learning that this doesn't affect everyone, I changed the title of this post from "Is Toxic" to "Recurring Panics". I also removed the words "infected" and "disease", which were off-putting.</p>
+
+<p><a name="update3"></a></p>
+
+<h2>Update 3</h2>
+
+<p>I got another new macbook pro, running 10.9.2 (although, a different kernel version), and switched using migration assistant. It worked great, initially. Then I had five panics in a row when connecting to different remote displays. In case migration assistant moved over some corrupted preferences, I got <em>another</em> new macbook pro, with 10.9.2, and just began using it fresh, and was still able to reproduce the panics (running only Firefox and Chrome, this time). I don't know if these panics are the same as what I had on 10.9.3, since I only have hex dumps to compare. 10.9.3 seemed to panic much more easily.</p>
+
+<p>I'm a little fed up of the typical macbook debugging technique: switch things until the problem goes away. I'm also fed up with seeing stack traces that are inscruitable hex. I want to <em>read</em> the stack traces, and understand what the kernel is doing that <em>led to the panic</em>. So I studied how Rasmus had translated my earlier stack, and I learned that the default kernel (mach_kernel) does have some symbols, which aren't used in the diagnostic reports. Excellent. I can write a quick helper tool for translating stacks.</p>
+
+<p><a name="update4"></a>
+<a name="kernel_diagreport2text"></a></p>
+
+<h2>Update 4</h2>
+
+<p>I wrote <strong>kernel_diagreport2text.ksh</strong>, a tool that translates symbols from OS X kernel diagnostic reports using two different techniques. It is <a href="https://github.com/brendangregg/Misc/blob/master/osx/kernel_diagreport2text.ksh">here</a> on <a href="https://github.com/brendangregg/Misc/tree/master/osx">github</a>.</p>
+
+<p>Here's my new 10.9.2 macbook panics, summarized by kernel_diagreport2text.ksh:</p>
+
+<pre>
+$ <b>./kernel_diagreport2text.ksh /Library/Logs/DiagnosticReports/Kernel_2014*</b>
+File /Library/Logs/DiagnosticReports/Kernel_2014-05-26-110638_lgml-bgregg.panic
+panic(cpu 4 caller 0xffffff801aedbe2e): Kernel trap at 0xffffff801aea30a3, type 14=page fault, registers:
+Stack:
+    panic (in mach_kernel) + 201
+    kernel_trap (in mach_kernel) + 2046
+    0xffffff80002f3326 (in mach_kernel) + 38
+    vm_page_remove (in mach_kernel) + 115
+    vm_page_free_prepare_object (in mach_kernel) + 24
+    vm_page_free_list (in mach_kernel) + 103
+    0xffffff800028fe03 (in mach_kernel) + 227
+    0xffffff80002958b3 (in mach_kernel) + 195
+    0xffffff800028f05d (in mach_kernel) + 621
+    0xffffff800028e2ac (in mach_kernel) + 652
+    0xffffff800027e24c (in mach_kernel) + 1212
+    vm_map_remove (in mach_kernel) + 111
+    _kernelrpc_mach_vm_deallocate_trap (in mach_kernel) + 71
+    0xffffff80002c962d (in mach_kernel) + 301
+    hndl_mach_scall (in mach_kernel) + 216
+BSD process name: Opera
+Mac OS version: 13C64
+
+File /Library/Logs/DiagnosticReports/Kernel_2014-05-26-111056_lgml-bgregg.panic
+panic(cpu 2 caller 0xffffff801e4a4f5a): "VM_PAGE_QUEUES_REMOVE: unmarked page on Q"@/SourceCache/xnu/xnu-2422.90.20/osfmk/vm/vm_resident.c:2388
+Stack:
+    panic (in mach_kernel) + 201
+    vm_page_free_prepare_queues (in mach_kernel) + 602
+    0xffffff800028ffa8 (in mach_kernel) + 648
+    0xffffff80002958b3 (in mach_kernel) + 195
+    0xffffff800028f05d (in mach_kernel) + 621
+    0xffffff800028e2ac (in mach_kernel) + 652
+    mach_destroy_memory_entry (in mach_kernel) + 85
+    ipc_port_destroy (in mach_kernel) + 401
+    ipc_kobject_notify (in mach_kernel) + 162
+    ipc_kobject_server (in mach_kernel) + 270
+    ipc_kmsg_send (in mach_kernel) + 117
+    mach_msg_send_from_kernel_proper (in mach_kernel) + 66
+    mach_notify_no_senders (in mach_kernel) + 65
+    IOGeneralMemoryDescriptor::free() (in mach_kernel) + 312
+    IOBufferMemoryDescriptor::free() (in mach_kernel) + 157
+    0xffffff7fa001231a (in com.apple.iokit.IOAcceleratorFamily2(98.14))
+    0xffffff7fa0027b01 (in com.apple.iokit.IOAcceleratorFamily2(98.14))
+    0xffffff7fa0034116 (in com.apple.iokit.IOAcceleratorFamily2(98.14))
+    0xffffff7fa0031acb (in com.apple.iokit.IOAcceleratorFamily2(98.14))
+    0xffffff7fa0033d58 (in com.apple.iokit.IOAcceleratorFamily2(98.14))
+    0xffffff7fa002fb73 (in com.apple.iokit.IOAcceleratorFamily2(98.14))
+    0xffffff7fa0033fcc (in com.apple.iokit.IOAcceleratorFamily2(98.14))
+    IOUserClient::externalMethod(unsigned int, IOExternalMethodArguments*, IOExternalMethodDispatch*, OSObject*, void*) (in mach_kernel) + 429
+    is_io_connect_method (in mach_kernel) + 415
+    0xffffff80002b6558 (in mach_kernel) + 392
+    ipc_kobject_server (in mach_kernel) + 241
+    ipc_kmsg_send (in mach_kernel) + 117
+    mach_msg_overwrite_trap (in mach_kernel) + 195
+    0xffffff80002c976d (in mach_kernel) + 237
+    hndl_mach_scall64 (in mach_kernel) + 22
+BSD process name: WindowServer
+Mac OS version: 13C64
+
+File /Library/Logs/DiagnosticReports/Kernel_2014-05-26-113518_lgml-bgregg.panic
+panic(cpu 0 caller 0xffffff800429bb3b): "vm_object_iopl_request: missing/bad page in kernel object\n"@/SourceCache/xnu/xnu-2422.90.20/osfmk/vm/vm_pageout.c:6972
+Stack:
+    panic (in mach_kernel) + 201
+    vm_object_iopl_request (in mach_kernel) + 1355
+    vm_map_create_upl (in mach_kernel) + 1519
+    IOGeneralMemoryDescriptor::wireVirtual(unsigned int) (in mach_kernel) + 969
+    IOGeneralMemoryDescriptor::prepare(unsigned int) (in mach_kernel) + 78
+    IOGeneralMemoryDescriptor::initWithOptions(void*, unsigned int, unsigned int, task*, unsigned int, IOMapper*) (in mach_kernel) + 1387
+    IOMemoryDescriptor::withAddress(void*, unsigned long long, unsigned int) (in mach_kernel) + 149
+    0xffffff7f84d558c2 (in com.apple.iokit.IOUSBFamily(675.4))
+    0xffffff7f84d74ba0 (in com.apple.iokit.IOUSBFamily(675.4))
+    0xffffff7f84d60fe6 (in com.apple.iokit.IOUSBFamily(675.4))
+    0xffffff7f84d6a40d (in com.apple.iokit.IOUSBFamily(675.4))
+    IOCommandGate::runAction(int (*)(OSObject*, void*, void*, void*, void*), void*, void*, void*, void*) (in mach_kernel) + 355
+    0xffffff7f84d6a301 (in com.apple.iokit.IOUSBFamily(675.4))
+    0xffffff7f84eda602 (in com.apple.driver.AppleUSBHub(666.4))
+    0xffffff7f84ed5f56 (in com.apple.driver.AppleUSBHub(666.4))
+    0xffffff7f84ee3cca (in com.apple.driver.AppleUSBHub(666.4))
+    0xffffff7f84edeb8f (in com.apple.driver.AppleUSBHub(666.4))
+    0xffffff800024a23a (in mach_kernel) + 506
+    call_continuation (in mach_kernel) + 23
+BSD process name: kernel_task
+Mac OS version: 13C64
+
+File /Library/Logs/DiagnosticReports/Kernel_2014-05-26-115647_lgml-bgregg.panic
+panic(cpu 6 caller 0xffffff8019cdbe2e): Kernel trap at 0xffffff8019ca3278, type 14=page fault, registers:
+Stack:
+    panic (in mach_kernel) + 201
+    kernel_trap (in mach_kernel) + 2046
+    0xffffff80002f3326 (in mach_kernel) + 38
+    vm_page_lookup (in mach_kernel) + 56
+    vm_fault (in mach_kernel) + 782
+    user_trap (in mach_kernel) + 748
+    hndl_alltraps (in mach_kernel) + 219
+BSD process name: WindowServer
+Mac OS version: 13C64
+
+File /Library/Logs/DiagnosticReports/Kernel_2014-05-26-124827_lgml-bgregg.panic
+panic(cpu 0 caller 0xffffff800e6a4f5a): "VM_PAGE_QUEUES_REMOVE: unmarked page on Q"@/SourceCache/xnu/xnu-2422.90.20/osfmk/vm/vm_resident.c:2388
+Stack:
+    panic (in mach_kernel) + 201
+    vm_page_free_prepare_queues (in mach_kernel) + 602
+    0xffffff800028ffa8 (in mach_kernel) + 648
+    0xffffff80002958b3 (in mach_kernel) + 195
+    0xffffff800028f05d (in mach_kernel) + 621
+    0xffffff800028e2ac (in mach_kernel) + 652
+    0xffffff800027e24c (in mach_kernel) + 1212
+    vm_map_remove (in mach_kernel) + 111
+    munmap (in mach_kernel) + 89
+    unix_syscall (in mach_kernel) + 471
+    hndl_unix_scall (in mach_kernel) + 216
+BSD process name: Helper
+Mac OS version: 13C64
+</pre>
+
+<p>I wish I had this tool earlier! It uses atos(1) for symbol translation, and decorates remaining addresses with kernel extension names (eg, "in com.apple.driver.AppleUSBHub") if available in the diag report. It does not need the Kernel Debug Kit installed, although if it is, you should get more symbols translated.</p>
+
+<p>That output is for a default 10.9.2 system, and while many symbols are missing, we can still learn a lot. All of these panics are in VM, and don't look the same as the 10.9.3 panic that was translated earlier.</p>
+
+<p>To run this yourself, download (or save) the raw <a href="https://raw.githubusercontent.com/brendangregg/Misc/master/osx/kernel_diagreport2text.ksh">script</a>. Then open up Terminal (which is under Applications-&gt;Utilities) for a command line, and you can run it on your saved kernel diagnostic reports. The steps are likely something like this (depends where your browser has downloaded the file):</p>
+
+<pre>
+<b>cd Downloads
+mv kernel_diagreport2text.ksh.txt kernel_diagreport2text.ksh</b>    # may not be necessary
+<b>chmod 755 kernel_diagreport2text.ksh
+./kernel_diagreport2text.ksh /Library/Logs/DiagnosticReports/Kernel*.panic</b>
+</pre>
+
+<p>This script is (obviously) not an official Apple diagnostic tool, and is provided as-is with no warranties or guarantees. It does not need to be run as root.</p>
+
+<h2>Update 5</h2>
+
+<p>29-May-2014. I've partially translated my 10.9.3 panics, using my kernel_diagreport2text.ksh tool described earlier. Here are some key examples:</p>
+
+<pre>
+File ../DiagnosticReports/Kernel_2014-05-20-154336_lgml-bgregg.panic
+panic(cpu 0 caller 0xffffff80170a50aa): "VM_PAGE_QUEUES_REMOVE: unmarked page on Q"@/SourceCache/xnu/xnu-2422.100.13/osfmk/vm/vm_resident.c:2388
+Stack:
+    panic (in mach_kernel) + 201
+    vm_page_free_prepare_queues (in mach_kernel) + 602
+    0xffffff80002900b8 (in mach_kernel) + 648
+    0xffffff8000295a03 (in mach_kernel) + 195
+    0xffffff800028f16d (in mach_kernel) + 621
+    0xffffff800028e3bc (in mach_kernel) + 652
+    0xffffff800027e35c (in mach_kernel) + 1212
+    vm_map_remove (in mach_kernel) + 111
+    _kernelrpc_mach_vm_deallocate_trap (in mach_kernel) + 71
+    0xffffff80002c989d (in mach_kernel) + 237
+    hndl_mach_scall64 (in mach_kernel) + 22
+BSD process name: WindowServer
+Mac OS version: 13D65
+
+File ../DiagnosticReports/Kernel_2014-05-20-160644_lgml-bgregg.panic
+panic(cpu 6 caller 0xffffff800aca50aa): "VM_PAGE_QUEUES_REMOVE: unmarked page on Q"@/SourceCache/xnu/xnu-2422.100.13/osfmk/vm/vm_resident.c:2388
+Stack:
+    panic (in mach_kernel) + 201
+    vm_page_free_prepare_queues (in mach_kernel) + 602
+    0xffffff80002900b8 (in mach_kernel) + 648
+    0xffffff8000295a03 (in mach_kernel) + 195
+    0xffffff800028f16d (in mach_kernel) + 621
+    0xffffff800028e3bc (in mach_kernel) + 652
+    mach_destroy_memory_entry (in mach_kernel) + 85
+    ipc_port_destroy (in mach_kernel) + 401
+    ipc_kobject_notify (in mach_kernel) + 162
+    ipc_kobject_server (in mach_kernel) + 270
+    ipc_kmsg_send (in mach_kernel) + 117
+    mach_msg_send_from_kernel_proper (in mach_kernel) + 66
+    mach_notify_no_senders (in mach_kernel) + 65
+    IOGeneralMemoryDescriptor::free() (in mach_kernel) + 312
+    IOBufferMemoryDescriptor::free() (in mach_kernel) + 157
+    0xffffff7f8c81024a (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f8c825a6a (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f8c832046 (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f8c82f9fb (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f8c831c88 (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f8c82daa3 (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f8c831efc (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    IOUserClient::externalMethod(unsigned int, IOExternalMethodArguments*, IOExternalMethodDispatch*, OSObject*, void*) (in mach_kernel) + 429
+    is_io_connect_method (in mach_kernel) + 415
+    0xffffff80002b66a8 (in mach_kernel) + 392
+    ipc_kobject_server (in mach_kernel) + 241
+    ipc_kmsg_send (in mach_kernel) + 117
+    mach_msg_overwrite_trap (in mach_kernel) + 195
+    0xffffff80002c989d (in mach_kernel) + 237
+    hndl_mach_scall64 (in mach_kernel) + 22
+BSD process name: WindowServer
+Mac OS version: 13D65
+
+File ../DiagnosticReports/Kernel_2014-05-22-155309_lgml-bgregg.panic
+panic(cpu 2 caller 0xffffff80160dbf5e): Kernel trap at 0xffffff8016093f39, type 14=page fault, registers:
+Stack:
+    panic (in mach_kernel) + 201
+    kernel_trap (in mach_kernel) + 2046
+    0xffffff80002f3456 (in mach_kernel) + 38
+    0xffffff8000293f39 (in mach_kernel) + 233
+    mach_memory_entry_get_page_counts (in mach_kernel) + 110
+    IOMemoryDescriptor::getPageCounts(unsigned long long*, unsigned long long*) (in mach_kernel) + 97
+    0xffffff7f97c1108d (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f97c3924c (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f97c40fb2 (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    0xffffff7f97c40ddc (in com.apple.iokit.IOAcceleratorFamily2(98.20))
+    IOUserClient::externalMethod(unsigned int, IOExternalMethodArguments*, IOExternalMethodDispatch*, OSObject*, void*) (in mach_kernel) + 429
+    is_io_connect_method (in mach_kernel) + 415
+    0xffffff80002b66a8 (in mach_kernel) + 392
+    ipc_kobject_server (in mach_kernel) + 241
+    ipc_kmsg_send (in mach_kernel) + 117
+    mach_msg_overwrite_trap (in mach_kernel) + 195
+    0xffffff80002c989d (in mach_kernel) + 237
+    hndl_mach_scall64 (in mach_kernel) + 22
+BSD process name: UserEventAgent
+Mac OS version: 13D65
+
+File ../DiagnosticReports/Kernel_2014-05-23-103228_lgml-bgregg.panic
+panic(cpu 0 caller 0xffffff8007cdbf5e): Kernel trap at 0xffffff8007ca6968, type 14=page fault, registers:
+Stack:
+    panic (in mach_kernel) + 201
+    kernel_trap (in mach_kernel) + 2046
+    0xffffff80002f3456 (in mach_kernel) + 38
+    vm_page_lru (in mach_kernel) + 408
+    memory_object_control_uiomove (in mach_kernel) + 680
+    0xffffff80003d2ae3 (in mach_kernel) + 195
+    decmpfs_read_compressed (in mach_kernel) + 237
+    hfs_vnop_read (in mach_kernel) + 186
+    VNOP_READ (in mach_kernel) + 225
+    0xffffff80003f38d5 (in mach_kernel) + 245
+    0xffffff80005f1cfe (in mach_kernel) + 174
+    pread_nocancel (in mach_kernel) + 137
+    unix_syscall64 (in mach_kernel) + 499
+    hndl_unix_scall64 (in mach_kernel) + 22
+BSD process name: nsupdate
+Mac OS version: 13D65
+</pre>
+
+<p>The others showed similar stacks. These are also all in VM, either page faults or an explicit panic() call in the VM_PAGE_QUEUES_REMOVE macro.</p>
+
+<p>To translate my 10.9.3 diag reports with the kernel_diagreport2text.ksh script, I needed a copy of the 10.9.3 mach_kernel (I'm back on 10.9.2), and to edit the script to point to it (update: that's now the -f option). Apple's auto update had already downloaded the 10.9.3 update, putting it in /Library/Updates/031-02348/OSXUpd10.9.3.pkg. That pkg file turned out to be Russian dolls: a xar, containing a bzip2 file, containing a cpio archive, which contained the 10.9.3 mach_kernel.</p>
+
+<p>If you ever want to do something similar yourself, you really want to make sure the mach_kernel matches what you have in the diag report, otherwise the translations will be incorrect. Eg:</p>
+
+<pre>
+$ <b>grep 'Kernel Version' Kernel_2014-05-23-103228_lgml-bgregg.panic</b>
+Darwin Kernel Version 13.2.0: Thu Apr 17 23:03:13 PDT 2014; root:xnu-2422.100.13~1/RELEASE_X86_64
+$ <b>strings 10.9.3/mach_kernel | grep 'Kernel Version'</b>
+Darwin Kernel Version 13.2.0: Thu Apr 17 23:03:13 PDT 2014; root:xnu-2422.100.13~1/RELEASE_X86_64
+</pre>
+
+<p>Those match! The source for xnu-2422.100.13 isn't out yet, but when it is, it should be under <a href="http://www.opensource.apple.com/source/xnu/">opensource.apple.com/source/xnu</a>. I've been browsing the earlier version to get a handle on the VM code.</p>
+
+<h2>Update 6</h2>
+
+<p>After a quick browse of the VM code, it looks like a double free, based on the VM_PAGE_QUEUES_REMOVE panic. It's possible the other VM panics are manifestations of the same bug. These are nasty bugs to debug, as the engineer must track down the earlier free. This is harder than it sounds, as free's occur so frequently. I could run out of memory trying to log them for later lookup.</p>
+
+<p>But after using DTrace on the vm_page_free_prepare_queues path, I'm not sure it's a double free using the vm_* interface, as mem-&gt;free was not set. Which suggests something even <em>nastier</em> – someone else is stepping on memory, perhaps zero'ing it out. Now if two paths are fighting over the same memory, and if I'm lucky, they do so in either order with the 2nd hitting the panic. Which could mean I've already captured both paths in the earlier panics. The IOBufferMemoryDescriptor::free() could be the non-VM path that's freeing memory, coming from IOAcceleratorFamily2.</p>
+
+<p>This is just speculation - I don't know what the real cause is yet. But given the nature of the panics (external displays), the partially-translated stacks, the open source xnu kernel, and DTrace to test theories, I have a lot of clues. The hardest part is finding time to put into this.</p>
+
+<h2>Update 7</h2>
+
+<p>Here's an older panic excerpt (OS X 10.5.8):</p>
+
+<pre>
+Backtrace (CPU 0), Frame : Return Address (4 potential args on stack)
+0x343a2a88 : 0x12b4c6 (0x45f91c 0x343a2abc 0x13355c 0x0) 
+0x343a2ad8 : 0x1ab0fe (0x469a98 0x19d7a7 0xe 0x469248) 
+0x343a2bb8 : 0x1a1713 (0x343a2bcc 0x343a2c18 0x19d7a7 0xe) 
+0x343a2bc4 : 0x19d7a7 (0xe 0x48 0x31f000c 0x343a000c) 
+0x343a2c18 : 0xbb17c4 (0x0 0x3ba823e 0xfe825ec8 0x19fed4) 
+[...]
+</pre>
+
+<p>Notice something? This has <em>arguments</em> for the stack functions, which are incredibly useful when doing panic analysis, especially when all we have to go on is the panic report file. So where did these args go in 10.9?</p>
+
+<p>From the xnu-2422.90.20 source, <a href="http://www.opensource.apple.com/source/xnu/xnu-2422.90.20/osfmk/i386/AT386/model_dep.c">osfmk/i386/AT386/model_dep.c</a>:</p>
+
+<pre>
+        kdb_printf("Backtrace (CPU %d), "
+#if PRINT_ARGS_FROM_STACK_FRAME
+        "Frame : Return Address (4 potential args on stack)\n", cn);
+#else
+        "Frame : Return Address\n", cn);
+#endif
+</pre>
+
+<p>PRINT_ARGS_FROM_STACK_FRAME needs to be set. It's set in the same file:</p>
+
+<pre>
+[...]
+volatile int panic_double_fault_cpu = -1;
+
+#define PRINT_ARGS_FROM_STACK_FRAME     0
+
+typedef struct _cframe_t {
+[...]
+</pre>
+
+<p>(shakes fist.) No comment, no explanation, just zero that guy. Why?</p>
+
+<p>I think the reason can be explained by an earlier kernel version, <a href="http://www.opensource.apple.com/source/xnu/xnu-2050.9.2/osfmk/i386/AT386/model_dep.c?txt">xnu-2050.9.2</a>:</p>
+
+<pre>
+#if defined (__i386__)
+#define PRINT_ARGS_FROM_STACK_FRAME 1
+#elif defined (__x86_64__)
+#define PRINT_ARGS_FROM_STACK_FRAME 0
+#else
+#error unsupported architecture
+#endif
+</pre>
+
+<p>Ah. Stack frame arguments are architecture specific, and the code was written for i386, but not x86.</p>
+
+<p>It should be a fairly easy enhancement for Apple to add the x86 code, and greately enhance <em>all</em> kernel panic reports.</p>
+
+<p><a name="update8"></a></p>
+
+<h2>Update 8</h2>
+
+<p>30-May-2014. I have a workaround in hand for Mavericks 10.9.2: <strong>turn off Firefox hardware acceleration</strong>. With this off, my panics have now stopped. Perhaps this works on 10.9.3 as well, if it is the same panic. The setting is under Preferences-&gt;Advanced-&gt;General.</p>
+
+<p>Other applications use hardware acceleration as well, so you may need to disable it elsewhere, if you believe you have this bug. For me, the easiest way to duplicate the panic was to run a youtube video full screen in Firefox, then plug in a remote display, and close the laptop lid. A few cycles of that usually led to the same type of panic I was hitting earlier. And with hardware acceleration disabled, it worked fine.</p>
+
+<p>I still feel this was much worse in 10.9.3 (if I had more time, I'd confirm). The 10.9.3 update did say that it "Improves 4K display support", which may have modified the hardware acceleration routines.</p>
+
+<p>I suspect hardware acceleration was freeing or stepping on memory it shouldn't, which led to the VM panics. I'd like to write more about this, including where I was in the analysis, and ideally identify the root cause, but now that I have a workaround it's no longer a priority to work on. I may do a follow up blog post later when I have the time. I wanted to share the workaround ASAP.</p>
+
+<p>This information has been filed as Apple bug ID 17082120. (This is in addition to the 30 or so Kernel diag reports I've sent their way.)</p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-05-20-my-first-experience-of-perlxs-f76729254.html" title="Previous Post: XS 初体验" data-instant>&laquo; XS 初体验</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-05-24-how-to-persist-writing-06483771a.html" title="Next Post: 技术人员如何坚持写作" data-instant>技术人员如何坚持写作 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>09 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-09-java-cpu-sampling-using-hprof.html-6086da145.html">Java CPU Sampling Using hprof</a></li>
+
+      <li><span>16 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-16-iosnoop-for-linux.html-3e14ce40a.html">iosnoop For Linux</a></li>
+
+      <li><span>11 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-11-strace-wow-much-syscall.html-998ad76a5.html">strace Wow Much Syscall</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
