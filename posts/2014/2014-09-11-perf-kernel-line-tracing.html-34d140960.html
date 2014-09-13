@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Linux perf Rides the Rocket</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-09-11-perf-kernel-line-tracing.html-34d140960.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>Linux perf Rides the Rocket</h1>
+    <p class="meta"><span class="time">Sep 11, 2014</span><span class="source_url"> • 来自 brendangregg.com <a name="brendangregg.com" href="http://www.brendangregg.com/blog/2014-09-11/perf-kernel-line-tracing.html" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+<div style="float:right;padding-left:10px;padding-bottom:5px">
+<img src="/images/brendangregg.com/4dd4b2e20638a1d4bacfcc0b576f2881.jpg" width="250" height="176"><br><center><font size="-1"><i><a href="http://en.wikipedia.org/wiki/Rocket_sled">Riding the rocket</a></i></font></center>
+</div>
+
+<p>WHAT DOES IT MEAN?? Ubuntu Trusty was dropping packets in our cloud instance, and leaving us with the mysterious system message:</p>
+
+<pre>
+[85290.555808] xen_netfront: xennet: 
+ <b>skb rides the rocket: 19 slots</b>
+</pre>
+
+<p>This led us to ride the rocket of advanced Linux kernel tracing...</p>
+
+<p>In this post, I'll demonstrate some fairly unknown features (practically secrets) of Linux kernel tracing using perf_events, which is part of the Linux kernel source (tools/perf).</p>
+
+<p>Mysterious system messages are better than no system messages, because we have something at least to search for. The message comes from the following function (this is Linux 3.13.6), which transmits a packet from a Xen guest (this is on AWS EC2):</p>
+
+<pre>
+static int xennet_start_xmit(struct sk_buff *skb, struct net_device *dev)
+{
+[...]
+        slots = DIV_ROUND_UP(offset + len, PAGE_SIZE) +
+                xennet_count_skb_frag_slots(skb);
+        if (unlikely(slots &gt; MAX_SKB_FRAGS + 1)) {
+                net_alert_ratelimited(
+                        "xennet: <b>skb rides the rocket</b>: %d slots\n", slots);
+                goto drop;
+        }
+</pre>
+
+<p>Yes, goto drop, which bumps a counter and frees the packet. Client problem now! The client will, after a performance-problem-inducing timeout, retransmit the packet. Let's hope the retransmitted packet doesn't RIDE THE ROCKET as well! (... I'm serious – this could lead to exponential latency.)</p>
+
+<p>We know the value of <tt>slots</tt>, since it's part of the system message (19). We know what MAX_SKB_FRAGS is from the kernel source: it's 16, and is related to limiting the number of fragments or pages that can be sent to a device ring buffer. We don't know <tt>offset</tt>, <tt>len</tt>, or the return of <tt>xennet_count_skb_frag_slots(skb)</tt>.</p>
+
+<p>I'm a little familiar with this codepath already, and have an idea of the real size of these skbs (eg, by using "perf-stat-hist net:net_dev_xmit len 10" from <a href="https://github.com/brendangregg/perf-tools">perf-tools</a>; see the <a href="https://github.com/brendangregg/perf-tools/blob/master/examples/perf-stat-hist_example.txt">example</a>), and what the offset might be. I'd like to check them directly here, but I'll start by instrumenting the return of xennet_count_skb_frag_slots() using <a href="http://www.brendangregg.com/perf.html">perf_events</a>:</p>
+
+<pre>
+# <b>perf probe 'xennet_count_skb_frag_slots%return ret=$retval'</b>
+Return probe must be on the head of a real function.
+  Error: Failed to add events. (-22)
+# <b>grep xennet_count_skb_frag_slots /proc/kallsyms</b>
+# 
+</pre>
+
+<p>... Really compiler, can't you inline someone else?</p>
+
+<p>So this symbol doesn't even exist. (I wish the compiler would RIDE THE ROCKET!) For most tracers, this is a dead end. Almost.</p>
+
+<p>Having used a kernel dynamic tracer for a decade, I've developed all kinds of tricks and hacks to work around this: maybe there's a child of xennet_count_skb_frag_slots() function I can trace; maybe I can duplicate the logic from xennet_start_xmit(), where I can observe skb. I began trying such workarounds, but in this case it was becomming onerous. At this point I'd usually start considering editing the kernel and inserting instrumentation just to see this, which involves a compile, test, and deploy cycle.</p>
+
+<p>But on Linux, <b>with kernel debuginfo</b>, I can go a lot further directly. Let's switch to the entry to that function, and use "-nv" to show what perf probe would have done without doing it:</p>
+
+<pre>
+# <b>perf probe -nv xennet_count_skb_frag_slots</b>
+probe-definition(0): xennet_count_skb_frag_slots 
+symbol:xennet_count_skb_frag_slots file:(null) line:0 offset:0 return:0 lazy:(null)
+0 arguments
+Looking at the vmlinux_path (6 entries long)
+symsrc__init: cannot get elf header.
+Using /lib/modules/3.13.11.6/build/vmlinux for symbols
+found inline addr: 0xffffffff8152dae8
+Probe point found: xennet_start_xmit+88
+find 1 probe_trace_events.
+Opening /sys/kernel/debug//tracing/kprobe_events write=1
+Added new event:
+<b>Writing event: p:probe/xennet_count_skb_frag_slots xennet_start_xmit+88</b>
+  probe:xennet_count_skb_frag_slots (on xennet_count_skb_frag_slots)
+
+You can now use it in all perf tools, such as:
+
+    perf record -e probe:xennet_count_skb_frag_slots -aR sleep 1
+</pre>
+
+<p>Wow, so the beginning of this inlined function can indeed be instrumented, since Linux can trace kernel instructions (or line numbers). Note the offset "+88".</p>
+
+<p>Lines inside this function (despite it being inlined) can also be traced. The perf report command will list candidates with -L:</p>
+
+<pre>
+# <b>perf probe -L xennet_count_skb_frag_slots</b>
+<xennet_count_skb_frag_slots>
+      0  static int xennet_count_skb_frag_slots(struct sk_buff *skb)
+<font color="blue">         {</font>
+      2         int i, frags = skb_shinfo(skb)-&gt;nr_frags;
+      3         int pages = 0;
+         
+      5         for (i = 0; i                         skb_frag_t *frag = skb_shinfo(skb)-&gt;frags + i;
+      7                 unsigned long size = skb_frag_size(frag);
+<font color="blue">                        unsigned long offset = frag-&gt;page_offset;
+         
+                        /* Skip unused frames from start of page */</font>
+     11                 offset &amp;= ~PAGE_MASK;
+         
+     13                 pages += PFN_UP(offset + size);
+<font color="blue">                }
+         
+                return pages;</font>
+</xennet_count_skb_frag_slots></pre>
+
+<p>This is pretty amazing. perf shows line numbers of those that can be instrumented directly, and those that can't in blue.</p>
+
+<p>Some local variables can also be inspected. Let's look at what is available at line 11:</p>
+
+<pre>
+# <b>perf probe -V xennet_count_skb_frag_slots:11</b>
+Available variables at xennet_count_skb_frag_slots:11
+        @&lt;xennet_start_xmit+155&gt;
+                int     pages
+                long unsigned int       size
+</pre>
+
+<p>The <tt>offset</tt> variable is missing, but I have others to work with, which is pretty useful. I can also include external symbols; add an "--externs" to the end of that one-liner for the list.</p>
+
+<h2>But don't you hate kernel debuginfo?</h2>
+
+<p>Yes, it's rainbows and ponies with kernel debuginfo, but it's also over 100 Mbytes. At Netflix, we create and destroy cloud instances frequently (auto-scaling and code deployments), and it's important to keep the instance size small to reduce creation time, and keep network traffic down.</p>
+
+<p>I've come up with a simple workaround: create one small test instance with kernel debuginfo for each kernel version used, and use it for reference. Let's say I wanted to trace those local variables on line 11 of xennet_count_skb_frag_slots(). On my reference instance:</p>
+
+<pre>
+# <b>perf probe -nv 'xennet_count_skb_frag_slots:11 pages size' 2&gt;&amp;1 | grep Writing</b>
+Writing event: p:probe/xennet_count_skb_frag_slots <b>xennet_start_xmit+155 pages=%si:s32 size=%di:u64</b>
+</pre>
+
+<p>Now I copy-n-paste, with a mouse, the highlighted details for use in perf probe (or my kprobe from <a href="https://github.com/brendangregg/perf-tools">perf-tools</a>, if it's a real function entry) on the system without debuginfo. Eg:</p>
+
+<pre>
+# <b>perf probe 'xennet_count_skb_frag_slots:11 pages size'</b>
+Failed to find path of kernel module.
+Failed to open debuginfo file.
+  Error: Failed to add events. (-2)
+# <b>perf probe 'xennet_start_xmit+155 pages=%si:s32 size=%di:u64'</b>
+Failed to find path of kernel module.
+Added new event:
+  probe:xennet_start_xmit (on xennet_start_xmit+155 with pages=%si:s32 size=%di:u64)
+
+You can now use it in all perf tools, such as:
+
+    perf record -e probe:xennet_start_xmit -aR sleep 1
+</pre>
+
+<p>Awesome!</p>
+
+<p>I began by showing that this system really doesn't have kernel debuginfo. The second try, with the register details from the reference system, worked. Note that this approach will only create a valid probe if the kernel versions are identical. If you try this on a different kernel, it may appear to work, but provide invalid results. </p>
+
+<p>SystemTap can automate the use of reference systems, although when I tried I had issues with firewalling and port forwarding due to our environment. As for other ways: I met Masami Hiramatsu at LinuxCon North America, and he came up with a way to build a simple text database of functions and variables – stripping debuginfo down to just what I needed. I'll blog about that when I get a chance.</p>
+
+<p>These reference systems are also useful for testing tracing invocations, before using them in production.</p>
+
+<h2>Some output</h2>
+
+<p>Enabling this probe:</p>
+
+<pre>
+# <b>perf record -e probe:xennet_start_xmit -aR sleep 10</b>
+[ perf record: Woken up 1 times to write data ]
+[ perf record: Captured and wrote 1.466 MB perf.data (~64033 samples) ]
+# <b>perf script</b>
+[...]
+  sshd 92592 [009] 87585.288990: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=280
+  sshd 92592 [009] 87585.295461: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=3058
+  sshd 92592 [009] 87585.295472: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=4f8
+  sshd 92592 [009] 87585.296417: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=538
+  sshd 92592 [009] 87585.296426: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=1c8
+  sshd 92592 [009] 87585.304101: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=29e0
+  sshd 92592 [009] 87585.304102: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=3 size=bdc
+  sshd 92592 [009] 87585.304111: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=4d4
+[...]
+</pre>
+
+<p>Great. The sizes are larger than the expected MTU, because of TCP send offload (TSO).
+Warning: any network packet tracing can cost significant overheads, especially for 10 GbE speeds and beyond, so be careful on the network path and look for other solutions first.</p>
+
+<h2>What about the rocket?</h2>
+
+<p>It's a driver bug with TSO. A very large skb can span too many pages (more than 16) to be put in the driver ring buffer. One workaround is "sudo ethtool -K eth0 tso off", for your interface. There's plenty of articles about this on the Internet, and they are easy to find thanks to our mysterious message. :-)</p>
+
+<h2>Conclusion</h2>
+
+<p>I don't always need Linux kernel line number tracing, but sometimes it is very handy. Local variables at given line numbers can also be inspected. This is useful for both performance analysis and debugging, such as the analysis of our "skb rides the rocket" issue.</p>
+
+<p>To use this feature without kernel debuginfo on all cloud instances, I used a reference system approach. This reference system also serves as places to test specific tracing, before using it in production.</p>
+
+<p>As with all kernel tracing: be careful, as there have been panics and freezes in the past, and know what you are doing before use. For more about perf, see my <a href="http://www.brendangregg.com/perf.html">perf_events</a> page and the <a href="https://perf.wiki.kernel.org/index.php/Main_Page">perf wiki</a>.</p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-09-09--id=14-50ea6b53d.html" title="Previous Post: Swift Has Reached 1.0" data-instant>&laquo; Swift Has Reached 1.0</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>11 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-11-strace-wow-much-syscall.html-998ad76a5.html">strace Wow Much Syscall</a></li>
+
+      <li><span>16 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-16-iosnoop-for-linux.html-3e14ce40a.html">iosnoop For Linux</a></li>
+
+      <li><span>23 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-23-osx-10.9.3-is-toxic.html-e091501b2.html">OS X 10.9.3 Recurring Panics</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

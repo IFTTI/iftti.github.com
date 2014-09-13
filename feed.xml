@@ -5,9 +5,208 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Wed, 10 Sep 2014 14:07:08 +0800</pubDate>
-    <lastBuildDate>Wed, 10 Sep 2014 14:07:08 +0800</lastBuildDate>
+    <pubDate>Sat, 13 Sep 2014 12:54:23 +0800</pubDate>
+    <lastBuildDate>Sat, 13 Sep 2014 12:54:23 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>Linux perf Rides the Rocket</title>
+        <description>
+
+&lt;div style=&quot;float:right;padding-left:10px;padding-bottom:5px&quot;&gt;
+&lt;img src=&quot;/images/brendangregg.com/4dd4b2e20638a1d4bacfcc0b576f2881.jpg&quot; width=&quot;250&quot; height=&quot;176&quot;&gt;&lt;br&gt;&lt;center&gt;&lt;font size=&quot;-1&quot;&gt;&lt;i&gt;&lt;a href=&quot;http://en.wikipedia.org/wiki/Rocket_sled&quot;&gt;Riding the rocket&lt;/a&gt;&lt;/i&gt;&lt;/font&gt;&lt;/center&gt;
+&lt;/div&gt;
+
+&lt;p&gt;WHAT DOES IT MEAN?? Ubuntu Trusty was dropping packets in our cloud instance, and leaving us with the mysterious system message:&lt;/p&gt;
+
+&lt;pre&gt;
+[85290.555808] xen_netfront: xennet: 
+ &lt;b&gt;skb rides the rocket: 19 slots&lt;/b&gt;
+&lt;/pre&gt;
+
+&lt;p&gt;This led us to ride the rocket of advanced Linux kernel tracing...&lt;/p&gt;
+
+&lt;p&gt;In this post, I&#39;ll demonstrate some fairly unknown features (practically secrets) of Linux kernel tracing using perf_events, which is part of the Linux kernel source (tools/perf).&lt;/p&gt;
+
+&lt;p&gt;Mysterious system messages are better than no system messages, because we have something at least to search for. The message comes from the following function (this is Linux 3.13.6), which transmits a packet from a Xen guest (this is on AWS EC2):&lt;/p&gt;
+
+&lt;pre&gt;
+static int xennet_start_xmit(struct sk_buff *skb, struct net_device *dev)
+{
+[...]
+        slots = DIV_ROUND_UP(offset + len, PAGE_SIZE) +
+                xennet_count_skb_frag_slots(skb);
+        if (unlikely(slots &amp;gt; MAX_SKB_FRAGS + 1)) {
+                net_alert_ratelimited(
+                        &quot;xennet: &lt;b&gt;skb rides the rocket&lt;/b&gt;: %d slots\n&quot;, slots);
+                goto drop;
+        }
+&lt;/pre&gt;
+
+&lt;p&gt;Yes, goto drop, which bumps a counter and frees the packet. Client problem now! The client will, after a performance-problem-inducing timeout, retransmit the packet. Let&#39;s hope the retransmitted packet doesn&#39;t RIDE THE ROCKET as well! (... I&#39;m serious – this could lead to exponential latency.)&lt;/p&gt;
+
+&lt;p&gt;We know the value of &lt;tt&gt;slots&lt;/tt&gt;, since it&#39;s part of the system message (19). We know what MAX_SKB_FRAGS is from the kernel source: it&#39;s 16, and is related to limiting the number of fragments or pages that can be sent to a device ring buffer. We don&#39;t know &lt;tt&gt;offset&lt;/tt&gt;, &lt;tt&gt;len&lt;/tt&gt;, or the return of &lt;tt&gt;xennet_count_skb_frag_slots(skb)&lt;/tt&gt;.&lt;/p&gt;
+
+&lt;p&gt;I&#39;m a little familiar with this codepath already, and have an idea of the real size of these skbs (eg, by using &quot;perf-stat-hist net:net_dev_xmit len 10&quot; from &lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt;; see the &lt;a href=&quot;https://github.com/brendangregg/perf-tools/blob/master/examples/perf-stat-hist_example.txt&quot;&gt;example&lt;/a&gt;), and what the offset might be. I&#39;d like to check them directly here, but I&#39;ll start by instrumenting the return of xennet_count_skb_frag_slots() using &lt;a href=&quot;http://www.brendangregg.com/perf.html&quot;&gt;perf_events&lt;/a&gt;:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;perf probe &#39;xennet_count_skb_frag_slots%return ret=$retval&#39;&lt;/b&gt;
+Return probe must be on the head of a real function.
+  Error: Failed to add events. (-22)
+# &lt;b&gt;grep xennet_count_skb_frag_slots /proc/kallsyms&lt;/b&gt;
+# 
+&lt;/pre&gt;
+
+&lt;p&gt;... Really compiler, can&#39;t you inline someone else?&lt;/p&gt;
+
+&lt;p&gt;So this symbol doesn&#39;t even exist. (I wish the compiler would RIDE THE ROCKET!) For most tracers, this is a dead end. Almost.&lt;/p&gt;
+
+&lt;p&gt;Having used a kernel dynamic tracer for a decade, I&#39;ve developed all kinds of tricks and hacks to work around this: maybe there&#39;s a child of xennet_count_skb_frag_slots() function I can trace; maybe I can duplicate the logic from xennet_start_xmit(), where I can observe skb. I began trying such workarounds, but in this case it was becomming onerous. At this point I&#39;d usually start considering editing the kernel and inserting instrumentation just to see this, which involves a compile, test, and deploy cycle.&lt;/p&gt;
+
+&lt;p&gt;But on Linux, &lt;b&gt;with kernel debuginfo&lt;/b&gt;, I can go a lot further directly. Let&#39;s switch to the entry to that function, and use &quot;-nv&quot; to show what perf probe would have done without doing it:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;perf probe -nv xennet_count_skb_frag_slots&lt;/b&gt;
+probe-definition(0): xennet_count_skb_frag_slots 
+symbol:xennet_count_skb_frag_slots file:(null) line:0 offset:0 return:0 lazy:(null)
+0 arguments
+Looking at the vmlinux_path (6 entries long)
+symsrc__init: cannot get elf header.
+Using /lib/modules/3.13.11.6/build/vmlinux for symbols
+found inline addr: 0xffffffff8152dae8
+Probe point found: xennet_start_xmit+88
+find 1 probe_trace_events.
+Opening /sys/kernel/debug//tracing/kprobe_events write=1
+Added new event:
+&lt;b&gt;Writing event: p:probe/xennet_count_skb_frag_slots xennet_start_xmit+88&lt;/b&gt;
+  probe:xennet_count_skb_frag_slots (on xennet_count_skb_frag_slots)
+
+You can now use it in all perf tools, such as:
+
+    perf record -e probe:xennet_count_skb_frag_slots -aR sleep 1
+&lt;/pre&gt;
+
+&lt;p&gt;Wow, so the beginning of this inlined function can indeed be instrumented, since Linux can trace kernel instructions (or line numbers). Note the offset &quot;+88&quot;.&lt;/p&gt;
+
+&lt;p&gt;Lines inside this function (despite it being inlined) can also be traced. The perf report command will list candidates with -L:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;perf probe -L xennet_count_skb_frag_slots&lt;/b&gt;
+&lt;xennet_count_skb_frag_slots&gt;
+      0  static int xennet_count_skb_frag_slots(struct sk_buff *skb)
+&lt;font color=&quot;blue&quot;&gt;         {&lt;/font&gt;
+      2         int i, frags = skb_shinfo(skb)-&amp;gt;nr_frags;
+      3         int pages = 0;
+         
+      5         for (i = 0; i                         skb_frag_t *frag = skb_shinfo(skb)-&amp;gt;frags + i;
+      7                 unsigned long size = skb_frag_size(frag);
+&lt;font color=&quot;blue&quot;&gt;                        unsigned long offset = frag-&amp;gt;page_offset;
+         
+                        /* Skip unused frames from start of page */&lt;/font&gt;
+     11                 offset &amp;amp;= ~PAGE_MASK;
+         
+     13                 pages += PFN_UP(offset + size);
+&lt;font color=&quot;blue&quot;&gt;                }
+         
+                return pages;&lt;/font&gt;
+&lt;/xennet_count_skb_frag_slots&gt;&lt;/pre&gt;
+
+&lt;p&gt;This is pretty amazing. perf shows line numbers of those that can be instrumented directly, and those that can&#39;t in blue.&lt;/p&gt;
+
+&lt;p&gt;Some local variables can also be inspected. Let&#39;s look at what is available at line 11:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;perf probe -V xennet_count_skb_frag_slots:11&lt;/b&gt;
+Available variables at xennet_count_skb_frag_slots:11
+        @&amp;lt;xennet_start_xmit+155&amp;gt;
+                int     pages
+                long unsigned int       size
+&lt;/pre&gt;
+
+&lt;p&gt;The &lt;tt&gt;offset&lt;/tt&gt; variable is missing, but I have others to work with, which is pretty useful. I can also include external symbols; add an &quot;--externs&quot; to the end of that one-liner for the list.&lt;/p&gt;
+
+&lt;h2&gt;But don&#39;t you hate kernel debuginfo?&lt;/h2&gt;
+
+&lt;p&gt;Yes, it&#39;s rainbows and ponies with kernel debuginfo, but it&#39;s also over 100 Mbytes. At Netflix, we create and destroy cloud instances frequently (auto-scaling and code deployments), and it&#39;s important to keep the instance size small to reduce creation time, and keep network traffic down.&lt;/p&gt;
+
+&lt;p&gt;I&#39;ve come up with a simple workaround: create one small test instance with kernel debuginfo for each kernel version used, and use it for reference. Let&#39;s say I wanted to trace those local variables on line 11 of xennet_count_skb_frag_slots(). On my reference instance:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;perf probe -nv &#39;xennet_count_skb_frag_slots:11 pages size&#39; 2&amp;gt;&amp;amp;1 | grep Writing&lt;/b&gt;
+Writing event: p:probe/xennet_count_skb_frag_slots &lt;b&gt;xennet_start_xmit+155 pages=%si:s32 size=%di:u64&lt;/b&gt;
+&lt;/pre&gt;
+
+&lt;p&gt;Now I copy-n-paste, with a mouse, the highlighted details for use in perf probe (or my kprobe from &lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt;, if it&#39;s a real function entry) on the system without debuginfo. Eg:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;perf probe &#39;xennet_count_skb_frag_slots:11 pages size&#39;&lt;/b&gt;
+Failed to find path of kernel module.
+Failed to open debuginfo file.
+  Error: Failed to add events. (-2)
+# &lt;b&gt;perf probe &#39;xennet_start_xmit+155 pages=%si:s32 size=%di:u64&#39;&lt;/b&gt;
+Failed to find path of kernel module.
+Added new event:
+  probe:xennet_start_xmit (on xennet_start_xmit+155 with pages=%si:s32 size=%di:u64)
+
+You can now use it in all perf tools, such as:
+
+    perf record -e probe:xennet_start_xmit -aR sleep 1
+&lt;/pre&gt;
+
+&lt;p&gt;Awesome!&lt;/p&gt;
+
+&lt;p&gt;I began by showing that this system really doesn&#39;t have kernel debuginfo. The second try, with the register details from the reference system, worked. Note that this approach will only create a valid probe if the kernel versions are identical. If you try this on a different kernel, it may appear to work, but provide invalid results. &lt;/p&gt;
+
+&lt;p&gt;SystemTap can automate the use of reference systems, although when I tried I had issues with firewalling and port forwarding due to our environment. As for other ways: I met Masami Hiramatsu at LinuxCon North America, and he came up with a way to build a simple text database of functions and variables – stripping debuginfo down to just what I needed. I&#39;ll blog about that when I get a chance.&lt;/p&gt;
+
+&lt;p&gt;These reference systems are also useful for testing tracing invocations, before using them in production.&lt;/p&gt;
+
+&lt;h2&gt;Some output&lt;/h2&gt;
+
+&lt;p&gt;Enabling this probe:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;perf record -e probe:xennet_start_xmit -aR sleep 10&lt;/b&gt;
+[ perf record: Woken up 1 times to write data ]
+[ perf record: Captured and wrote 1.466 MB perf.data (~64033 samples) ]
+# &lt;b&gt;perf script&lt;/b&gt;
+[...]
+  sshd 92592 [009] 87585.288990: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=280
+  sshd 92592 [009] 87585.295461: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=3058
+  sshd 92592 [009] 87585.295472: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=4f8
+  sshd 92592 [009] 87585.296417: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=538
+  sshd 92592 [009] 87585.296426: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=1c8
+  sshd 92592 [009] 87585.304101: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=29e0
+  sshd 92592 [009] 87585.304102: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=3 size=bdc
+  sshd 92592 [009] 87585.304111: probe:xennet_start_xmit: (ffffffff8152e6bb) pages=0 size=4d4
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;Great. The sizes are larger than the expected MTU, because of TCP send offload (TSO).
+Warning: any network packet tracing can cost significant overheads, especially for 10 GbE speeds and beyond, so be careful on the network path and look for other solutions first.&lt;/p&gt;
+
+&lt;h2&gt;What about the rocket?&lt;/h2&gt;
+
+&lt;p&gt;It&#39;s a driver bug with TSO. A very large skb can span too many pages (more than 16) to be put in the driver ring buffer. One workaround is &quot;sudo ethtool -K eth0 tso off&quot;, for your interface. There&#39;s plenty of articles about this on the Internet, and they are easy to find thanks to our mysterious message. :-)&lt;/p&gt;
+
+&lt;h2&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;I don&#39;t always need Linux kernel line number tracing, but sometimes it is very handy. Local variables at given line numbers can also be inspected. This is useful for both performance analysis and debugging, such as the analysis of our &quot;skb rides the rocket&quot; issue.&lt;/p&gt;
+
+&lt;p&gt;To use this feature without kernel debuginfo on all cloud instances, I used a reference system approach. This reference system also serves as places to test specific tracing, before using it in production.&lt;/p&gt;
+
+&lt;p&gt;As with all kernel tracing: be careful, as there have been panics and freezes in the past, and know what you are doing before use. For more about perf, see my &lt;a href=&quot;http://www.brendangregg.com/perf.html&quot;&gt;perf_events&lt;/a&gt; page and the &lt;a href=&quot;https://perf.wiki.kernel.org/index.php/Main_Page&quot;&gt;perf wiki&lt;/a&gt;.&lt;/p&gt;
+
+
+</description>
+        <pubDate>Thu, 11 Sep 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-09-11-perf-kernel-line-tracing.html-34d140960.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-11-perf-kernel-line-tracing.html-34d140960.html</guid>
+        
+        
+        <category>brendangregg</category>
+        
+      </item>
     
       <item>
         <title>Swift Has Reached 1.0</title>
@@ -4271,172 +4470,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         <pubDate>Wed, 06 Aug 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-08-06-74951-df59c114f.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-06-74951-df59c114f.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>算法系列：求幂算法</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;h2&gt;1.快速求幂算法&lt;/h2&gt;
-&lt;p&gt;在这篇文章我会展示怎样通过求一个数的幂的基本思路，来引导我们发现一些抽象的东西比如半群和含幺半群。&lt;/p&gt;
-&lt;p&gt;有一个很有名的对一个数求幂的算法,也就是说,求一个数x的n次方或者这样简单表示：&lt;strong&gt;x^n&lt;/strong&gt;。&lt;a href=&quot;http://en.wikipedia.org/wiki/Donald_Knuth&quot;&gt;Donald Knuth&lt;/a&gt;在&lt;a href=&quot;http://www-cs-faculty.stanford.edu/~uno/taocp.html&quot;&gt;TAOCP&lt;/a&gt;的中提出这个算法。&lt;/p&gt;
-&lt;p&gt;这个算法很简单的实现就是x乘以自己n次，但是在这里当然会提供一种比这种方式更快的算法。正在谈论的算法通常被称作&lt;strong&gt;二进制法(binary method)&lt;/strong&gt;、&lt;strong&gt;梯度求幂(the powering ladder)&lt;/strong&gt;或者&lt;/p&gt;
-&lt;p&gt;假设我们想计算&lt;strong&gt;2^23&lt;/strong&gt;，在这里&lt;strong&gt;x = 2&lt;/strong&gt;，&lt;strong&gt;n = 23&lt;/strong&gt;，这个算法首先把23表示成&lt;strong&gt;二进制&lt;/strong&gt;的形式&lt;strong&gt;10111&lt;/strong&gt;。扫描这个&lt;strong&gt;二进制数(10111)&lt;/strong&gt;每当遇到&lt;strong&gt;0&lt;/strong&gt;或&lt;strong&gt;1&lt;/strong&gt;，则相应的&lt;strong&gt;求x的平方&lt;/strong&gt;或者&lt;/p&gt;
-&lt;p&gt;这个方法有一个问题就是它扫描二进制表示的数是从左到右进行的，但是对于计算机通常以相反的方向能够更容易实现，因此提出一个替代的算法。&lt;/p&gt;
-&lt;p&gt;一个出自&lt;a href=&quot;http://www-cs-faculty.stanford.edu/~uno/taocp.html&quot;&gt;TAOCP&lt;/a&gt;的&lt;strong&gt;4.63节&lt;/strong&gt;的的简单实现如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;    function power1($x, $n) {
-        $y = 1;
-
-        while (true) {
-            $t = $n % 2;
-            $n = floor($n/2);
-
-            if ($t == 1) {
-                $y = $y * $x;
-            }
-
-            if ($n == 0) {
-                break;
-            }
-
-            $x = $x * $x;
-        }
-
-        return $y;
-    }&lt;/pre&gt;
-&lt;p&gt;这个函数需要两个整数，&lt;strong&gt;$x&lt;/strong&gt;和&lt;strong&gt;$n&lt;/strong&gt;然后返回&lt;strong&gt;$x&lt;/strong&gt;的次幂作为结果。&lt;/p&gt;
-&lt;p&gt;首先创建一个辅助变量&lt;strong&gt;$y&lt;/strong&gt;并且初始化为，把它作为乘法的主体。&lt;/p&gt;
-&lt;p&gt;然后函数在每次循环迭代的时候扫描&lt;code&gt;$n&lt;/code&gt;的二进制表示的数。如果遇到&lt;strong&gt;1&lt;/strong&gt;则&lt;strong&gt;$y&lt;/strong&gt;乘上&lt;strong&gt;$x&lt;/strong&gt;，然后赋值回&lt;strong&gt;$y&lt;/strong&gt;。每次循环都会计算&lt;strong&gt;$x&lt;/strong&gt;的平方，并且把它赋值回。&lt;/p&gt;
-&lt;p&gt;遇到&lt;strong&gt;1&lt;/strong&gt;意味着当前&lt;strong&gt;$n&lt;/strong&gt;的值不能被&lt;strong&gt;2&lt;/strong&gt;整除，换句话说就是，。&lt;/p&gt;
-&lt;p&gt;同样的每次循环&lt;strong&gt;$n&lt;/strong&gt;都会折半，然后向下取整得到结果。当&lt;strong&gt;$n&lt;/strong&gt;等于&lt;strong&gt;0&lt;/strong&gt;的时候，我们结束循环并且返回的值。&lt;/p&gt;
-&lt;p&gt;函数能够这样被调用:&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;    1024 == power1(2, 10);
-    =&amp;gt; true&lt;/pre&gt;
-&lt;p&gt;我能想象你现在就像这个gif中的男孩。&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;尽管这个算法看起来像一个 “呵呵，真有意思” 的故事，实际上当它用来计算非常的大数时时十分高效的。例如有很多的素数测试算法都是依赖这个算法的不同变式。&lt;/p&gt;
-&lt;h2&gt;2.增加一些抽象&lt;/h2&gt;
-&lt;p&gt;到目前为止还没有什么意想不到的事情发生，但是如果我们注意到求一个数的幂实际上和一个数&lt;strong&gt;自乘&lt;/strong&gt;多次是等价的，我们也可以看到乘法实际上等价于&lt;strong&gt;自加&lt;/strong&gt;多次。举个例子&lt;code&gt;2 * 5&lt;/code&gt;能够像这样被计算。&lt;/p&gt;
-&lt;p&gt;我们能把这个算法转换成一种更普遍的形式使它能同样应用在乘法还有加法上吗?当然可以，我们仅仅需要改变几样东西。&lt;/p&gt;
-&lt;p&gt;在当前实现中，我们创建&lt;strong&gt;$y&lt;/strong&gt;作为乘法的主体，并设置为&lt;strong&gt;1&lt;/strong&gt;。如果我们想把算法用在加法上，我们需要把&lt;strong&gt;$y&lt;/strong&gt;设置为。因此我们仅需要改变函数的单位元素的值。&lt;/p&gt;
-&lt;p&gt;第二步要提供一个函数给我们的算法，它能够作乘法或者加法。为了实现这个目的我们会传递一个担当&lt;strong&gt;二元运算&lt;/strong&gt;的函数。例如：一个需要两个参数的函数。这个函数需要遵循以下的规则。必须满足：。还要求返回结果的类型必须和两个输入参数的类型一致。&lt;/p&gt;
-&lt;p&gt;幸运的是&lt;strong&gt;加法&lt;/strong&gt;和&lt;strong&gt;乘法&lt;/strong&gt;都满足&lt;a href=&quot;http://zh.wikipedia.org/zh/%E7%BB%93%E5%90%88%E5%BE%8B&quot;&gt;结合律&lt;/a&gt;，因此我们能够仅在一个函数中包含他们然后把它传递给我们的算法。&lt;/p&gt;
-&lt;p&gt;这里是这个算法新的实现：&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;  function power2($x, $n, $id, $f) {
-        $y = $id;
-
-        while (true) {
-            $t = $n % 2;
-            $n = floor($n/2);
-
-            if ($t == 1) {
-                $y = $f($y, $x);
-            }
-
-            if ($n == 0) {
-                break;
-            }
-
-            $x = $f($x, $x);
-        }
-
-        return $y;
-    }&lt;/pre&gt;
-&lt;p&gt;我们能够像这样调用它:&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;   1024 == power2(2, 10, 1, function ($a, $b) { return $a * $b; });
-    =&amp;gt; true&lt;/pre&gt;
-&lt;p&gt;记住传递进我们算法的运算必须是可结合的,举个例子,减法不能被用在这里由于&lt;code&gt;10 - ( 5 - 3) = 8&lt;/code&gt;但是。&lt;/p&gt;
-&lt;h2&gt;3.附加更抽象的概念&lt;/h2&gt;
-&lt;p&gt;从数学的角度说这个算法能够在任何满足结合律的代数结构中有效(在这个案例中就是整数的乘法和加法)，换言之，它能够用在&lt;strong&gt;半群&lt;/strong&gt;中，引用一本关于的书。&lt;/p&gt;
-&lt;pre&gt;一个半群的集合S含有一个可结合的运算 · ；
-也就是说,x·(y · z) = (x · y) · z 对于所有的x, y, z ∈ S都成立。&lt;/pre&gt;
-&lt;p&gt;同样，这个集合必须有一个&lt;code&gt;单位元素&lt;/code&gt;使得它有一个:&lt;/p&gt;
-&lt;pre&gt;一个独异点是一个集合M含有一个可结合运算·；伴有一个单位元素e∈ M满足e·x = x· e =  x对于所有x∈ M都成立。&lt;/pre&gt;
-&lt;p&gt;在这个预设条件下，有什么我们经常用在编程上的结构能使用这个算法的呢？如果你是一个web开发者，你不需要费大力气去获取strings。对于字符串（strings），使用&lt;strong&gt;string append&lt;/strong&gt;作为二元操作而且&lt;strong&gt;空字符串(empty string)&lt;/strong&gt;作为单位元素同样会带来类似的结果。如果一个字符串想重复次,我们创建下面的函数:&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;    function repeat($s, $n) {
-        return power2($s, $n, &quot;&quot;, function ($a, $b) {
-                   return $a . $b;
-               });
-    }&lt;/pre&gt;
-&lt;p&gt;测试:&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;    &quot;aaaaaaaaaa&quot; == repeat(&quot;a&quot;, 10);
-    =&amp;gt; true&lt;/pre&gt;
-&lt;p&gt;现在考虑一下&lt;strong&gt;数组(arrays)&lt;/strong&gt;(或者其它语言称为&lt;strong&gt;列表(lists)&lt;/strong&gt;)。我们想把一个数组复制n次。在这里空数组是单位元素，对PHP来说会用来作为二元操作。&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;    function repeat_el($el, $n) {
-        return power2(array($el), $n, array(), function ($a, $b) {
-                return array_merge($a, $b);
-               });
-    }&lt;/pre&gt;
-&lt;p&gt;结果:&lt;/p&gt;
-&lt;pre class=&quot;brush: php; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;    $arr = repeat_el(&quot;a&quot;, 10);
-    10 == count($arr);
-    =&amp;gt; true&lt;/pre&gt;
-&lt;p&gt;从上不难看出,像求一个数幂运算的这样简单事情给我们带来一个优雅的算法,它能被运用一些事情上,像重复的东西还有数组里的元素。&lt;/p&gt;
-&lt;h2&gt;4.延伸阅读&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;这里的快速求幂算法是基于&lt;a href=&quot;http://www-cs-faculty.stanford.edu/~uno/taocp.html&quot;&gt;TAOCP&lt;/a&gt;中，&lt;code&gt;卷二&lt;/code&gt;的。&lt;/li&gt;
-&lt;li&gt;所有的关于工作原理的解答都可以在&lt;strong&gt;TAOCP&lt;/strong&gt;或者在这本书&lt;a href=&quot;http://shoup.net/ntb/&quot;&gt;《A Computational Introduction to Number Theory and Algebra》&lt;/a&gt;上找到,这本书的PDF版本在作者的主页上可以免费下载。浏览章节：&lt;/li&gt;
-&lt;li&gt;如果你想学习这个算法的一些用法或者想知道更多这个算法背后的理论,请查阅这本叫做&lt;a href=&quot;http://www.amazon.com/Elements-Programming-Alexander-Stepanov/dp/032163537X&quot;&gt;《Elements of Programming》&lt;/a&gt;的书。这本书非常了不起，它定义了不同类型的函数和使用类型系统确定函数是否是可结合的，二元的等等。作者是&lt;code&gt;C++STL&lt;/code&gt;的设计者,所以这本书的内容可能会比较,然后它能够直接应用在面向对象编程(OOP)。&lt;/li&gt;
-&lt;li&gt;
-&lt;strong&gt;半群&lt;/strong&gt; 和 &lt;strong&gt;含幺半群&lt;/strong&gt;的引用来自于&lt;a href=&quot;http://www.amazon.com/Handbook-Computational-Discrete-Mathematics-Applications/dp/1584883723/&quot;&gt;《Handbook of Computational Group Theory.》&lt;/a&gt;。一本非常有趣的书，如果你对有兴趣的话。&lt;/li&gt;
-&lt;li&gt;如果你想学习更多有关&lt;code&gt;幺半群&lt;/code&gt;还有它们的实现。&lt;a href=&quot;http://learnyouahaskell.com/&quot;&gt;《Learn You a Haskell》&lt;/a&gt;里的有个&lt;strong&gt;章节&lt;/strong&gt;非常有趣的介绍它:&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;h2&gt;5.你是想说Haskell?&lt;/h2&gt;
-&lt;p&gt;既然我已经提及一本&lt;strong&gt;Haskell&lt;/strong&gt;的书，这里有一个Haskell实现的求幂算法，使用的递归算法来自于这本书&lt;/p&gt;
-&lt;pre class=&quot;brush: perl; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;    power :: (Eq a, Integral b) =&amp;gt; (a -&amp;gt; a -&amp;gt; a) -&amp;gt; a -&amp;gt; b -&amp;gt; a
-    power f a n
-      | n == 1 = a
-      | even n = square a (n `div` 2)
-      | otherwise = f a (square a ((n-1) `div` 2))
-      where
-        square a&#39; n&#39; = f (power f a&#39; n&#39;) (power f a&#39; n&#39;)&lt;/pre&gt;
-&lt;p&gt;几个函数调用的结果：&lt;/p&gt;
-&lt;pre class=&quot;brush: perl; gutter: true; first-line: 1; highlight: []; html-script: false&quot;&gt;  *Main&amp;gt; :load pow.hs
-    [1 of 1] Compiling Main             ( pow.hs, interpreted )
-    Ok, modules loaded: Main.
-    *Main&amp;gt; power (*) 2 10
-    1024
-    *Main&amp;gt; power (+) 2 10
-    20
-    *Main&amp;gt; power (++) &quot;a&quot; 10
-    &quot;aaaaaaaaaa&quot;&lt;/pre&gt;
-&lt;p&gt;正如你所看到的,这个函数调用一个function&lt;strong&gt;(a-&amp;gt;a-&amp;gt;a)&lt;/strong&gt;，例子中，对于&lt;strong&gt;integers&lt;/strong&gt;使用&lt;code&gt;*&lt;/code&gt;或者&lt;code&gt;+&lt;/code&gt;,对于&lt;strong&gt;lists&lt;/strong&gt;使用。&lt;/p&gt;
-&lt;p&gt;我希望你会觉得这边文章有趣或者激起你学习与编程有关的数学的欲望。因为我认为我们掌握得越多数学方面的知识，我们就能更好的使用抽象的东西。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 06 Aug 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-08-06-74468-5d8d42a9b.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-06-74468-5d8d42a9b.html</guid>
         
         
         <category>jobbole</category>
