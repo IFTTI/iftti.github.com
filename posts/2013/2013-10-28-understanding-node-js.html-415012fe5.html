@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>理解Node.js</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-10-28-understanding-node-js.html-415012fe5.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>理解Node.js</h1>
+    <p class="meta"><span class="time">Oct 28, 2013</span><span class="source_url"> • 来自 weizhifeng.net <a name="weizhifeng.net" href="http://weizhifeng.net/understanding-node-js.html" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+	<p>原文：<a href="http://debuggable.com/posts/understanding-node-js:4bd98440-45e4-4a9a-8ef7-0f7ecbdd56cb">http://debuggable.com/posts/understanding-node-js:4bd98440-45e4-4a9a-8ef7-0f7ecbdd56cb</a></p>
+
+<p>当我把<a href="http://nodejs.org/">Node.js</a>介绍给人们的时候，通常会产生两种反应。总的来说人们不是可以正确的理解它，就是被搞得非常糊涂。</p>
+
+<p>如果你到目前为止还处于第二组里，下面是我想要用来讲解node的内容：</p>
+
+<ul>
+<li>它是一个命令行工具。你下载一个tarball文件，编译并安装源码。</li>
+<li>它可以让你在你的终端中通过输入'node my_app.js'来运行JavaScript程序。</li>
+<li>JS是被<a href="http://code.google.com/p/v8/">V8 javascript引擎</a>（使Google Chrome运行如此之快的东西）所执行的。</li>
+<li>Node提供了一个用来访问网络和文件系统的JavaScript API。</li>
+</ul>
+
+<p><strong>“但是我可以做任何我想要做的事情用：ruby，python，php，java， ... ！”</strong></p>
+
+<p>我听到了你的声音。你是对的。Node不是该死的独角兽，它不会帮你做你自己的工作，抱歉。它只是一个工具，并且它大概也不会完全地替换你常用的工具，至少当前不会。</p>
+
+<p><strong>“说重点！”</strong></p>
+
+<p>好的，我会的。Node总的来说非常优秀当你需要同时做许多事情的时候。你有过写了一部分代码然后说“我想要这个并行执行”吗？好吧，在node中任何东西都是并行运行的，除了你的代码。</p>
+
+<p><strong>“嘿？”</strong></p>
+
+<p>是的没错，任何东西都是并行的，除了你的代码。为了理解它，把你的代码想像成是国王，然后node是它的仆从军队。</p>
+
+<p>新的一天以仆从叫醒国王并且问他是否需要什么而开始了。国王给了这个仆从一个任务列表，然后回去继续睡觉去了（汗）。这个仆从把这些任务分配给了他的同僚，然后他们开始工作。</p>
+
+<p>当一个仆从完成了一个任务，他会在国王领地外边排成一条线来汇报。国王一次让一个仆从进来，然后听取他的报告。有时候国王会在仆从出去的时候给仆从更多的任务。</p>
+
+<p>生活是美好的，因为国王的仆从并行的执行他的任务，但是一次只报告一个结果，所以国王可以专注。*</p>
+
+<p><strong>“那是异想天开，但是你能结束这个愚蠢的比喻并且用geek的方式告诉我吗？”</strong></p>
+
+<p>当然。一个简单的node程序看起来可能是这样的：</p>
+
+<pre><code>var fs = require('fs')
+  , sys = require('sys');
+
+fs.readFile('treasure-chamber-report.txt', function(report) {
+  sys.puts("oh, look at all my money: "+report);
+});
+
+fs.writeFile('letter-to-princess.txt', '...', function() {
+  sys.puts("can't wait to hear back from her!");
+});
+</code></pre>
+
+<p>你的代码给了node两个任务用来读写一个文件，然后就休眠了。当node完成了一个任务，跟它对应的回调就会被触发。但是在同一时间只能有一个回调触发。在那个回调完成了执行之前，所有其他的回调不得不排队等待。进一步说，对于回调触发的顺序是无法保证的。</p>
+
+<p><strong>“所以我不必担心代码在同一时间访问同一个数据结构？”</strong></p>
+
+<p>你理解了！这就是JavaScript的单进程/事件循环设计的全部美之所在。</p>
+
+<p><strong>“非常好，但是为什么我应该用它？”</strong></p>
+
+<p>一个原因是效率。在一个web应用中，你主要的响应时间消耗通常是执行数据库查询的时间之和。通过node，你可以一次执行你所有的查询，把响应时间减少为执行最慢查询所花费的时间。</p>
+
+<p>另一个原因是JavaScript。你可以使用node来在浏览器和你的后端之间共享代码。JavaScript也正在变成一个真的通用语言。不管过去你用的是python，ruby，java，php或者其他语言，你都可能用过一些JS，对吗？</p>
+
+<p>最后一个原因是原始速度。V8时刻在向成为全球最快的动态语言解释器之一而努力。我想不到任何其他语言在速度上有像如今的JavaScript一样有如此突飞猛进的提升。进一步说，node的I/O能力非常轻量级，可以使你可以尽可能的完全利用你系统完全的I/O能力。</p>
+
+<p><strong>“所以你在说我应该从现在起用node来写我所有的应用？”</strong></p>
+
+<p>是和不是。一旦你开始抡node这个锤子，那么显然一切开始看起来都像一个钉子。但是如果你当前的工作有一个期限，你可以通过以下来决定：</p>
+
+<ul>
+<li>是否低响应时间/高并发重要？Node真的很擅长它。</li>
+<li>项目有多大？小项目问题不大。大项目应该小心的评估（可用的库，修复一个bug所需的资源或者two upstream等等。）。</li>
+</ul>
+
+<p><strong>“node能运行在Windows上吗？”</strong></p>
+
+<p>不行。如果你使用的是windows，你需要运行一个Linux虚拟机（我推荐<a href="http://www.virtualbox.org/">VirtualBox</a>）。node对Windows的支持在计划中了，但是接下来的几个月不要屏住呼吸除非你想对port提供帮助。（译者：现在node可以完美的运行在Windows上）</p>
+
+<p><strong>“我能在node中访问DOM吗？”</strong></p>
+
+<p>好问题！不行，DOM是浏览器中的东东，并且node的JS引擎（V8）幸好跟那些混乱的东西是完全分离的。不过，有人在以node模块的形式来实现DOM，可能带来令人兴奋的可能性比如对客户端代码进行单元测试。</p>
+
+<p><strong>“难道事件驱动编程不是真的非常难吗？”</strong></p>
+
+<p>这取决于你。如果你已经学过如何在浏览器中摆弄AJAX调用和用户事件，那么使用node不会是一个问题。</p>
+
+<p>同时，测试驱动开发可以真正的帮助你以一个可维护的设计做为开始。</p>
+
+<p><strong>“谁在用它？”</strong></p>
+
+<p>在<a href="http://wiki.github.com/ry/node">node wiki</a>（滚动到"Companies using Node"）有一个小的/不全的列表。<a href="http://www.yuiblog.com/blog/2010/04/09/node-js-yui-3-dom-manipulation-oh-my/">Yahoo</a>正在为YUI对node进行实验，<a href="http://www.plurk.com/">Plurk</a>正在使用它处理大规模的comet，并且Paul Bakaus（由于jQuery UI而出名）正在创建一个令人兴奋的游戏引擎，其中后端使用了一些node代码。<a href="http://www.joyent.com/">Joyent</a>已经雇佣了Ryan Dahl（node作者）并且大力资助开发。</p>
+
+<p>对了，Heroku也刚刚声明了<a href="http://blog.heroku.com/archives/2010/4/28/node_js_support_experimental/">支持对node.js的托管</a>。</p>
+
+<p><strong>“我能去哪里学更多？”</strong></p>
+
+<p>Tim Caswell正在运作优秀的<a href="http://howtonode.org/">How To Node</a>博客。在twitter上Follow <a href="http://search.twitter.com/search?q=%23nodejs">#nodejs</a>。订阅<a href="http://groups.google.com/group/nodejs">邮件列表</a>。然后去IRC频道逛逛，#node.js（是的，名字中包含这个点）。我们在那的划艇分数快达到200了：）。</p>
+
+<p>我也将会继续在debuggable.com这里写文章。</p>
+
+<p>当前就写这么多了。如果你有其他问题欢迎留言。</p>
+
+<p>--注解：</p>
+
+<p>*: 这个比喻显然是太简单了，但是在现实之中找到一个与非阻塞概念相对应的对照物很难。</p>
+
+	(完)
+
+	<div class="post-info">
+		28 Oct 2013  
+
+	</div>
+
+	<!-- disqus start -->
+
+	<!-- disqus end -->
+
+	<!-- related start -->
+
+	<!-- related end -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2013/2013-10-27-immediately-invoked-function-expression.html-410c6719c.html" title="Previous Post: JavaScript中的立即执行函数表达式" data-instant>&laquo; JavaScript中的立即执行函数表达式</a>
+
+    <a class="basic-alignment right" href="/posts/2013/2013-10-28-understanding-the-node-js-event-loop.html-2b65fd190.html" title="Next Post: 理解Node.js中的Event Loop" data-instant>理解Node.js中的Event Loop &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>20 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-20-ji-zhu-de-jin-hua-9c5e0c611.html">技术的进化</a></li>
+
+      <li><span>27 Oct 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-10-27-immediately-invoked-function-expression.html-410c6719c.html">JavaScript中的立即执行函数表达式</a></li>
+
+      <li><span>23 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-23-74131-098069b71.html">四层和七层负载均衡的区别</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>CommonJS Modules/1.0 规范</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-10-01-commonjs-module-1.0-specification.html-c68221293.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>CommonJS Modules/1.0 规范</h1>
+    <p class="meta"><span class="time">Oct 1, 2013</span><span class="source_url"> • 来自 weizhifeng.net <a name="weizhifeng.net" href="http://weizhifeng.net/commonjs-module-1.0-specification.html" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+	<p><em>译者：<a href="http://wiki.commonjs.org/wiki/Modules/1.0">CommonJS Modules/1.0</a> 是目前JavaScript模块化的事实标准，虽然其已经被 <a href="http://wiki.commonjs.org/wiki/Modules/1.1">CommonJS Modules/1.1</a> 所替代，但是1.0的适用范围非常广，支持者也很多，其中包括Flusspferd, GLUEscript, GPSEE, JSBuild, Narwhal (0.1), Persevere, RingoJS, SproutCore 1.1/Tiki, <a href="http://nodejs.org/api/modules.html" title="nodejs">node.js</a>, TeaJS (formerly v8cgi), <a href="http://couchdb.apache.org/" title="CouchDB">CouchDB</a>, Smart Platform, Yabble, Wakanda, XULJet等，所以翻译此规范还是很有必要的，以下为正文。</em></p>
+
+<p>此规范指出了如何编写可以在同类模块系统中所共用的模块，这类模块系统可以同时在客户端和服务端，以<a href="http://wiki.commonjs.org/wiki/Modules/Secure">安全的</a>或者不安全的方式已经被实现了或者通过语法扩展可以被未来的系统所支持。这些模块需要提供顶级作用域的私有性，并提供从其他模块导入单例对象到自身并且可以导出自身API的能力。含蓄的说，这个规范定义了如果一个模块系统要支持共用模块，那么它需要提供的最少的功能特性。</p>
+
+<h1>契约</h1>
+
+<h2>模块上下文</h2>
+
+<ol>
+<li>在一个模块中，存在一个自由的变量"require"，它是一个函数。
+
+<ol>
+<li>这个"require"函数接收一个模块标识符。</li>
+<li>"require"返回外部模块所输出的API。</li>
+<li>如果出现依赖闭环(dependency cycle)，那么外部模块在被它的传递依赖（<a href="http://en.wikipedia.org/wiki/Transitive_dependency">transitive dependencies</a>）所require的时候可能并没有执行完成；在这种情况下，"require"返回的对象必须至少包含此外部模块在调用require函数（会进入当前模块执行环境）之前就已经准备完毕的输出。（译者：如果难理解，看下面的<a href="#Module-Context">例子</a>。）</li>
+<li>如果请求的模块不能返回，那么"require"必须抛出一个错误。</li>
+</ol>
+</li>
+<li>在一个模块中，会存在一个名为"exports"的自由变量，它是一个对象，模块可以在执行的时候把自身的API加入到其中。</li>
+<li>模块必须使用"exports"对象来做为输出的唯一表示。</li>
+</ol>
+
+<h2>模块标识符</h2>
+
+<ol>
+<li>模块标识符是一个以正斜杠分隔的多个"term"组成的字符串。</li>
+<li>一个term必须是一个驼峰格式的标识符，"."或者".."。</li>
+<li>模块标识符可以不加文件扩展名，比如".js"。</li>
+<li>模块标识符可以是「相对的」或者「顶级的」(top-level)。如果一个模块标识符的第一个term是 "."或者".."，那么它是「相对的」。</li>
+<li>顶级标识符是概念上的模块命名空间的根。</li>
+<li>相对标识符是相对于在其内部调用了"require"的模块的标识符来进行解析的。</li>
+</ol>
+
+<h2>未规范</h2>
+
+<p>此规范对如下关于协同工作能力方面的重要内容未进行规范：</p>
+
+<ol>
+<li>模块是否可以通过数据库，文件系统或者工厂函数进行存储，或者可以通过链接库进行内部交换。</li>
+<li>模块加载器是否应该支持PATH变量用来解析模块标识符。</li>
+</ol>
+
+<h2>单元测试</h2>
+
+<ul>
+<li>
+<a href="http://code.google.com/p/interoperablejs/">Unit Tests at Google Code</a> by Kris Kowal</li>
+<li>
+<a href="http://github.com/ashb/interoperablejs/tree/master">Unit Tests Git Mirror</a> by Ash Berlin</li>
+</ul>
+
+<h2>实例代码</h2>
+
+<p>math.js</p>
+
+<pre><code>exports.add = function() {
+    var sum = 0, i = 0, args = arguments, l = args.length;
+    while (i &lt; l) {
+        sum += args[i++];
+    }
+    return sum;
+};
+</code></pre>
+
+<p>increment.js</p>
+
+<pre><code>var add = require('math').add;
+exports.increment = function(val) {
+    return add(val, 1);
+};
+</code></pre>
+
+<p>program.js</p>
+
+<pre><code>var inc = require('increment').increment;
+var a = 1;
+inc(a); // 2
+</code></pre>
+
+<p><span id="Module-Context"></span></p>
+
+<h2>依赖闭环解释（译者添加）</h2>
+
+<p>因为node.js完全实现了CommonJS Modules/1.0规范，那么我们用其来解释CommonJS Modules/1.0中的依赖闭环问题。看如下代码：</p>
+
+<p>a.js</p>
+
+<pre><code>console.log('a starting');
+exports.done = false;
+var b = require('./b.js');
+console.log('in a, b.done = %j', b.done);
+exports.done = true;
+console.log('a done');
+</code></pre>
+
+<p>b.js</p>
+
+<pre><code>console.log('b starting');
+exports.done = false;
+var a = require('./a.js');
+console.log('in b, a.done = %j', a.done);
+exports.done = true;
+console.log('b done');
+</code></pre>
+
+<p>main.js</p>
+
+<pre><code>console.log('main starting');
+var a = require('./a.js');
+var b = require('./b.js');
+console.log('in main, a.done=%j, b.done=%j', a.done, b.done);
+</code></pre>
+
+<p>当main.js加载a.js的时候，a.js加载b.js，同时，b.js想要加载a.js，这时候就产生了依赖闭环的问题，为了避免无限循环，需要打破这个闭环。根据CommonJS Modules/1.0规范中的说明「在这种情况下，"require"返回的对象必须至少包含此外部模块在调用require函数（会进入当前模块执行环境）之前就已经准备完毕的输出。」，有些绕，让我们从依赖闭环产生的地方跟踪，b.js需要require a.js，这里b.js做为当前模块，a.js相对于b.js来说是外部模块，那么a.js的输出应该是在其require b.js之前（即「进入当前模块执行环境」）就应该返回，执行过程如下：</p>
+
+<p>a.js</p>
+
+<pre><code>console.log('a starting');
+exports.done = false;
+// 只执行到这里，然后exports返回给调用模块(b.js)，以下被丢弃
+var b = require('./b.js');
+console.log('in a, b.done = %j', b.done);
+exports.done = true;
+console.log('a done');
+</code></pre>
+
+<p>然后b.js继续执行完成。以下是执行结果：</p>
+
+<pre><code>$ node main.js
+main starting
+a starting
+b starting
+in b, a.done = false
+b done
+in a, b.done = true
+a done
+in main, a.done=true, b.done=true
+</code></pre>
+
+<p>注意，虽然main.js同时require了a.js和b.js，但是根据node.js的<a href="http://nodejs.org/api/modules.html#modules_caching">模块缓存策略</a>，模块只执行一次。</p>
+
+<p>参考：</p>
+
+<p><a href="http://wiki.commonjs.org/wiki/Modules/1.0">http://wiki.commonjs.org/wiki/Modules/1.0</a></p>
+
+<p><a href="http://nodejs.org/api/modules.html#modules_cycles">http://nodejs.org/api/modules.html#modules_cycles</a></p>
+
+	(完)
+
+	<div class="post-info">
+		01 Oct 2013  
+
+	</div>
+
+	<!-- disqus start -->
+
+	<!-- disqus end -->
+
+	<!-- related start -->
+
+	<!-- related end -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2013/2013-09-23-2013-09-23-kernel-uek-3813-upgrade-notes.html-778b8e796.html" title="Previous Post: UEK R3升级手记" data-instant>&laquo; UEK R3升级手记</a>
+
+    <a class="basic-alignment right" href="/posts/2013/2013-10-10-2013-10-10-an-example-of-map-reduce-in-ruby.html-66f70f526.html" title="Next Post: Ruby中的map方法和reduce方法" data-instant>Ruby中的map方法和reduce方法 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>27 Oct 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-10-27-immediately-invoked-function-expression.html-410c6719c.html">JavaScript中的立即执行函数表达式</a></li>
+
+      <li><span>01 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-01-chapter-3-this.html-9c93b6306.html">「深入ECMA-262-3」第三章、This</a></li>
+
+      <li><span>23 Feb 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-02-23-chapter-2-variable-object.html-b5e58a600.html">「深入ECMA-262-3」第二章、变量对象</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
