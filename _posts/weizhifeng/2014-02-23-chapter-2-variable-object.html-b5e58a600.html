@@ -1,0 +1,559 @@
+---
+layout: post
+title: '「深入ECMA-262-3」第二章、变量对象'
+time: 2014-02-23 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/chapter-2-variable-object.html
+---
+{% raw %}
+
+	
+	
+
+	<p>原文：<a href="http://dmitrysoshnikov.com/ecmascript/chapter-2-variable-object/">http://dmitrysoshnikov.com/ecmascript/chapter-2-variable-object/</a></p>
+
+<ol>
+<li><a href="#introduction">介绍</a></li>
+<li><a href="#data-declaration">数据声明</a></li>
+<li>
+<a href="#variable-object-in-different-execution-contexts">不同执行上下文中的变量对象</a>
+
+<ol>
+<li><a href="#variable-object-in-global-context">全局上下文中的变量对象</a></li>
+<li><a href="#variable-object-in-function-context">函数上下文中的变量对象</a></li>
+</ol>
+</li>
+<li>
+<a href="#phases-of-processing-the-context-code">处理上下文代码的阶段</a>
+
+<ol>
+<li><a href="#entering-the-execution-context">进入执行上下文</a></li>
+<li><a href="#code-execution">代码执行</a></li>
+</ol>
+</li>
+<li><a href="#about-variables">关于变量</a></li>
+<li><a href="#feature-of-implementations-property-__parent__">实现带来的特性：__parent__属性</a></li>
+<li><a href="#conclusion">总结</a></li>
+<li><a href="#additional-literature">额外资料</a></li>
+</ol>
+
+
+<p><span id="introduction"></span></p>
+
+<h1>介绍</h1>
+
+<p>我们一直会在程序中声明函数和变量，之后用它们来成功地构建我们的系统。但解释器是如何、并且是去哪里找到我们的数据（函数、变量）的呢？当我们引用所需对象的时候，到底发生了什么？</p>
+
+<p>许多ECMAScript程序员知道变量是与<a href="/chapter-1-execution-contexts.html">执行上下文</a>紧密相关的：</p>
+
+<pre><code>var a = 10; // variable of the global context
+
+(function () {
+  var b = 20; // local variable of the function context
+})();
+
+alert(a); // 10
+alert(b); // "b" is not defined
+</code></pre>
+
+<p>同时，许多程序员也知道在当前版本的规范中只能通过「函数」执行上下文才能创建相互隔离的作用域。也就是说，与C/C++相比，ECMAScript中的for循环块结构不会创建一个局部作用域：</p>
+
+<pre><code>for (var k in {a: 1, b: 2}) {
+  alert(k);
+}
+
+alert(k); // variable "k" still in scope even the loop is finished
+</code></pre>
+
+<p>让我们看看更多细节，关于我们声明数据的时候到底发生了什么。</p>
+
+<p><span id="data-declaration"></span></p>
+
+<h1>数据声明</h1>
+
+<p>如果变量是和执行上下文相关联的，那么它应该知道它的数据存在了什么地方并且如何获取到它们。这个机制叫做变量对象(variable object)。</p>
+
+<p>变量对象（缩写－VO）是一个与执行上下文相关联的特殊对象，它存储了：</p>
+
+<ul>
+<li>变量（var，变量声明）；</li>
+<li>函数声明（函数声明，缩写FD）；</li>
+<li>和函数形参</li>
+</ul>
+
+
+<p>以上是在上下文中声明的。</p>
+
+<p>注意，在<abbr title="ECMA-262-5">ES5</abbr>中，变量对象的概念被词法环境模型（lexical environments model）所替代了，详细的描述可以在<a href="http://dmitrysoshnikov.com/ecmascript/es5-chapter-3-2-lexical-environments-ecmascript-implementation/">相应章节</a>找到。</p>
+
+<p>示意性地举个例子，我们可以用一个普通的ECMAScript对象来表述变量对象：</p>
+
+<pre><code>VO = {};
+</code></pre>
+
+<p>并且像我们提到过的那样，VO是执行上下文的一个属性：</p>
+
+<pre><code>activeExecutionContext = {
+  VO: {
+    // context data (var, FD, function arguments)
+  }
+};
+</code></pre>
+
+<p>只有全局上下文（全局对象本身就是变量对象）的变量对象才能间接地引用变量（通过VO中的属性名）。对于其他上下文，直接引用VO是不可能的，这是纯实现机制。</p>
+
+<p>当我们声明一个变量或一个函数的时候，除了在VO中以我们变量的名字和值创建新的属性之外，无它。</p>
+
+<p>例子：</p>
+
+<pre><code>var a = 10;
+
+function test(x) {
+  var b = 20;
+};
+
+test(30);
+</code></pre>
+
+<p>对应的变量对象是：</p>
+
+<pre><code>// Variable object of the global context
+VO(globalContext) = {
+  a: 10,
+  test: &lt;reference to function&gt;
+};
+
+// Variable object of the "test" function context
+VO(test functionContext) = {
+  x: 30,
+  b: 20
+};
+</code></pre>
+
+<p>但是在实现层面（以及规范），变量对象是一个抽象的精髓。实际上，在具体的执行上下文中，VO的叫法是不同的，并且拥有不同的初始数据结构。</p>
+
+<p><span id="variable-object-in-different-execution-contexts"></span></p>
+
+<h1>不同执行环境中的变量对象</h1>
+
+<p>变量对象的一些操作（比如变量实例化）和行为对所有类型的执行上下文是一样的。从这个角度来看用一个抽象的基础事物来表述变量对象是很便捷的。函数上下文也可以定义与变量对象有关的额外细节。</p>
+
+<pre><code>AbstractVO (generic behavior of the variable instantiation process)
+
+║
+╠══&gt; GlobalContextVO
+║        (VO === this === global)
+║
+╚══&gt; FunctionContextVO
+       (VO === AO, &lt;arguments&gt; object and &lt;formal parameters&gt; are added)
+</code></pre>
+
+<p>让我们看看细节。</p>
+
+<p><span id="variable-object-in-global-context"></span></p>
+
+<h2>全局上下文中的变量对象</h2>
+
+<p>那么，首先很有必要给出全局对象的定义。</p>
+
+<pre><code>全局对象是在进入任何执行上下文之前被创建的一个对象；这个对象是单例的，它的属性可以在程序的任何地方访问到，全局对象的生命周期随着程序的结束而结束。
+</code></pre>
+
+<p>在创建过程中全局对象会以这些属性来进行初始化，比如<code>Math</code>，<code>String</code>, <code>Date</code>, <code>parseInt</code>等等，并且也会有额外的对象，这其中有引用全局对象本身的对象－举个例子，在BOM中，全局对象的<code>window</code>属性指向了全局对象（当然，不是所有的实现都是如此）：</p>
+
+<pre><code>global = {
+  Math: &lt;...&gt;,
+  String: &lt;...&gt;
+  ...
+  ...
+  window: global
+};
+</code></pre>
+
+<p>当引用全局对象属性的时候，前缀通常是省略的，因为全局对象是不能直接通过名字来访问的。但是，通过<a href="http://dmitrysoshnikov.com/ecmascript/chapter-3-this/#this-value-in-the-global-code">全局上下文中的this值</a>可以访问到它，通过对自己的递归引用也可以实现，比如BOM中的<code>window</code>，因此简单写为：</p>
+
+<pre><code>String(10); // means global.String(10);
+
+// with prefixes
+window.a = 10; // === global.window.a = 10 === global.a = 10;
+this.b = 20; // global.b = 20;
+</code></pre>
+
+<p>所以，回到全局上下文的变量对象－这里变量对象是全局对象自身：</p>
+
+<pre><code>VO(globalContext) === global;
+</code></pre>
+
+<p>由于这个原因，在全局上下文中声明的变量可以通过全局对象的属性间接引用（比如当变量名提前无法得知的时候），准确无误的理解它是很有必要的：</p>
+
+<pre><code>var a = new String('test');
+
+alert(a); // directly, is found in VO(globalContext): "test"
+
+alert(window['a']); // indirectly via global === VO(globalContext): "test"
+alert(a === this.a); // true
+
+var aKey = 'a';
+alert(window[aKey]); // indirectly, with dynamic property name: "test"
+</code></pre>
+
+<p><span id="variable-object-in-function-context"></span></p>
+
+<h2>函数上下文中的变量对象</h2>
+
+<p>关于函数执行上下文－VO无法直接访问，并且它扮演的角色被叫作活动对象（activation object，缩写－AO）。</p>
+
+<pre><code>VO(functionContext) === AO;
+
+
+活动对象在进入函数上下文的时候被创建，并且被arguments属性所初始化，此属性的值为参数对象。
+
+
+AO = {
+  arguments: &lt;ArgO&gt;
+};
+</code></pre>
+
+<p>参数对象是活动对象的一个属性。它包含如下属性：</p>
+
+<ul>
+<li>callee — 对当前函数的引用；</li>
+<li>length — 实参的数量；</li>
+<li>索引属性（整型，被转换成字符串），其值是函数参数的值（参数列表从左到右）。这些索引属性（properties-indexes）的数量等于arguments.length。参数对象索引属性的值和实参是共享的。</li>
+</ul>
+
+
+<p>例子:</p>
+
+<pre><code>function foo(x, y, z) {
+
+  // quantity of defined function arguments (x, y, z)
+  alert(foo.length); // 3
+
+  // quantity of really passed arguments (only x, y)
+  alert(arguments.length); // 2
+
+  // reference of a function to itself
+  alert(arguments.callee === foo); // true
+
+  // parameters sharing
+
+  alert(x === arguments[0]); // true
+  alert(x); // 10
+
+  arguments[0] = 20;
+  alert(x); // 20
+
+  x = 30;
+  alert(arguments[0]); // 30
+
+  // however, for not passed argument z,
+  // related index-property of the arguments
+  // object is not shared
+
+  z = 40;
+  alert(arguments[2]); // undefined
+
+  arguments[2] = 50;
+  alert(z); // 40
+
+}
+
+foo(10, 20);
+</code></pre>
+
+<p>关于最后一个情况，在Google Chrome老的版本中存在一个bug－在那里<code>z</code>和<code>arguments[2]</code>也是共享的。</p>
+
+<p>在<abbr title="ECMA-262-5">ES5</abbr>中，活动对象的概念也被<a href="http://dmitrysoshnikov.com/ecmascript/es5-chapter-3-2-lexical-environments-ecmascript-implementation/">词法环境</a>的通用和单独模型（common and single model of lexical environments）所替代。</p>
+
+<p><span id="phases-of-processing-the-context-code"></span></p>
+
+<h1>处理上下文代码的各种阶段</h1>
+
+<p>现在我们到了本文最关键的地方。处理执行上下文代码分为两个基本阶段：</p>
+
+<ol>
+<li>进入执行上下文；</li>
+<li>代码执行。</li>
+</ol>
+
+
+<p>变量对象的修改与这两个阶段紧密相关。</p>
+
+<p>注意，这两个阶段的处理过程是通用行为并且独立于上下文类型（也就是说，对于全局和函数上下文是公平的）。</p>
+
+<p><span id="entering-the-execution-context"></span></p>
+
+<h2>进入执行上下文</h2>
+
+<p>在进入执行上下文（但是代码执行之前），VO被如下属性（它们在篇头介绍过）所填充：</p>
+
+<ul>
+<li>对于函数中的每个形参（如果我们在函数执行上下文）- 一个变量对象的属性被创建，其以形参的名字和值的为基础；对于没有传递的参数－以形参为名，<code>undefined</code>为值的VO属性被创建；</li>
+<li><p>对于每个函数声明（FunctionDeclaration，FD）－一个变量对象的属性被创建，其名字和值为一个函数对象的名和值；如果变量对象已经包含了同名的属性，那么会覆盖它的值和属性。</p></li>
+<li><p>对于每个变量声明（var，VariableDeclaration）－变量对象的一个属性被创建，其名字为变量的名字并且值为undefined；如果变量名和已经声明的形参或者函数的名字相同，变量声明不会影响已经存在的属性。</p></li>
+</ul>
+
+
+<p>让我们通过例子看一下：</p>
+
+<pre><code>function test(a, b) {
+  var c = 10;
+  function d() {}
+  var e = function _e() {};
+  (function x() {});
+}
+
+test(10); // call
+</code></pre>
+
+<p>在以传递的参数<code>10</code>进入<code>test</code>函数上下文的时候，AO如下：</p>
+
+<pre><code>AO(test) = {
+  a: 10,
+  b: undefined,
+  c: undefined,
+  d: &lt;reference to FunctionDeclaration "d"&gt;
+  e: undefined
+};
+</code></pre>
+
+<p>注意，AO没有包含函数<code>x</code>。这是因为<code>x</code>不是一个函数声明而是函数表达式（FunctionExpression，缩写FE），它不会影响到VO。</p>
+
+<p>当然，函数<code>_e</code>也是一个函数表达式，但是就像我们下面即将看到的，因为把它赋给了变量<code>e</code>，它通过<code>e</code>这个名字是可以访问到的。<code>函数声明</code>和<code>函数表达式</code>之间的不同在<a href="http://dmitrysoshnikov.com/ecmascript/chapter-5-functions/">第五章 函数</a>中详细讨论。</p>
+
+<p>这个之后，接下来是上下文代码处理过程的第二个阶段－代码执行阶段。</p>
+
+<p><span id="code-execution"></span></p>
+
+<h2>代码执行</h2>
+
+<p>此时，AO/VO已经被各种属性所填充（尽管，不是所有的属性都有真实的值，大部分属性的值仍然只是初始的<code>undefined</code>）。</p>
+
+<p>考虑到所有类似的例子，代码解释阶段的AO/VO被修改为以下这样：</p>
+
+<pre><code>AO['c'] = 10;
+AO['e'] = &lt;reference to FunctionExpression "_e"&gt;;
+</code></pre>
+
+<p>我又一次发现函数表达式<code>_e</code>仍然只是存在于内存中，原因是因为它存储在了声明的变量<code>e</code>中。但是函数表达式<code>x</code>并没有存在于AO/VO之中。如果我们在定义之前，甚至是定义之后调用<code>x</code>函数，我们将会得到一个错误：<code>"x" is not defined</code>。没有存储到变量之中的函数表达式只能在其定义的时候（原地）被调用或者递归调用。</p>
+
+<p>再看一个（经典）例子：</p>
+
+<pre><code>alert(x); // function
+
+var x = 10;
+alert(x); // 10
+
+x = 20;
+
+function x() {}
+
+alert(x); // 20
+</code></pre>
+
+<p>为什么第一个alert <code>x</code>的输出结果是function并且在声明之前可以访问到？为什么不是<code>10</code>或者<code>20</code>。因为，根据规则－在进入上下文的时候，VO被函数声明所填充。同时，在相同的阶段，进入上下文的时候，那里存在一个变量<code>x</code>的声明，但是像我们上面所提到的，变量声明的步骤在语义上是位于函数和行参声明后面的，并且在这个阶段并不会覆盖已经声明的同名函数或者行参。因此，当进入上下文的时候，VO被填充为如下内容：</p>
+
+<pre><code>VO = {};
+
+VO['x'] = &lt;reference to FunctionDeclaration "x"&gt;
+
+// found var x = 10;
+// if function "x" would not be already defined 
+// then "x" be undefined, but in our case
+// variable declaration does not disturb
+// the value of the function with the same name
+
+VO['x'] = &lt;the value is not disturbed, still function&gt;
+</code></pre>
+
+<p>然后在代码执行阶段，VO被修改成如下所示：</p>
+
+<pre><code>VO['x'] = 10;
+VO['x'] = 20;
+</code></pre>
+
+<p>这是我们在第二个和第三个alert中看到的。</p>
+
+<p>在下面的例子中，我们又看到在进入上下文的阶段，变量被放入了VO之中（<code>else</code>区块永远不会执行，但是尽管如此，变量<code>b</code>是存在于VO之中）：</p>
+
+<pre><code>if (true) {
+  var a = 1;
+} else {
+  var b = 2;
+}
+
+alert(a); // 1
+alert(b); // undefined, but not "b is not defined"
+</code></pre>
+
+<p><span id="about-variables"></span></p>
+
+<h1>关于变量</h1>
+
+<p>经常有一些文章甚至一些JavaScript图书声称：「使用var关键字（在全局上下文）和不使用var关键词（在任何地方）都可以声明全局变量」。事实并非如此。记住：</p>
+
+<p>变量只能通过var关键字来声明。</p>
+
+<p>并且，如下赋值：</p>
+
+<pre><code>a = 10;
+</code></pre>
+
+<p>只是在全局对象中创建了新的属性（并不是变量）。「不是变量」并不代表它不能被修改，而指的是它不是ECMAScript概念中的变量（之后也会变成全局对象的属性，因为VO(globalContext) === global，我们记得，是吧？）。</p>
+
+<p>它们的不同点如下（让我们通过例子看一下）：</p>
+
+<pre><code>alert(a); // undefined
+alert(b); // "b" is not defined
+
+b = 10;
+var a = 20;
+</code></pre>
+
+<p>这又是基于VO和其内容修改阶段（进入上下文阶段和代码执行阶段）：</p>
+
+<p>进入上下文：</p>
+
+<pre><code>VO = {
+  a: undefined
+};
+</code></pre>
+
+<p>我们看到在这个阶段没有任何<code>b</code>存在，因为它根本不是一个变量，<code>b</code>只会在代码执行阶段出现（但是在我们这个例子中不会发生，因为那有一个错误）。</p>
+
+<p>让我们修改一下代码：</p>
+
+<pre><code>alert(a); // undefined, we know why
+
+b = 10;
+alert(b); // 10, created at code execution
+
+var a = 20;
+alert(a); // 20, modified at code execution
+</code></pre>
+
+<p>对于变量还有一个重要的点要说。变量，和简单的属性相比，拥有<code>{DontDelete}</code>属性，意味着通过<code>delete</code>操作符移除一个变量是不可能的：</p>
+
+<pre><code>a = 10;
+alert(window.a); // 10
+
+alert(delete a); // true
+
+alert(window.a); // undefined
+
+var b = 20;
+alert(window.b); // 20
+
+alert(delete b); // false
+
+alert(window.b); // still 20
+</code></pre>
+
+<p>注意，在ES5中<code>{DontDelete}</code>被重命名为<code>[[Configurable]]</code>并且可以通过<code>Object.defineProperty</code>方法来进行手动管理。</p>
+
+<p>不过，这个规则对一个执行上下文不起作用。它是<code>eval</code>上下文：在那里，变量不会被设置{DontDelete}属性：</p>
+
+<pre><code>eval('var a = 10;');
+alert(window.a); // 10
+
+alert(delete a); // true
+
+alert(window.a); // undefined
+</code></pre>
+
+<p>对于在一些debug工具（比如Firebug）的终端上测试这些例子的同学：注意，Firebug也是使用<code>eval</code>来执行你从终端中输入的代码。所以那些变量也不会有{DontDelete}，并且可以被删除。</p>
+
+<p><span id="feature-of-implementations-property-__parent__"></span></p>
+
+<h1>实现带来的特性：__parent__属性</h1>
+
+<p>就像已经被提到过的，按照标准的话，直接访问活动对象是不可能的。   但是，在一些实现中，换句话说在SpiderMonkey和Rhino中，函数拥有一个特殊的属性<code>__parent__</code>，这个属性是对创建这些函数的活动对象（或者全局变量对象）的引用。</p>
+
+<p>例子（SpiderMonkey，Rhino）：</p>
+
+<pre><code>var global = this;
+var a = 10;
+
+function foo() {}
+
+alert(foo.__parent__); // global
+
+var VO = foo.__parent__;
+
+alert(VO.a); // 10
+alert(VO === global); // true
+</code></pre>
+
+<p>在以上的例子中，我们看见函数foo是在全局上下文中所创建的，相应地，它的<code>__parent__</code>属性被设置为全局上下文的变量对象，也就是全局对象。</p>
+
+<p>但是，在SpiderMonkey中以相同的方法获取活动对象是不可能的：基于不同的版本，内部函数的<code>__parent__</code>属性会返回null或者全局对象。</p>
+
+<p>在Rhino中，通过相同的方法来访问活动对象是允许并且可行的：</p>
+
+<p>例子（Rhino）：</p>
+
+<pre><code>var global = this;
+var x = 10;
+
+(function foo() {
+
+  var y = 20;
+
+  // the activation object of the "foo" context
+  var AO = (function () {}).__parent__;
+
+  print(AO.y); // 20
+
+  // __parent__ of the current activation
+  // object is already the global object,
+  // i.e. the special chain of variable objects is formed,
+  // so-called, a scope chain
+  print(AO.__parent__ === global); // true
+
+  print(AO.__parent__.x); // 10
+
+})();
+</code></pre>
+
+<p><span id="conclusion"></span></p>
+
+<h1>总结</h1>
+
+<p>通过这篇文章，我们在学习ECMAScript中与执行上下文相关的对象方面，迈了一步。我希望这些资料有用处，并可以明晰一些特性和你之前遇到的模棱两可的地方。按照计划，接下来的章节将会是<a href="http://dmitrysoshnikov.com/ecmascript/chapter-4-scope-chain/">作用域链</a>，<a href="http://dmitrysoshnikov.com/ecmascript/chapter-4-scope-chain/#function-activation">标识符方案</a>，以及作为结论的<a href="http://dmitrysoshnikov.com/ecmascript/chapter-6-closures/">闭包</a>。</p>
+
+<p>如果你有问题，欢迎留言。</p>
+
+<p><span id="additional-literature"></span></p>
+
+<h1>额外资料</h1>
+
+<ul>
+<li>10.1.3 – <a href="http://bclary.com/2004/11/07/#a-10.1.3">Variable Instantiation</a>;</li>
+<li>10.1.5 – <a href="http://bclary.com/2004/11/07/#a-10.1.5">Global Object</a>;</li>
+<li>10.1.6 – <a href="http://bclary.com/2004/11/07/#a-10.1.6">Activation Object</a>;</li>
+<li>10.1.8 – <a href="http://bclary.com/2004/11/07/#a-10.1.8">Arguments Object</a>.</li>
+</ul>
+
+
+	(完)
+
+	<div class="post-info">
+		23 Feb 2014  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

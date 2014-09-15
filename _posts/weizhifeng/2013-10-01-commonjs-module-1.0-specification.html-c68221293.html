@@ -1,0 +1,184 @@
+---
+layout: post
+title: 'CommonJS Modules/1.0 规范'
+time: 2013-10-01 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/commonjs-module-1.0-specification.html
+---
+{% raw %}
+
+	
+	
+
+	<p><em>译者：<a href="http://wiki.commonjs.org/wiki/Modules/1.0">CommonJS Modules/1.0</a> 是目前JavaScript模块化的事实标准，虽然其已经被 <a href="http://wiki.commonjs.org/wiki/Modules/1.1">CommonJS Modules/1.1</a> 所替代，但是1.0的适用范围非常广，支持者也很多，其中包括Flusspferd, GLUEscript, GPSEE, JSBuild, Narwhal (0.1), Persevere, RingoJS, SproutCore 1.1/Tiki, <a href="http://nodejs.org/api/modules.html" title="nodejs">node.js</a>, TeaJS (formerly v8cgi), <a href="http://couchdb.apache.org/" title="CouchDB">CouchDB</a>, Smart Platform, Yabble, Wakanda, XULJet等，所以翻译此规范还是很有必要的，以下为正文。</em></p>
+
+<p>此规范指出了如何编写可以在同类模块系统中所共用的模块，这类模块系统可以同时在客户端和服务端，以<a href="http://wiki.commonjs.org/wiki/Modules/Secure">安全的</a>或者不安全的方式已经被实现了或者通过语法扩展可以被未来的系统所支持。这些模块需要提供顶级作用域的私有性，并提供从其他模块导入单例对象到自身并且可以导出自身API的能力。含蓄的说，这个规范定义了如果一个模块系统要支持共用模块，那么它需要提供的最少的功能特性。</p>
+
+<h1>契约</h1>
+
+<h2>模块上下文</h2>
+
+<ol>
+<li>在一个模块中，存在一个自由的变量"require"，它是一个函数。
+
+<ol>
+<li>这个"require"函数接收一个模块标识符。</li>
+<li>"require"返回外部模块所输出的API。</li>
+<li>如果出现依赖闭环(dependency cycle)，那么外部模块在被它的传递依赖（<a href="http://en.wikipedia.org/wiki/Transitive_dependency">transitive dependencies</a>）所require的时候可能并没有执行完成；在这种情况下，"require"返回的对象必须至少包含此外部模块在调用require函数（会进入当前模块执行环境）之前就已经准备完毕的输出。（译者：如果难理解，看下面的<a href="#Module-Context">例子</a>。）</li>
+<li>如果请求的模块不能返回，那么"require"必须抛出一个错误。</li>
+</ol>
+</li>
+<li>在一个模块中，会存在一个名为"exports"的自由变量，它是一个对象，模块可以在执行的时候把自身的API加入到其中。</li>
+<li>模块必须使用"exports"对象来做为输出的唯一表示。</li>
+</ol>
+
+
+<h2>模块标识符</h2>
+
+<ol>
+<li>模块标识符是一个以正斜杠分隔的多个"term"组成的字符串。</li>
+<li>一个term必须是一个驼峰格式的标识符，"."或者".."。</li>
+<li>模块标识符可以不加文件扩展名，比如".js"。</li>
+<li>模块标识符可以是「相对的」或者「顶级的」(top-level)。如果一个模块标识符的第一个term是 "."或者".."，那么它是「相对的」。</li>
+<li>顶级标识符是概念上的模块命名空间的根。</li>
+<li>相对标识符是相对于在其内部调用了"require"的模块的标识符来进行解析的。</li>
+</ol>
+
+
+<h2>未规范</h2>
+
+<p>此规范对如下关于协同工作能力方面的重要内容未进行规范：</p>
+
+<ol>
+<li>模块是否可以通过数据库，文件系统或者工厂函数进行存储，或者可以通过链接库进行内部交换。</li>
+<li>模块加载器是否应该支持PATH变量用来解析模块标识符。</li>
+</ol>
+
+
+<h2>单元测试</h2>
+
+<ul>
+<li>
+<a href="http://code.google.com/p/interoperablejs/">Unit Tests at Google Code</a> by Kris Kowal</li>
+<li>
+<a href="http://github.com/ashb/interoperablejs/tree/master">Unit Tests Git Mirror</a> by Ash Berlin</li>
+</ul>
+
+
+<h2>实例代码</h2>
+
+<p>math.js</p>
+
+<pre><code>exports.add = function() {
+    var sum = 0, i = 0, args = arguments, l = args.length;
+    while (i &lt; l) {
+        sum += args[i++];
+    }
+    return sum;
+};
+</code></pre>
+
+<p>increment.js</p>
+
+<pre><code>var add = require('math').add;
+exports.increment = function(val) {
+    return add(val, 1);
+};
+</code></pre>
+
+<p>program.js</p>
+
+<pre><code>var inc = require('increment').increment;
+var a = 1;
+inc(a); // 2
+</code></pre>
+
+<p><span id="Module-Context"></span></p>
+
+<h2>依赖闭环解释（译者添加）</h2>
+
+<p>因为node.js完全实现了CommonJS Modules/1.0规范，那么我们用其来解释CommonJS Modules/1.0中的依赖闭环问题。看如下代码：</p>
+
+<p>a.js</p>
+
+<pre><code>console.log('a starting');
+exports.done = false;
+var b = require('./b.js');
+console.log('in a, b.done = %j', b.done);
+exports.done = true;
+console.log('a done');
+</code></pre>
+
+<p>b.js</p>
+
+<pre><code>console.log('b starting');
+exports.done = false;
+var a = require('./a.js');
+console.log('in b, a.done = %j', a.done);
+exports.done = true;
+console.log('b done');
+</code></pre>
+
+<p>main.js</p>
+
+<pre><code>console.log('main starting');
+var a = require('./a.js');
+var b = require('./b.js');
+console.log('in main, a.done=%j, b.done=%j', a.done, b.done);
+</code></pre>
+
+<p>当main.js加载a.js的时候，a.js加载b.js，同时，b.js想要加载a.js，这时候就产生了依赖闭环的问题，为了避免无限循环，需要打破这个闭环。根据CommonJS Modules/1.0规范中的说明「在这种情况下，"require"返回的对象必须至少包含此外部模块在调用require函数（会进入当前模块执行环境）之前就已经准备完毕的输出。」，有些绕，让我们从依赖闭环产生的地方跟踪，b.js需要require a.js，这里b.js做为当前模块，a.js相对于b.js来说是外部模块，那么a.js的输出应该是在其require b.js之前（即「进入当前模块执行环境」）就应该返回，执行过程如下：</p>
+
+<p>a.js</p>
+
+<pre><code>console.log('a starting');
+exports.done = false;
+// 只执行到这里，然后exports返回给调用模块(b.js)，以下被丢弃
+var b = require('./b.js');
+console.log('in a, b.done = %j', b.done);
+exports.done = true;
+console.log('a done');
+</code></pre>
+
+<p>然后b.js继续执行完成。以下是执行结果：</p>
+
+<pre><code>$ node main.js
+main starting
+a starting
+b starting
+in b, a.done = false
+b done
+in a, b.done = true
+a done
+in main, a.done=true, b.done=true
+</code></pre>
+
+<p>注意，虽然main.js同时require了a.js和b.js，但是根据node.js的<a href="http://nodejs.org/api/modules.html#modules_caching">模块缓存策略</a>，模块只执行一次。</p>
+
+<p>参考：</p>
+
+<p><a href="http://wiki.commonjs.org/wiki/Modules/1.0">http://wiki.commonjs.org/wiki/Modules/1.0</a></p>
+
+<p><a href="http://nodejs.org/api/modules.html#modules_cycles">http://nodejs.org/api/modules.html#modules_cycles</a></p>
+
+	(完)
+
+	<div class="post-info">
+		01 Oct 2013  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

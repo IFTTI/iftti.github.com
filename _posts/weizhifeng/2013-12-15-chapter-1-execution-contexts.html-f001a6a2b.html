@@ -1,0 +1,226 @@
+---
+layout: post
+title: '「深入ECMA-262-3」第一章、执行上下文'
+time: 2013-12-15 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/chapter-1-execution-contexts.html
+---
+{% raw %}
+
+	
+	
+
+	<p>原文：<a href="http://dmitrysoshnikov.com/ecmascript/chapter-1-execution-contexts/">http://dmitrysoshnikov.com/ecmascript/chapter-1-execution-contexts/</a></p>
+
+<ol>
+<li><a href="#introduction">介绍</a></li>
+<li><a href="#definitions">定义</a></li>
+<li>
+<a href="#types-of-executable-code">可执行代码的类型</a>
+
+<ol>
+<li><a href="#global-code">全局代码</a></li>
+<li><a href="#function-code">函数代码</a></li>
+<li><a href="#evalcode-code">Eval代码</a></li>
+</ol>
+</li>
+<li><a href="#conclusion">总结</a></li>
+<li><a href="#additional-literature">额外资料</a></li>
+</ol>
+
+
+<p><span id="introduction"></span></p>
+
+<h1>介绍</h1>
+
+<p>在这篇文章中，我们将会谈论到ECMAScript的执行上下文（execution contexts）以及与其相关的可执行代码（executable code）的类型。</p>
+
+<p><span id="definitions"></span></p>
+
+<h1>定义</h1>
+
+<p>每次当控制权转移到ECMAScript可执行的代码中的时候，控制权也进入了一个<em>执行上下文中</em>。</p>
+
+<pre><code>执行上下文（缩写－EC）是ECMA-262规范用来区分可执行代码而使用的一个抽象概念。
+</code></pre>
+
+<p>这个标准没有从技术实现的角度为EC定义准确的结构和种类；对于ECMAScript引擎来说实现这个标准是个问题。</p>
+
+<p>从逻辑上来说，一些活动的执行上下文会组成一个栈。栈底一直是一个<em>全局上下文</em>，栈顶－是当前（活动）执行上下文。在进入和退出各种EC的时候，这个栈会被修改（push/pop）。</p>
+
+<p><span id="types-of-executable-code"></span></p>
+
+<h1>可执行代码的类型</h1>
+
+<p>由于执行上下文的抽象概念，<em>可执行代码的类型(type of an executable code)</em>的概念被引入。说到代码类型，它在一定的时刻可以意指执行上下文。</p>
+
+<p>比如，我们把执行上下文栈定义为一个数组：</p>
+
+<pre><code>ECStack = [];
+</code></pre>
+
+<p>在每次在进入一个函数（即使这个函数被递归的调用或者被当作构造函数），同时也包括内置的eval函数的时候，这个栈会被推入相应的元素。</p>
+
+<p><span id="global-code"></span></p>
+
+<h2>全局代码</h2>
+
+<p>这个类型的代码是在等级<code>程序</code>（level Program）中进行被执行：换句话说，也就是加载了的外部<code>.js</code>文件或者本地的行内代码（位于<code>&lt;script&gt;&lt;/script&gt;</code>标签之中）。全局代码不包含任何位于函数中的代码。</p>
+
+<p>在初始化阶段（程序启动），<code>ECStack</code>看起来是这样的：</p>
+
+<pre><code>ECStack = [
+  globalContext
+];
+</code></pre>
+
+<p><span id="function-code"></span></p>
+
+<h2>函数代码</h2>
+
+<p>在进入函数代码（所有类型的函数）的时候，<code>ECStack</code>会被推入新的元素。很有必要指出一下具体函数的代码不包括内部函数的代码。</p>
+
+<p>比如，让我们看看这个递归调用自身一次的函数：</p>
+
+<pre><code>(function foo(flag) {
+  if (flag) {
+    return;
+  }
+  foo(true);
+})(false);
+</code></pre>
+
+<p>然后，ECStack被如下修改:</p>
+
+<pre><code>// first activation of foo
+ECStack = [
+  &lt;foo&gt; functionContext
+  globalContext
+];
+
+// recursive activation of foo
+ECStack = [
+  &lt;foo&gt; functionContext – recursively 
+  &lt;foo&gt; functionContext
+  globalContext
+];
+</code></pre>
+
+<p>函数的每次返回都会使程序从当前的执行上下文中退出，并且<code>ECStack</code>也相应的弹出对应的元素－如此反复－一个典型的栈的行为。在这段代码的工作完成之后，<code>ECStack</code>又会只包含<code>全局上下文</code>－直到程序结束为止。</p>
+
+<p>一个抛出的但是没有被捕获的异常也可以退出一个或多个执行上下文：</p>
+
+<pre><code>(function foo() {
+  (function bar() {
+    throw 'Exit from bar and foo contexts';
+  })();
+})();
+</code></pre>
+
+<p><span id="evalcode-code"></span></p>
+
+<h2>Eval代码</h2>
+
+<p>与<code>eval</code>代码相关的东西更加有趣。在这个例子中，存在一个<code>调用上下文(calling context)</code>的概念，换句话说就是<code>eval</code>函数被<em>调用</em>时所在的上下文。</p>
+
+<p><code>eval</code>所进行的操作，比如像变量或者函数定义，会确切的影响<em>调用</em>上下文：</p>
+
+<pre><code>// influence global context
+eval('var x = 10');
+
+(function foo() {
+  // and here, variable "y" is
+  // created in the local context
+  // of "foo" function
+  eval('var y = 20');
+})();
+
+alert(x); // 10
+alert(y); // "y" is not defined
+</code></pre>
+
+<p>注意，在ES5的<a href="http://dmitrysoshnikov.com/ecmascript/es5-chapter-2-strict-mode/">严格模式（strict-mode）</a>中，<code>eval</code>已经<em>不会</em>影响调用上下文了，但是会影响在本地<em>沙盒(sandbox)</em>中的代码。</p>
+
+<p>对于以上的例子，ECStack将会有如下变化：</p>
+
+<pre><code>ECStack = [
+  globalContext
+];
+
+// eval('var x = 10');
+ECStack.push({
+  context: evalContext,
+  callingContext: globalContext
+});
+
+// eval exited context
+ECStack.pop();
+
+// foo funciton call
+ECStack.push(&lt;foo&gt; functionContext);
+
+// eval('var y = 20');
+ECStack.push({
+  context: evalContext,
+  callingContext: &lt;foo&gt; functionContext
+});
+
+// return from eval 
+ECStack.pop();
+
+// return from foo
+ECStack.pop();
+</code></pre>
+
+<p>也就是一个非正式并且有逻辑性的调用栈。</p>
+
+<p>在旧的SpiderMonkey实现中（Firefox），到版本1.7为止，可以传递一个调用上下文做为<em>第二个</em>参数给<code>eval</code>函数。因此，如果这个上下文仍然存在，那么就可以对私有变量产生影响：</p>
+
+<pre><code>function foo() {
+  var x = 1;
+  return function () { alert(x); };
+};
+
+var bar = foo();
+
+bar(); // 1
+
+eval('x = 2', bar); // pass context, influence internal var "x"
+
+bar(); // 2
+However, due to security reasons in modern engines it was fixed and is not significant anymore.
+</code></pre>
+
+<p><span id="conclusion"></span></p>
+
+<h1>总结</h1>
+
+<p>这个简化了的理论是以后分析与执行上下文相关内容细节所必需的，比如<a href="http://dmitrysoshnikov.com/ecmascript/chapter-2-variable-object/">像变量对象( variable object )</a>或者<a href="http://dmitrysoshnikov.com/ecmascript/chapter-4-scope-chain/">作用域链(scope chain, )</a>，关于它们的描述可以在对应章节找到。</p>
+
+<p><span id="additional-literature"></span></p>
+
+<h1>额外资料</h1>
+
+<p>ECMA-262-3规范的对应部分－<a href="http://bclary.com/2004/11/07/#a-10">10. Execution Contexts</a></p>
+
+	(完)
+
+	<div class="post-info">
+		15 Dec 2013  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}
