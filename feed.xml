@@ -5,9 +5,209 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Mon, 15 Sep 2014 14:13:46 +0800</pubDate>
-    <lastBuildDate>Mon, 15 Sep 2014 14:13:46 +0800</lastBuildDate>
+    <pubDate>Tue, 16 Sep 2014 11:27:48 +0800</pubDate>
+    <lastBuildDate>Tue, 16 Sep 2014 11:27:48 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>The MSRs of EC2</title>
+        <description>
+
+&lt;p&gt;Is Intel Turbo Boost running for my AWS EC2 cloud instance (which is a Xen guest)?&lt;/p&gt;
+
+&lt;pre&gt;
+ec2-guest# &lt;b&gt;./showboost&lt;/b&gt;
+CPU MHz     : 2500
+Turbo MHz   : 2900 (10 active)
+Turbo Ratio : 116% (10 active)
+CPU 0 summary every 5 seconds...
+
+TIME       C0_MCYC      C0_ACYC        UTIL  RATIO    MHz
+06:11:35   6428553166   7457384521      51%   116%   &lt;b&gt;2900&lt;/b&gt;
+06:11:40   6349881107   7365764152      50%   115%   &lt;b&gt;2899&lt;/b&gt;
+06:11:45   6240610655   7239046277      49%   115%   &lt;b&gt;2899&lt;/b&gt;
+06:11:50   6225704733   7221962116      49%   116%   &lt;b&gt;2900&lt;/b&gt;
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;Yes! These 2500 MHz CPUs are currently running at 2900 MHz.&lt;/p&gt;
+
+&lt;p&gt;I guess the CPUs are cold enough to boost. What&#39;s their temperature?&lt;/p&gt;
+
+&lt;pre&gt;
+ec2-guest# &lt;b&gt;./cputemp -l 1&lt;/b&gt;
+CPU1 CPU2 CPU3 CPU4 CPU5 CPU6 CPU7 CPU8 CPU9 CPU10 CPU11 CPU12 CPU13 CPU14 CPU15 CPU16
+70 68 68 65 63 63 61 60 68 64 64 63 62 61 70 68
+70 68 69 65 63 63 61 61 68 65 63 63 61 61 70 69
+70 69 69 65 63 63 61 60 69 65 64 63 61 61 69 69
+69 69 69 66 64 64 61 61 68 65 64 64 61 61 70 69
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;Relatively cool: between 60 and 70 degrees Celsius. This is another tool from my &lt;a href=&quot;https://github.com/brendangregg/msr-cloud-tools&quot;&gt;msr-cloud-tools&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;In this post I&#39;ll describe MSRs, how to read them, and why measuring turbo boost is important.&lt;/p&gt;
+
+&lt;h2&gt;Model Specific Registers (MSRs)&lt;/h2&gt;
+
+&lt;div style=&quot;float:right;padding-left:5px;padding-bottom:5px&quot;&gt;&lt;a href=&quot;/blog/images/2014/cputemps.png&quot;&gt;&lt;img src=&quot;/images/brendangregg.com/3fdcd8199d3b291f36be8145702e96c2.jpg&quot; width=&quot;455&quot;&gt;&lt;/a&gt;&lt;/div&gt;
+
+&lt;p&gt;Aka &lt;em&gt;machine&lt;/em&gt; specific registers, these are described in &lt;a href=&quot;http://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3c-part-3-manual.pdf&quot;&gt;Vol 3c&lt;/a&gt; of the Intel 64 and IA-32 Architectures Software Developer&#39;s Manual. They access low level CPU information, including turbo boost ratios and temperature readings. They are read and written using the RDMSR and WRMSR instructions.&lt;/p&gt;
+
+&lt;p&gt;The image on the right shows how CPU temperatures, measured using MSRs on an EC2 instance, vary based on CPU utilization (in blue). The workload is synthetic: all CPUs driven to 100% utilization for 5 minutes, then to 0% for a while, repeat. What&#39;s interesting is that temperature rises initially with CPU load, then drops sharply. Did system fans kick in? (So far I haven&#39;t found fan RPM MSRs, to confirm.)&lt;/p&gt;
+
+&lt;p&gt;I&#39;m usually focused on the performance monitoring counters (PMCs; aka performance instrumentation counters (PICs), CPU performance counters (CPCs), etc.). These are read by RDPMC, and described in &lt;a href=&quot;http://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3b-part-3-manual.pdf&quot;&gt;Vol 3b&lt;/a&gt; of the same manual. These can measure data cache misses, stall cycles, and other useful performance events.&lt;/p&gt;
+
+&lt;p&gt;On AWS EC2, within a cloud instance (Xen guest), I&#39;ve never seen the PMCs work, eg, via &quot;&lt;a href=&quot;http://www.brendangregg.com/perf.html#CPUstatistics&quot;&gt;perf stat&lt;/a&gt;&quot;. That doesn&#39;t mean they can&#39;t ever work, just that they (or their controlling MSRs) aren&#39;t currently available.&lt;/p&gt;
+
+&lt;p&gt;But a small handful of MSRs &lt;em&gt;are&lt;/em&gt; available on EC2. Here are the more interesting ones I&#39;ve found:&lt;/p&gt;
+
+&lt;div style=&quot;padding-left:20px&quot;&gt;
+&lt;table border=&quot;1&quot;&gt;
+&lt;tr&gt;
+&lt;th&gt;Reg&lt;/th&gt;
+&lt;th&gt;Name&lt;/th&gt;
+&lt;th&gt;Description&lt;/th&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;0xe7&lt;/td&gt;
+&lt;td&gt;IA32_MPERF&lt;/td&gt;
+&lt;td&gt;Bits 63:0 is TSC Frequency Clock Counter C0_MCNT TSC relative&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;0xe8&lt;/td&gt;
+&lt;td&gt;IA32_APERF&lt;/td&gt;
+&lt;td&gt;Bits 63:0 is TSC Frequency Clock Counter C0_ACNT actual clocks&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;0x19c&lt;/td&gt;
+&lt;td&gt;IA32_THERM_STATUS&lt;/td&gt;
+&lt;td&gt;Bits 22:16 is the CPU therm status digital readout (DO)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;0x1a2&lt;/td&gt;
+&lt;td&gt;MSR_TEMPERATURE_TARGET&lt;/td&gt;
+&lt;td&gt;Bits 23:16 is temp target (TT)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;0x1ad&lt;/td&gt;
+&lt;td&gt;MSR_TURBO_RATIO_LIMIT&lt;/td&gt;
+&lt;td&gt;Bits 7:0 is the turbo boost ratio (x100 for MHz) for 1 core active&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;0x1ae&lt;/td&gt;
+&lt;td&gt;MSR_TURBO_RATIO_LIMIT1&lt;/td&gt;
+&lt;td&gt;Bits 15:8 (for example) is the turbo boost ratio for 10 cores active&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/table&gt;
+&lt;center&gt;&lt;font size=&quot;-1&quot;&gt;&lt;i&gt;Table 1. MSRs for Intel(R) Xeon(R) CPU E5-2670 v2&lt;/i&gt;&lt;/font&gt;&lt;/center&gt;
+&lt;/div&gt;
+
+&lt;p&gt;These are used by various kernel routines, like the idle thread and cpufreq.&lt;/p&gt;
+
+&lt;p&gt;Note that these are &lt;b&gt;model specific&lt;/b&gt;, which means they can vary between different processor models (micro-architectures). For example, Silvermont has a read/write target offset in MSR_TEMPERATURE_TARGET (bits 29:24), which can lower the throttle temperature (PROCHOT). Such differences make MSRs non-portable and tricky to use, which is why standards like &lt;a href=&quot;http://en.wikipedia.org/wiki/Performance_Application_Programming_Interface&quot;&gt;PAPI&lt;/a&gt; are important.&lt;/p&gt;
+
+&lt;h2&gt;Reading MSRs&lt;/h2&gt;
+
+&lt;p&gt;Here&#39;s how you can measure MSRs (assuming Intel):&lt;/p&gt;
+
+&lt;h3&gt;1. Determine your CPU type and micro-architecture&lt;/h3&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;head /proc/cpuinfo&lt;/b&gt;
+processor       : 0
+vendor_id       : GenuineIntel
+&lt;b&gt;cpu family      : 6
+model           : 62&lt;/b&gt;
+model name      : Intel(R) Xeon(R) CPU E5-2670 v2 @ 2.50GHz
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;The family and model numbers tell us that this is the Ivy Bridge micro-architecture (see the &lt;a href=&quot;https://software.intel.com/en-us/articles/intel-architecture-and-processor-identification-with-cpuid-model-and-family-numbers&quot;&gt;Intel decoder&lt;/a&gt;). You can also use the cpuid tool (from the cpuid package), which should report micro-architecture directly.&lt;/p&gt;
+
+&lt;h3&gt;2. Look up MSRs for your processor type
+
+These are in Vol 3c of the &lt;a href=&quot;http://www.intel.com/content/www/us/en/processors/architectures-software-developer-manuals.html&quot;&gt;Intel software developer manual&lt;/a&gt;. This is a 540 page volume, and if you&#39;re new to it, you&#39;ll get lost a few times before you get the hang of it.
+
+&lt;h3&gt;3. Install and load msr-tools:&lt;/h3&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;apt-get install msr-tools&lt;/b&gt;
+# &lt;b&gt;modprobe msr&lt;/b&gt;
+&lt;/pre&gt;
+
+&lt;/h3&gt;
+&lt;p&gt;(Assuming Ubuntu.) The msr-tools package adds the rdmsr and wrmsr tools, and the msr kernel module.&lt;/p&gt;
+
+&lt;h3&gt;4. Use rdmsr&lt;/h3&gt;
+
+&lt;p&gt;Based on the addresses from (2). Eg, to read the turbo boost ratio when 10 cores are active (Ivy Bridge):&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;rdmsr 0x1ae -f 15:8 -d&lt;/b&gt;
+29
+&lt;/pre&gt;
+
+&lt;p&gt;Multiply by 100 to get MHz. The way these work is explained earlier in the manual.&lt;/p&gt;
+
+&lt;p&gt;I did share a couple of tools in a &lt;a href=&quot;https://github.com/brendangregg/msr-cloud-tools&quot;&gt;msr-cloud-tools&lt;/a&gt; collection, however, I&#39;ve only written them for the processor type I&#39;m currently analyzing. You may need to edit these to get them using the right MSRs.&lt;/p&gt;
+
+&lt;h2&gt;Why Measure Turbo Boost&lt;/h2&gt;
+
+&lt;p&gt;We live in an annoying age for computer performance analysts: the error margin for many measurements &lt;em&gt;is over 10%&lt;/em&gt;, thanks to turbo boost, an Intel processor technology that can dynamically over-clock CPUs. Ubuntu is 10% faster than CentOS? Could just be turbo boost. New software version regressed by 5%? Could just be turbo boost. Tunable made things 10% faster? Could just be ... You get the picture.&lt;/p&gt;
+
+&lt;p&gt;Turbo boost can make a 2500 MHz processor run at 3300 Mhz, depending on factors including temperature, power consumption, and the C-state of the cores. Colder servers run faster. I once had two identical servers at the top and bottom of a rack, and the top server ran 5% faster, as it received more cold air from the air conditioners. That&#39;s both great and maddening: I&#39;ll take the better performance, but it can also mess up measurements when I&#39;m comparing systems or software.&lt;/p&gt;
+
+&lt;p&gt;There are three ways I&#39;ve historically dealt with this:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Turn off turbo boost in the BIOS when doing performance comparisons.&lt;/li&gt;
+&lt;li&gt;Measure actual CPU cycles using CPU performance counters to observe the turbo boost rate.&lt;/li&gt;
+&lt;li&gt;Run a short experiment (benchmark) to measure the current cycle rate, eg, &lt;a href=&quot;http://www.brendangregg.com/blog/2014-04-26/the-noploop-cpu-benchmark.html&quot;&gt;noploop&lt;/a&gt;.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;If you run your own datacenter, you can do them all. But as a Xen guest on AWS EC2, you can&#39;t change the BIOS and do (1). You can do option (3), but that can be time-consuming and difficult (less reliable) on very busy systems. Until recently, I thought you couldn&#39;t do (2), either, and then I found the MSRs...&lt;/p&gt;
+
+&lt;h2&gt;Discovering MSRs&lt;/h2&gt;
+
+&lt;p&gt;I was working on a suspected turbo boost issue when a colleague at Netflix, Scott, mentioned that he liked using the i7z command to debug turbo boost. We didn&#39;t think it would work on EC2, but I tried anyway.&lt;/p&gt;
+
+&lt;p&gt;Most of the output was clearly wrong, but a lone column of temperature readings showed that something was working. Using opensnoop from my ftrace &lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt; collection to see how:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;./opensnoop -n i7z&lt;/b&gt;
+Tracing open()s issued by process name &quot;i7z&quot;. Ctrl-C to end.
+COMM             PID      FD FILE
+i7z              8427    0x3 /proc/cpuinfo
+i7z              8427    0x3 /dev/cpu/0/msr
+i7z              8427    0x3 /dev/cpu/0/msr
+i7z              8427    0x3 /dev/cpu/0/msr
+i7z              8427    0x3 /dev/cpu/0/msr
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;This showed that i7z was reading /dev/cpu/0/msr, and led me to take a close look at the available MSRs.&lt;/p&gt;
+
+&lt;p&gt;I&#39;d normally use CPU_CLK_Unhalted.Core, but that wasn&#39;t available. After some digging, I found I could use the ratio of IA32_APERF deltas to IA32_MPERF deltas, which shows how much faster the time stamp counter (TSC, which is cycle-based) is moving when the processor is in the C0 state.&lt;/p&gt;
+
+&lt;p&gt;It was an enormous relief to find a way to directly measure real clock rates, and turbo boost. My error margins have vanished: &lt;strong&gt;I can measure performance again&lt;/strong&gt;.&lt;/p&gt;
+
+&lt;h2&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;A handful of model-specific registers, MSRs, are available in Xen guests including on AWS EC2. These allow the real clock rate, and the degree of turbo boost, to be measured. This is important to know for any performance comparison, as variations in turbo boost can skew results by over 10%, based on how hot or cold servers were during the test.&lt;/p&gt;
+
+&lt;p&gt;I&#39;ve written a couple of tools so far, in &lt;a href=&quot;https://github.com/brendangregg/msr-cloud-tools&quot;&gt;msr-cloud-tools&lt;/a&gt;, to measure CPU turbo boost and temperature. As is the nature of MSRs, they are specific to processor types, and these scripts only work (so far) on our Intel(R) Xeon(R) CPU E5-2670 v2s. If you want to use these tools or MSRs yourself, you may need to find out the right MSRs to use for your processor type. The good news is that the vendor documentation from Intel and AMD is very good, although it takes some time to dig through.&lt;/p&gt;
+
+
+</description>
+        <pubDate>Mon, 15 Sep 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-09-15-the-msrs-of-ec2.html-261b110e2.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-15-the-msrs-of-ec2.html-261b110e2.html</guid>
+        
+        
+        <category>brendangregg</category>
+        
+      </item>
     
       <item>
         <title>适合码农工作时玩的游戏：Scrum</title>
@@ -4471,164 +4671,6 @@ done
         
         
         <category>php-oa</category>
-        
-      </item>
-    
-      <item>
-        <title>算法系列：电梯调度</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p style=&quot;text-align: left;&quot;&gt;在像芝加哥，纽约，东京，新加坡，香港等大城市里，每天都会有上百万的人通过电梯离开他们的大楼。但是我们却很少考虑电梯是如何调度来提供服务的，尤其是在人流高峰期，这个时候办公楼里的大多数人都会企图在大约一个小时左右离开。&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;关于这方面主题（&lt;a title=&quot;基于乘客等待时间的电梯分配系统&quot; href=&quot;http://www.google.com/patents/US5304752&quot;&gt;基于乘客等待时间的电梯分配系统&lt;/a&gt;）和研究（&lt;a title=&quot;电梯流量模拟&quot; href=&quot;http://sim.sagepub.com/content/61/4/257.short&quot;&gt;电梯流量模拟&lt;/a&gt;）的算法至少有一个专利，并且出现在&lt;a title=&quot;Quaro&quot; href=&quot;http://www.quora.com/Architecture/What-determines-how-many-elevators-a-building-will-have&quot;&gt;Quaro&lt;/a&gt;上。曾经在一次面试中，面试官问我我会如何调度电梯。：&lt;/p&gt;
-&lt;p style=&quot;text-align: left; padding-left: 30px;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;我很喜欢这个面试问题。我觉得这个问题很有挑战性而且你可以想得尽量深入，但是也应该足够直接以便于你下手，产生某些解决方案。没有绞尽脑汁想一个月来模拟真实场景，在这篇文章中，我会尝试解决一个简化的电梯调度问题，类似于上面的面试问题。&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;创造一个可用于现实生活中电梯运行的算法（很显然，这类算法已被申请专利）是有难度的。因此，我会努力解决一些与我面试问题类似的问题，我会做一点轻微变换：&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;上面是对问题的整体描述，但是如果我们将问题分解，该问题包含以下条件：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;楼层数量任意&lt;/li&gt;
-&lt;li&gt;电梯数量任意&lt;/li&gt;
-&lt;li&gt;给定高峰时段&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;一些我们需要考虑但是未说明的变量或者常量：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;每层人数：100人&lt;/li&gt;
-&lt;li&gt;电梯通过一层的时间（不停）：5秒钟&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;我给上面的变量赋值，而且尽管“电梯通过每一层的时间”有可能不是线性的（即电梯需要花时间从停止位置开始加速），但是我们还是这样假设。虽然做这些假设可能会“过度简化”问题，但是我相信这篇文章已经可以满足面试要求而且可以作为一个很好的契入点，来引发更深的思考和讨论。&lt;/p&gt;
-&lt;p&gt;注意，我并没有考虑电梯的容量，在这方面我要做个很大胆的假设。我的假设（贯穿整个方案）是每个电梯的容量无限大。很显然这是不正确的，但是一旦我们有了解决方案，我认为增加像这样的声明会容易得多：&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;em&gt;           &lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;我可能会另外写一篇文章放到这个博客里，或者我会通过我的邮件列表来发布。不管哪种情况，我希望有人能想办法自己来解决！&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;这可能不是最佳方案，尽管它有可能效果不错。你如果找到一个更好的方案，请分享！&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;正如上面图片显示的，我会给特定的楼层指定 一个具体的电梯，我称之为区域电梯分配。这个想法在于我们可以获得每层的平均等待时间和每层的平均负载量。&lt;/p&gt;
-&lt;p&gt;我的这个特殊方法是基于我对每个电梯形成一个回路（即在电梯循环里经过所有楼层，例如：0-&amp;gt;1-&amp;gt;2-&amp;gt;0)所花费时间的一些观察。我们所有要知道的就是下面这些，来计算一个电梯完成一次回路所需的时间：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;经过一层楼的时间乘以往返中最高楼层数乘以2（上和下），在我们问题中：(5 seconds * &amp;lt;maxFloor&amp;gt; * 2)&lt;/li&gt;
-
-&lt;/ol&gt;
-&lt;p&gt;总的往返时间：&lt;/p&gt;
-&lt;p&gt;elevatorsCircuitTime  = (5*&amp;lt;maxFloor&amp;gt;*2)+(20*&amp;lt;floorsServiced&amp;gt;)&lt;/p&gt;
-&lt;p&gt;使用下面方程计算一个往返中电梯的平均载人数：&lt;/p&gt;
-&lt;p&gt;avgElevatorLoad = &amp;lt;elevatorsCircuitTime&amp;gt;*&amp;lt;floorsServiced&amp;gt;*&amp;lt;peoplePerFloor&amp;gt;/&amp;lt;rushHour&amp;gt;&lt;/p&gt;
-&lt;p&gt;变量 &lt;em&gt;rushHour&lt;/em&gt;等于完成运输一个高峰时间段所花费时间，&lt;em&gt;floorsServiced&lt;/em&gt;等于电梯所停的楼层数，指给定楼层的人数。因为我们已经计算出了电梯往返时间，所以我们可以利用这个时间和平均负载性能来实现我们的算法。&lt;/p&gt;
-&lt;p&gt;我给这个问题的解决方案需要两个数组：&lt;/p&gt;
-&lt;p&gt;大楼的表示：大楼数组中每个元素代表每层的人数。数组的每个单元表示一层楼。例如[100 100 100]可以表示一栋四层楼，只有高三层的人需要使用电梯。&lt;/p&gt;
-&lt;p&gt;电梯的表示：电梯数组中的每个单元代表该电梯在它回路中所能到达的最高层（为了简化我把0放进第0个单元）。例如，[0,2,3]表示两个电梯，1号电梯（在1号单元）运载乘客从2楼到1楼到0,2号电梯（在2号单元）运载乘客从3楼到0。&lt;/p&gt;
-&lt;p&gt;初始时，1号数组（表示大楼）为空，然后每次我给该数组“增加一层”时，我给这一层分配一个电梯。如你所见，这种分配是可以改变的，但是它会遵从一个相似的形式。拥有最小往返的电梯回路会被分配该新的楼层，除非需要涉及性能问题。我增加了一个小方程：&lt;/p&gt;
-&lt;p&gt;elevatorCircuitTime + ((elevatorCircuitTime / 100) * elevatorsAvgLoad)&lt;/p&gt;
-&lt;p&gt;因为&lt;em&gt;elevatorCircuitTime&lt;/em&gt; 是一个整数，除非往返时间超过100秒（这对电梯来说是一个很长的时间），将乘到这个方程中。我们的问题描述非常模糊，而且考虑到上面的方程，我的解决方案同样地的确有一些模糊之处。同样地，我用来分配楼层给电梯的函数十分任意，但是在负载管理中却十分有效（尽管可能会有更好的方案）。&lt;/p&gt;
-&lt;div id=&quot;crayon-53df51847f48f006968125&quot;&gt;
-
-&lt;/div&gt;
-&lt;p&gt;注意，每次一个 “elevatorNumber”被选择后，所有在 “elevatorNumber”之上的电梯所到达的最高楼层数加1：&lt;/p&gt;
-&lt;p&gt;for i in range(elevatorNumber, len(e)):&lt;/p&gt;
-&lt;p&gt;e[i] += 1&lt;/p&gt;
-&lt;p&gt;这是因为在被选择之上的每个电梯往返所到达的最高的楼层会加1，但是我们只希望增加一个额外的电梯到被选择的电梯回路中。附加函数很容易确定在被选择回路中的往返时间和平均载客量。&lt;/p&gt;
-&lt;p&gt;一旦我们有了增加楼层的函数，我就可以构造函数来循环通过和创建楼层。注意，在本情况中，所有楼层被设定为统一的。这样如果本问题被扩展为每层人数不同的情况，也会相对容易考虑。&lt;/p&gt;
-&lt;pre class=&quot;brush: python; gutter: true&quot;&gt;# Allocate elevators
-# Elevator[] represents the starting
-# group of stops.
-def elevatorAllocation(building, elevatorCount):
-    elevator = []
-    for i in range(elevatorCount + 1):
-        elevator.append(0)
-    for i in range(1, floorCount):
-        elevator = addFloor(elevator)
-    printeleLoop(elevator)&lt;/pre&gt;
-&lt;p&gt;以上便是算法分配部分的大体。本算法相对直接而且留有一定量的的改进空间，我将这部分留给大家来解决！&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;如果将算法的各部分拼接起来，再加一些额外的函数来打印数据，创建一个小巧的模拟器，我们就可以获得一个很酷的小程序（大家可以从我的中fork下来或者查看）。&lt;/p&gt;
-&lt;p&gt;变量：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;10层楼&lt;/li&gt;
-&lt;li&gt;3部电梯&lt;/li&gt;
-&lt;li&gt;1个高峰时段&lt;/li&gt;
-&lt;li&gt;通过一层耗时5秒&lt;/li&gt;
-&lt;li&gt;电梯需要停等时，每次停20秒&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;[0, 4, 7, 9]&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;#1电梯：往返用时140秒，平均每次载客19.44人&lt;/li&gt;
-&lt;li&gt;#2电梯：往返用时150秒，平均每次载客16.67人&lt;/li&gt;
-
-&lt;/ol&gt;
-&lt;p&gt;总用时：65分钟&lt;/p&gt;
-&lt;p&gt;电梯往返时，每层的平均人数变化情况：&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;如你所见，我的算法提供了一个良好的但不是最佳的方案（在本情况下）。本算法虽然还有很大的改进空间（我将这部分留给你们来挑战），但是它是一个好的开始。&lt;/p&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;计算本算法的时间和空间要求会有一点难度，但也不是很难。算法的运行时取决于以下三个因素：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;k:最大回路，人数&lt;/li&gt;
-&lt;li&gt;n:在最大回路中需要服务楼层的起始人数&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;（1）运行时：O(m * (n/k))&lt;/p&gt;
-&lt;p&gt;‘n / k’ ：决定了电梯需要的最大往返次数；‘m’ ：这一项是因为在电梯往返过程中需要对每一层进行迭代。在本情况中，我们忽略了初始化大楼数组这一步骤，该数组代表每一层的人数，因为这一项不是运行时(m*(n/k)+ m)的主要项。&lt;/p&gt;
-&lt;p&gt;最大空间需求很直接：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;e:电梯数量&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;（2）内存要求：O(e + f)&lt;/p&gt;
-&lt;p&gt;将以上因素整合起来：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;k:最大回路，人数&lt;/li&gt;
-&lt;li&gt;n:在最大回路中需要服务楼层的起始人数&lt;/li&gt;
-&lt;li&gt;m:总的楼层数&lt;/li&gt;
-&lt;li&gt;e:电梯数量&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;ul&gt;
-&lt;li&gt;运行时间：O(m * (n / k))&lt;/li&gt;
-
-&lt;/ul&gt;
-&lt;p&gt;&lt;/p&gt;
-&lt;p&gt;我认识到这并不是一个最佳方案，然而它确实解决了问题。我挑战你们来进行评论，从我的&lt;a title=&quot;github&quot; href=&quot;https://github.com/lettergram/ElevatorAllocation&quot;&gt;github&lt;/a&gt;中fork，改进我的代码或者是在自己的文章中写下自己的方案。我认为这是一个很有趣的问题，而且同你们电脑内部的资源分配类似，我还写了篇基本的的文章，如果你们感兴趣，可以来读一读。我同样十分乐意看到一个不同的（希望更好的）方案，所以如果你们想到了更好的方案，一定不要忘记写下来。&lt;/p&gt;
-&lt;p&gt;我本来确实打算另写一篇文章来更深地挖掘这个问题，并提供一个更接近现实世界应用的算法，但是我还没有确定日期（可能是几天，几周或者是几个月）。我希望你们喜欢这篇文章而且我也很乐意听听你们的想法，所以不要犹豫是否评论和跟我发邮件，谢谢！&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Fri, 08 Aug 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-08-08-74672-5ee802e49.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-08-08-74672-5ee802e49.html</guid>
-        
-        
-        <category>jobbole</category>
         
       </item>
     
