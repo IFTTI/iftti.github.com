@@ -1,0 +1,197 @@
+---
+layout: post
+title: 'The MSRs of EC2'
+time: 2014-09-15 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-09-15/the-msrs-of-ec2.html
+images:
+  3fdcd8199d3b291f36be8145702e96c2: /blog/images/2014/cputemps.png
+---
+{% raw %}
+
+<p>Is Intel Turbo Boost running for my AWS EC2 cloud instance (which is a Xen guest)?</p>
+
+<pre>
+ec2-guest# <b>./showboost</b>
+CPU MHz     : 2500
+Turbo MHz   : 2900 (10 active)
+Turbo Ratio : 116% (10 active)
+CPU 0 summary every 5 seconds...
+
+TIME       C0_MCYC      C0_ACYC        UTIL  RATIO    MHz
+06:11:35   6428553166   7457384521      51%   116%   <b>2900</b>
+06:11:40   6349881107   7365764152      50%   115%   <b>2899</b>
+06:11:45   6240610655   7239046277      49%   115%   <b>2899</b>
+06:11:50   6225704733   7221962116      49%   116%   <b>2900</b>
+[...]
+</pre>
+
+<p>Yes! These 2500 MHz CPUs are currently running at 2900 MHz.</p>
+
+<p>I guess the CPUs are cold enough to boost. What's their temperature?</p>
+
+<pre>
+ec2-guest# <b>./cputemp -l 1</b>
+CPU1 CPU2 CPU3 CPU4 CPU5 CPU6 CPU7 CPU8 CPU9 CPU10 CPU11 CPU12 CPU13 CPU14 CPU15 CPU16
+70 68 68 65 63 63 61 60 68 64 64 63 62 61 70 68
+70 68 69 65 63 63 61 61 68 65 63 63 61 61 70 69
+70 69 69 65 63 63 61 60 69 65 64 63 61 61 69 69
+69 69 69 66 64 64 61 61 68 65 64 64 61 61 70 69
+[...]
+</pre>
+
+<p>Relatively cool: between 60 and 70 degrees Celsius. This is another tool from my <a href="https://github.com/brendangregg/msr-cloud-tools">msr-cloud-tools</a>.</p>
+
+<p>In this post I'll describe MSRs, how to read them, and why measuring turbo boost is important.</p>
+
+<h2>Model Specific Registers (MSRs)</h2>
+
+<div style="float:right;padding-left:5px;padding-bottom:5px"><a href="/blog/images/2014/cputemps.png"><img src="/images/brendangregg.com/3fdcd8199d3b291f36be8145702e96c2.jpg" width="455"></a></div>
+
+<p>Aka <em>machine</em> specific registers, these are described in <a href="http://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3c-part-3-manual.pdf">Vol 3c</a> of the Intel 64 and IA-32 Architectures Software Developer's Manual. They access low level CPU information, including turbo boost ratios and temperature readings. They are read and written using the RDMSR and WRMSR instructions.</p>
+
+<p>The image on the right shows how CPU temperatures, measured using MSRs on an EC2 instance, vary based on CPU utilization (in blue). The workload is synthetic: all CPUs driven to 100% utilization for 5 minutes, then to 0% for a while, repeat. What's interesting is that temperature rises initially with CPU load, then drops sharply. Did system fans kick in? (So far I haven't found fan RPM MSRs, to confirm.)</p>
+
+<p>I'm usually focused on the performance monitoring counters (PMCs; aka performance instrumentation counters (PICs), CPU performance counters (CPCs), etc.). These are read by RDPMC, and described in <a href="http://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-3b-part-3-manual.pdf">Vol 3b</a> of the same manual. These can measure data cache misses, stall cycles, and other useful performance events.</p>
+
+<p>On AWS EC2, within a cloud instance (Xen guest), I've never seen the PMCs work, eg, via "<a href="http://www.brendangregg.com/perf.html#CPUstatistics">perf stat</a>". That doesn't mean they can't ever work, just that they (or their controlling MSRs) aren't currently available.</p>
+
+<p>But a small handful of MSRs <em>are</em> available on EC2. Here are the more interesting ones I've found:</p>
+
+<div style="padding-left:20px">
+<table border="1">
+<tr>
+<th>Reg</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>0xe7</td>
+<td>IA32_MPERF</td>
+<td>Bits 63:0 is TSC Frequency Clock Counter C0_MCNT TSC relative</td>
+</tr>
+<tr>
+<td>0xe8</td>
+<td>IA32_APERF</td>
+<td>Bits 63:0 is TSC Frequency Clock Counter C0_ACNT actual clocks</td>
+</tr>
+<tr>
+<td>0x19c</td>
+<td>IA32_THERM_STATUS</td>
+<td>Bits 22:16 is the CPU therm status digital readout (DO)</td>
+</tr>
+<tr>
+<td>0x1a2</td>
+<td>MSR_TEMPERATURE_TARGET</td>
+<td>Bits 23:16 is temp target (TT)</td>
+</tr>
+<tr>
+<td>0x1ad</td>
+<td>MSR_TURBO_RATIO_LIMIT</td>
+<td>Bits 7:0 is the turbo boost ratio (x100 for MHz) for 1 core active</td>
+</tr>
+<tr>
+<td>0x1ae</td>
+<td>MSR_TURBO_RATIO_LIMIT1</td>
+<td>Bits 15:8 (for example) is the turbo boost ratio for 10 cores active</td>
+</tr>
+</table>
+<center><font size="-1"><i>Table 1. MSRs for Intel(R) Xeon(R) CPU E5-2670 v2</i></font></center>
+</div>
+
+<p>These are used by various kernel routines, like the idle thread and cpufreq.</p>
+
+<p>Note that these are <b>model specific</b>, which means they can vary between different processor models (micro-architectures). For example, Silvermont has a read/write target offset in MSR_TEMPERATURE_TARGET (bits 29:24), which can lower the throttle temperature (PROCHOT). Such differences make MSRs non-portable and tricky to use, which is why standards like <a href="http://en.wikipedia.org/wiki/Performance_Application_Programming_Interface">PAPI</a> are important.</p>
+
+<h2>Reading MSRs</h2>
+
+<p>Here's how you can measure MSRs (assuming Intel):</p>
+
+<h3>1. Determine your CPU type and micro-architecture</h3>
+
+<pre>
+# <b>head /proc/cpuinfo</b>
+processor       : 0
+vendor_id       : GenuineIntel
+<b>cpu family      : 6
+model           : 62</b>
+model name      : Intel(R) Xeon(R) CPU E5-2670 v2 @ 2.50GHz
+[...]
+</pre>
+
+<p>The family and model numbers tell us that this is the Ivy Bridge micro-architecture (see the <a href="https://software.intel.com/en-us/articles/intel-architecture-and-processor-identification-with-cpuid-model-and-family-numbers">Intel decoder</a>). You can also use the cpuid tool (from the cpuid package), which should report micro-architecture directly.</p>
+
+<h3>2. Look up MSRs for your processor type
+
+These are in Vol 3c of the <a href="http://www.intel.com/content/www/us/en/processors/architectures-software-developer-manuals.html">Intel software developer manual</a>. This is a 540 page volume, and if you're new to it, you'll get lost a few times before you get the hang of it.
+
+<h3>3. Install and load msr-tools:</h3>
+
+<pre>
+# <b>apt-get install msr-tools</b>
+# <b>modprobe msr</b>
+</pre>
+
+</h3>
+<p>(Assuming Ubuntu.) The msr-tools package adds the rdmsr and wrmsr tools, and the msr kernel module.</p>
+
+<h3>4. Use rdmsr</h3>
+
+<p>Based on the addresses from (2). Eg, to read the turbo boost ratio when 10 cores are active (Ivy Bridge):</p>
+
+<pre>
+# <b>rdmsr 0x1ae -f 15:8 -d</b>
+29
+</pre>
+
+<p>Multiply by 100 to get MHz. The way these work is explained earlier in the manual.</p>
+
+<p>I did share a couple of tools in a <a href="https://github.com/brendangregg/msr-cloud-tools">msr-cloud-tools</a> collection, however, I've only written them for the processor type I'm currently analyzing. You may need to edit these to get them using the right MSRs.</p>
+
+<h2>Why Measure Turbo Boost</h2>
+
+<p>We live in an annoying age for computer performance analysts: the error margin for many measurements <em>is over 10%</em>, thanks to turbo boost, an Intel processor technology that can dynamically over-clock CPUs. Ubuntu is 10% faster than CentOS? Could just be turbo boost. New software version regressed by 5%? Could just be turbo boost. Tunable made things 10% faster? Could just be ... You get the picture.</p>
+
+<p>Turbo boost can make a 2500 MHz processor run at 3300 Mhz, depending on factors including temperature, power consumption, and the C-state of the cores. Colder servers run faster. I once had two identical servers at the top and bottom of a rack, and the top server ran 5% faster, as it received more cold air from the air conditioners. That's both great and maddening: I'll take the better performance, but it can also mess up measurements when I'm comparing systems or software.</p>
+
+<p>There are three ways I've historically dealt with this:</p>
+
+<ol>
+<li>Turn off turbo boost in the BIOS when doing performance comparisons.</li>
+<li>Measure actual CPU cycles using CPU performance counters to observe the turbo boost rate.</li>
+<li>Run a short experiment (benchmark) to measure the current cycle rate, eg, <a href="http://www.brendangregg.com/blog/2014-04-26/the-noploop-cpu-benchmark.html">noploop</a>.</li>
+</ol>
+
+<p>If you run your own datacenter, you can do them all. But as a Xen guest on AWS EC2, you can't change the BIOS and do (1). You can do option (3), but that can be time-consuming and difficult (less reliable) on very busy systems. Until recently, I thought you couldn't do (2), either, and then I found the MSRs...</p>
+
+<h2>Discovering MSRs</h2>
+
+<p>I was working on a suspected turbo boost issue when a colleague at Netflix, Scott, mentioned that he liked using the i7z command to debug turbo boost. We didn't think it would work on EC2, but I tried anyway.</p>
+
+<p>Most of the output was clearly wrong, but a lone column of temperature readings showed that something was working. Using opensnoop from my ftrace <a href="https://github.com/brendangregg/perf-tools">perf-tools</a> collection to see how:</p>
+
+<pre>
+# <b>./opensnoop -n i7z</b>
+Tracing open()s issued by process name "i7z". Ctrl-C to end.
+COMM             PID      FD FILE
+i7z              8427    0x3 /proc/cpuinfo
+i7z              8427    0x3 /dev/cpu/0/msr
+i7z              8427    0x3 /dev/cpu/0/msr
+i7z              8427    0x3 /dev/cpu/0/msr
+i7z              8427    0x3 /dev/cpu/0/msr
+[...]
+</pre>
+
+<p>This showed that i7z was reading /dev/cpu/0/msr, and led me to take a close look at the available MSRs.</p>
+
+<p>I'd normally use CPU_CLK_Unhalted.Core, but that wasn't available. After some digging, I found I could use the ratio of IA32_APERF deltas to IA32_MPERF deltas, which shows how much faster the time stamp counter (TSC, which is cycle-based) is moving when the processor is in the C0 state.</p>
+
+<p>It was an enormous relief to find a way to directly measure real clock rates, and turbo boost. My error margins have vanished: <strong>I can measure performance again</strong>.</p>
+
+<h2>Conclusion</h2>
+
+<p>A handful of model-specific registers, MSRs, are available in Xen guests including on AWS EC2. These allow the real clock rate, and the degree of turbo boost, to be measured. This is important to know for any performance comparison, as variations in turbo boost can skew results by over 10%, based on how hot or cold servers were during the test.</p>
+
+<p>I've written a couple of tools so far, in <a href="https://github.com/brendangregg/msr-cloud-tools">msr-cloud-tools</a>, to measure CPU turbo boost and temperature. As is the nature of MSRs, they are specific to processor types, and these scripts only work (so far) on our Intel(R) Xeon(R) CPU E5-2670 v2s. If you want to use these tools or MSRs yourself, you may need to find out the right MSRs to use for your processor type. The good news is that the vendor documentation from Intel and AMD is very good, although it takes some time to dig through.</p>
+
+{% endraw %}
