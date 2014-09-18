@@ -1,0 +1,100 @@
+---
+layout: post
+title: 'node.js Flame Graphs on Linux'
+time: 2014-09-17 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2014-09-17/node-flame-graphs-on-linux.html
+images:
+  da8a526902cf4e359d30f4104fbae443: /blog/images/2014/node.js_flamegraph_nosymbols_01023.svg
+  30123cd4d080cd350e66bf4366f40fc5: /blog/images/2014/node.js_flamegraph_symbols_01113.svg
+---
+{% raw %}
+
+<p>CPU <a href="/flamegraphs.html">flame graphs</a> are a useful visualization application stack traces, allowing you to quickly identify and quantify what to tune to improve performance. For Node.js they have solved countless problems on systems which have DTrace for sampling stack traces. But what about Linux?</p>
+
+<p>At Netflix we have node.js in production at scale, on Linux instances in AWS EC2, and we create flame graphs using Linux <a href="/perf.html">perf_events</a> and v8's <a href="https://codereview.chromium.org/70013002">--perf-basic-prof option</a>. In this quick blog post, I'll share how it works and how you can do it, and what needs to be fixed to improve it further.</p>
+
+<h2>1. The problem</h2>
+
+<p>Using perf_events to profile CPU usage on node.js 0.10.23:</p>
+
+<p><object data="/images/brendangregg.com/da8a526902cf4e359d30f4104fbae443.svg" type="image/svg+xml" width="720" height="875">
+<img src="/images/brendangregg.com/da8a526902cf4e359d30f4104fbae443.jpg" width="720">
+</object></p>
+
+<p>It's interactive: mouse-over elements for details, and click the <a href="/blog/images/2014/node.js_flamegraph_nosymbols_01023.svg">SVG</a> to zoom. The <a href="/FlameGraphs/cpuflamegraphs.html">CPU flame graphs</a> page explains how to interpret these, and this was created using the instructions in the <a href="/FlameGraphs/cpuflamegraphs.html#perf">Linux perf section</a>.</p>
+
+<p>This flame graph is partially-useful, as I can see system and v8 library symbols. However, it is missing JavaScript symbols (the blank rectangles), since v8, like the JVM, compiles and places symbols just in time (JIT).</p>
+
+<h2>2. Linux perf_events JIT support</h2>
+
+<p>In 2009, Linux <a href="/perf.html">perf_events</a> added <a href="https://lkml.org/lkml/2009/6/8/499">JIT symbol support</a>, so that symbols from language virtual machines like the JVM could be inspected. It works in the following amazingly simple way:</p>
+
+<ol>
+<li>Your JIT application must be modified to create a /tmp/perf-<em>PID</em>.map file, which is a simple text database containing symbol addresses (in hex), sizes, and symbol names.</li>
+<li>That's it.</li>
+</ol>
+
+<p>perf already looks for the /tmp/perf-<em>PID</em>.map file, and if it finds it, it uses it for symbol translations. So only v8 needed to be modified.</p>
+
+<h2>3. v8 --perf-basic-prof support</h2>
+
+<p>In November 2013, <a href="https://codereview.chromium.org/70013002">v8 added perf_events support</a>, enabled using the --perf-basic-prof option. This made it into node v0.11.13. It works like this:</p>
+
+<pre>
+# <b>~/node-v0.11.13-linux-x64/bin/node --perf-basic-prof hello.js &amp;</b>
+[1] 31441
+# <b>ls -l /tmp/perf-31441.map</b>
+-rw-r--r-- 1 root root 81920 Sep 17 20:41 /tmp/perf-31441.map
+# <b>tail /tmp/perf-31441.map</b>
+14cec4db98a0 f Stub:BinaryOpICWithAllocationSiteStub(ADD_CreateAllocationMementos:String*Generic-&gt;String)
+14cec4db9920 f Stub:BinaryOpICWithAllocationSiteStub(ADD_CreateAllocationMementos:String*String-&gt;String)
+14cec4db99a0 f Stub:BinaryOpICWithAllocationSiteStub(ADD_CreateAllocationMementos:String*Smi-&gt;String)
+14cec4db9a20 22c LazyCompile:~nextTick node.js:389
+14cec4db9cc0 156 Stub:KeyedLoadElementStub
+14cec4db9e80 22 KeyedLoadIC:
+14cec4db9f20 22 KeyedLoadIC:
+14cec4db9fc0 56 Stub:DoubleToIStub
+14cec4dba080 10c Stub:KeyedStoreElementStub
+</pre>
+
+<p>This text file is what perf_events reads.</p>
+
+<h2>4. node.js Flame Graphs</h2>
+
+<p>Now that we have node 0.11.13+ running with --perf-basic-prof, we can create a flame graph using:</p>
+
+<pre>
+$ <b>sudo bash</b>
+# <b>perf record -F 99 -p `pgrep -n node` -g -- sleep 30</b>
+# <b>perf script &gt; out.nodestacks01</b>
+# <b>git clone --depth 1 http://github.com/brendangregg/FlameGraph</b>
+# <b>cd FlameGraph</b>
+# <b>./stackcollapse-perf.pl  ../out.nodestacks01.svg</b>
+</pre>
+
+<p>You can also use <a href="https://www.npmjs.org/package/stackvis">stackvis</a>, by Dave Pacheco, a node.js implementation which has extra features.</p>
+
+<p>Here's an example result:</p>
+
+<p><object data="/images/brendangregg.com/30123cd4d080cd350e66bf4366f40fc5.svg" type="image/svg+xml" width="720" height="788">
+<img src="/images/brendangregg.com/30123cd4d080cd350e66bf4366f40fc5.jpg" width="720">
+</object></p>
+
+<p>Note the JavaScript symbols are now readable. Click the <a href="/blog/images/2014/node.js_flamegraph_symbols_01113.svg">SVG</a> to zoom in. This actual flame graph isn't very interesting, as I'm just testing a dummy app to test out --perf-basic-prof.</p>
+
+<p>Thanks to <a href="https://twitter.com/trevnorris">Trevor Norris</a> for first posting the instructions for doing this in a short <a href="https://gist.github.com/trevnorris/9616784">gist</a>, which you may find useful to read. He also provides a script to facilitate this.</p>
+
+<h2>WARNING: map file growth</h2>
+
+<p>We can currently only use --perf-basic-prof for short periods (hours), due to <a href="https://code.google.com/p/v8/issues/detail?id=3453">bug 3453</a>: the perf.map file can grow endlessly, eating Gbytes in a few days. It looks like symbols are moving location (they are supposed to stay put with --perf-basic-prof), causing the map file to keep growing.</p>
+
+<p>So we can create flame graphs on Linux currently, but it will be ad hoc until that bug is fixed, and we can run with this option all the time.</p>
+
+<p>If this bug is a nuisance to you, too, and it isn't yet fixed, please upvote that bug! If it's too painful to wait for the fix, you could run on an OS with DTrace, where node.js stack profiling doesn't have this issue (or, at least, run a canary instance for performance analysis).</p>
+
+<h2>More</h2>
+
+<p>We're doing more at Netflix with node.js analysis. Stay tuned, and also see the <a href="http://techblog.netflix.com/">Netflix Tech Blog</a>.</p>
+
+{% endraw %}
