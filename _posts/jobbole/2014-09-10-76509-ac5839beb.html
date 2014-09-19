@@ -1,0 +1,181 @@
+---
+layout: post
+title: '由“香蕉”引出的字符串匹配算法的问题'
+time: 2014-09-10 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/76509/
+images:
+  8568d1238972a2aa2781ff5e17e52b73: http://ww4.sinaimg.cn/large/7cc829d3gw1ek6q87avkfj20gx08ygm5.jpg
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>这周的早些时候我注意到<a href="http://static.rust-lang.org/doc/master/std/str/trait.StrSlice.html" target="_blank">String slices in Rust</a>上的一些方法在文档里没有例子，所以我想试着写一些。第一个我打算为之写一个例子的方法是contains，contians可以测试一个字符串是否是另一个的子字符串。思索了一下我决定写一个像这样的例子：</p>
+<pre class="brush: actionscript3; gutter: true">“bananas”.contains(“nana”)</pre>
+<p>由于我从没有用过这个方法，我想确认这个方法是按照我预想的方式运行，所以我在http://play.rust-lang.org上试运行这个例子。</p>
+<p>返回的结果是false。</p>
+<p>在复核这个文档并尝试了其他例子（都运行正常）以后，我怀疑play.rust-lang.org的这个方法有一些奇怪的问题。我决定要在本地测试一下这个方法。结果一模一样。我下载了最新的Rust nightly并再次运行这个例子。Rust再一次通知我”bananas”不包含”nana”。</p>
+<p>我决定用”bananas”的每一个子字符串去检验contains，以证明事实上不是我在现实生活中突然忘了字母是如何工作的：</p>
+<pre class="brush: text; gutter: true">fn main() {
+    let b = "bananas";
+    for i in range(0, b.len()) {
+        for j in range(i, b.len() + 1) {
+            let curr = b.slice(i, j);
+            println!("{} - {}", b.contains(curr), curr);
+        }
+    }
+}</pre>
+<p>运行的结果是：</p>
+<pre class="brush: text; gutter: true">true - 
+true - b
+true - ba
+true - ban
+true - bana
+true - banan
+true - banana
+true - bananas
+true - 
+true - a
+true - an
+true - ana
+true - anan
+true - anana
+true - ananas
+true - 
+true - n
+true - na
+true - nan
+false - nana
+true - nanas
+true - 
+true - a
+true - an
+true - ana
+true - anas
+true - 
+true - n
+true - na
+true - nas
+true - 
+true - a
+true - as
+true - 
+true - s</pre>
+<p>“nana”是唯一”bananas”调用contains方法返回值为false的子字符串。</p>
+<p>我感到高兴起来，我发现了Rust字符串匹配的实现的bug。因为我那时在Hacker School，我也没有比花费一整天去捕获那些预发行的编程语言的标准库的隐藏的bug更好的事了。于是我决定修正这个bug。</p>
+<p>这个独特的问题是由两个独立的bugs导致的结果。包含<a href="https://github.com/rust-lang/rust/blob/c88feffde4f5043adf07a6837026f228e20b67e6/src/libcore/str.rs#L562-L576" target="_blank">第一个bug的代码</a>：</p>
+<pre class="brush: actionscript3; gutter: true">impl Searcher {
+    fn new(haystack: &amp;[u8], needle: &amp;[u8]) -&gt; Searcher {
+        // FIXME: Tune this.
+        if needle.len() &gt; haystack.len() - 20 {
+            Naive(NaiveSearcher::new())
+        } else {
+            let searcher = TwoWaySearcher::new(needle);
+            if searcher.memory == uint::MAX { // If the period is long
+                TwoWayLong(searcher)
+            } else {
+                TwoWay(searcher)
+            }
+        }
+    }
+}</pre>
+<p>这是一个Searcher的构造函数，用于执行字符串的匹配。这段代码的意图是当haystack（我们在这个字符串里搜索）的长度和needle（我们搜索的目标字符串）的长度之间的差距小于20的时候使用NaiveSearcher，否则使用TwoWaySearcher。（NaiveSearcher是一个简单字符串匹配算法的实现，）</p>
+<p>然而，当haystack.len()小于20的时候，haystack.len() – 20会变成一个很大的数，我们碰到了一个下溢的错误。当haystack的长度小于20的时候这个bug致使这段代码错误的调用了TwoWaySearcher，但是在”bananas”.contains(“nana”)这样特殊的情况下，解决方法是needle增加20上而不是haystack减去20：</p>
+<pre class="brush: actionscript3; gutter: true">if needle.len() + 20 &gt; haystack.len() {</pre>
+<p>我对第一个bug的修改请求<a href="https://github.com/rust-lang/rust/pull/16590" target="_blank">在这里</a>。</p>
+<p>如此上述修改仅仅通过这个方法调用一个不同的简单没有问题的字符串匹配算法就修正了我在”bananas”的例子发现的问题。但是在别的字符串匹配算法TwoWaySearcher上依然还有一个问题。如在例子”012345678901234567890anana”.contains(“nana”) 中的haystack大到足以调用TwoWaySearcher，但是任然返回false。</p>
+<p>这个问题证明更难精确度定位，我也不十分肯定我提交的修改是正确的，所以我就简略的说明一下吧。TwoWaySearcher是“Type-way algorithm“的实现的一种，最早的介绍在这篇论文里。通过阅读该论文和有精彩评论的glibc implementation of Two way algorithm。我注意到有一部分Rust的代码没有准确的匹配该论文提到的东西。你可以在这篇论文的p.670明确找到这个函数：</p>
+<p style="text-align: center;"><img id="pic" alt="" src="/images/jobbole.com/8568d1238972a2aa2781ff5e17e52b73.jpg"></p>
+<p style="text-align: center;">Small-Period函数的伪代码</p>
+<p>Two-Way算法需要两个字符串作为输入，一个是“haystack“，一个是”needle“，并试图在提供的haystack中找到needle第一次出现的起始位置。在这个特定算法中，第一步是以一种遵守确定规律的方式把”needle“变成两部分（就像，发现一对字符串(u,v),比如needle=u+v）。</p>
+<p>现在比较上面的伪代码和在Rust实现中的TwoWaySearcher Constructor的代码。</p>
+<pre class="brush: actionscript3; gutter: true">fn new(needle: &amp;[u8]) -&gt; TwoWaySearcher {
+    let (critPos1, period1) = TwoWaySearcher::maximal_suffix(needle, false);
+    let (critPos2, period2) = TwoWaySearcher::maximal_suffix(needle, true);
+
+    let critPos;
+    let period;
+    if critPos1 &gt; critPos2 {
+        critPos = critPos1;
+        period = period1;
+    } else {
+        critPos = critPos2;
+        period = period2;
+    }
+
+    let byteset = needle.iter()
+                        .fold(0, |a, &amp;b| (1 &lt;&lt; ((b &amp; 0x3f) as uint)) | a);
+
+    if needle.slice_to(critPos) == needle.slice_from(needle.len() - critPos) {
+        TwoWaySearcher {
+            critPos: critPos,
+            period: period,
+            byteset: byteset,
+
+            position: 0,
+            memory: 0
+        }
+    } else {
+        TwoWaySearcher {
+            critPos: critPos,
+            period: cmp::max(critPos, needle.len() - critPos) + 1,
+            byteset: byteset,
+
+            position: 0,
+            memory: uint::MAX // Dummy value to signify that the period is long
+        }
+    }
+}</pre>
+<p>特别注意在TwoWaySearcher::new()结尾处的if语句。第一分支使用period，第二分支使用max(critPos, needle.len() – critPos) + 1.这两行相当于上面伪代码的第5行和第6行。剩下的都匹配的相当好，if语句条件检查的异常：</p>
+<pre class="brush: actionscript3; gutter: true">needle.slice_to(critPos)==needle.slice_from(needl e.len() - critPos)</pre>
+<p>在类Python的伪代码中，这行代码是在检查if needle[:1] == needle[(n - 1):],我使用了1代替cirtPos，n代替needle的长度。与论文的代码相比较，论文代码规定我们需要检查needle[:1]是否是needle[1: (p+1)]的后缀，p是needle的后缀的period，这两个检查不是一样的。我严重怀疑是这段代码的问题。</p>
+<p>一个等价的检查是通过检查if needle[: 1] == needle[p: (p+1)]needle[:1]是否是needle[1: (p + 1)]的后缀。所以我猜我们需要在Rust中把if条件改成这样：</p>
+<pre class="brush: actionscript3; gutter: true">needle.slice_to(critPos) == needle.slice(period, period + critPos)</pre>
+<p>这个新的逻辑好像也与glibc实现匹配，因为two_way_long_needle函数有像下面的if语句：</p>
+<pre class="brush: actionscript3; gutter: true">/* Perform the search. Each iteration compares the right half
+     first. */
+  if (CMP_FUNC (needle, needle + period, suffix) == 0)
+    {
+      /* Entire needle is periodic; a mismatch can only advance by the
+     period, so use memory to avoid rescanning known occurrences
+     of the period.  */
+
+      ...
+
+    }
+  else
+    {
+      /* The two halves of needle are distinct; no extra memory is
+     required, and any mismatch results in a maximal shift.  */
+
+      ...
+
+    }</pre>
+<p>（你需要检查CMP_FUNC宏以便看看为什么它是一样的）。还有，在做完上述修改以后，所有上面失败的例子现在都正常运行了。</p>
+<p>我给这些修改做了一个open PR，由于我没有花时间完全理解这些算法所以我不能完全肯定它是正确的。</p>
+<p>有趣的是如果我没有注意到第一个bug，我也不会发现第二个。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}
