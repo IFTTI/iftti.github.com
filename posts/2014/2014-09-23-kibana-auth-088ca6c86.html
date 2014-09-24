@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>给 Kibana 实现百分比统计图表</title>
+    <title>Kibana 认证鉴权方案</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-05-17-implement-percentiles-aggregation-on-kibana-56567329d.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-09-23-kibana-auth-088ca6c86.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,95 +50,93 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>给 Kibana 实现百分比统计图表</h1>
-    <p class="meta"><span class="time">May 17, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/05/17/implement-percentiles-aggregation-on-kibana" target="_blank">[原文链接]</a></span></p>
+    <h1>Kibana 认证鉴权方案</h1>
+    <p class="meta"><span class="time">Sep 23, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/09/23/kibana-auth" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
-    <div style="background-color: #FFF;">
-    <p>kibana 图表类型中有个 stats 类型，返回对应请求的某指定数值字段的数学统计值，包括最大值、最小值、平均值、方差和标准差(当前通过 logstash-1.4.1 分发的 kibana 版本还只支持单列显示，前天，即 5 月 15 日刚<a href="http://www.elasticsearch.org/blog/kibana-3-1/">更新了 Kibana 3.1 版</a>，支持多列同时显示)。这个 stats 图表是利用 Elasticsearch 的 facets 功能来实现的。而在 Elasticsearch 1.0 版本以后，新出现了一个更细致的功能叫 aggregation，按照官方文档所说，会慢慢的彻底替代掉 facets。具体到 1.1 版本的时候， aggregation 里多了一项 percentile，可以具体返回某指定数值字段的区间分布情况。这对日志分析可是大有帮助。对这项功能，Elasticsearch 官方也很得意的专门在博客上写了一篇报道：<a href="http://www.elasticsearch.org/blog/averages-can-dangerous-use-percentile/">Averages can be misleading: try a percentile</a>。</p>
 
-<p>周五晚上下班前，我突然决定试试给 Kibana 加上 percentile 图表类型。因为群里正好携程的同学说到他们仿造 trend 类型做了 stat_trend 图表，我想 percentile 从数据结构到展示方法跟 stats 都很像，应该难度不大，正好作为学习 angularjs 的入手点好了。</p>
-
-<p>花了半天多的时间，基本搞定这件事情，中间几度碰到难题，这里记录一下：</p>
-
-<h1 id="kibana-31--elasticjs-">kibana 3.1 中的 elasticjs 版本</h1>
-
-<p>这是一个非常非常坑爹的地方，kibana/src/vendor/elasticjs/elastic.js 文件开头写着版本号是 <code>v1.1.1</code>，但是其实它是大半年前(2013-08-14)的。而实际它加上 aggregation 支持的时间是今年的 3 月 16 号，最近版本是 3 月 21 号发布的 ——但是版本号依然是 <code>v1.1.1</code>！！</p>
-
-<p>我在昨天晚上花了一个多小时慢慢看完了 elasticjs 官网上 v1.1.1 的<a href="http://docs.fullscale.co/elasticjs/ejs.FilterAggregation.html">接口说明</a>，结果其实在 kibana3.1 自带的 elasticjs 上完全不可用。</p>
-
-<h1 id="elasticjs-">elasticjs 新版用法</h1>
-
-<p>随后我替换成了最新的 elasticjs 文件，结果依然不可用，仔细看过文档后发现，新的 elasticjs 只专心处理请求的 DSL，把客户端初始化、配置、收发等事情都交给了 Elasticsearch 官方发布的 elasticsearch.js 来完成。原先版本自带的 elastic-angular-client.js 压根就没用了。</p>
-
-<p>变动大成这样了，居然还不改版本号！？！？</p>
-
-<h1 id="elasticsearchjs-">elasticsearch.js 的多层目录</h1>
-
-<p>下载了 elasticsearch.js 源码后，发现目录里有一个 elasticsearch.angular.client.js 文件，于是我很开心的想，官方考虑的还是很周全的嘛！然后花了一阵功夫在 kibana/src/app/app.js、kibana/src/app/components/require.config.js 等各处添加上了这个 elasticsearch 模块。结果依然不可用。</p>
-
-<p>原来整个 elasticsearch.js 把功能模块化拆分到了很多个不同的多层次的目录里，然后相互之间广泛采用类似 <code>require('../lib/util/')</code> 这样的语句进行加载。</p>
-
-<p>但是：Kibana 采用的是 requirejs 和 angularjs 合作的模式，整个 js 库的加载过程完全在 kibana/src/app/components/require.config.js 一个文件里定义，你可以看到这个文件里就写了很多 jquery 的子项目文件，但是这些文件都是平铺在 kibana/src/vendor/jquery/ 这个目录里的。</p>
-
-<p>所以，即便在 require.config.js 里写了 elasticsearh 也没用，文件里的 require 语句依然是报错的。而且再往下的压根没法继续添加到 require.config.js 里了，因为太复杂了，肯定得修改 elasticsearch.js 源码的各个文件。</p>
-
-<p>总的来说，就是 elasticsearch.js 不适合跟 requirejs 一起工作。</p>
-
-<hr>
-
-<p>至此，简单更新 js 库然后调用现成接口的计划完全破产。</p>
-
-<p>感谢 Elasticsearch 本身就是一个 RESTful 接口，所以还剩下一个不太漂亮但是确实好用的办法，那就是自己组装请求数据，直接通过 angularjs 内置的 <code>$http</code> 收发。</p>
-
-<h1 id="aggregationname-">aggregation_name 的限制</h1>
-
-<p>angularjs 的 <code>$http.post</code> 使用跟 jquery 的 <code>$.post</code> 非常类似，所以写起来难度不大，确定这个思路之后唯一碰到的问题却是 Elasticsearch 本身的新限制。</p>
-
-<p>目前 Kibana 里都是以 alias 形式来区分每一个子请求的，具体内容是 <code>var alias = q.alias || q.query;</code>，即在页面上搜索框里写的查询语句或者是搜索框左侧色彩设置菜单里的 <code>Legend value</code>。</p>
-
-<p>比如我的场景下，<code>q.query</code> 是 “xff:10.5.16.*“，<code>q.alias</code> 是”教育网访问”。那么最后发送的请求里这条过滤项的 <code>facets_name</code> 就叫 “stats_教育网访问”。</p>
-
-<p>同样的写法迁移到 aggregation 上就完全不可解析了。<strong>服务器会返回一条报错说：<code>aggregation_name</code> 只能是字母、数字、<code>_</code> 或者 <code>-</code> 四种。</strong></p>
-
-<p>(这里比较怪的是抓包看到 facets 其实也报错说请求内容解析失败，但是居然同时也返回了结果，只能猜测目前是处在一种兼容状态？)</p>
-
-<p>于是这里稍微修改了一下逻辑，把 <code>queries</code> 数组的 <code>_.each</code> 改用 <code>$.each</code> 来做，这样回调函数里不单返回数组元素，还返回数组下标，下标是一定为数字的，就可以以数组下标作为 <code>aggregation_name</code> 了。后面处理结果的 <code>queries.map</code> 同样以下标来获取即可。</p>
-
-<p>目前效果图如下：</p>
-
-<p><img src="/images/uploads/kibana-percentile.png" alt=""></p>
-
-<p>我的改动已经上传到 <a href="https://github.com/chenryn/kibana/commit/c27b44996bff575886041e0f4f800fda04fbdbde">github</a> 上，欢迎大家一起改进。</p>
-
-<p>目前的问题有两个：图表里的列排序功能不可用，还没找到原因；percents 值还没在 editor.html 里提供自定义办法。</p>
-
-<hr>
-
-<p>2014.05.26 更新： percents 值已经可以自定义</p>
-
-<hr>
-
-<p>2014.06.06 更新： 排序功能可用。原因是 elasticsearch 不管你提交的 percents 带不带小数点，返回值里都会保留小数点后一位，而在 <code>sortBy</code> 里头，这个小数点就会被理解成 javascript 里获取数据结构键值的意思。所以收到响应后，用 <code>parseInt</code> 函数干掉小数点就可以了。</p>
-
+  <div style="background-color: #FFF;">
+    <p>Kibana 作为一个纯 JS 项目，一直都没有提供完整的权限控制方面的功能。只是附带了一个 <code>nginx.conf</code> 做基本的 Basic Auth。社区另外有在 nodejs 上实现的方案，则使用了 CAS 方式做认证。</p>
+<p>不过我对这两种方案都不太满意。</p>
+<ol>
+  <li>认证方式太单一，适应性不强；</li>
+  <li>权限隔离不明确，只是通过修改 <code>kibana-int</code> 成 <code>kiban-int-user</code> 来区分不同用户的 dashboard，并不能限制用户对 ES 索引的访问。</li>
+</ol>
+<p>加上 nodejs 我也不熟，最终在多番考虑后，决定抽一个晚上自己写一版。</p>
+<p>最终代码见 <a href="https://github.com/chenryn/kibana">https://github.com/chenryn/kibana</a>。</p>
+<h2 id="section">原理和实现</h2>
+<ol>
+  <li>
+    <p>全站代理和虚拟响应</p>
+    <p>这里不单通过 config.js 限定了 kibana 默认连接的 Elasticsearch 服务器地址和端口，还拦截伪造了 <code>/_nodes</code> 请求的 JSON 响应体。伪造的响应中也只包含自己这个带认证的 web 服务器地址和端口。</p>
+    <p><em>这么做是因为我的 kibana 版本使用的 elasticjs 库比官方新增了 sniff 功能，默认会自动轮训所有 nodes 发送请求。</em></p>
+  </li>
+  <li>
+    <p>新增 <code>kibana-auth</code> 鉴权索引</p>
+    <p>在通常的 <code>kibana-int-user</code> 区分 dashboard 基础上，我新增加 <code>kibana-auth</code> 索引，专门记录每个用户可以访问的 ES 集群地址和索引前缀。请求会固定代理到指定的 ES 集群上，并且确认是被允许访问的索引。</p>
+    <p>这样，多个用户通过一个 kibana auth 服务器网址，可以访问多个不同的 ES 集群后端。而同一个 ES 集群后端的索引，也不用担心被其他人访问到。</p>
+  </li>
+  <li>
+    <p><a href="https://metacpan.org/pod/Authen::Simple">Authen::Simple</a> 认证框架</p>
+    <p>这是 Perl 一个认证框架，支持十多种不同的认证方式。项目里默认采用最简单的 htpasswd 文件记录方式，实际我线上是使用了 LDAP 方式，都没问题。</p>
+  </li>
+</ol>
+<h2 id="section-1">部署</h2>
+<p>方案采用了 Mojolicious 框架开发，代码少不说，最关键的是 Mojolicious 无额外的 CPAN 模块依赖，这对于不了解 Perl 但是又有 Kibana 权限控制需求的人来说，大大减少了部署方面的麻烦。</p>
+<p><code>
+curl http://xrl.us/cpanm -o /usr/local/bin/cpanm
+chmod +x /usr/local/bin/cpanm
+cpanm Mojolicious Authen::Simple::Passwd
+</code></p>
+<p>三行命令，就可以完成整个项目的安装需求了。然后运行目录下的:</p>
+<p><code>
+hypnotoad script/kbnauth
+</code></p>
+<p>就可以通过 80 端口访问这个带有权限控制的 kibana 了。</p>
+<h2 id="section-2">权限赋值</h2>
+<p>因为 <code>kibana-auth</code> 结构很简单，kibana 一般又都是内部使用，所以暂时还没做权限控制的管理页面。直接通过命令行方式即可赋权：</p>
+<p><code>
+curl  -XPOST http://127.0.0.1:9200/kibana-auth/indices/sri -d '{
+  "prefix":["logstash-sri","logstash-ops"],
+  "server":"192.168.0.2:9200"
+}'
+</code></p>
+<p>这样，sri 用户，就只能访问 192.168.0.2 集群上的 logstash-sri 或 logstash-ops 开头的日期型索引(即后面可以-YYYY, -YYYY.MM, -YYYY.MM.dd 三种格式)了。</p>
+<h2 id="section-3">下一步</h2>
+<p>考虑到新方案下各用户都有自己的 <code>kibana-int-user</code> 索引，已经用着官方 kibana 的用户大批量的 dashboard 有迁移成本，找个时间可能做一个迁移脚本辅助这个事情。</p>
+<p>开发完成后，得到了 <a href="http://weibo.com/u/1808998161">@高伟</a> 童鞋的主动尝试和各种 bug 反馈支持，在此表示感谢~也希望我这个方案能帮到更多 kibana 用户。</p>
+<p><strong>注：我的 kibana 仓库除了新增的这个 kbnauth 代理认证鉴权功能外，本身在 kibana 分析统计功能上也有一些改进，这方面已经得到多个小伙伴的试用和好评，自认在官方 Kibana v4 版本出来之前，应该会是最好用的版本。欢迎大家下载使用！</strong></p>
+<p>新增功能包括：</p>
+<ol>
+  <li>仿 stats 的百分比统计面板(利用 PercentileAggr 接口)</li>
+  <li>仿 terms 的区间比面板(利用 RangeFacets 接口)</li>
+  <li>给 bettermap 增强的高德地图支持(利用 leaflet provider 扩展)</li>
+  <li>给 map 增强的中国地图支持(利用 jvectormap 文件)</li>
+  <li>给 map 增强的 <code>term_stats</code> 数据显示(利用 TermStatsFacets 接口)</li>
+  <li>给 query 增强的请求生成器(利用 getMapping/getFieldMapping 接口和 jQuery.multiSelect 扩展)</li>
+  <li>仿 terms 的 statisticstrend 面板(利用 TermStatsFacets 接口)</li>
+  <li>仿 histogram 增强的 multifieldhistogram 面板(可以给不同query定制不同的panel setting，比如设置某个抽样数据 * 1000 倍和另一个全量数据做对比)</li>
+  <li>仿 histogram 的 valuehistogram 面板(去除了 histogram 面板的 X 轴时间类型数据限制，可以用于做数据概率分布分析)</li>
+  <li>给 histogram 增强的 threshold 变色功能(利用了 <code>jquery.flot.threshold</code> 扩展)</li>
+  <li>单个面板自己的刷新按钮(避免调试的时候全页面刷新的麻烦)</li>
+</ol>
+<p>效果截图同样在 <a href="https://github.com/chenryn/kibana/blob/master/README.md">README</a> 里贴出。欢迎试用和反馈！</p>
     <hr>
 
     <hr>
-
   <!-- UY BEGIN -->
 
 <!-- UY END -->
-
   </div>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-05-17-free-as-in-we-own-your-ip.html-c85e758cc.html" title="Previous Post: Free, as in, We Own Your IP" data-instant>&laquo; Free, as in, We Own Your IP</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-09-17-node-flame-graphs-on-linux.html-fd5090be6.html" title="Previous Post: node.js Flame Graphs on Linux" data-instant>&laquo; node.js Flame Graphs on Linux</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-05-20-my-first-experience-of-perlxs-f76729254.html" title="Next Post: XS 初体验" data-instant>XS 初体验 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-09-24-howto-use-custom-rubygem-in-logstash-205f7f438.html" title="Next Post: 在 logstash 里使用其他 RubyGems 模块" data-instant>在 logstash 里使用其他 RubyGems 模块 &raquo;</a>
 
 </div>
   <div id="related">
@@ -147,9 +145,9 @@
 
       <li><span>18 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-18-intro-range-facet-and-implement-panel-for-it-9f5a65b7a.html">用 ES 的 RangeFacets 接口实现一个查看区间占比的 Kibana 面板 </a></li>
 
-      <li><span>04 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-04-elasticsearch-direct-to-skyline-f6d51c10e.html">直接从 elasticsearch 获取数据进入 skyline 异常检测</a></li>
+      <li><span>07 Mar 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-03-07-howto-search-dynamic-url-in-elasticsearch-866359845.html">如何搜索 Elasticsearch 中存储的动态请求 URL</a></li>
 
-      <li><span>23 Sep 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-09-23-kibana-auth-088ca6c86.html">Kibana 认证鉴权方案</a></li>
+      <li><span>29 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html">山寨一个 Splunk 的 source 上下文查看功能</a></li>
 
   </ul>
 </div>
