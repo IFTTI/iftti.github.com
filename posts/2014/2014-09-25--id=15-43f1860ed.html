@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Building assert() in Swift, Part 1: Lazy Evaluation</title>
+    <title>Building assert() in Swift, Part 2: __FILE__ and __LINE__</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-07-18--id=4-6372976f7.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-09-25--id=15-43f1860ed.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,32 +50,67 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>Building assert() in Swift, Part 1: Lazy Evaluation</h1>
-    <p class="meta"><span class="time">Jul 18, 2014</span><span class="source_url"> • 来自 developer.apple.com/swift/blog <a name="developer.apple.com/swift/blog" href="https://developer.apple.com/swift/blog/?id=4" target="_blank">[原文链接]</a></span></p>
+    <h1>Building assert() in Swift, Part 2: __FILE__ and __LINE__</h1>
+    <p class="meta"><span class="time">Sep 25, 2014</span><span class="source_url"> • 来自 developer.apple.com/swift/blog <a name="developer.apple.com/swift/blog" href="https://developer.apple.com/swift/blog/?id=15" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-assert()
+						<p>Two occasionally useful features of C are the <span class="keyword">__FILE__</span> and <span class="keyword">__LINE__</span> magic macros. These are built into the preprocessor, and expanded out before the C parser is run. Despite not having a preprocessor, Swift provides very similar functionality with similar names, but Swift works quite differently under the covers.</p>
+<h3>Built-In Identifiers</h3>
+<p>As described in <a href="http://developer.apple.com/library/prerelease/ios/documentation/swift/conceptual/swift_programming_language/LexicalStructure.html">the Swift programming guide</a>, Swift has a number of built-in identifiers, including  <span class="keyword">__FILE__</span>, <span class="keyword">__LINE__</span>, <span class="keyword">__COLUMN__</span>, and <span class="keyword">__FUNCTION__</span>. These expressions can be used anywhere and are expanded by the parser to string or integer literals that correspond to the current location in the source code. This is incredibly useful for manual logging, e.g. to print out the current position before quitting.</p>
+<p>However, this doesn’t help us in our quest to implement <span class="keyword">assert()</span>.  If we defined assert like this:</p>
+<pre><code><span class="key">func</span> assert(predicate : <span class="key">@autoclosure</span> () -&gt; <span class="title">Bool</span>) { 
+	<span class="preprocessor">#if DEBUG</span>
+		<span class="key">if</span> !predicate() {
+			<span class="method">println</span>(<span class="string">"assertion failed at</span> \(<span class="key">__FILE__</span>)<span class="string">:</span>\(<span class="key">__LINE__</span>)<span class="string">"</span>)
+			abort()
+		}
+	<span class="preprocessor">#endif</span>
+}</code></pre>
+
+<p>The above code would print out of the file/line location that implements <span class="keyword">assert()</span> itself, not the location from the caller. That isn’t helpful.</p>
+<h3>Getting the location of a caller</h3>
+<p>Swift borrows a clever feature from the D language: these identifiers expand to the location of the caller <em>when evaluated in a default argument list</em>.  To enable this behavior, the <span class="keyword">assert()</span> function is defined something like this:</p>
+<pre><code><span class="key">func</span> assert(condition: <span class="key">@autoclosure</span> () -&gt; <span class="title">Bool</span>, <span class="key">_</span> message: <span class="title">String</span> =<span class="string"> ""</span>,
+	file: <span class="title">String</span> = <span class="key">__FILE__</span>, line: <span class="title">Int</span> = <span class="key">__LINE__</span>) {
+		<span class="preprocessor">#if DEBUG</span>
+			<span class="key">if</span> !condition() {
+				println(<span class="string">"assertion failed at</span> \(file)<span class="string">:</span>\(line)<span class="string">:</span> \(message)<span class="string">"</span>)
+				abort()
+			}
+		<span class="preprocessor">#endif</span>
+}</code></pre>
+
+<p>The second parameter to the Swift <span class="keyword">assert()</span> function is an optional string that you can specify, and the third and forth arguments are defaulted to be the position in the caller’s context.  This allows <span class="keyword">assert()</span> to pick up the source location of the caller by default, and if you want to define your own abstractions on top of assert, you can pass down locations from its caller.  As a trivial example, you could define a function that logs and asserts like this:</p>
+<pre><code><span class="key">func</span> logAndAssert(condition: <span class="key">@autoclosure</span> () -&gt; <span class="title">Bool</span>, <span class="key">_</span> message: <span class="title">StaticString</span> = <span class="string">""</span>,
+	file: <span class="title">StaticString</span> = <span class="key">__FILE__</span>, line: <span class="title">UWord</span> = <span class="key">__LINE__</span>) {
+
+	logMessage(message)
+	<span class="method">assert</span>(condition, message, file: file, line: line)
+}</code></pre>
+
+<p>This properly propagates the file/line location of the <span class="keyword">logAndAssert()</span> caller down to the implementation of <span class="keyword">assert()</span>. Note that <span class="keyword">StaticString</span>, as shown in the code above, is a simple <span class="nowrap">String-like</span> type used to store a string literal, such as one produced by <span class="keyword">__FILE__</span>, with no <span class="nowrap">memory-management</span> overhead.</p>
+<p>In addition to being useful for <span class="keyword">assert()</span>, this functionality is used in the Swift implementation of the higher-level XCTest framework, and may be useful for your own libraries as well.</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-07-17-73701-418acf0a6.html" title="Previous Post: React 的 diff 算法" data-instant>&laquo; React 的 diff 算法</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-09-24-python%25e8%2587%25aa%25e7%2584%25b6%25e8%25af%25ad%25e8%25a8%2580%25e5%25a4%2584%25e7%2590%2586%25e5%25ae%259e%25e8%25b7%25b5-%25e5%259c%25a8nltk%25e4%25b8%25ad%25e4%25bd%25bf%25e7%2594%25a8%25e6%2596%25af%25e5%259d%25a6%25e7%25a6%258f%25e4%25b8%25ad%25e6%2596%2587%25e5%2588%2586%25e8%25af%258d%25e5%2599%25a8-5dd26d0a5.html" title="Previous Post: Python自然语言处理实践: 在NLTK中使用斯坦福中文分词器" data-instant>&laquo; Python自然语言处理实践: 在NLTK中使用斯坦福中文分词器</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-07-19-73517-816d30f94.html" title="Next Post: 击败二分检索算法——插值检索、快速检索" data-instant>击败二分检索算法——插值检索、快速检索 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-09-25--p=1608-f99e3b74d.html" title="Next Post: 数据库优化案例（一）" data-instant>数据库优化案例（一） &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>31 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-31-%25e4%25bc%2598%25e5%258c%2596%25e4%25bd%25a0%25e7%259a%2584css.html-2280d8aae.html">优化你的css</a></li>
+      <li><span>05 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-05--id=8-1cf8664dd.html">Boolean</a></li>
 
-      <li><span>25 Sep 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-09-25--id=15-43f1860ed.html">Building assert() in Swift, Part 2: __FILE__ and __LINE__</a></li>
+      <li><span>01 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-01--id=7-a729c023e.html">Files and Initialization</a></li>
 
-      <li><span>19 Mar 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-03-19-2013-03-19-gerrit-review-system-management.html-66ca95e42.html">Gerrit代码评审的权限管理</a></li>
+      <li><span>28 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-28--id=6-ea85867c5.html">Interacting with C Pointers</a></li>
 
   </ul>
 </div>
