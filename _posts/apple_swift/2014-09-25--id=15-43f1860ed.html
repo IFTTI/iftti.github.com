@@ -1,0 +1,50 @@
+---
+layout: post
+title: 'Building assert() in Swift, Part 2: __FILE__ and __LINE__'
+time: 2014-09-25 00:00:00 +0800
+site_name: developer.apple.com/swift/blog
+source_url: https://developer.apple.com/swift/blog/?id=15
+---
+{% raw %}
+
+						
+						
+
+						<p>Two occasionally useful features of C are the <span class="keyword">__FILE__</span> and <span class="keyword">__LINE__</span> magic macros. These are built into the preprocessor, and expanded out before the C parser is run. Despite not having a preprocessor, Swift provides very similar functionality with similar names, but Swift works quite differently under the covers.</p>
+<h3>Built-In Identifiers</h3>
+<p>As described in <a href="http://developer.apple.com/library/prerelease/ios/documentation/swift/conceptual/swift_programming_language/LexicalStructure.html">the Swift programming guide</a>, Swift has a number of built-in identifiers, including  <span class="keyword">__FILE__</span>, <span class="keyword">__LINE__</span>, <span class="keyword">__COLUMN__</span>, and <span class="keyword">__FUNCTION__</span>. These expressions can be used anywhere and are expanded by the parser to string or integer literals that correspond to the current location in the source code. This is incredibly useful for manual logging, e.g. to print out the current position before quitting.</p>
+<p>However, this doesn’t help us in our quest to implement <span class="keyword">assert()</span>.  If we defined assert like this:</p>
+<pre><code><span class="key">func</span> assert(predicate : <span class="key">@autoclosure</span> () -&gt; <span class="title">Bool</span>) { 
+	<span class="preprocessor">#if DEBUG</span>
+		<span class="key">if</span> !predicate() {
+			<span class="method">println</span>(<span class="string">"assertion failed at</span> \(<span class="key">__FILE__</span>)<span class="string">:</span>\(<span class="key">__LINE__</span>)<span class="string">"</span>)
+			abort()
+		}
+	<span class="preprocessor">#endif</span>
+}</code></pre>
+<p>The above code would print out of the file/line location that implements <span class="keyword">assert()</span> itself, not the location from the caller. That isn’t helpful.</p>
+<h3>Getting the location of a caller</h3>
+<p>Swift borrows a clever feature from the D language: these identifiers expand to the location of the caller <em>when evaluated in a default argument list</em>.  To enable this behavior, the <span class="keyword">assert()</span> function is defined something like this:</p>
+<pre><code><span class="key">func</span> assert(condition: <span class="key">@autoclosure</span> () -&gt; <span class="title">Bool</span>, <span class="key">_</span> message: <span class="title">String</span> =<span class="string"> ""</span>,
+	file: <span class="title">String</span> = <span class="key">__FILE__</span>, line: <span class="title">Int</span> = <span class="key">__LINE__</span>) {
+		<span class="preprocessor">#if DEBUG</span>
+			<span class="key">if</span> !condition() {
+				println(<span class="string">"assertion failed at</span> \(file)<span class="string">:</span>\(line)<span class="string">:</span> \(message)<span class="string">"</span>)
+				abort()
+			}
+		<span class="preprocessor">#endif</span>
+}</code></pre>
+<p>The second parameter to the Swift <span class="keyword">assert()</span> function is an optional string that you can specify, and the third and forth arguments are defaulted to be the position in the caller’s context.  This allows <span class="keyword">assert()</span> to pick up the source location of the caller by default, and if you want to define your own abstractions on top of assert, you can pass down locations from its caller.  As a trivial example, you could define a function that logs and asserts like this:</p>
+<pre><code><span class="key">func</span> logAndAssert(condition: <span class="key">@autoclosure</span> () -&gt; <span class="title">Bool</span>, <span class="key">_</span> message: <span class="title">StaticString</span> = <span class="string">""</span>,
+	file: <span class="title">StaticString</span> = <span class="key">__FILE__</span>, line: <span class="title">UWord</span> = <span class="key">__LINE__</span>) {
+
+	logMessage(message)
+	<span class="method">assert</span>(condition, message, file: file, line: line)
+}</code></pre>
+<p>This properly propagates the file/line location of the <span class="keyword">logAndAssert()</span> caller down to the implementation of <span class="keyword">assert()</span>. Note that <span class="keyword">StaticString</span>, as shown in the code above, is a simple <span class="nowrap">String-like</span> type used to store a string literal, such as one produced by <span class="keyword">__FILE__</span>, with no <span class="nowrap">memory-management</span> overhead.</p>
+<p>In addition to being useful for <span class="keyword">assert()</span>, this functionality is used in the Swift implementation of the higher-level XCTest framework, and may be useful for your own libraries as well.</p>
+
+						
+												
+											
+{% endraw %}

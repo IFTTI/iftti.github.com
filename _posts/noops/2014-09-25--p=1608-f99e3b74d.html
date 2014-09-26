@@ -1,0 +1,277 @@
+---
+layout: post
+title: '数据库优化案例（一）'
+time: 2014-09-25 02:40:00 +0800
+site_name: noops.me
+source_url: http://noops.me/?p=1608
+---
+{% raw %}
+
+                <h1 id="-"></h1>
+<h3 id="-">现象：</h3>
+<ol>
+<li>程序大量SQL运行超时;</li>
+<li>数据库中大量SQL长时间处于Updating阶段；</li>
+</ol>
+<h3 id="-">初步检查：</h3>
+<ol>
+<li>查看系统状态，CPU有24个核，只有一个核user利用率100%，其余核的idle基本上100%；</li>
+<li>内存、IO.util都正常；</li>
+<li>查看processlist，所有UPDATE语句长时间处于Updating阶段，其它类型的SQL没有Block或者运行缓慢现象；</li>
+</ol>
+<h3 id="-">进一步排查：</h3>
+<ol>
+<li>分析运行缓慢的SQL，发现运行缓慢的Update语句操作的都是同一张表；</li>
+<li>执行缓慢的Update语句总共有两类：一类是通过主键更新一行数据；另一类是根据状态字段批量更新数据；Schema和SQL示例如下：</li>
+</ol>
+<p></p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-542531c3c2293" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+&lt;code&gt;-- Schema
+CREATE TABLE `general_mail` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) unsigned NOT NULL DEFAULT '0',
+  `value` text NOT NULL,
+  `status` tinyint(4) unsigned NOT NULL DEFAULT '0',
+  `type` tinyint(4) unsigned NOT NULL DEFAULT '0',
+    ......
+  PRIMARY KEY (`id`),
+  KEY `idx_status_type` (`status`,`type`),
+) ENGINE=InnoDB;
+
+-- 根据主键进行更新
+UPDATE tbl_A SET status=N, value='.....', user_id=N WHERE id = N;
+
+-- 根据状态进行更新
+UPDATE tbl_A SET status=N WHERE (status=N or status=N) and user_id=N limit N;
+&lt;/code&gt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-542531c3c2293-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-2">2</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-4">4</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-6">6</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-8">8</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-10">10</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-12">12</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-14">14</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-16">16</div>
+<div class="crayon-num" data-line="crayon-542531c3c2293-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2293-18">18</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-542531c3c2293-1">
+<span class="o">&lt;</span><span class="i">code</span><span class="o">&gt;</span><span class="o">--</span><span class="h"> </span><span class="e">Schema</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-2">
+<span class="e">CREATE </span><span class="i">TABLE</span><span class="h"> </span><span class="sy">`</span><span class="i">general_mail</span><span class="sy">`</span><span class="h"> </span><span class="sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2293-3">
+<span class="h">  </span><span class="sy">`</span><span class="i">id</span><span class="sy">`</span><span class="h"> </span><span class="e">bigint</span><span class="sy">(</span><span class="cn">20</span><span class="sy">)</span><span class="h"> </span><span class="t">unsigned</span><span class="h"> </span><span class="st">NOT</span><span class="h"> </span><span class="t">NULL</span><span class="h"> </span><span class="i">AUTO_INCREMENT</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-4">
+<span class="h">  </span><span class="sy">`</span><span class="i">user_id</span><span class="sy">`</span><span class="h"> </span><span class="e">bigint</span><span class="sy">(</span><span class="cn">20</span><span class="sy">)</span><span class="h"> </span><span class="t">unsigned</span><span class="h"> </span><span class="st">NOT</span><span class="h"> </span><span class="t">NULL</span><span class="h"> </span><span class="st">DEFAULT</span><span class="h"> </span><span class="s">'0'</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2293-5">
+<span class="h">  </span><span class="sy">`</span><span class="i">value</span><span class="sy">`</span><span class="h"> </span><span class="e">text </span><span class="st">NOT</span><span class="h"> </span><span class="t">NULL</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-6">
+<span class="h">  </span><span class="sy">`</span><span class="i">status</span><span class="sy">`</span><span class="h"> </span><span class="e">tinyint</span><span class="sy">(</span><span class="cn">4</span><span class="sy">)</span><span class="h"> </span><span class="t">unsigned</span><span class="h"> </span><span class="st">NOT</span><span class="h"> </span><span class="t">NULL</span><span class="h"> </span><span class="st">DEFAULT</span><span class="h"> </span><span class="s">'0'</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2293-7">
+<span class="h">  </span><span class="sy">`</span><span class="i">type</span><span class="sy">`</span><span class="h"> </span><span class="e">tinyint</span><span class="sy">(</span><span class="cn">4</span><span class="sy">)</span><span class="h"> </span><span class="t">unsigned</span><span class="h"> </span><span class="st">NOT</span><span class="h"> </span><span class="t">NULL</span><span class="h"> </span><span class="st">DEFAULT</span><span class="h"> </span><span class="s">'0'</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-8">
+<span class="h">    </span><span class="sy">.</span><span class="sy">.</span><span class="sy">.</span><span class="sy">.</span><span class="sy">.</span><span class="sy">.</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2293-9">
+<span class="h">  </span><span class="e">PRIMARY </span><span class="e">KEY</span><span class="h"> </span><span class="sy">(</span><span class="sy">`</span><span class="i">id</span><span class="sy">`</span><span class="sy">)</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-10">
+<span class="h">  </span><span class="i">KEY</span><span class="h"> </span><span class="sy">`</span><span class="i">idx_status_type</span><span class="sy">`</span><span class="h"> </span><span class="sy">(</span><span class="sy">`</span><span class="i">status</span><span class="sy">`</span><span class="sy">,</span><span class="sy">`</span><span class="i">type</span><span class="sy">`</span><span class="sy">)</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2293-11">
+<span class="sy">)</span><span class="h"> </span><span class="v">ENGINE</span><span class="o">=</span><span class="i">InnoDB</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-12"> </div>
+<div class="crayon-line" id="crayon-542531c3c2293-13">
+<span class="o">--</span><span class="h"> </span>根据主键进行更新</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-14">
+<span class="e">UPDATE </span><span class="e">tbl_A </span><span class="e">SET </span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="sy">,</span><span class="h"> </span><span class="v">value</span><span class="o">=</span><span class="s">'.....'</span><span class="sy">,</span><span class="h"> </span><span class="v">user_id</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="e">WHERE </span><span class="v">id</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">N</span><span class="sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2293-15"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-16">
+<span class="o">--</span><span class="h"> </span>根据状态进行更新</div>
+<div class="crayon-line" id="crayon-542531c3c2293-17">
+<span class="e">UPDATE </span><span class="e">tbl_A </span><span class="e">SET </span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="e">WHERE</span><span class="h"> </span><span class="sy">(</span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="st">or</span><span class="h"> </span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="sy">)</span><span class="h"> </span><span class="st">and</span><span class="h"> </span><span class="v">user_id</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="i">limit</span><span class="h"> </span><span class="i">N</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2293-18">
+<span class="o">&lt;</span><span class="o">/</span><span class="i">code</span><span class="o">&gt;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0059 seconds] -->
+<p>基本可以推测是根据状态字段更新数据的SQL导致的问题。进一步查看INNODB STATUS，发现如下记录：</p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-542531c3c2345" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+&lt;code&gt;------------------
+---TRANSACTION 43DF0254C, ACTIVE 51 sec updating or deleting
+mysql tables in use 1, locked 1
+LOCK WAIT 3 lock struct(s), heap size 1248, 2 row lock(s), undo log entries 1
+MySQL thread id 118879, OS thread handle 0x7f51950b6700, query id 18995841 10.0.0.0 mysql_user Updating
+UPDATE tbl_A SET status=N, value='.....', user_id=N WHERE id = N
+------- TRX HAS BEEN WAITING 51 SEC FOR THIS LOCK TO BE GRANTED:
+RECORD LOCKS space id 2186 page no 188857 n bits 688 index `idx_status_type` of table `db`.`tbl_A` trx id 43DF0254C lock_mode X locks gap before rec insert intention waiting
+Record lock, heap no 497 PHYSICAL RECORD: n_fields 3; compact format; info bits 0
+ 0: len 1; hex 02; asc  ;;
+ 1: len 1; hex 01; asc  ;;
+ 2: len 8; hex 00000000011c1f0f; asc         ;;
+
+------------------
+---TRANSACTION 43DF0216B, ACTIVE 65 sec fetching rows, thread declared inside InnoDB 155
+mysql tables in use 1, locked 1
+794767 lock struct(s), heap size 71694776, 13900037 row lock(s)
+MySQL thread id 118812, OS thread handle 0x7f51951dc700, query id 18995134 10.0.0.1 mysql_user Searching rows for update
+UPDATE tbl_A SET status=N WHERE (status=N or status=N) and user_id=N limit N
+&lt;/code&gt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-542531c3c2345-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-2">2</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-4">4</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-6">6</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-8">8</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-10">10</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-12">12</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-14">14</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-16">16</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-18">18</div>
+<div class="crayon-num" data-line="crayon-542531c3c2345-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-542531c3c2345-20">20</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-542531c3c2345-1">
+<span class="o">&lt;</span><span class="i">code</span><span class="o">&gt;</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-2">
+<span class="o">--</span><span class="o">-</span><span class="i">TRANSACTION</span><span class="h"> </span><span class="cn">43DF0254C</span><span class="sy">,</span><span class="h"> </span><span class="i">ACTIVE</span><span class="h"> </span><span class="cn">51</span><span class="h"> </span><span class="e">sec </span><span class="e">updating </span><span class="st">or</span><span class="h"> </span><span class="e">deleting</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-3">
+<span class="e">mysql </span><span class="e">tables </span><span class="st">in</span><span class="h"> </span><span class="st">use</span><span class="h"> </span><span class="cn">1</span><span class="sy">,</span><span class="h"> </span><span class="i">locked</span><span class="h"> </span><span class="cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-4">
+<span class="e">LOCK </span><span class="i">WAIT</span><span class="h"> </span><span class="cn">3</span><span class="h"> </span><span class="e">lock </span><span class="t">struct</span><span class="sy">(</span><span class="i">s</span><span class="sy">)</span><span class="sy">,</span><span class="h"> </span><span class="e">heap </span><span class="i">size</span><span class="h"> </span><span class="cn">1248</span><span class="sy">,</span><span class="h"> </span><span class="cn">2</span><span class="h"> </span><span class="e">row </span><span class="e">lock</span><span class="sy">(</span><span class="i">s</span><span class="sy">)</span><span class="sy">,</span><span class="h"> </span><span class="e">undo </span><span class="e">log </span><span class="i">entries</span><span class="h"> </span><span class="cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-5">
+<span class="e">MySQL </span><span class="e">thread </span><span class="i">id</span><span class="h"> </span><span class="cn">118879</span><span class="sy">,</span><span class="h"> </span><span class="e">OS </span><span class="e">thread </span><span class="i">handle</span><span class="h"> </span><span class="cn">0x7f51950b6700</span><span class="sy">,</span><span class="h"> </span><span class="e">query </span><span class="i">id</span><span class="h"> </span><span class="cn">18995841</span><span class="h"> </span><span class="cn">10.0.0.0</span><span class="h"> </span><span class="e">mysql_user </span><span class="e">Updating</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-6">
+<span class="e">UPDATE </span><span class="e">tbl_A </span><span class="e">SET </span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="sy">,</span><span class="h"> </span><span class="v">value</span><span class="o">=</span><span class="s">'.....'</span><span class="sy">,</span><span class="h"> </span><span class="v">user_id</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="e">WHERE </span><span class="v">id</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">N</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-7">
+<span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">-</span><span class="h"> </span><span class="e">TRX </span><span class="e">HAS </span><span class="e">BEEN </span><span class="i">WAITING</span><span class="h"> </span><span class="cn">51</span><span class="h"> </span><span class="e">SEC </span><span class="st">FOR</span><span class="h"> </span><span class="r">THIS</span><span class="h"> </span><span class="e">LOCK </span><span class="st">TO</span><span class="h"> </span><span class="e">BE </span><span class="i">GRANTED</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-8">
+<span class="e">RECORD </span><span class="e">LOCKS </span><span class="e">space </span><span class="i">id</span><span class="h"> </span><span class="cn">2186</span><span class="h"> </span><span class="e">page </span><span class="i">no</span><span class="h"> </span><span class="cn">188857</span><span class="h"> </span><span class="i">n</span><span class="h"> </span><span class="i">bits</span><span class="h"> </span><span class="cn">688</span><span class="h"> </span><span class="i">index</span><span class="h"> </span><span class="sy">`</span><span class="i">idx_status_type</span><span class="sy">`</span><span class="h"> </span><span class="e">of </span><span class="i">table</span><span class="h"> </span><span class="sy">`</span><span class="i">db</span><span class="sy">`</span><span class="sy">.</span><span class="sy">`</span><span class="i">tbl_A</span><span class="sy">`</span><span class="h"> </span><span class="e">trx </span><span class="i">id</span><span class="h"> </span><span class="cn">43DF0254C</span><span class="h"> </span><span class="i">lock_mode</span><span class="h"> </span><span class="i">X</span><span class="h"> </span><span class="e">locks </span><span class="e">gap </span><span class="e">before </span><span class="e">rec </span><span class="e">insert </span><span class="e">intention </span><span class="e">waiting</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-9">
+<span class="e">Record </span><span class="i">lock</span><span class="sy">,</span><span class="h"> </span><span class="e">heap </span><span class="i">no</span><span class="h"> </span><span class="cn">497</span><span class="h"> </span><span class="e">PHYSICAL </span><span class="i">RECORD</span><span class="o">:</span><span class="h"> </span><span class="i">n_fields</span><span class="h"> </span><span class="cn">3</span><span class="sy">;</span><span class="h"> </span><span class="e">compact </span><span class="i">format</span><span class="sy">;</span><span class="h"> </span><span class="e">info </span><span class="i">bits</span><span class="h"> </span><span class="cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-10">
+<span class="h"> </span><span class="cn">0</span><span class="o">:</span><span class="h"> </span><span class="i">len</span><span class="h"> </span><span class="cn">1</span><span class="sy">;</span><span class="h"> </span><span class="i">hex</span><span class="h"> </span><span class="cn">02</span><span class="sy">;</span><span class="h"> </span><span class="i">asc</span><span class="h">  </span><span class="sy">;</span><span class="sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-11">
+<span class="h"> </span><span class="cn">1</span><span class="o">:</span><span class="h"> </span><span class="i">len</span><span class="h"> </span><span class="cn">1</span><span class="sy">;</span><span class="h"> </span><span class="i">hex</span><span class="h"> </span><span class="cn">01</span><span class="sy">;</span><span class="h"> </span><span class="i">asc</span><span class="h">  </span><span class="sy">;</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-12">
+<span class="h"> </span><span class="cn">2</span><span class="o">:</span><span class="h"> </span><span class="i">len</span><span class="h"> </span><span class="cn">8</span><span class="sy">;</span><span class="h"> </span><span class="i">hex</span><span class="h"> </span><span class="cn">00000000011c1f0f</span><span class="sy">;</span><span class="h"> </span><span class="i">asc</span><span class="h">         </span><span class="sy">;</span><span class="sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-13"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-14">
+<span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span><span class="o">--</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-15">
+<span class="o">--</span><span class="o">-</span><span class="i">TRANSACTION</span><span class="h"> </span><span class="cn">43DF0216B</span><span class="sy">,</span><span class="h"> </span><span class="i">ACTIVE</span><span class="h"> </span><span class="cn">65</span><span class="h"> </span><span class="e">sec </span><span class="e">fetching </span><span class="i">rows</span><span class="sy">,</span><span class="h"> </span><span class="e">thread </span><span class="e">declared </span><span class="e">inside </span><span class="i">InnoDB</span><span class="h"> </span><span class="cn">155</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-16">
+<span class="e">mysql </span><span class="e">tables </span><span class="st">in</span><span class="h"> </span><span class="st">use</span><span class="h"> </span><span class="cn">1</span><span class="sy">,</span><span class="h"> </span><span class="i">locked</span><span class="h"> </span><span class="cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-17">
+<span class="cn">794767</span><span class="h"> </span><span class="e">lock </span><span class="t">struct</span><span class="sy">(</span><span class="i">s</span><span class="sy">)</span><span class="sy">,</span><span class="h"> </span><span class="e">heap </span><span class="i">size</span><span class="h"> </span><span class="cn">71694776</span><span class="sy">,</span><span class="h"> </span><span class="cn">13900037</span><span class="h"> </span><span class="e">row </span><span class="e">lock</span><span class="sy">(</span><span class="i">s</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-18">
+<span class="e">MySQL </span><span class="e">thread </span><span class="i">id</span><span class="h"> </span><span class="cn">118812</span><span class="sy">,</span><span class="h"> </span><span class="e">OS </span><span class="e">thread </span><span class="i">handle</span><span class="h"> </span><span class="cn">0x7f51951dc700</span><span class="sy">,</span><span class="h"> </span><span class="e">query </span><span class="i">id</span><span class="h"> </span><span class="cn">18995134</span><span class="h"> </span><span class="cn">10.0.0.1</span><span class="h"> </span><span class="e">mysql_user </span><span class="e">Searching </span><span class="e">rows </span><span class="st">for</span><span class="h"> </span><span class="e">update</span>
+</div>
+<div class="crayon-line" id="crayon-542531c3c2345-19">
+<span class="e">UPDATE </span><span class="e">tbl_A </span><span class="e">SET </span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="e">WHERE</span><span class="h"> </span><span class="sy">(</span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="st">or</span><span class="h"> </span><span class="v">status</span><span class="o">=</span><span class="i">N</span><span class="sy">)</span><span class="h"> </span><span class="st">and</span><span class="h"> </span><span class="v">user_id</span><span class="o">=</span><span class="i">N</span><span class="h"> </span><span class="i">limit</span><span class="h"> </span><span class="i">N</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-542531c3c2345-20">
+<span class="o">&lt;</span><span class="o">/</span><span class="i">code</span><span class="o">&gt;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0113 seconds] -->
+<p>这下可以解释为什么只有一个CPU核在运行了。第二条SQL通过索引加扫表的方式，寻找符合条件的数据，这条SQL消耗了一个CPU核。查找数据的同时，此SQL加了gap锁，导致其它更新同一张表的SQL一直在等待锁的释放，因此其它CPU核基本处于空闲状态。</p>
+<h3 id="-">解决</h3>
+<p>找到问题的根源，解决起来就比较简单了，分析一下数据，发现索引(user_id, status)的区分度还不错，新增索引(user_id, status)后，问题解决。</p>
+            
+{% endraw %}
