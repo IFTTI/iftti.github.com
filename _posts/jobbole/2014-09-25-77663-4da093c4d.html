@@ -1,0 +1,245 @@
+---
+layout: post
+title: 'Linux后门入侵检测工具，附bash漏洞解决方法'
+time: 2014-09-25 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/77663/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p><strong>一、rootkit简介</strong></p>
+<p>rootkit是Linux平台下最常见的一种木马后门工具，它主要通过替换系统文件来达到入侵和和隐蔽的目的，这种木马比普通木马后门更加危险和隐蔽，普通的检测工具和检查手段很难发现这种木马。rootkit攻击能力极强，对系统的危害很大，它通过一套工具来建立后门和隐藏行迹，从而让攻击者保住权限，以使它在任何时候都可以使用root权限登录到系统。</p>
+<p>rootkit主要有两种类型：文件级别和内核级别，下面分别进行简单介绍。</p>
+<p> </p>
+<p>1、文件级别rootkit</p>
+<p>文件级别的rootkit一般是通过程序漏洞或者系统漏洞进入系统后，通过修改系统的重要文件来达到隐藏自己的目的。在系统遭受rootkit攻击后，合法的文件被木马程序替代，变成了外壳程序，而其内部是隐藏着的后门程序。通常容易被rootkit替换的系统程序有login、ls、ps、ifconfig、du、find、netstat等，其中login程序是最经常被替换的，因为当访问Linux时，无论是通过本地登录还是远程登录，/bin/login程序都会运行，系统将通过/bin/login来收集并核对用户的账号和密码，而rootkit就是利用这个程序的特点，使用一个带有根权限后门密码的/bin/login来替换系统的/bin/login，这样攻击者通过输入设定好的密码就能轻松进入系统。此时，即使系统管理员修改root密码或者清除root密码，攻击者还是一样能通过root用户登录系统。攻击者通常在进入Linux系统后，会进行一系列的攻击动作，最常见的是安装嗅探器收集本机或者网络中其他服务器的重要数据。在默认情况下，Linux中也有一些系统文件会监控这些工具动作，例如ifconfig命令，所以，攻击者为了避免被发现，会想方设法替换其他系统文件，常见的就是ls、ps、ifconfig、du、find、netstat等。如果这些文件都被替换，那么在系统层面就很难发现rootkit已经在系统中运行了。</p>
+<p>这就是文件级别的rootkit，对系统维护很大，目前最有效的防御方法是定期对系统重要文件的完整性进行检查，如果发现文件被修改或者被替换，那么很可能系统已经遭受了rootkit入侵。检查件完整性的工具很多，常见的有Tripwire、 aide等，可以通过这些工具定期检查文件系统的完整性，以检测系统是否被rootkit入侵。</p>
+<p> </p>
+<p>2、内核级别的rootkit</p>
+<p>内核级rootkit是比文件级rootkit更高级的一种入侵方式，它可以使攻击者获得对系统底层的完全控制权，此时攻击者可以修改系统内核，进而截获运行程序向内核提交的命令，并将其重定向到入侵者所选择的程序并运行此程序，也就是说，当用户要运行程序A时，被入侵者修改过的内核会假装执行A程序，而实际上却执行了程序B。</p>
+<p>内核级rootkit主要依附在内核上，它并不对系统文件做任何修改，因此一般的检测工具很难检测到它的存在，这样一旦系统内核被植入rootkit，攻击者就可以对系统为所欲为而不被发现。目前对于内核级的rootkit还没有很好的防御工具，因此，做好系统安全防范就非常重要，将系统维持在最小权限内工作，只要攻击者不能获取root权限，就无法在内核中植入rootkit。</p>
+<p> </p>
+<p><strong>二、rootkit后门检测工具chkrootkit</strong></p>
+<p>chkrootkit是一个Linux系统下查找并检测rootkit后门的工具，它的官方址: http://www.chkrootkit.org/。 chkrootkit没有包含在官方的CentOS源中，因此要采取手动编译的方法来安装，不过这种安装方法也更加安全。下面简单介绍下chkrootkit的安装过程。</p>
+<p>1.准备gcc编译环境</p>
+<p>对于CentOS系统，需要安装gcc编译环境，执行下述三条命令：</p>
+<pre class="brush: actionscript3; gutter: true">[root@server ~]# yum -y install gcc
+[root@server ~]# yum -y install gcc-c++
+[root@server ~]# yum -y install make</pre>
+<p>2、安装chkrootkit</p>
+<p>为了安全起见，建议直接从官方网站下载chkrootkit源码，然后进行安装，操作如下：</p>
+<pre class="brush: actionscript3; gutter: true">[root@server ~]# tar zxvf chkrootkit.tar.gz
+[root@server ~]# cd chkrootkit-*
+[root@server ~]# make sense</pre>
+<p># 注意，上面的编译命令为make sense</p>
+<pre class="brush: actionscript3; gutter: true">[root@server ~]# cd ..
+[root@server ~]# cp -r chkrootkit-* /usr/local/chkrootkit
+[root@server ~]# rm -rf chkrootkit-*</pre>
+<p>3、使用chkrootkit</p>
+<p>安装完的chkrootkit程序位于/usr/local/chkrootkit目录下，执行如下命令即可显示chkrootkit的详细用法：</p>
+<p>[root@server chkrootkit]# /usr/local/chkrootkit/chkrootkit  -h</p>
+<p>chkrootkit各个参数的含义如下所示。</p>
+<p> </p>
+<p>参数含义</p>
+<p>-h显示帮助信息</p>
+<p>-v显示版本信息</p>
+<p>-l显示测试内容</p>
+<p>-ddebug模式，显示检测过程的相关指令程序</p>
+<p>-q安静模式，只显示有问题的内容</p>
+<p>-x高级模式，显示所有检测结果</p>
+<p>-r dir设置指定的目录为根目录</p>
+<p>-p dir1:dir2:dirN指定chkrootkit检测时使用系统命令的目录</p>
+<p>-n跳过NFS连接的目录</p>
+<p>chkrootkit的使用比较简单，直接执行chkrootkit命令即可自动开始检测系统。下面是某个系统的检测结果：</p>
+<pre class="brush: actionscript3; gutter: true">[root@server chkrootkit]# /usr/local/chkrootkit/chkrootkit
+Checking `ifconfig'... INFECTED
+Checking `ls'... INFECTED
+Checking `login'... INFECTED
+Checking `netstat'... INFECTED
+Checking `ps'... INFECTED
+Checking `top'... INFECTED
+Checking `sshd'... not infected
+Checking `syslogd'... not tested
+Checking `tar'... not infected
+Checking `tcpd'... not infected
+Checking `tcpdump'... not infected
+Checking `telnetd'... not found</pre>
+<p>从输出可以看出，此系统的ifconfig、ls、login、netstat、ps和top命令已经被感染。针对被感染rootkit的系统，最安全而有效的方法就是备份数据重新安装系统。</p>
+<p>4、chkrootkit的缺点</p>
+<p>chkrootkit在检查rootkit的过程中使用了部分系统命令，因此，如果服务器被黑客入侵，那么依赖的系统命令可能也已经被入侵者替换，此时chkrootkit的检测结果将变得完全不可信。为了避免chkrootkit的这个问题，可以在服务器对外开放前，事先将chkrootkit使用的系统命令进行备份，在需要的时候使用备份的原始系统命令让chkrootkit对rootkit进行检测。这个过程可以通过下面的操作实现：</p>
+<pre class="brush: actionscript3; gutter: true">[root@server ~]# mkdir /usr/share/.commands
+[root@server ~]# cp `which --skip-alias awk cut echo find egrep id head ls netstat ps strings sed uname` /usr/share/.commands
+[root@server ~]# /usr/local/chkrootkit/chkrootkit -p /usr/share/.commands/
+[root@server share]# cd /usr/share/
+[root@server share]# tar zcvf commands.tar.gz .commands
+[root@server share]#  rm -rf commands.tar.gz</pre>
+<p>上面这段操作是在/usr/share/下建立了一个.commands隐藏文件，然后将chkrootkit使用的系统命令进行备份到这个目录下。为了安全起见，可以将.commands目录压缩打包，然后下载到一个安全的地方进行备份，以后如果服务器遭受入侵，就可以将这个备份上传到服务器任意路径下，然后通过chkrootkit命令的“-p”参数指定这个路径进行检测即可。</p>
+<p> </p>
+<p><strong>三、rootkit后门检测工具RKHunter</strong></p>
+<p>RKHunter是一款专业的检测系统是否感染rootkit的工具，它通过执行一系列的脚本来确认服务器是否已经感染rootkit。在官方的资料中，RKHunter可以作的事情有：</p>
+<p>MD5校验测试，检测文件是否有改动</p>
+<p>检测rootkit使用的二进制和系统工具文件</p>
+<p>检测特洛伊木马程序的特征码</p>
+<p>检测常用程序的文件属性是否异常</p>
+<p>检测系统相关的测试</p>
+<p>检测隐藏文件</p>
+<p>检测可疑的核心模块LKM</p>
+<p>检测系统已启动的监听端口</p>
+<p> </p>
+<p>下面详细讲述下RKHunter的安装与使用。</p>
+<p> </p>
+<p>1、安装RKHunter</p>
+<p>RKHunter的官方网页地址为：http://www.rootkit.nl/projects/rootkit_hunter.html，建议从这个网站下载RKHunter，这里下载的版本是rkhunter-1.4.0.tar.gz。RKHunter的安装非常简单，过程如下：</p>
+<pre class="brush: actionscript3; gutter: true">[root@server ~]# ls
+rkhunter-1.4.0.tar.gz
+[root@server ~]# pwd
+/root
+[root@server ~]# tar -zxvf rkhunter-1.4.0.tar.gz 
+[root@server ~]# cd rkhunter-1.4.0
+[root@server rkhunter-1.4.0]# ./installer.sh  --layout default --install</pre>
+<p>这里采用RKHunter的默认安装方式，rkhunter命令被安装到了/usr/local/bin目录下。</p>
+<p> </p>
+<p>2、使用rkhunter指令</p>
+<p>rkhunter命令的参数较多，但是使用非常简单，直接运行rkhunter即可显示此命令的用法。下面简单介绍下rkhunter常用的几个参数选项。</p>
+<p>[root@server ~]#/usr/local/bin/rkhunter–help</p>
+<p>Rkhunter常用参数以及含义如下所示。</p>
+<p>参数             含义</p>
+<p>-c, –check必选参数，表示检测当前系统</p>
+<p>–configfile &lt;file&gt;使用特定的配置文件</p>
+<p>–cronjob作为cron任务定期运行</p>
+<p>–sk, –skip-keypress自动完成所有检测，跳过键盘输入</p>
+<p>–summary显示检测结果的统计信息</p>
+<p>–update检测更新内容</p>
+<p>-V, –version显示版本信息</p>
+<p>–versioncheck检测最新版本</p>
+<p>下面是通过rkhunter对某个系统的检测示例：</p>
+<pre class="brush: actionscript3; gutter: true">[root@server rkhunter-1.4.0]# /usr/local/bin/rkhunter   -c 
+[ Rootkit Hunter version 1.4.0 ]
+#下面是第一部分，先进行系统命令的检查，主要是检测系统的二进制文件，因为这些文件最容易被rootkit攻击。显示OK字样表示正常，显示Warning表示有异常，需要引起注意，而显示“Not found”字样，一般无需理会
+Checking system commands...
+  Performing 'strings' command checks
+    Checking 'strings' command                           [ OK ]
+  Performing 'shared libraries' checks
+    Checking for preloading variables                        [ None found ]
+    Checking for preloaded libraries                         [ None found ]
+    Checking LD_LIBRARY_PATH variable                 [ Not found ]
+  Performing file properties checks
+    Checking for prerequisites                              [ Warning ]
+    /usr/local/bin/rkhunter  [ OK ]
+    /sbin/chkconfig                                       [ OK ]
+....(略)....
+[Press &lt;ENTER&gt; to continue]
+#下面是第二部分，主要检测常见的rootkit程序，显示“Not found”表示系统未感染此rootkit
+Checking for rootkits...
+  Performing check of known rootkit files and directories
+    55808 Trojan - Variant A                                 [ Not found ]
+    ADM Worm                                           [ Not found ]
+    AjaKit Rootkit                                         [ Not found ]
+    Adore Rootkit                                          [ Not found ]
+aPa Kit                                               [ Not found ]
+    Apache Worm                                          [ Not found ]
+    Ambient (ark) Rootkit                                    [ Not found ]
+    Balaur Rootkit           [ Not found ]
+    BeastKit Rootkit                                         [ Not found ]
+beX2 Rootkit                                             [ Not found ]
+    BOBKit Rootkit                    [ Not found ]
+....(略)....
+[Press &lt;ENTER&gt; to continue]
+#下面是第三部分，主要是一些特殊或附加的检测，例如对rootkit文件或目录检测、对恶意软件检测以及对指定的内核模块检测
+  Performing additional rootkit checks
+    Suckit Rookit additional checks                          [ OK ]
+    Checking for possible rootkit files and directories      [ None found ]
+    Checking for possible rootkit strings                    [ None found ]
+  Performing malware checks
+    Checking running processes for suspicious files          [ None found ]
+    Checking for login backdoors                          [ None found ]
+    Checking for suspicious directories                     [ None found ]
+    Checking for sniffer log files                          [ None found ]
+  Performing Linux specific checks
+    Checking loaded kernel modules                     [ OK ]
+    Checking kernel module names                     [ OK ]
+[Press &lt;ENTER&gt; to continue]
+#下面是第四部分，主要对网络、系统端口、系统启动文件、系统用户和组配置、SSH配置、文件系统等进行检测
+Checking the network...
+  Performing checks on the network ports
+    Checking for backdoor ports                         [ None found ]
+  Performing checks on the network interfaces
+    Checking for promiscuous interfaces                      [ None found ]
+Checking the local host...
+  Performing system boot checks
+    Checking for local host name                         [ Found ]
+    Checking for system startup files                        [ Found ]
+    Checking system startup files for malware                [ None found ]
+  Performing group and account checks
+    Checking for passwd file [ Found ]
+    Checking for root equivalent (UID 0) accounts            [ None found ]
+    Checking for passwordless accounts                   [ None found ]
+....(略)....
+[Press &lt;ENTER&gt; to continue]
+#下面是第五部分，主要是对应用程序版本进行检测
+Checking application versions...
+    Checking version of GnuPG[ OK ]
+    Checking version of OpenSSL                        [ Warning ]
+    Checking version of OpenSSH                        [ OK ]
+#下面是最后一部分，这个部分其实是上面输出的一个总结，通过这个总结，可以大概了解服务器目录的安全状态。
+System checks summary
+=====================
+File properties checks...
+    Required commands check failed
+    Files checked: 137
+    Suspect files: 4
+Rootkit checks...
+    Rootkits checked : 311
+    Possible rootkits: 0
+Applications checks...
+    Applications checked: 3
+    Suspect applications: 1
+The system checks took: 6 minutes and 41 seconds</pre>
+<p>在Linux终端使用rkhunter来检测，最大的好处在于每项的检测结果都有不同的颜色显示，如果是绿色的表示没有问题，如果是红色的，那就要引起关注了。另外，在上面执行检测的过程中，在每个部分检测完成后，需要以Enter键来继续。如果要让程序自动运行，可以执行如下命令：</p>
+<p>[root@server ~]# /usr/local/bin/rkhunter –check –skip-keypress</p>
+<p>同时，如果想让检测程序每天定时运行，那么可以在/etc/crontab中加入如下内容：</p>
+<p>30 09 * * * root /usr/local/bin/rkhunter –check –cronjob</p>
+<p>这样，rkhunter检测程序就会在每天的9:30分运行一次。</p>
+<p> </p>
+<p><strong>安全更新：</strong></p>
+<p>今天刚刚爆出Bash安全漏洞，SSH bash紧急安全补丁！重要！</p>
+<p>测试是否存在漏洞，执行以下命令：</p>
+<pre class="brush: actionscript3; gutter: true">$ env x='() { :;}; echo vulnerable' bash -c "echo this is a test"
+ vulnerable
+ this is a test</pre>
+<p>如果显示如上，那么，很遗憾，必须立即打上安全补丁修复，</p>
+<p> </p>
+<p>临时解决办法为：</p>
+<pre class="brush: actionscript3; gutter: true">yum -y update bash</pre>
+<p>升级bash后，执行测试：</p>
+<pre class="brush: actionscript3; gutter: true">$ env x='() { :;}; echo vulnerable' bash -c "echo this is a test"
+ bash: warning: x: ignoring function definition attempt
+ bash: error importing function definition for `x'
+ this is a test</pre>
+<p>如果显示如上，表示已经修补了漏洞。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}

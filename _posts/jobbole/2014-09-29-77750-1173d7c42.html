@@ -1,0 +1,111 @@
+---
+layout: post
+title: '实现键值对存储（二）：以现有键值对存储为模型'
+time: 2014-09-29 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/77750/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>本文中，开头我会解释使用现有模型而非重头开始此项目的原因。我会阐述一系列选择键值对存储模型的标准。最后我将对一些广为人知的键值对存储项目做一个概述，并用这些标准选择其中一些作为模型。本文将包含：</p>
+<p>1. 不重新发明轮子<br>
+2. 备选模型和选择标准<br>
+3. 选择的键值对存储的概述<br>
+4. 参考文献</p>
+<p> </p>
+<h3 align="left">1. 不重新发明轮子<b></b>
+</h3>
+<p>键值对存储已经被人们唱好至少30年了<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_1">[1]</a>。最著名的一个项目是DBM，Kenneth Thompson为Unix第七版编写的最早的数据库管理器并在1979年发布<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_2">[2]</a>。工程师们遇到了和这些数据库系统相关的一些问题，并选择或放弃了各种设计和数据结构的想法。对实际生活中的问题进行试验并从中学习。如果不考虑他们的工作并从头开始是很愚蠢的，只会重复他们之前所犯过的错误。John Gall的系统学中的Gall定理：</p>
+<p style="padding-left: 30px;"><span style="color: #888888;">任何可以运作的复杂系统都是从可以运作的简单系统发展而来的。其逆命题同样是真命题：由无法正常运作的系统设计而来的复杂系统是不可能正常运作的。你必须重头再来，从一个可运作的简单系统开始。</span></p>
+<p>这段引述为我的键值对存储项目开发带来了两个基础思想。</p>
+<p><strong>1. 使用模型。</strong>我需要识别出那些存在了一段时间的键值对存储，甚至更进一步，先前成功的键值对存储的继任者。这是其可靠设计的证明，并随着时间在迭代中凝练。这些选择过的建筑的存储应该作为我现在正在工作的项目的模型。</p>
+<p><strong>2.起点小。</strong>这个项目的第一版必须小且简单，这样它的设计就能简单的测试并通过。如果需要的话，改进和额外功能必须在后续版本中加入。</p>
+<p> </p>
+<h3 align="left">2. 待选模型和选择标准<b></b>
+</h3>
+<p>在对键值对存储和NoSQL数据库做过一点研究后，我决定将下面的几个作为进一步选择的选项：</p>
+<ul>
+<li>DBM</li>
+<li>Berkeley DB</li>
+<li>Kyoto Cabinet</li>
+<li>Memcached and MemcacheDB</li>
+<li>LevelDB</li>
+<li>MongoDB</li>
+<li>Redis</li>
+<li>OpenLDAP</li>
+<li>SQLite</li>
+</ul>
+<p>选择标准如下:</p>
+<ul>
+<li>我想使用面向对象编程来创建键值对存储，所以在设计上，我必须从由面向对象语言编写的项目中汲取灵感。</li>
+<li>至于底层数据结构，我想要一个存在硬盘上的哈希表，于是我需要选择一个提供读写信息到硬盘上的方法的项目。</li>
+<li>我同样想让这个数据存储能够有网络接入。</li>
+<li>我不需要查询引擎或者方法来访问结构化的数据.</li>
+<li>不必完全支持ACID规范。</li>
+<li>鉴于这个项目是我自己弄的，我想使用那些由小团队实现的项目模型，理想情况下是一两个人。</li>
+</ul>
+<h3>3. 所选键值对的概览</h3>
+<p>三个获选的模型是Berkeley DB、Kyoto Cabinet 和LevelDB。Berkeley DB和Kyoto Cabinet作为DBM的继任者有着相同的历史。此外，Berkeley DB 和 Kyoto Cabinet 并非“初版”。这表示他俩与其他初次实现的键值对存储项目比较更加可靠。LevelDB则更加现代，并基于LSM树的数据结构，其对于哈希表模式来说是无用的。然而其代码是我见过最干净的。这三个项目都是由一两个人开发的。下面是他们各自的详细信息。</p>
+<h4 align="left">Berkeley DB</h4>
+<p>Berkeley DB的开发始于1986年，这表示我开始写这篇文章的时候它已经存在了26年了。Berkeley DB是作为DBM的继任者而开发的，并实现了一个哈希表。第一版是由Margo Seltzer <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_22">[22]</a> 和 Ozan Yigit <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_23">[23]</a> 在加州大学伯克利分校的时候编写的。这个项目后来被Oracle获得，并由其继续开发。</p>
+<p>Berkeley DB最初是由C实现的，并且现在仍然是只用C。其通过增量过程开发的，就是说在每个主版本增加新的功能。Berkeley DB从一个简单的键值对存储，进化到管理并行访问、事务及复原、及同步功能<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_4">[4]</a>。Berkeley DB的使用非常广泛，有着数亿已部署的拷贝<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_5">[5]</a>，这是可以相信其架构及其可靠的证据。关于其设计的更多信息可以在“<i>Berkeley DB Programmer’s Reference Guide</i>”<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_6">[6]</a> 的介绍和“<i>The Architecture of Open Source Applications, Volume 1</i>” <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_5">[5]</a>的开头中找到。</p>
+<h4>Kyoto Cabinet</h4>
+<p>Kyoto Cabinet在2009年由Mikio Hirabayashi <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_24">[24]</a> 引进。其现在仍在积极进化中。Kyoto Cabinet是同一个作者的其它键值对存储：Tokyo Cabinet (2007发布) 和QDBM (2003发布, 2000开始)的继任者。QDBM打算作为DBM的高性能继任者<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_7">[7]</a>。Kyoto Cabinet尤其有意思，因为它有着DBM的纯正血统，并且它的作者在键值对存储方向工作12年了。在浸淫三个键值对存储这么多年之后，没有理由怀疑作者有着对结构需求的坚实理解，以及随之的对性能瓶颈的成因的极强认识。</p>
+<p>Kyoto Cabinet是由C++实现的，并实现了一个哈希表，一个B+树，以及其他一些深奥的数据结构。其同样提供了出色的性能<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_16">[16]</a>。然而，因其内部参数的原因，似乎有些性能问题。的确，很多人报道说只要数据条目的数量保持在某一特定的阈值（正比于桶数组大小，其由创建数据库文件时的参数所确定）以下，性能就很好。一旦超过这个阈值，性能似乎急剧下降<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_18">[18]</a><a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_19">[19]</a>。Tokyo Cabinet <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_20">[20]</a> <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_21">[21]</a> 中也有相同的问题。这表示如果某项目的需求在数据库使用的时候改变，你可能会遇到严重的问题。而我们都知道，软件中的改变是如此的频繁。</p>
+<h4>LevelDB</h4>
+<p>LevelDB是由Google职员Jeffrey Dean <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_8">[8]</a> 和 Sanjay Ghemawat <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_9">[9]</a> 开发，他们为Google传说中的基础建设项目MapReduce和BigTable工作。基于Dean和Ghemawat在在Google工作时获得的大规模问题上的经验，他们很有可能很了解他们正在做的东西。和大多数键值对存储项目相比，LevelDB有一个很有意思的不同点就是它不用哈希表或者B-树作为底层数据结构，而是基于一个日志结构的合并树<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_12">[12]</a>。LSM结构据说是为SSD硬盘优化的<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_13">[13]</a>。你可以在这个博客High Scalability blog <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_17">[17]</a>找到成吨的关于LevelDB的信息。</p>
+<p>LevelDB是由C++实现，2011年发布，并设计作为高级存储系统的一部分<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_10">[10]</a>。IndexedDB HTML5 API在Chrome将来版本的实现将使用LevelDB <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_10">[10]</a> <a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_11">[11]</a>。其性能决定于<i>特定的工作负载</i>，就像作者提供的基准测试中显示的那样<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_14">[14]</a>。然而，Andy Twigg在Acunu的另外一个基于商用SSD的基准测试显示出，如果数据的条数超过1e6（1百万），并向1e9（10亿）前进的时候，性能将会显著下降<a href="http://codecapsule.com/2012/12/03/implementing-a-key-value-store-part-2-using-existing-key-value-stores-as-models/#ref_15">[15]</a>。因此似乎LevelDB似乎并不是重工作负载或像实际后端项目需求那样的大数据库最好的选择。</p>
+<p>但这其实并不重要，对于我来说，LevelDB最好的部分不是其性能而是其架构。看它的源代码和东西组织的方式，那是纯粹的美。所有的东西都很清晰、简单、条理分明。访问LevelDB的源代码并把它作为模范是创建出色代码的绝好机遇。</p>
+<h4>那些没选中的键值对存储是什么情况？</h4>
+<p>没有选择其他键值对存储的原因并不表示我完全抛弃他们。我会记得他们并可能偶尔使用他们结构中元素。但是，当前项目受到这些键值对项目影响不会像已选择的这些那么多。</p>
+<h3>4. 参考文献</h3>
+<p align="left">[1] <a href="http://blog.knuthaugen.no/2010/03/a-brief-history-of-nosql.html" target="_blank">http://blog.knuthaugen.no/2010/03/a-brief-history-of-nosql.html</a><br>
+[2] <a href="http://en.wikipedia.org/wiki/Dbm" target="_blank">http://en.wikipedia.org/wiki/Dbm</a><br>
+[3] <a href="http://en.wikipedia.org/wiki/Systemantics" target="_blank">http://en.wikipedia.org/wiki/Systemantics</a><br>
+[4] <a href="http://en.wikipedia.org/wiki/Berkeley_DB#Origin" target="_blank">http://en.wikipedia.org/wiki/Berkeley_DB#Origin</a><br>
+[5] <a href="http://www.aosabook.org/en/bdb.html" target="_blank">http://www.aosabook.org/en/bdb.html</a><br>
+[6] <a href="http://docs.oracle.com/cd/E17076_02/html/programmer_reference/intro.html" target="_blank">http://docs.oracle.com/cd/E17076_02/html/programmer_reference/intro.html</a><br>
+[7] <a href="http://fallabs.com/qdbm/" target="_blank">http://fallabs.com/qdbm/</a><br>
+[8] <a href="http://research.google.com/people/jeff/" target="_blank">http://research.google.com/people/jeff/</a><br>
+[9] <a href="http://research.google.com/pubs/SanjayGhemawat.html" target="_blank">http://research.google.com/pubs/SanjayGhemawat.html</a><br>
+[10] <a href="http://google-opensource.blogspot.com/2011/07/leveldb-fast-persistent-key-value-store.html" target="_blank">http://google-opensource.blogspot.com/2011/07/leveldb-fast-persistent-key-value-store.html</a><br>
+[11] <a href="http://www.w3.org/TR/IndexedDB/" target="_blank">http://www.w3.org/TR/IndexedDB/</a><br>
+[12] <a href="http://www.igvita.com/2012/02/06/sstable-and-log-structured-storage-leveldb/" target="_blank">http://www.igvita.com/2012/02/06/sstable-and-log-structured-storage-leveldb/</a><br>
+[13] <a href="http://www.acunu.com/2/post/2011/04/log-file-systems-and-ssds-made-for-each-other.html" target="_blank">http://www.acunu.com/2/post/2011/04/log-file-systems-and-ssds-made-for-each-other.html</a><br>
+[14] <a href="http://leveldb.googlecode.com/svn/trunk/doc/benchmark.html" target="_blank">http://leveldb.googlecode.com/svn/trunk/doc/benchmark.html</a><br>
+[15] <a href="http://www.acunu.com/2/post/2011/08/benchmarking-leveldb.html" target="_blank">http://www.acunu.com/2/post/2011/08/benchmarking-leveldb.html</a><br>
+[16] <a href="http://blog.creapptives.com/post/8330476086/leveldb-vs-kyoto-cabinet-my-findings" target="_blank">http://blog.creapptives.com/post/8330476086/leveldb-vs-kyoto-cabinet-my-findings</a><br>
+[17] <a href="http://highscalability.com/blog/2011/8/10/leveldb-fast-and-lightweight-keyvalue-database-from-the-auth.html" target="_blank">http://highscalability.com/blog/2011/8/10/leveldb-fast-and-lightweight-keyvalue-database-from-the-auth.html</a><br>
+[18] <a href="http://stackoverflow.com/questions/13054852/kyoto-cabinet-berkeley-db-hash-table-size-limitations" target="_blank">http://stackoverflow.com/questions/13054852/kyoto-cabinet-berkeley-db-hash-table-size-limitations</a><br>
+[19] <a href="https://groups.google.com/forum/#!topic/tokyocabinet-users/Bzp4fLbmcDw/discussion" target="_blank">https://groups.google.com/forum/#!topic/tokyocabinet-users/Bzp4fLbmcDw/discussion</a><br>
+[20] <a href="http://stackoverflow.com/questions/1051847/why-does-tokyo-tyrant-slow-down-exponentially-even-after-adjusting-bnum" target="_blank">http://stackoverflow.com/questions/1051847/why-does-tokyo-tyrant-slow-down-exponentially-even-after-adjusting-bnum</a><br>
+[21] <a href="https://groups.google.com/forum/#!topic/tokyocabinet-users/1E06DFQM8mI/discussion" target="_blank">https://groups.google.com/forum/#!topic/tokyocabinet-users/1E06DFQM8mI/discussion</a><br>
+[22] <a href="http://www.eecs.harvard.edu/margo/" target="_blank">http://www.eecs.harvard.edu/margo/</a><br>
+[23] <a href="http://www.cse.yorku.ca/~oz/" target="_blank">http://www.cse.yorku.ca/~oz/</a><br>
+[24] <a href="http://fallabs.com/mikio/profile.html" target="_blank">http://fallabs.com/mikio/profile.html</a></p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}
