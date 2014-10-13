@@ -1,0 +1,224 @@
+---
+layout: post
+title: 'Juniper防火墙，LVS DR mode 与 HTTP keepalive 丢包问题追查'
+time: 2014-10-13 03:24:00 +0800
+site_name: noops.me
+source_url: http://noops.me/?p=1589
+images:
+  6115e857130afc1acb2c5e9db01c709b: http://noops.me/wp-content/uploads/2014/10/first-cap2.png
+  ca13194892bda5b7e9a5c9b4e2cfbbea: http://noops.me/wp-content/uploads/2014/09/network.png
+  fdba7a4f2dcb5a7b6bec4cb27c908a39: http://noops.me/wp-content/uploads/2014/09/lvs-cap.png
+  0650f695d6d0150471f29a8e6571335c: http://noops.me/wp-content/uploads/2014/09/app.png
+  478e3b302091e36a5889ee55dcf5b021: http://noops.me/wp-content/uploads/2014/09/packet-flow.png
+---
+{% raw %}
+
+                <p>最近业务上新上了 Juniper 的防火墙。在防火墙上线后发现，原先业务上的调用同网段内 LVS VIP 的 HTTP 长连接在使用一段时间后频繁出现丢包重传现象，而其它网段连接此 LVS IP 则没有丢包。</p>
+<p> </p>
+<h2>概要</h2>
+<p>Juniper SRX 防火墙默认规则关于 TCP 连接建立的判定方法以及相关配置。</p>
+<p>同网段中向DR模式 LVS 发出的TCP包，其回包不通过网关而是直接返回到发起机器。</p>
+<p>使用python3 + urllib3 模拟 HTTP keepalive 长时间保持连接情况</p>
+<p> </p>
+<h2>症状</h2>
+<p>应用服务器上向 LVS IP 发的 HTTPS 请求丢包非常之惨烈。</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/10/first-cap2.png"><img class="alignnone  wp-image-1642" alt="first cap2" src="/images/noops.me/6115e857130afc1acb2c5e9db01c709b.jpg" width="671" height="423"></a></p>
+<h2>网络拓扑</h2>
+<p>先上一张网络拓扑，方便说明问题。</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/09/network.png"><img class="size-full wp-image-1596" alt="网络拓扑图" src="/images/noops.me/ca13194892bda5b7e9a5c9b4e2cfbbea.jpg" width="501" height="466"></a></p>
+<p>LVS IP 是公网IP</p>
+<p>Juniper 防火墙设备同时充当默认网关。</p>
+<p> </p>
+<h2>复现、调查与分析过程</h2>
+<h3><span style="font-size: 1.17em">复现</span></h3>
+<p>为了能够在不影响业务的情况下方便调查，稳定复现问题是关键。</p>
+<p>在复现的方法上想了很多办法，耗费了最多时间。</p>
+<p>第一种方法，也是直接想到的方法，尝试用 curl。</p>
+<p>但是连接丢包是在长连接建立一段时间后才发生的，所以使用 curl 需要 1) 模拟长连接 2) 长连接需要保持一段时间。</p>
+<p>查阅手册，发现使用 curl 保持长连接不难，但是由于内网请求速度非常快，因此要保持长连接一段时间难以做到。</p>
+<p>第二种方法，使用 python 的urllib3。</p>
+<p>查了下urllib3的手册，写出下面代码。</p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-543bdb5e1c232" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Python</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+import urllib3, certifi
+import time
+
+#http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())
+http = urllib3.PoolManager()
+
+for i in range(1000):
+        r = http.request("GET", "http://xxx.xiaomi.com")
+        print(i, r.status)
+        time.sleep(1)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-543bdb5e1c232-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c232-2">2</div>
+<div class="crayon-num" data-line="crayon-543bdb5e1c232-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c232-4">4</div>
+<div class="crayon-num" data-line="crayon-543bdb5e1c232-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c232-6">6</div>
+<div class="crayon-num" data-line="crayon-543bdb5e1c232-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c232-8">8</div>
+<div class="crayon-num" data-line="crayon-543bdb5e1c232-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c232-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-543bdb5e1c232-1">
+<span class="r">import</span><span class="h"> </span><span class="i">urllib3</span><span class="sy">,</span><span class="h"> </span><span class="e">certifi</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c232-2">
+<span class="r">import</span><span class="h"> </span><span class="k ">time</span>
+</div>
+<div class="crayon-line" id="crayon-543bdb5e1c232-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c232-4"><span class="c">#http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ca_certs=certifi.where())</span></div>
+<div class="crayon-line" id="crayon-543bdb5e1c232-5">
+<span class="v">http</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">urllib3</span><span class="sy">.</span><span class="e">PoolManager</span><span class="sy">(</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c232-6"> </div>
+<div class="crayon-line" id="crayon-543bdb5e1c232-7">
+<span class="st">for</span><span class="h"> </span><span class="i">i</span><span class="h"> </span><span class="st">in</span><span class="h"> </span><span class="k ">range</span><span class="sy">(</span><span class="cn">1000</span><span class="sy">)</span><span class="o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c232-8">
+<span class="h">        </span><span class="v">r</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="i">http</span><span class="sy">.</span><span class="e">request</span><span class="sy">(</span><span class="s">"GET"</span><span class="sy">,</span><span class="h"> </span><span class="s">"http://xxx.xiaomi.com"</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-543bdb5e1c232-9">
+<span class="h">        </span><span class="k ">print</span><span class="sy">(</span><span class="i">i</span><span class="sy">,</span><span class="h"> </span><span class="i">r</span><span class="sy">.</span><span class="v">status</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c232-10">
+<span class="h">        </span><span class="k ">time</span><span class="sy">.</span><span class="e">sleep</span><span class="sy">(</span><span class="cn">1</span><span class="sy">)</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0039 seconds] -->
+<p>运行该代码约20秒后，输出卡住了。重复多次稳定复现。</p>
+<h3>调查</h3>
+<p>先在业务机器上和 Real Server 上抓包，发现连接建立一段时间后一定会出现丢包，然后整个连接被关闭。</p>
+<p>后尝试在 LVS 机器上和业务机器上抓包分析。</p>
+<p>LVS 上抓包图：</p>
+<div>
+<dl id="attachment_1595">
+<dt><a href="http://noops.me/wp-content/uploads/2014/09/lvs-cap.png"><img alt="LVS上抓包" src="/images/noops.me/fdba7a4f2dcb5a7b6bec4cb27c908a39.jpg" width="652" height="115"></a></dt>
+<dd></dd>
+</dl>
+</div>
+<p>业务机器上抓包图：</p>
+<div>
+<dl id="attachment_1593">
+<dt><a href="http://noops.me/wp-content/uploads/2014/09/app.png"><img alt="业务机器上抓包" src="/images/noops.me/0650f695d6d0150471f29a8e6571335c.jpg" width="640" height="190"></a></dt>
+<dd></dd>
+</dl>
+</div>
+<p>蓝色的行为同一个包在 LVS 和业务机器上的同一个包。</p>
+<p>通过在 LVS 机器和业务机器上抓包，确定是防火墙硬件将包丢弃。</p>
+<p>至此，将调查重点放在防火墙配置上。</p>
+<h3>可疑的防火墙配置</h3>
+<p>现在问题已经明确为：</p>
+<p>因为某个原因或者配置，防火墙将超过20秒的长连接的包丢弃了。</p>
+<p>检查防火墙的配置，找找与 “20″ 相关的项目，在其默认配置中有所发现</p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-543bdb5e1c2de" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+set security screen ids-option untrust-screen tcp syn-flood alarm-threshold 1024
+set security screen ids-option untrust-screen tcp syn-flood attack-threshold 200
+set security screen ids-option untrust-screen tcp syn-flood source-threshold 1024
+set security screen ids-option untrust-screen tcp syn-flood destination-threshold 2048
+set security screen ids-option untrust-screen tcp syn-flood timeout 20
+set security screen ids-option untrust-screen tcp land</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-543bdb5e1c2de-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c2de-2">2</div>
+<div class="crayon-num" data-line="crayon-543bdb5e1c2de-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c2de-4">4</div>
+<div class="crayon-num" data-line="crayon-543bdb5e1c2de-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-543bdb5e1c2de-6">6</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-543bdb5e1c2de-1">
+<span class="e">set </span><span class="e">security </span><span class="e">screen </span><span class="i">ids</span><span class="o">-</span><span class="e">option </span><span class="i">untrust</span><span class="o">-</span><span class="e">screen </span><span class="e">tcp </span><span class="i">syn</span><span class="o">-</span><span class="e">flood </span><span class="i">alarm</span><span class="o">-</span><span class="i">threshold</span><span class="h"> </span><span class="cn">1024</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c2de-2">
+<span class="e">set </span><span class="e">security </span><span class="e">screen </span><span class="i">ids</span><span class="o">-</span><span class="e">option </span><span class="i">untrust</span><span class="o">-</span><span class="e">screen </span><span class="e">tcp </span><span class="i">syn</span><span class="o">-</span><span class="e">flood </span><span class="i">attack</span><span class="o">-</span><span class="i">threshold</span><span class="h"> </span><span class="cn">200</span>
+</div>
+<div class="crayon-line" id="crayon-543bdb5e1c2de-3">
+<span class="e">set </span><span class="e">security </span><span class="e">screen </span><span class="i">ids</span><span class="o">-</span><span class="e">option </span><span class="i">untrust</span><span class="o">-</span><span class="e">screen </span><span class="e">tcp </span><span class="i">syn</span><span class="o">-</span><span class="e">flood </span><span class="i">source</span><span class="o">-</span><span class="i">threshold</span><span class="h"> </span><span class="cn">1024</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c2de-4">
+<span class="e">set </span><span class="e">security </span><span class="e">screen </span><span class="i">ids</span><span class="o">-</span><span class="e">option </span><span class="i">untrust</span><span class="o">-</span><span class="e">screen </span><span class="e">tcp </span><span class="i">syn</span><span class="o">-</span><span class="e">flood </span><span class="i">destination</span><span class="o">-</span><span class="i">threshold</span><span class="h"> </span><span class="cn">2048</span>
+</div>
+<div class="crayon-line" id="crayon-543bdb5e1c2de-5">
+<span class="e">set </span><span class="e">security </span><span class="e">screen </span><span class="i">ids</span><span class="o">-</span><span class="e">option </span><span class="i">untrust</span><span class="o">-</span><span class="e">screen </span><span class="e">tcp </span><span class="i">syn</span><span class="o">-</span><span class="e">flood </span><span class="i">timeout</span><span class="h"> </span><span class="cn">20</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-543bdb5e1c2de-6">
+<span class="e">set </span><span class="e">security </span><span class="e">screen </span><span class="i">ids</span><span class="o">-</span><span class="e">option </span><span class="i">untrust</span><span class="o">-</span><span class="e">screen </span><span class="e">tcp </span><span class="i">land</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0032 seconds] -->
+<p>其中</p>
+<p>set security screen ids-option untrust-screen tcp syn-flood timeout 20</p>
+<p>这一条其意义是：TCP 连接的建立必须在20秒内完成，否则该连接请求将被丢弃。<a title="链接" href="http://www.juniper.net/techpubs/en_US/junos12.1x44/information-products/topic-collections/security/software-all/cli-reference/index.html?topic-56637.html">链接</a></p>
+<p>至此，已大致可以确定问题所在了：防火墙将超过20秒的连接强行关闭了。</p>
+<h3></h3>
+<h3>LVS DR模式</h3>
+<p>在 LVS DR 模式下，请求方向 LVS 发起 TCP 请求，但是 TCP 请求的回包并不从 LVS 返回，而是由 Real Server 直接返回给请求方。</p>
+<p>如果请求方与 LVS 不在同网段，则返回的 TCP 包需要通过网关转发给请求方。但是如果请求方与 LVS 是同网段且网关是防火墙设备，那情况要稍微复杂些。</p>
+<p>如图：</p>
+<div id="attachment_1597" class="wp-caption alignnone" style="width: 565px">
+<a href="http://noops.me/wp-content/uploads/2014/09/packet-flow.png"><img class="size-full wp-image-1597" alt="TCP包流向图" src="/images/noops.me/478e3b302091e36a5889ee55dcf5b021.jpg" width="555" height="485"></a><p class="wp-caption-text">TCP包流向图</p>
+</div>
+<p>注意到经过防火墙的 TCP 包是单方向的。防火墙一直认为 TCP 连接没有建立。</p>
+<p> </p>
+<h2>解决方法</h2>
+<p>根据之前的分析，想到的解决方法有两个：</p>
+<ol>
+<li><span style="line-height: 13px">调整防火墙配置和应用程序的配置，让 HTTP 长连接保持一个合适的时间。</span></li>
+<li>在该网段搭建内网 LVS，流量不经由防火墙。</li>
+</ol>
+            
+{% endraw %}

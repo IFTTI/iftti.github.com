@@ -1,0 +1,156 @@
+---
+layout: post
+title: '优酷真实视频地址解析'
+time: 2014-10-08 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/77936/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>序：优酷之前更新了次算法(很久之前了，呵呵。。。)，故此很多博客的解析算法已经无法使用。很多大牛也已经更新了新的解析方法。我也在此写篇解析过程的文章。本文使用语言为C#。</p>
+<p>由于优酷视频地址时间限制，在你访问本篇文章时，下面所属链接有可能已经失效，望见谅。</p>
+<p>例：http://v.youku.com/v_show/id_<span style="color: #ff0000;"><strong>XNzk2NTI0MzMy</strong></span>.html</p>
+<h1>1:获取视频vid</h1>
+<p>在视频url中标红部分。一个<a href="http://www.cnblogs.com/zhaojunjie/p/3344909.html" target="_blank">正则表达式</a>即可获取。</p>
+<pre class="brush: csharp; gutter: true">string getVid(string url)
+{
+    string strRegex = "(?&lt;=id_)(\\w+)";
+    Regex reg = new Regex(strRegex);
+    Match match = reg.Match(url);
+    return match.ToString();
+}</pre>
+<h1></h1>
+<h1>2:获取视频元信息</h1>
+<p><a href="http://v.youku.com/player/getPlayList/VideoIDS/XNzk2NTI0MzMy/Pf/4/ctype/12/ev/1" target="_blank">http://v.youku.com/player/getPlayList/VideoIDS/</a><a href="http://v.youku.com/player/getPlayList/VideoIDS/XNzk2NTI0MzMy/Pf/4/ctype/12/ev/1" target="_blank"><strong>XNzk2NTI0MzMy</strong>/Pf/4/ctype/12/ev/1</a></p>
+<p>将前述vid嵌入到上面url中访问即可得到视频信息文件。由于视频信息过长不在此贴出全部内容。下面是部分重要内容的展示。(获取文件为json文件，可直接解析)</p>
+<pre class="brush: csharp; gutter: true">{ "data": [ {
+            "ip": 1991941296,
+            "ep": "MwXRTAsbJLnb0PbJ8uJxAdSivUU11wnKXxc=",
+            "segs": {
+                "hd2": [
+                    {
+                        "no": "0",
+                        "size": "34602810",
+                        "seconds": 205,
+                        "k": "248fe14b4c1b37302411f67a",
+                        "k2": "1c8e113cecad924c5"
+                    },
+                    {
+                        "no": "1",
+                    },] }, } ],}</pre>
+<p>上面显示的内容后面都会使用到。其中<strong>segs包含hd3,hd2,flv,mp4,3gp</strong>等各种格式，并且每种格式下均分为若干段。本次选用清晰度较高的hd2(视频格式为flv)</p>
+<h1><strong>3:拼接m3u8地址</strong></h1>
+<pre class="brush: text; gutter: true">http://pl.youku.com/playlist/m3u8?ctype=12&amp;ep={0}&amp;ev=1&amp;keyframe=1&amp;oip={1}&amp;sid={2}&amp;token={3}&amp;type={4}&amp;vid={5}</pre>
+<p>以上共有6个参数，其中vid和oip已经得到，分别之前的vid和json文件中的ip字段，即(<strong>XNzk2NTI0MzMy</strong>和<strong>1991941296</strong>)，但是ep,sid,token需要重新计算(json文件中的ep值不能直接使用)。type比较简单，后面会说。</p>
+<h2>3.1计算ep,sid,token</h2>
+<p>计算方法单纯的为数学计算，下面给出计算的函数。三个参数可一次性计算得到。其中涉及到Base64编码解码知识，<a href="http://www.cnblogs.com/zhaojunjie/p/3946427.html" target="_blank">点击查看</a>。</p>
+<pre class="brush: csharp; gutter: true">private static string myEncoder(string a, byte[] c, bool isToBase64)
+        {
+            string result = "";
+            List&lt;Byte&gt; bytesR = new List&lt;byte&gt;();
+            int f = 0, h = 0, q = 0;
+            int[] b = new int[256];
+            for (int i = 0; i &lt; 256; i++)
+                    b[i] = i;
+            while (h &lt; 256)
+            {
+                f = (f + b[h] + a[h % a.Length]) % 256;
+                int temp = b[h];
+                b[h] = b[f];
+                b[f] = temp;
+                h++;
+            }
+            f = 0; h = 0; q = 0;
+            while (q &lt; c.Length)
+            {
+                h = (h + 1) % 256;
+                f = (f + b[h]) % 256;
+                int temp = b[h];
+                b[h] = b[f];
+                b[f] = temp;
+                byte[] bytes = new byte[] { (byte)(c[q] ^ b[(b[h] + b[f]) % 256]) };
+                bytesR.Add(bytes[0]);
+                result += System.Text.ASCIIEncoding.ASCII.GetString(bytes);
+                q++;
+            }
+            if (isToBase64)
+            {
+                Byte[] byteR = bytesR.ToArray();
+                result = Convert.ToBase64String(byteR);
+            }
+            return result;
+        }
+        public static void getEp(string vid, string ep, ref string pNew, ref string token, ref string sid)
+        {
+            string template1 = "becaf9be";
+            string template2 = "bf7e5f01";
+            byte[] bytes = Convert.FromBase64String(ep);
+            ep = ystem.Text.ASCIIEncoding.ASCII.GetString(bytes);
+            string temp = myEncoder(template1, bytes, false);
+            string[] part = temp.Split('_');
+            sid = part[0];
+            token = part[1];
+            string whole = string.Format("{0}_{1}_{2}", sid, vid, token);
+            byte[] newbytes = System.Text.ASCIIEncoding.ASCII.GetBytes(whole);
+            epNew = myEncoder(template2, newbytes, true);
+        }</pre>
+<p>计算得到ep,token,sid分别为diaVGE+IVMwB5CXXjz8bNHi0cCEHXJZ0vESH/7YbAMZuNaHQnT/Wzw==, 4178, 441265221168712cdf4f8。注意，此时ep并不能直接拼接到url中，需要对此做一下url编码ToUrlEncode(ep)。最终ep为diaVGE%2bIVMwB5CXXjz8bNHi0cCEHXJZ0vESH%2f7YbAMZuNaHQnT%2fWzw%3d%3d</p>
+<h2 align="left">3.2计算type</h2>
+<p align="left">Type值和选择的segs有密切关系。如本文选择的hd2，type即为flv，下面是segs,type和清晰度的对照。</p>
+<pre class="brush: csharp; gutter: true">“segs”,”type”,”清晰度”
+"hd3", "flv", "1080P"
+"hd2", "flv", "超清"
+"mp4", "mp4", "高清"
+"flvhd", "flv", "高清"
+"flv", "flv", "标清"
+"3gphd", "3gp", "高清"</pre>
+<h2 align="left">3.3拼接地址</h2>
+<p align="left">　　最后的m3u8地址为</p>
+<p align="left"><a href="http://pl.youku.com/playlist/m3u8?ctype=12&amp;ep=diaVGE%2bIVMwB5CXXjz8bNHi0cCEHXJZ0vESH%2f7YbAMZuNaHQnT%2fWzw%3d%3d&amp;ev=1&amp;keyframe=1&amp;oip=1991941296&amp;sid=441265221168712cdf4f8&amp;token=4178&amp;type=flv&amp;vid=XNzk2NTI0MzMy" target="_blank">http://pl.youku.com/playlist/m3u8?ctype=12&amp;ep=diaVGE%2bIVMwB5CXXjz8bNHi0cCEHXJZ0vESH%2f7YbAMZuNaHQnT%2fWzw%3d%3d&amp;ev=1&amp;keyframe=1&amp;oip=1991941296&amp;sid=441265221168712cdf4f8&amp;token=4178&amp;type=flv&amp;vid=XNzk2NTI0MzMy</a></p>
+<h1>4:获取视频地址</h1>
+<p>将上述m3u8文件下载后，其中内容即为真实地址，不过还需要稍微处理一下。部分内容如下：</p>
+<pre class="brush: text; gutter: true">#EXTM3U
+#EXT-X-TARGETDURATION:12
+#EXT-X-VERSION:3
+#EXTINF:6,
+
+http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv?ts_start=0&amp;ts_end=5.9&amp;ts_seg_no=0&amp;ts_keyframe=1
+
+#EXTINF:5.533,
+
+http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv?ts_start=5.9&amp;ts_end=11.433&amp;ts_seg_no=1&amp;ts_keyframe=1
+
+#EXTINF:5.467,
+
+http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv?ts_start=11.433&amp;ts_end=16.9&amp;ts_seg_no=2&amp;ts_keyframe=1
+
+#EXTINF:9.267,</pre>
+<p>其中每条url只包含6s左右视频，但是可将url中参数部分去掉即可得到实际的长度。但是每条去掉后需合并一下相同的url，如上述列表可得到url片段</p>
+<p><a href="http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv" target="_blank">http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv</a></p>
+<p>将m3u8中所有的url片段全部下载即可大功告成。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}
