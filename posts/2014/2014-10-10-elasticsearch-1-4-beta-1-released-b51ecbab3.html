@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>【翻译】Elasticsearch 1.4.0 beta 1 发版日志</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-10-10-elasticsearch-1-4-beta-1-released-b51ecbab3.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>【翻译】Elasticsearch 1.4.0 beta 1 发版日志</h1>
+    <p class="meta"><span class="time">Oct 10, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/10/10/elasticsearch-1-4-beta-1-released" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+  <div style="background-color: #FFF;">
+    <p>原文见：<a href="http://www.elasticsearch.org/blog/elasticsearch-1-4-0-beta-released/">http://www.elasticsearch.org/blog/elasticsearch-1-4-0-beta-released/</a></p>
+<hr>
+<p>今天，我们很高兴公告基于 <strong>Lucene 4.10.1</strong> 的 <strong>Elasticsearch 1.4.0.Beta1</strong> 发布。你可以从这里下载并阅读完整的变更列表：<a href="http://www.elasticsearch.org/downloads/1-4-0-Beta1">Elasticsearch 1.4.0.Beta1</a>。</p>
+<p>1.4.0 版的主题就是<strong>弹性</strong>：让 Elasticsearch 比过去更稳定更可靠。当所有东西都按照它应该的样子运行的时候，就很容易变得可靠了。但是不在意料中的事情发生时，复杂的部分就来了：节点内存溢出，它们的性能被慢垃圾回收或者超重的 I/O 拖累，网络连接失败，或者数据传输不规律。</p>
+<p>这次 beta 版主要在三方面力图改善弹性：</p>
+<ul>
+  <li>通过减少<a href="#section">内存使用</a>提供更好的节点稳定性。</li>
+  <li>通过改进发现算法提供更好的<a href="#section-1">集群稳定性</a>。</li>
+  <li>通过<a href="#checksums">checksums</a>提供更好的数据损坏检测。</li>
+</ul>
+<p>分布式系统是复杂的。我们已经有一个广泛的测试套件，可以创建随机场景，模拟我们自己都没想过的条件。但是依然会有无限多在此范围之外的情况。1.4.0.Beta1 里已经包含了我们目前能做到的各种优化努力。真心期望大家在实际运用中测试这些变更，然后<a href="https://github.com/elasticsearch/elasticsearch/issues">告诉我们你碰到的问题</a>。</p>
+<h2 id="section">内存管理</h2>
+<ul>
+  <li>内存压力</li>
+  <li>swap (参见 <a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/1.4/setup-configuration.html#setup-configuration-memory">memory settings</a>)</li>
+  <li>太大的 heaps</li>
+</ul>
+<p>这次发版包括了一系列变更来提升内存管理，并由此提升节点稳定性：</p>
+<h3 id="doc-values">doc values</h3>
+<p><em>fielddata</em> 是最主要的内存大户。为了让聚合、排序以及脚本访问字段值时更快速，我们会加载字段值到内存，并保留在内存中。内存的堆空间非常宝贵，所以内存里的数据需要使用复杂的压缩算法和微优化来完成每次计算。正常情况下这样会工作的很好，直到你的数据大小超过了堆空间大小。这个问题看起来可以通过添加更多节点的方式解决。不过通常来说，堆空间问题总是会在 CPU 和 I/O 之前先到达瓶颈。</p>
+<p>现有版本已经添加了 doc values 支持。本质上，doc values 提供了和内存中 fielddata 一样的功能，不过他们在写入索引的时候就直接落到了磁盘上。而好处就是：他们<strong>消耗很少的堆空间</strong>。Doc values 在读取的时候也不是从内存，而是从磁盘上读取。虽然访问磁盘很慢，但是 doc values 可以利用内核的文件系统缓存。文件系统缓存可不像 JVM 的堆，不会有 32GB 的限制。所以把 fielddata 从堆转移到文件系统缓存里，你只用消耗更小的堆空间，也意味着更快的垃圾回收，以及<strong>更稳定的节点</strong>。</p>
+<p>在本次发版之前，doc values 明显慢于在内存里的 fielddata 。而这次我们显著提升了性能，几乎达到了和在内存里一样快的效果。</p>
+<p>用doc values 替换内存 fielddata，你只需要向下面这样构建新字段就行：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="err">PUT</span> <span class="err">/my_index</span>
+<span class="p">{</span>
+  <span class="nt">"mappings"</span><span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"my_type"</span><span class="p">:</span> <span class="p">{</span>
+      <span class="nt">"properties"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"timestamp"</span><span class="p">:</span> <span class="p">{</span>
+          <span class="nt">"type"</span><span class="p">:</span>       <span class="s2">"date"</span><span class="p">,</span>
+          <span class="nt">"doc_values"</span><span class="p">:</span> <span class="kc">true</span>
+        <span class="p">}</span>
+      <span class="p">}</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre>
+</div>
+<p>有了这个映射表，要用这个字段数据都会自动从磁盘加载 doc values 而不是进到内存里。<strong>注意</strong>：目前 doc values 还不能在经过分词器的 <code>string</code> 字段上使用。</p>
+<h3 id="request-circuit-breaker">request circuit breaker</h3>
+<p>fielddata 断路器之前已经被加入，用作限制 fielddata 可用的最大内存，这是导致 OOM 的最大恶因。而限制，我们把这个机制扩展到<a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/1.4/index-modules-fielddata.html#request-circuit-breaker">请求界别</a>，用来限制每次请求可用的最大内存。</p>
+<h3 id="bloom-filters">bloom filters</h3>
+<p><a href="http://en.wikipedia.org/wiki/Bloom_filter">Bloom filters</a> 在写入索引是提供了重要的性能优化 – 用以检查是否有已存在的文档 id ，在通过 id 访问文档时，用来探测哪个 segment 包含这个文档。不过当然的，这也有代价，就是内存消耗。目前的改进是移除了对 bloom filters 的依赖。目前 Elasticsearch 只在写入索引(仅是真实用例上的经验，没有我们的测试用例证明)的时候构建它，但<a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/1.4/indices-update-settings.html#codec-bloom-load">默认</a>不再加载进内存。如果一切顺利的话，未来的版本里我们会彻底移除它。</p>
+<h2 id="section-1">集群稳定性</h2>
+<p>提高集群稳定性最大的工作就是提高节点稳定性。如果节点稳定且响应及时，就极大的减少了集群不稳定的可能。换句话说，我们活在一个不完美的世界 – 事情总是往意料之外发展，而集群就需要能无损的从这些情况中恢复回来。</p>
+<p>我们在 improve_zen 分支上花了几个月的时间来提高 Elasticsearch 从失败中恢复的能力。首先，我们添加测试用例来复原复杂的网络故障。然后为每个测试用例添加补丁。肯定还有很多需要做的，不过目前来说，用户们已经碰到过的绝大多数问题我们已经解决了，包括<a href="https://github.com/elasticsearch/elasticsearch/issues/2488">issue #2488</a> – “minimum_master_nodes 在交叉脑裂时不起作用”。</p>
+<p>我们非常认真的对待集群的弹性问题。希望你能明白 Elasticsearch 能为你做什么，也能明白它的弱点在哪。考虑到这点，我们创建了<a href="http://www.elasticsearch.org/guide/en/elasticsearch/resiliency/current/index.html">弹性状态文档</a>。这个文档记录了我们以及我们的用户碰到过各种弹性方面的问题，有些可能已经修复，有些可能还没有。请认真阅读这篇文档，采取适当的措施来保护你的数据。</p>
+<h2 id="section-2">数据损坏探测</h2>
+<p>从网络恢复过来的分片的 checksum 帮助我们发现过一个压缩库的 bug，这是 1.3.2 版本的时候发生的事情。从那天起，我们给 Elasticsearch 添加了越来越多的 checksum 认证。</p>
+<ul>
+  <li>在合并时，segment 中的所有文件都有自己的 checksum 验证(<a href="https://github.com/elasticsearch/elasticsearch/issues/7360">#7360</a>).</li>
+  <li>重新开所有索引的时候，segment 里的小文件完整的验证，大文件则做轻量级的分段验证(<a href="https://issues.apache.org/jira/browse/LUCENE-5842">LUCENE-5842</a>).</li>
+  <li>从 transaction 日志重放事件的时候，每个事件都有自己的 checksum 验证(<a href="https://github.com/elasticsearch/elasticsearch/issues/6554">#6554</a>).</li>
+  <li>During shard recovery, or when restoring from a snapshot, Elasticsearch needs to compare a local file with a remote copy to ensure that they are identical. Using just the file length and checksum proved to be insufficient. Instead, we now check the identity of all the files in the segment (<a href="https://github.com/elasticsearch/elasticsearch/issues/7159">#7159</a>).</li>
+</ul>
+<h2 id="section-3">其他亮点</h2>
+<p>你可以在 <a href="http://www.elasticsearch.org/downloads/1-4-0-Beta1">Elasticsearch 1.4.0.Beta1 changelog</a> 里读到这个版本的所有特性，功能和修复。不过还是有些小改动值得单独提一下的：</p>
+<h3 id="groovy--mvel">groovy 代替了 mvel</h3>
+<p>Groovy 现在成为了新的默认脚本语言。之前的 MVEL 太老了，而且它不能运行在沙箱里也带来了安全隐患。Groovy 是沙箱化的(这意味着可以放心的开启)(译者注：还记得1.2版本时候的所谓安全漏洞吧)，而且 Groovy 有个很好的管理团队，运行速度也<strong>很快</strong>！更多信息见<a href="http://www.elasticsearch.org/blog/scripting/">博客关于脚本的内容</a>。</p>
+<h3 id="cors">默认关闭 cors</h3>
+<p>默认配置下的 Elasticsearch 很容易遭受跨站攻击。所以我们默认关闭掉 <a href="http://en.wikipedia.org/wiki/Cross-origin_resource_sharing">CORS</a>。Elasticsearch 里的 site 插件会照常工作，但是外部站点不再被允许访问远程集群，除非你再次打开 CORS。我们还添加了更多的<a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/1.4/modules-http.html#_settings_2">CORS 配置项</a>让你可以控制哪些站点可以被允许访问。更多信息请看我们的<a href="http://www.elasticsearch.org/community/security">安全页</a>。</p>
+<h3 id="query-cache">请求缓存(query cache)</h3>
+<p>一个新的实验性<a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/1.4/index-modules-shard-query-cache.html">分片层次的请求缓存</a>可以让在静态索引上的聚合请求瞬间返回响应。想想你有一个仪表板展示你的网站每天的 PV 数。这个书在过去的索引上不可能再变化了，但是聚合请求在每次页面刷新的时候都需要重新计算。有了新的请求缓存，聚合结果就可以直接从缓存中返回，除非分片中的数据发生了变化。你不用担心会从缓存中得到过期的结果 – 它永远都会跟没缓存一样。</p>
+<h3 id="section-4">新的聚合函数</h3>
+<p>我们添加了三个新的聚合函数：</p>
+<p><code>filters</code></p>
+<pre><code>这是 `filter` 聚合的扩展。允许你定义多个桶(bucket)，每个桶里有不同的过滤器。
+</code></pre>
+
+<p><code>children</code></p>
+<pre><code>相当于 `nested` 的父子聚合，`children` 可以针对属于某个父文档的子文档做聚合。
+</code></pre>
+
+<p><code>scripted_metric</code></p>
+<pre><code>给你完全掌控数据数值运算的能力。提供了在初始化、文档收集、分片层次合并，以及全局归并阶段的钩子。
+</code></pre>
+
+<h3 id="index-">获取 /index 的接口</h3>
+<p>之前，你可以分别为一个索引获取他的别名，映射表，配置等等。而<a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/1.4/indices-get-index.html"><code>get-index</code> 接口</a> 现在让你可以一次获取一个或者多个索引的全部信息。这在你需要创建一个跟已有索引很类似或者几乎一样的新索引的时候，相当有用。</p>
+<h3 id="section-5">索引写入和更新</h3>
+<p>在文档写入和更新方面也有一些改进：</p>
+<ul>
+  <li>我们现在用 <a href="http://boundary.com/blog/2012/01/12/flake-a-decentralized-k-ordered-unique-id-generator-in-erlang">Flake IDs</a> 自动生成文档的 ID。在查找主键的时候，能提供更好的性能。</li>
+  <li>如果设置 <code>detect_noop</code> 为 <code>true</code>，一个不做任何实际变动的更新操作现在消耗更小了。打开这个参数，就只有变更了 <code>_source</code> 字段内容的更新请求才能写入新版本文档。</li>
+  <li>更新操作可以完全由脚本控制。之前，脚本只能在字段已经存在的时候运行，否则会插入一个 <code>upsert</code> 文档。现在 <code>scripted_upsert</code> 参数允许你在脚本中直接处理文档创建工作。</li>
+</ul>
+<h3 id="function-score">function score</h3>
+<p>非常有用的 <a href="http://www.elasticsearch.org/guide/en/elasticsearch/reference/1.4/query-dsl-function-score-query.html"><code>function_score</code> 请求</a>现在支持权重参数，用来优化每个指定函数的相关性影响。这样你可以把更多权重给新近的而不是热点的，给价格而不是位置。此外，<code>random_score</code>函数不再被 segment 合并影响，增强了排序一致性。</p>
+<h2 id="section-6">试一试</h2>
+<p>请<a href="http://www.elasticsearch.org/downloads/1-4-0-Beta1">下载 Elasticsearch 1.4.0.Beta1</a>，尝试一下，然后在 Twitter 上<a href="https://twitter.com/elasticsearch">@elasticsearch</a>) 说出你的想法。你也可以在 <a href="https://github.com/elasticsearch/elasticsearch/issues">GitHub issues 页</a>上报告问题。</p>
+    <hr>
+
+    <hr>
+  <!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-10-09-78042-47b5a041c.html" title="Previous Post: 互联网全站HTTPS的时代已经到来" data-instant>&laquo; 互联网全站HTTPS的时代已经到来</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-10-10-run-kibana4-without-jar-bffff7f65.html" title="Next Post: 从源代码运行 Kibana 4" data-instant>从源代码运行 Kibana 4 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>29 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html">山寨一个 Splunk 的 source 上下文查看功能</a></li>
+
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
+
+      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html">Perl 编程的个人惯例</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
