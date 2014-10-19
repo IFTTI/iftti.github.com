@@ -5,9 +5,433 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Thu, 16 Oct 2014 23:31:34 +0800</pubDate>
-    <lastBuildDate>Thu, 16 Oct 2014 23:31:34 +0800</lastBuildDate>
+    <pubDate>Sun, 19 Oct 2014 11:31:16 +0800</pubDate>
+    <lastBuildDate>Sun, 19 Oct 2014 11:31:16 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>Rsyslog 性能数据 impstats 直接写入 Elasticsearch</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;Rsyslog 的性能数据，可以通过自带的 impstats 插件输出。但是在用的比较复杂的场景下，每次输出都会有好几十个 action 的各种状态，肉眼观察变得比较困难，这时候，我们可以直接输出给 Elasticsearch ，然后利用 Kibana 做快速搜索和分析。&lt;/p&gt;
+&lt;p&gt;Rsyslog 官方提供了直接输出给 Elasticsearch 的插件：&lt;code&gt;omelasticsearch&lt;/code&gt;。配置如下：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;module(load=&quot;omelasticsearch&quot;)
+module(load=&quot;impstats&quot; interval=&quot;120&quot; severity=&quot;6&quot; log.syslog=&quot;on&quot; format=&quot;json&quot; resetCounters=&quot;on&quot;)
+template(name=&quot;logstash-index&quot; type=&quot;list&quot;) {
+    constant(value=&quot;logstash-rsyslog-&quot;)
+    property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot; position.from=&quot;1&quot; position.to=&quot;4&quot;)
+    constant(value=&quot;.&quot;)
+    property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot; position.from=&quot;6&quot; position.to=&quot;7&quot;)
+    constant(value=&quot;.&quot;)
+    property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot; position.from=&quot;9&quot; position.to=&quot;10&quot;)
+}
+template(name=&quot;plain-syslog&quot; type=&quot;list&quot;) {
+    constant(value=&quot;{&quot;)
+    constant(value=&quot;\&quot;@timestamp\&quot;:\&quot;&quot;) property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot;)
+    constant(value=&quot;\&quot;,\&quot;host\&quot;:\&quot;&quot;)    property(name=&quot;hostname&quot;)
+    constant(value=&quot;\&quot;,&quot;)   property(name=&quot;msg&quot; position.from=&quot;2&quot;)
+}
+if ( $syslogfacility-text == &#39;syslog&#39; ) then {
+    action( type=&quot;omelasticsearch&quot;
+            template=&quot;plain-syslog&quot;
+            server=&quot;10.13.57.35&quot;
+            searchIndex=&quot;logstash-index&quot;
+            searchType=&quot;impstats&quot;
+            bulkmode=&quot;on&quot;
+            dynSearchIndex=&quot;on&quot;
+    )
+    stop
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;这里用到一个小窍门。impstats 只是 message 部分内容是 JSON 格式，那么如果合在总的内容里，可能就得跟老版的 logstash 事件格式一样，专门放在 &lt;code&gt;@fields:&lt;/code&gt; 里面去了。但是，利用 &lt;code&gt;position.from&lt;/code&gt; 参数，把 message 部分的开头 &lt;code&gt;{&lt;/code&gt; 给删掉，就把整个内容都提升到顶层了，变成了新版 logstash 的事件格式了！&lt;/p&gt;
+&lt;p&gt;Rsyslog 的 template 语法多变，实现这个同样的目的，在 &lt;code&gt;mmjsonparse&lt;/code&gt; 或者 &lt;code&gt;mmnormalize&lt;/code&gt; 的配合下，就可以有不同写法：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;Rsyslog 官方的 &lt;code&gt;$!all-json&lt;/code&gt; 玩法 &lt;a href=&quot;http://www.rsyslog.com/json-elasticsearch/&quot;&gt;Parsing JSON (CEE) Logs and Sending them to Elasticsearch&lt;/a&gt;
+&lt;/li&gt;
+  &lt;li&gt;Rackspace 官博的 &lt;code&gt;subtree&lt;/code&gt; 玩法 &lt;a href=&quot;https://developer.rackspace.com/blog/rsyslog-and-elasticsearch/&quot;&gt;rsyslog &amp;amp; ElasticSearch&lt;/a&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;normalize 是 rsyslog 作者自己写的一个日志格式分析工具，搞怪的是它的文本格式示例文件后缀名叫 &lt;code&gt;.rb&lt;/code&gt;，不是 Ruby，而是 RuleBase……&lt;/p&gt;
+&lt;p&gt;RuleBase 支持的&lt;a href=&quot;http://www.liblognorm.com/files/manual/index.html&quot;&gt;语法&lt;/a&gt;不多：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;date-rfc3164: date as specified in rfc3164 (example: %date:date-rfc3164%)&lt;/li&gt;
+  &lt;li&gt;date-rfc5424: date as specified in rfc5424 (example: %date:date-rfc5424%)&lt;/li&gt;
+  &lt;li&gt;ipv4: IP adress (example: %ip:ipv4%)&lt;/li&gt;
+  &lt;li&gt;number: sequence of numbers (example: %port:number%)&lt;/li&gt;
+  &lt;li&gt;word: everything until the next blank (example: %host:word%)&lt;/li&gt;
+  &lt;li&gt;char-to: the field will be defined by the sign in the additional information (example: %tag:char-to:\x3a%: (x3a means “:” in the additional information))&lt;/li&gt;
+  &lt;li&gt;quoted-string: If a quoted string is present, a property can be filled with the whole string (example: %quote:quoted-string%)&lt;/li&gt;
+  &lt;li&gt;date-iso: date in ISO format (example: %date:date-iso%)&lt;/li&gt;
+  &lt;li&gt;time-24hr: detects time in 24hr format (example: %time:time-24hr%)&lt;/li&gt;
+  &lt;li&gt;time-12hr: detects time in 12hr format (example: %time:time-12hr%)&lt;/li&gt;
+  &lt;li&gt;iptables: parses IP tables messages and fills properties accordingly(example: %tables:iptables%)&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;从这个格式设计也可以看出，主要还是用来分析系统日志比较多。&lt;/p&gt;
+&lt;p&gt;目前来看，使用 Rsyslog 做整套日志处理系统的话，在数据结构化这步，还是用 &lt;a href=&quot;http://www.rsyslog.com/doc/v8-stable/configuration/modules/mmexternal.html&quot;&gt;mmexternal&lt;/a&gt; 插件来完成比较合适。&lt;/p&gt;
+&lt;p&gt;mmexternal 模块类似 squid 的 &lt;code&gt;url_rewrite_program&lt;/code&gt; ，都是支持用任意语言写的脚本，死循环接收 STDIN(可以配置传输 line 还是 json 格式)，处理完成后(JSON 格式)输出给 STDOUT 即可。官方示例见：&lt;a href=&quot;https://github.com/rsyslog/rsyslog/blob/master/plugins/external/messagemod/anon_cc_nbrs/anon_cc_nbrs.py&quot;&gt;https://github.com/rsyslog/rsyslog/blob/master/plugins/external/messagemod/anon_cc_nbrs/anon_cc_nbrs.py&lt;/a&gt;。性能如何，有待测试了。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Sat, 18 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-18-rsyslog-impstats-elasticsearch-92d448be2.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-18-rsyslog-impstats-elasticsearch-92d448be2.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>LogStash::Inputs::Syslog 性能测试与优化</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;最近因为项目需要，必须想办法提高 logstash indexer 接收 rsyslog 转发数据的性能。首先，就是要了解 logstash 到底能收多快？&lt;/p&gt;
+&lt;p&gt;之前用 libev 库写过类似功能的程序，所以一开始也是打算找个能在 JRuby 上运行的 netty 封装。找到了 &lt;a href=&quot;https://github.com/m0wfo/foxbat&quot;&gt;foxbat&lt;/a&gt; 库，不过最后发现效果跟官方的标准 socket 实现差不多。（这部分另篇讲述）&lt;/p&gt;
+&lt;p&gt;后来又发现另一个库：&lt;a href=&quot;https://github.com/jordansissel/experiments/tree/master/ruby/jruby-netty/syslog-server&quot;&gt;jruby-netty&lt;/a&gt;，注意到这个作者就是 logstash 作者 jordansissel！&lt;/p&gt;
+&lt;p&gt;当然，最终并不是用上这个项目的代码来改写 logstash，而是从这里面学到了如何方便的进行 syslog server 性能压测。测试方式：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;yes &quot;&amp;lt;44&amp;gt;May 19 18:30:17 snack jls: foo bar 32&quot; | nc localhost 3000
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;或者&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;loggen -r 500000 -iS -s 120 -I 50  localhost 3000
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;loggen 是 syslog-ng 带的工具，还得另外安装。而上面第一行的方式，这个 &lt;code&gt;yes&lt;/code&gt; 用的真是绝妙！&lt;/p&gt;
+&lt;p&gt;就用这个测试方法，最终发现单机上 LogStash::Inputs::Syslog 的每秒处理能力只有 700 条：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;input {
+    syslog {
+        port =&amp;gt; 3000
+    }
+}
+output {
+    stdout {
+        codec =&amp;gt; dots
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;logstash 配置文件见上。然后测试启动命令如下：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;./bin/logstash -f syslog.conf | pv -abt &amp;gt; /dev/null
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;&lt;em&gt;注意，centos 上的 pv 命令可能还没有 &lt;code&gt;-a&lt;/code&gt; 参数。&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;为了逐一排除性能瓶颈。我依次注释掉了 &lt;code&gt;lib/logstash/inputs/syslog.rb&lt;/code&gt; 中 &lt;code&gt;@date_filters.filter(event)&lt;/code&gt; 和 &lt;code&gt;@grok_filters.filter(event)&lt;/code&gt; 两段，并重新运行上次的测试。结果发现：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;TCPServer 接收的性能是每秒 50k 条&lt;/li&gt;
+  &lt;li&gt;TCPServer 接收并完成 grok filter 的性能是每秒 5k 条&lt;/li&gt;
+  &lt;li&gt;TCPServer 接收并完成 grok 和 date filter 的性能是每秒 700 条&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;性能成几何级的下降！&lt;/p&gt;
+&lt;p&gt;而另外通过 &lt;code&gt;input { generator { count =&amp;gt; 3000000 } }&lt;/code&gt; 测试可以发现，logstash 本身空数据流转的性能也不过就是每秒钟几万条。所以，优化点就在后面的 filter 上。&lt;/p&gt;
+&lt;p&gt;LogStash::Inputs::Syslog 中，TCPServer 对每个 client 单独开一个 Thread，但是这个 Thread 内要顺序完成 &lt;code&gt;@codec.decode&lt;/code&gt;，&lt;code&gt;@grok_filter.filter&lt;/code&gt; 和 &lt;code&gt;@date_filter.filter&lt;/code&gt; 三大步骤后，才算完成。而我们都知道：Logstash 配置中 filter 阶段的插件是可以多线程完成的。所以，解决办法就来了：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;input {
+    tcp {
+        port =&amp;gt; 3000
+    }
+}
+filter {
+    grok {
+        overwrite =&amp;gt; &quot;message&quot;
+        match =&amp;gt; [&quot;message&quot;, &quot;&amp;lt;\d+&amp;gt;%{SYSLOGLINE}&quot;]
+    }
+    date {
+        locale =&amp;gt; &quot;en&quot;
+        match =&amp;gt; [&quot;timestamp&quot;, &quot;MMM dd HH:mm:ss&quot;, &quot;MMM  d HH:mm:ss&quot;]
+    }
+}
+output {
+    stdout {
+        codec =&amp;gt; dots
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;然后重新测试，发现性能提高到了每秒 4.5k。再用下面命令运行测试：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;  ./bin/logstash -f syslog.conf -w 20 | pv -bt &amp;gt; /dev/null
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;发现性能提高到了每秒 30 k 条！&lt;/p&gt;
+&lt;p&gt;此外，还陆续完成了另外一些测试。&lt;/p&gt;
+&lt;p&gt;比如：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;outputs/elasticsearch 的 protocol 使用 node 还是 http 的问题。测试在单台环境下，node 只有 5k 的 indexing 速度，而 http 有7k。&lt;/li&gt;
+  &lt;li&gt;在 inputs/file 的前提下，outputs/stdout{dots} 比 outputs/elasticsearch{http} 处理速度快一倍，即有 15k。&lt;/li&gt;
+  &lt;li&gt;下载了 heka 的二进制包，通过下面配置测试其接受 syslog 输入，并以 logstash 的 schema 输出到文件的性能。结果是每秒 30k，跟之前优化后的 logstash 基本一致。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;k&quot;&gt;[hekad]&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;maxprocs&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;48&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;[TcpInput]&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;address&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;:5140&quot;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;parser_type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;token&quot;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;decoder&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;RsyslogDecoder&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;[RsyslogDecoder]&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;SandboxDecoder&quot;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;filename&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;lua_decoders/rsyslog.lua&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;[RsyslogDecoder.config]&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;mweibo&quot;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;template&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;&amp;lt;%pri%&amp;gt;%TIMESTAMP% %HOSTNAME% %syslogtag%%msg:::sp-if-no-1st-sp%%msg:::drop-last-lf%\n&#39;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;tz&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;Asia/Shanghai&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;[ESLogstashV0Encoder]&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;es_index_from_timestamp&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;true&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;fields&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;[&quot;Timestamp&quot;, &quot;Payload&quot;, &quot;Hostname&quot;, &quot;Fields&quot;]&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;type_name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;%{Type}&quot;&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# [ElasticSearchOutput]&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# message_matcher = &quot;Type == &#39;nginx.access&#39;&quot;&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# server = &quot;http://10.13.57.35:9200&quot;&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# encoder = &quot;ESLogstashV0Encoder&quot;&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# flush_interval = 50&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;# flush_count = 5000&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;[counter_output]&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;FileOutput&quot;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;path&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;/tmp/debug.log&quot;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;message_matcher&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;TRUE&quot;&lt;/span&gt;
+&lt;span class=&quot;na&quot;&gt;encoder&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;ESLogstashV0Encoder&quot;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;heka 文档称 maxprocs 设置为 cpu 数的两倍。不过实际测试中，不配置跟配置总共也就差一倍的性能。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Sat, 18 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-18-performance-testing-tunning-for-logstash-inputs-syslog-e45b97b39.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-18-performance-testing-tunning-for-logstash-inputs-syslog-e45b97b39.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>在终端命令行上调试 grok 表达式</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;用 logstash 的人都知道在 &lt;a href=&quot;http://grokdebug.herokuapp.com&quot;&gt;http://grokdebug.herokuapp.com&lt;/a&gt; 上面调试 grok 正则表达式。现在问题来了：&lt;del&gt;翻墙技术哪家强?&lt;/del&gt; 页面中用到了来自 google 域名的 js 文件，所以访问经常性失败。所以，在终端上通过命令行方式快速调试成了必需品。&lt;/p&gt;
+&lt;p&gt;其实在 logstash 还在 1.1 的年代的时候，官方 wiki 上是有一批专门教大家怎么通过 irb 交互式测试 grok 表达式的。但不知道为什么后来 wiki 这页没了…… 好在代码本身不复杂，稍微写几行脚本，就可以达到目的了：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ruby&quot; data-lang=&quot;ruby&quot;&gt;&lt;span class=&quot;c1&quot;&gt;#!/usr/bin/env ruby&lt;/span&gt;
+&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;rubygems&#39;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;gem&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;jls-grok&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;=0.11.0&#39;&lt;/span&gt;
+&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;grok-pure&#39;&lt;/span&gt;
+&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;optparse&#39;&lt;/span&gt;
+&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;ap&#39;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{}&lt;/span&gt;
+&lt;span class=&quot;no&quot;&gt;ARGV&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;push&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-h&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ARGV&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;size&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;===&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;
+&lt;span class=&quot;no&quot;&gt;OptionParser&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;banner&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Run grokdebug at your terminal.&#39;&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:dirs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;sx&quot;&gt;%w(patterns)&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:named&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;false&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-d DIR1,DIR2&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--dirs DIR1,DIR2&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Array&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Set grok patterns directories. Default: &quot;./patterns&quot;&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:dirs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-m MESSAGE&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--msg MESSAGE&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Your raw message to be matched&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:message&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-p PATTERN&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--pattern PATTERN&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Your grok pattern to be compiled&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:pattern&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-n&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--named&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Named captures only&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:named&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;true&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;parse!&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:dirs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;each&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;directory?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;*&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;no&quot;&gt;Dir&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;glob&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;each&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;add_patterns_from_file&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;compile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:pattern&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:named&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;ap&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;match&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:message&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;captures&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;测试一下：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;$ sudo gem install jls-grok awesome_print
+$ ruby grokdebug.rb
+Run grokdebug at your terminal.
+    -d, --dirs DIR1,DIR2             Set grok patterns directories. Default: &quot;./patterns&quot;
+    -m, --msg MESSAGE                Your raw message to be matched
+    -p, --pattern PATTERN            Your grok pattern to be compiled
+    -n, --named                      Named captures only
+$ ruby grokdebug.rb -m &#39;abc123&#39; -p &#39;%{NUMBER:test}&#39;
+{
+         &quot;test&quot; =&amp;gt; [
+        [0] &quot;123&quot;
+    ],
+    &quot;BASE10NUM&quot; =&amp;gt; [
+        [0] &quot;123&quot;
+    ]
+}
+$ ruby grokdebug.rb -m &#39;abc123&#39; -p &#39;%{NUMBER:test:float}&#39; -n
+{
+    &quot;test&quot; =&amp;gt; [
+        [0] 123.0
+    ]
+}
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;没错，我这比 grokdebug 网站还多了类型转换的功能。它用的 jls-grok 是 0.10.10 版，而我用的是最新的 0.11.0 版。 &lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Sat, 18 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-18-grokdebug-commandline-ca3f2961b.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-18-grokdebug-commandline-ca3f2961b.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>在 JRuby 上用 netty 模拟 eventmachine</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;上一篇说到在 JRuby 上利用 netty 库实现事件驱动。事实上，为了让 Ruby 程序员更习惯，foxbat 模块是把 netty 库封装成 eventmachine 的接口来提供给用户使用的。所以，我们可以把程序写得更通用一些：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ruby&quot; data-lang=&quot;ruby&quot;&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;defined?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;JRUBY_VERSION&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;foxbat&#39;&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;eventmachine&#39;&lt;/span&gt;
+  &lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;socket&#39;&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;module&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;SyslogRecv&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;initialize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@output_queue&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:queue&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@codec&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:codec&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@grok_filter&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:grok_filter&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@date_filter&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:date_filter&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;syslog_relay&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;vi&quot;&gt;@grok_filter&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;filter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;tags&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;nil?&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;||&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;tags&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;include?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;_grokparsefailure&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;timestamp&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;timestamp8601&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;include?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;timestamp8601&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;vi&quot;&gt;@date_filter&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;filter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt;
+        &lt;span class=&quot;vi&quot;&gt;@logger&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info?&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&amp;amp;&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@logger&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;NOT SYSLOG&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:message&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;message&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;post_init&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;vc&quot;&gt;@@connections&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;||=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;[]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;receive_data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+      &lt;span class=&quot;vc&quot;&gt;@@connections&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;each&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;defined?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;JRUBY_VERSION&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+          &lt;span class=&quot;n&quot;&gt;ip&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;get_peername&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;getAddress&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;getHostAddress&lt;/span&gt;
+          &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;get_peername&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;getPort&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt;
+          &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ip&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Socket&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;unpack_sockaddr_in&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;get_peername&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;LogStash&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;Util&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;set_thread_name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;input|syslog|tcp|&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;#{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ip&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;#{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;}&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;vi&quot;&gt;@codec&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;decode&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;data&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
+          &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;host&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ip&lt;/span&gt;
+          &lt;span class=&quot;n&quot;&gt;syslog_relay&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+          &lt;span class=&quot;vi&quot;&gt;@output_queue&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;
+          &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+      &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;run&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;output_queue&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@logger&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;info&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Starting syslog tcp listener&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:address&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;#{&lt;/span&gt;&lt;span class=&quot;vi&quot;&gt;@host&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;#{&lt;/span&gt;&lt;span class=&quot;vi&quot;&gt;@port&lt;/span&gt;&lt;span class=&quot;si&quot;&gt;}&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;no&quot;&gt;EventMachine&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;run&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
+      &lt;span class=&quot;no&quot;&gt;EventMachine&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;start_server&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@host&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;SyslogRecv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;ss&quot;&gt;:queue&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;output_queue&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+        &lt;span class=&quot;ss&quot;&gt;:codec&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@codec&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+        &lt;span class=&quot;ss&quot;&gt;:grok_filter&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@grok_filter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+        &lt;span class=&quot;ss&quot;&gt;:date_filter&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@date_filter&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;初次用 EventMachine，发现写法还蛮奇怪的。&lt;code&gt;start_server&lt;/code&gt; 传递参数必须是 module 或者 class，然后变量只能随后通过额外的哈希传递进去。&lt;/p&gt;
+&lt;p&gt;木有看 CPP 的 EM 实现，看这里 foxbat 的实现，发现在 JRuby 里使用 Java 还真是简单啊：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ruby&quot; data-lang=&quot;ruby&quot;&gt;&lt;span class=&quot;c1&quot;&gt;#!/usr/bin/env ruby&lt;/span&gt;
+&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;java&quot;&lt;/span&gt;
+&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dirname&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;__FILE__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;netty-3.2.4.Final.jar&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dirname&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;bp&quot;&gt;__FILE__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;syslogdecoder.jar&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;java_import&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;com.loggly.syslog.SyslogDecoder&quot;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;java_import&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;org.jboss.netty.channel.SimpleChannelHandler&quot;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;java_import&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;org.jboss.netty.channel.ChannelPipelineFactory&quot;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;java_import&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;org.jboss.netty.channel.Channels&quot;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;java_import&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory&quot;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;java_import&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;org.jboss.netty.bootstrap.ServerBootstrap&quot;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;SyslogServerHandler&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;SimpleChannelHandler&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;
+    &lt;span class=&quot;kp&quot;&gt;include&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ChannelPipelineFactory&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;getPipeline&lt;/span&gt;
+      &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Channels&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;pipeline&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;SyslogDecoder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# def getPipeline&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# class &amp;lt;&amp;lt; self&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;initialize&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;super&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# def initialize&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;messageReceived&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;context&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;e&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;event&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;getMessage&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;toString&lt;/span&gt;
+    &lt;span class=&quot;nb&quot;&gt;print&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;.&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# def messageReceived&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;exceptionCaught&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;context&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;exception&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;exception&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;getCause&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;printStackTrace&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;exception&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;getChannel&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;close&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# def exceptionCaught&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# class SyslogServerHandler&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;RubySyslogServer&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;initialize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@factory&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;NioServerSocketChannelFactory&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;java&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;util&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;concurrent&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Executors&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;newCachedThreadPool&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt;
+      &lt;span class=&quot;n&quot;&gt;java&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;util&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;concurrent&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Executors&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;newCachedThreadPool&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@bootstrap&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ServerBootstrap&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;vi&quot;&gt;@factory&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@bootstrap&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;setPipelineFactory&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;SyslogServerHandler&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@bootstrap&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;setOption&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;child.tcpNoDelay&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;true&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@bootstrap&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;setOption&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;child.keepAlive&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;true&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@host&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;
+    &lt;span class=&quot;vi&quot;&gt;@port&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# def initialize&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;start&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;address&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;java&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;net&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;InetSocketAddress&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;vi&quot;&gt;@host&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;vi&quot;&gt;@bootstrap&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;bind&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;address&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# def start&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;# class SyslogServer&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;bp&quot;&gt;__FILE__&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;vg&quot;&gt;$0&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;host&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ARGV&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;
+  &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ARGV&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;to_i&lt;/span&gt;
+  &lt;span class=&quot;no&quot;&gt;RubySyslogServer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;host&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;port&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;start&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;直接加载 jar 包，导入各种类。然后就能照样用了。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Fri, 17 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-17-netty-to-eventmachine-on-jruby-f8df2834b.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-17-netty-to-eventmachine-on-jruby-f8df2834b.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
     
       <item>
         <title>『淘宝十年技术路』读书笔记</title>
@@ -211,6 +635,49 @@ def estimate_cardinality(values，k):
         
         
         <category>jobbole</category>
+        
+      </item>
+    
+      <item>
+        <title>PerlAPI 里的 Magic 简介</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;前几天看到 cindylinz 发了一个新 CPAN 模块叫 &lt;a href=&quot;https://metacpan.org/pod/Scalar::Watcher&quot;&gt;Scalar::Watcher&lt;/a&gt;，有朋友问我这个是怎么实现的，在无限循环啊，多线程啊，IO 阻塞啊等情况下，还能被触发么？&lt;/p&gt;
+&lt;p&gt;于是我去仔细看了一下这个模块的代码。最关键的就是下面这几行：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;&lt;span class=&quot;n&quot;&gt;SvUPGRADE&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SVt_PVMG&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+        &lt;span class=&quot;n&quot;&gt;sv_magicext&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;target&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;handler_cv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PERL_MAGIC_ext&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;modified_vtbl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;NULL&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;这里其实用的是 perlapi 里的 Magic：&lt;/p&gt;
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;第一行，设置监听变量为 &lt;code&gt;SVt_PVMG&lt;/code&gt;，即带有 Magic 的标量；&lt;/p&gt;
+    &lt;p&gt;&lt;code&gt;SvUPGRADE&lt;/code&gt; 函数见 perlguts 文档的 “&lt;a href=&quot;http://perldoc.perl.org/perlguts.html#Assigning-Magic&quot;&gt;Assigning Magic&lt;/a&gt;” 部分。&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;第二行，设置该变量的 Magic 扩展，即往标量的 Magic 链表上加内容。&lt;/p&gt;
+    &lt;p&gt;&lt;code&gt;sv_magicext&lt;/code&gt; 函数说明见 perlapi 文档的 “&lt;a href=&quot;http://perldoc.perl.org/perlapi.html#SV-Body-Allocation&quot;&gt;SV-Body Allocation&lt;/a&gt;” 部分。&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Magic 主要有两个作用，一个叫 Hook Method，一个叫 Managed Data。我们都很熟悉的 Moose 框架就是利用的 Magic 的 Managed Data 实现的。而这里，用到的是 Hook Method。&lt;/p&gt;
+&lt;p&gt;Scalar::Watcher 模块文档较少，虽然好用但是不好懂。我在 CPAN 上发现另一个模块，&lt;a href=&quot;https://metacpan.org/pod/Variable::Magic&quot;&gt;Variable::Magic&lt;/a&gt; 。文档写的很详细。其中的 &lt;code&gt;set&lt;/code&gt; 方法就是跟 Scalar::Watcher 类似的作用，大家可以读一读这个模块的文档。&lt;/p&gt;
+&lt;p&gt;所以可以回答朋友的问题了，在循环之类的地方每次都可以触发没问题。但是如果你在回调函数里面做阻塞操作，那肯定也是堵塞的。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Sat, 11 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-11-perlapi-magic-intro-49d097729.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-11-perlapi-magic-intro-49d097729.html</guid>
+        
+        
+        <category>chenlinux</category>
         
       </item>
     
@@ -2857,1011 +3324,6 @@ UPDATE tbl_A SET status=N WHERE (status=N or status=N) and user_id=N limit N
         
         
         <category>apple_swift</category>
-        
-      </item>
-    
-      <item>
-        <title>Python自然语言处理实践: 在NLTK中使用斯坦福中文分词器</title>
-        <description>
-
-						&lt;p&gt;斯坦福大学自然语言处理组是世界知名的NLP研究小组，他们提供了一系列开源的Java文本分析工具，包括分词器(&lt;a href=&quot;http://nlp.stanford.edu/software/segmenter.shtml&quot;&gt;Word Segmenter&lt;/a&gt;)，词性标注工具（&lt;a href=&quot;http://nlp.stanford.edu/software/tagger.shtml&quot;&gt;Part-Of-Speech Tagger&lt;/a&gt;），命名实体识别工具（&lt;a href=&quot;http://nlp.stanford.edu/software/CRF-NER.shtml&quot;&gt;Named Entity Recognizer&lt;/a&gt;），句法分析器（&lt;a href=&quot;http://nlp.stanford.edu/software/lex-parser.shtml&quot;&gt;Parser&lt;/a&gt;）等，可喜的事，他们还为这些工具训练了相应的中文模型，支持中文文本处理。在使用NLTK的过程中，发现当前版本的&lt;a href=&quot;https://github.com/nltk/nltk&quot;&gt;NLTK&lt;/a&gt;已经提供了相应的斯坦福文本处理工具接口，包括词性标注，命名实体识别和句法分析器的接口，不过可惜的是，没有提供&lt;a href=&quot;http://www.52nlp.cn/category/word-segmentation&quot;&gt;分词&lt;/a&gt;器的接口。在google无果和阅读了相应的代码后，我决定照猫画虎为NLTK写一个斯坦福&lt;a href=&quot;http://www.52nlp.cn/category/word-segmentation&quot;&gt;中文分词&lt;/a&gt;器接口，这样可以方便的在Python中调用斯坦福文本处理工具。&lt;/p&gt;
-&lt;p&gt;首先需要做一些准备工作，第一步当然是安装NLTK，这个可以参考我们在gensim的相关文章中的介绍《&lt;a href=&quot;http://www.52nlp.cn/%E5%A6%82%E4%BD%95%E8%AE%A1%E7%AE%97%E4%B8%A4%E4%B8%AA%E6%96%87%E6%A1%A3%E7%9A%84%E7%9B%B8%E4%BC%BC%E5%BA%A6%E4%B8%89&quot;&gt;如何计算两个文档的相似度&lt;/a&gt;》，不过这里建议check github上最新的NLTK源代码并用“python setup.py install”的方式安装这个版本：&lt;a href=&quot;https://github.com/nltk/nltk&quot;&gt;https://github.com/nltk/nltk&lt;/a&gt;。这个版本新增了对于斯坦福句法分析器的接口，一些老的版本并没有，这个之后我们也许还会用来介绍。而我们也是在这个版本中添加的斯坦福分词器接口，其他版本也许会存在一些小问题。其次是安装Java运行环境，以Ubuntu 12.04为例，安装Java运行环境仅需要两步：&lt;/p&gt;
-&lt;blockquote&gt;&lt;p&gt;sudo apt-get install default-jre&lt;br&gt;
-sudo apt-get install default-jdk&lt;/p&gt;&lt;/blockquote&gt;
-&lt;p&gt;最后，当然是最重要的，你需要下载&lt;a href=&quot;http://nlp.stanford.edu/software/segmenter.shtml&quot;&gt;斯坦福分词器&lt;/a&gt;的相应文件，包括源代码，模型文件，词典文件等。注意斯坦福分词器并不仅仅支持中文分词，还支持阿拉伯语的分词，需要下载的zip打包文件是这个: &lt;a href=&quot;http://nlp.stanford.edu/software/stanford-segmenter-2014-08-27.zip&quot;&gt;Download Stanford Word Segmenter version 2014-08-27&lt;/a&gt;，下载后解压。&lt;/p&gt;
-&lt;p&gt;准备工作就绪后，我们首先考虑的是在nltk源代码里的什么地方来添加这个接口文件。在nltk源代码包下，斯坦福词性标注器和命名实体识别工具的接口文件是这个：nltk/tag/stanford.py ，而句法分析器的接口文件是这个：nltk/parse/stanford.py , 虽然在nltk/tokenize/目录下有一个stanford.py文件，但是仅仅提供了一个针对英文的tokenizer工具PTBTokenizer的接口，没有针对斯坦福分词器的接口，于是我决定在nltk/tokenize下添加一个stanford_segmenter.py文件，作为nltk斯坦福中文分词器的接口文件。NLTK中的这些接口利用了Linux 下的管道（PIPE）机制和subprocess模块，这里直接贴源代码了，感兴趣的同学可以自行阅读:&lt;br&gt;
-&lt;span id=&quot;more-6763&quot;&gt;&lt;/span&gt;&lt;/p&gt;
-&lt;div class=&quot;codecolorer-container text default&quot; style=&quot;overflow:auto;white-space:nowrap;width:620px;height:450px;&quot;&gt;&lt;table cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;&lt;tbody&gt;&lt;tr&gt;
-&lt;td class=&quot;line-numbers&quot;&gt;&lt;div&gt;1&lt;br&gt;2&lt;br&gt;3&lt;br&gt;4&lt;br&gt;5&lt;br&gt;6&lt;br&gt;7&lt;br&gt;8&lt;br&gt;9&lt;br&gt;10&lt;br&gt;11&lt;br&gt;12&lt;br&gt;13&lt;br&gt;14&lt;br&gt;15&lt;br&gt;16&lt;br&gt;17&lt;br&gt;18&lt;br&gt;19&lt;br&gt;20&lt;br&gt;21&lt;br&gt;22&lt;br&gt;23&lt;br&gt;24&lt;br&gt;25&lt;br&gt;26&lt;br&gt;27&lt;br&gt;28&lt;br&gt;29&lt;br&gt;30&lt;br&gt;31&lt;br&gt;32&lt;br&gt;33&lt;br&gt;34&lt;br&gt;35&lt;br&gt;36&lt;br&gt;37&lt;br&gt;38&lt;br&gt;39&lt;br&gt;40&lt;br&gt;41&lt;br&gt;42&lt;br&gt;43&lt;br&gt;44&lt;br&gt;45&lt;br&gt;46&lt;br&gt;47&lt;br&gt;48&lt;br&gt;49&lt;br&gt;50&lt;br&gt;51&lt;br&gt;52&lt;br&gt;53&lt;br&gt;54&lt;br&gt;55&lt;br&gt;56&lt;br&gt;57&lt;br&gt;58&lt;br&gt;59&lt;br&gt;60&lt;br&gt;61&lt;br&gt;62&lt;br&gt;63&lt;br&gt;64&lt;br&gt;65&lt;br&gt;66&lt;br&gt;67&lt;br&gt;68&lt;br&gt;69&lt;br&gt;70&lt;br&gt;71&lt;br&gt;72&lt;br&gt;73&lt;br&gt;74&lt;br&gt;75&lt;br&gt;76&lt;br&gt;77&lt;br&gt;78&lt;br&gt;79&lt;br&gt;80&lt;br&gt;81&lt;br&gt;82&lt;br&gt;83&lt;br&gt;84&lt;br&gt;85&lt;br&gt;86&lt;br&gt;87&lt;br&gt;88&lt;br&gt;89&lt;br&gt;90&lt;br&gt;91&lt;br&gt;92&lt;br&gt;93&lt;br&gt;94&lt;br&gt;95&lt;br&gt;96&lt;br&gt;97&lt;br&gt;98&lt;br&gt;99&lt;br&gt;100&lt;br&gt;101&lt;br&gt;102&lt;br&gt;103&lt;br&gt;104&lt;br&gt;105&lt;br&gt;106&lt;br&gt;107&lt;br&gt;108&lt;br&gt;109&lt;br&gt;110&lt;br&gt;111&lt;br&gt;112&lt;br&gt;113&lt;br&gt;114&lt;br&gt;115&lt;br&gt;116&lt;br&gt;117&lt;br&gt;118&lt;br&gt;119&lt;br&gt;120&lt;br&gt;121&lt;br&gt;122&lt;br&gt;123&lt;br&gt;124&lt;br&gt;125&lt;br&gt;126&lt;br&gt;127&lt;br&gt;128&lt;br&gt;129&lt;br&gt;130&lt;br&gt;131&lt;br&gt;132&lt;br&gt;133&lt;br&gt;134&lt;br&gt;135&lt;br&gt;136&lt;br&gt;
-&lt;/div&gt;&lt;/td&gt;
-&lt;td&gt;&lt;div class=&quot;text codecolorer&quot;&gt;#!/usr/bin/env python&lt;br&gt;
-# -*- coding: utf-8 -*-&lt;br&gt;
-# Natural Language Toolkit: Interface to the Stanford Chinese Segmenter&lt;br&gt;
-#&lt;br&gt;
-# Copyright (C) 2001-2014 NLTK Project&lt;br&gt;
-# Author: 52nlp &amp;lt;52nlpcn@gmail.com&amp;gt;&lt;br&gt;
-#&lt;br&gt;
-# URL: &amp;lt;http://nltk.org/&amp;gt;&lt;br&gt;
-# For license information, see LICENSE.TXT&lt;br&gt;
-&lt;br&gt;
-from __future__ import unicode_literals, print_function&lt;br&gt;
-&lt;br&gt;
-import tempfile&lt;br&gt;
-import os&lt;br&gt;
-import json&lt;br&gt;
-from subprocess import PIPE&lt;br&gt;
-&lt;br&gt;
-from nltk import compat&lt;br&gt;
-from nltk.internals import find_jar, config_java, java, _java_options&lt;br&gt;
-&lt;br&gt;
-from nltk.tokenize.api import TokenizerI&lt;br&gt;
-&lt;br&gt;
-class StanfordSegmenter(TokenizerI):&lt;br&gt;
-    r&quot;&quot;&quot;&lt;br&gt;
-    Interface to the Stanford Segmenter&lt;br&gt;
-&lt;br&gt;
-    &amp;gt;&amp;gt;&amp;gt; from nltk.tokenize.stanford_segmenter import StanfordSegmenter&lt;br&gt;
-    &amp;gt;&amp;gt;&amp;gt; segmenter = StanfordSegmenter(path_to_jar=&quot;stanford-segmenter-3.4.1.jar&quot;, path_to_sihan_corpora_dict=&quot;./data&quot;, path_to_model=&quot;./data/pku.gz&quot;, path_to_dict=&quot;./data/dict-chris6.ser.gz&quot;)&lt;br&gt;
-    &amp;gt;&amp;gt;&amp;gt; sentence = u&quot;这是斯坦福中文分词器测试&quot;&lt;br&gt;
-    &amp;gt;&amp;gt;&amp;gt; segmenter.segment(sentence)&lt;br&gt;
-    &amp;gt;&amp;gt;&amp;gt; u&#39;\u8fd9 \u662f \u65af\u5766\u798f \u4e2d\u6587 \u5206\u8bcd\u5668 \u6d4b\u8bd5\n&#39;&lt;br&gt;
-    &amp;gt;&amp;gt;&amp;gt; segmenter.segment_file(&quot;test.simp.utf8&quot;)&lt;br&gt;
-    &amp;gt;&amp;gt;&amp;gt; u&#39;\u9762\u5bf9 \u65b0 \u4e16\u7eaa \uff0c \u4e16\u754c \u5404\u56fd ...&lt;br&gt;
-    &quot;&quot;&quot;&lt;br&gt;
-&lt;br&gt;
-    _JAR = &#39;stanford-segmenter.jar&#39;&lt;br&gt;
-&lt;br&gt;
-    def __init__(self, path_to_jar=None,&lt;br&gt;
-            path_to_sihan_corpora_dict=None,&lt;br&gt;
-            path_to_model=None, path_to_dict=None,&lt;br&gt;
-            encoding=&#39;UTF-8&#39;, options=None,&lt;br&gt;
-            verbose=False, java_options=&#39;-mx2g&#39;):&lt;br&gt;
-        self._stanford_jar = find_jar(&lt;br&gt;
-            self._JAR, path_to_jar,&lt;br&gt;
-            env_vars=(&#39;STANFORD_SEGMENTER&#39;,),&lt;br&gt;
-            searchpath=(),&lt;br&gt;
-            verbose=verbose&lt;br&gt;
-        )&lt;br&gt;
-        self._sihan_corpora_dict = path_to_sihan_corpora_dict&lt;br&gt;
-        self._model = path_to_model&lt;br&gt;
-        self._dict = path_to_dict&lt;br&gt;
-&lt;br&gt;
-        self._encoding = encoding&lt;br&gt;
-        self.java_options = java_options&lt;br&gt;
-        options = {} if options is None else options&lt;br&gt;
-        self._options_cmd = &#39;,&#39;.join(&#39;{0}={1}&#39;.format(key, json.dumps(val)) for key, val in options.items())&lt;br&gt;
-&lt;br&gt;
-    def segment_file(self, input_file_path):&lt;br&gt;
-        &quot;&quot;&quot;&lt;br&gt;
-        &quot;&quot;&quot;&lt;br&gt;
-        cmd = [&lt;br&gt;
-            &#39;edu.stanford.nlp.ie.crf.CRFClassifier&#39;,&lt;br&gt;
-            &#39;-sighanCorporaDict&#39;, self._sihan_corpora_dict,&lt;br&gt;
-            &#39;-textFile&#39;, input_file_path,&lt;br&gt;
-            &#39;-sighanPostProcessing&#39;, &#39;true&#39;,&lt;br&gt;
-            &#39;-keepAllWhitespaces&#39;, &#39;false&#39;,&lt;br&gt;
-            &#39;-loadClassifier&#39;, self._model,&lt;br&gt;
-            &#39;-serDictionary&#39;, self._dict&lt;br&gt;
-        ]&lt;br&gt;
-&lt;br&gt;
-        stdout = self._execute(cmd)&lt;br&gt;
-&lt;br&gt;
-        return stdout&lt;br&gt;
-&lt;br&gt;
-    def segment(self, tokens):&lt;br&gt;
-        return self.segment_sents([tokens])&lt;br&gt;
-&lt;br&gt;
-    def segment_sents(self, sentences):&lt;br&gt;
-        &quot;&quot;&quot;&lt;br&gt;
-        &quot;&quot;&quot;&lt;br&gt;
-        encoding = self._encoding&lt;br&gt;
-        # Create a temporary input file&lt;br&gt;
-        _input_fh, self._input_file_path = tempfile.mkstemp(text=True)&lt;br&gt;
-&lt;br&gt;
-        # Write the actural sentences to the temporary input file&lt;br&gt;
-        _input_fh = os.fdopen(_input_fh, &#39;wb&#39;)&lt;br&gt;
-        _input = &#39;\n&#39;.join((&#39; &#39;.join(x) for x in sentences))&lt;br&gt;
-        if isinstance(_input, compat.text_type) and encoding:&lt;br&gt;
-            _input = _input.encode(encoding)&lt;br&gt;
-        _input_fh.write(_input)&lt;br&gt;
-        _input_fh.close()&lt;br&gt;
-&lt;br&gt;
-        cmd = [&lt;br&gt;
-            &#39;edu.stanford.nlp.ie.crf.CRFClassifier&#39;,&lt;br&gt;
-            &#39;-sighanCorporaDict&#39;, self._sihan_corpora_dict,&lt;br&gt;
-            &#39;-textFile&#39;, self._input_file_path,&lt;br&gt;
-            &#39;-sighanPostProcessing&#39;, &#39;true&#39;,&lt;br&gt;
-            &#39;-keepAllWhitespaces&#39;, &#39;false&#39;,&lt;br&gt;
-            &#39;-loadClassifier&#39;, self._model,&lt;br&gt;
-            &#39;-serDictionary&#39;, self._dict&lt;br&gt;
-        ]&lt;br&gt;
-&lt;br&gt;
-        stdout = self._execute(cmd)&lt;br&gt;
-&lt;br&gt;
-        # Delete the temporary file&lt;br&gt;
-        os.unlink(self._input_file_path)&lt;br&gt;
-&lt;br&gt;
-        return stdout&lt;br&gt;
-&lt;br&gt;
-    def _execute(self, cmd, verbose=False):&lt;br&gt;
-        encoding = self._encoding&lt;br&gt;
-        cmd.extend([&#39;-inputEncoding&#39;, encoding])&lt;br&gt;
-        _options_cmd = self._options_cmd&lt;br&gt;
-        if _options_cmd:&lt;br&gt;
-            cmd.extend([&#39;-options&#39;, self._options_cmd])&lt;br&gt;
-&lt;br&gt;
-        default_options = &#39; &#39;.join(_java_options)&lt;br&gt;
-&lt;br&gt;
-        # Configure java.&lt;br&gt;
-        config_java(options=self.java_options, verbose=verbose)&lt;br&gt;
-&lt;br&gt;
-        stdout, _stderr = java(cmd,classpath=self._stanford_jar, stdout=PIPE, stderr=PIPE)&lt;br&gt;
-        stdout = stdout.decode(encoding)&lt;br&gt;
-&lt;br&gt;
-        # Return java configurations to their default values.&lt;br&gt;
-        config_java(options=default_options, verbose=False)&lt;br&gt;
-&lt;br&gt;
-        return stdout&lt;br&gt;
-&lt;br&gt;
-def setup_module(module):&lt;br&gt;
-    from nose import SkipTest&lt;br&gt;
-&lt;br&gt;
-    try:&lt;br&gt;
-        StanfordSegmenter()&lt;br&gt;
-    except LookupError:&lt;br&gt;
-        raise SkipTest(&#39;doctests from nltk.tokenize.stanford_segmenter are skipped because the stanford segmenter jar doesn\&#39;t exist&#39;)&lt;/div&gt;&lt;/td&gt;
-&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;
-&lt;p&gt;我在github上fork了一个最新的NLTK版本，然后在这个版本中添加了&lt;a href=&quot;https://github.com/panyang/nltk/blob/develop/nltk/tokenize/stanford_segmenter.py&quot;&gt;stanford_segmenter.py&lt;/a&gt;，感兴趣的同学可以自行下载这个代码，放到nltk/tokenize/目录下，然后重新安装NLTK：sudo python setpy.py install. 或者直接clone我们的这个&lt;a href=&quot;https://github.com/panyang/nltk&quot;&gt;nltk&lt;/a&gt;版本，安装后就可以使用斯坦福中文分词器了。&lt;/p&gt;
-&lt;p&gt;现在就可以在Python NLTK中调用这个斯坦福中文分词接口了。为了方便起见，建议首先进入到解压后的斯坦福分词工具目录下：cd stanford-segmenter-2014-08-27，然后在这个目录下启用ipython，当然默认python解释器也可：&lt;/p&gt;
-&lt;p&gt;# 初始化斯坦福中文分词器&lt;br&gt;
-In [1]: from nltk.tokenize.stanford_segmenter import StanfordSegmenter&lt;/p&gt;
-&lt;p&gt;# 注意分词模型，词典等资源在data目录下，使用的是相对路径，&lt;br&gt;
-# 在stanford-segmenter-2014-08-27的目录下执行有效&lt;br&gt;
-# 注意，斯坦福中文分词器提供了两个中文分词模型：&lt;br&gt;
-#     ctb.gz是基于宾州中文树库训练的模型&lt;br&gt;
-#     pku.gz是基于北大在2005backoof上提供的人名日报语料库&lt;br&gt;
-# 这里选用了pku.gz，方便最后的测试&lt;br&gt;
-In [2]: segmenter = StanfordSegmenter(path_to_jar=”stanford-segmenter-3.4.1.jar”, path_to_sihan_corpora_dict=”./data”, path_to_model=”./data/pku.gz”, path_to_dict=”./data/dict-chris6.ser.gz”)&lt;/p&gt;
-&lt;p&gt;# 测试一个中文句子，注意u&lt;br&gt;
-In [3]: sentence = u”这是斯坦福中文分词器测试”&lt;/p&gt;
-&lt;p&gt;# 调用segment方法来切分中文句子，这里隐藏了一个问题，我们最后来说明&lt;br&gt;
-In [4]: segmenter.segment(sentence)&lt;br&gt;
-Out[4]: u’\u8fd9 \u662f \u65af\u5766\u798f \u4e2d\u6587 \u5206\u8bcd\u5668 \u6d4b\u8bd5\n’&lt;/p&gt;
-&lt;p&gt;# 由于分词后显示的是中文编码，我们把这个结果输出到文件中&lt;br&gt;
-# 不知道有没有同学有在python解释器总显示中文的方法&lt;br&gt;
-In [5]: outfile = open(‘outfile’, ‘w’)&lt;/p&gt;
-&lt;p&gt;In [6]: result = segmenter.segment(sentence)&lt;/p&gt;
-&lt;p&gt;# 注意写入到文件的时候要encode 为 UTF-8编码&lt;br&gt;
-In [7]: outfile.write(result.encode(‘UTF-8′))&lt;/p&gt;
-&lt;p&gt;In [8]: outfile.close()&lt;/p&gt;
-&lt;p&gt;打开这个outfile文件：&lt;/p&gt;
-&lt;blockquote&gt;&lt;p&gt;这 是 斯坦福 中文 分词器 测试&lt;/p&gt;&lt;/blockquote&gt;
-&lt;p&gt;这里同时提供了一个segment_file的调用方法，方便直接对文件进行切分，让我们来测试《&lt;a href=&quot;http://www.52nlp.cn/%E4%B8%AD%E6%96%87%E5%88%86%E8%AF%8D%E5%85%A5%E9%97%A8%E4%B9%8B%E8%B5%84%E6%BA%90&quot;&gt;中文分词入门之资源&lt;/a&gt;》中介绍的backoff2005的测试集pku_test.utf8，来看看斯坦福分词器的效果：&lt;/p&gt;
-&lt;p&gt;In [9]: result = segmenter.segment_file(‘pku_test.utf8′)&lt;/p&gt;
-&lt;p&gt;In [10]: outfile = open(‘pku_outfile’, ‘w’)&lt;/p&gt;
-&lt;p&gt;In [11]: outfile.write(result.encode(‘UTF-8′))&lt;/p&gt;
-&lt;p&gt;In [12]: outfile.close()&lt;/p&gt;
-&lt;p&gt;打开结果文件pku_outfile：&lt;/p&gt;
-&lt;blockquote&gt;&lt;p&gt;共同 创造 美好 的 新 世纪 ——二○○一年 新年 贺词&lt;br&gt;
-（ 二○○○年 十二月 三十一日 ） （ 附 图片 1 张 ）&lt;br&gt;
-女士 们 ， 先生 们 ， 同志 们 ， 朋友 们 ：&lt;br&gt;
-2001年 新年 钟声 即将 敲响 。 人类 社会 前进 的 航船 就要 驶入 21 世纪 的 新 航程 。 中国 人民 进入 了 向 现代化 建设 第三 步 战略 目标 迈进 的 新 征程 。&lt;br&gt;
-在 这个 激动人心 的 时刻 ， 我 很 高兴 通过 中国 国际 广播 电台 、 中央 人民 广播 电台 和 中央 电视台 ， 向 全国 各族 人民 ， 向 香港 特别 行政区 同胞 、 澳门 特别 行政区 同胞 和 台湾 同胞 、 海外 侨胞 ， 向 世界 各国 的 朋友 们 ， 致以 新 世纪 第一 个 新年 的 祝贺 ！&lt;br&gt;
-….
-&lt;/p&gt;&lt;/blockquote&gt;
-&lt;p&gt;我们用backoff2005的测试脚本来测试一下斯坦福中文分词器在这份测试语料上的效果：&lt;/p&gt;
-&lt;p&gt;./icwb2-data/scripts/score ./icwb2-data/gold/pku_training_words.utf8 ./icwb2-data/gold/pku_test_gold.utf8 pku_outfile &amp;gt; stanford_pku_test.score&lt;/p&gt;
-&lt;p&gt;结果如下：&lt;br&gt;
-=== SUMMARY:&lt;br&gt;
-=== TOTAL INSERTIONS:	1479&lt;br&gt;
-=== TOTAL DELETIONS:	1974&lt;br&gt;
-=== TOTAL SUBSTITUTIONS:	3638&lt;br&gt;
-=== TOTAL NCHANGE:	7091&lt;br&gt;
-=== TOTAL TRUE WORD COUNT:	104372&lt;br&gt;
-=== TOTAL TEST WORD COUNT:	103877&lt;br&gt;
-=== TOTAL TRUE WORDS RECALL:	0.946&lt;br&gt;
-=== TOTAL TEST WORDS PRECISION:	0.951&lt;br&gt;
-=== F MEASURE:	0.948&lt;br&gt;
-=== OOV Rate:	0.058&lt;br&gt;
-=== OOV Recall Rate:	0.769&lt;br&gt;
-=== IV Recall Rate:	0.957&lt;br&gt;
-###	pku_outfile	1479	1974	3638	7091	104372	103877	0.946	0.951	0.948	0.058	0.769	0.957&lt;/p&gt;
-&lt;p&gt;准确率是95.1%， 召回率是94.6%, F值是94.8%, 相当不错。感兴趣的同学可以测试一下其他测试集，或者用宾州中文树库的模型来测试一下结果。&lt;/p&gt;
-&lt;p&gt;最后我们再说明一下这个接口存在的问题，因为使用了Linux PIPE模式来调用斯坦福中文分词器，相当于在Python中执行相应的Java命令，导致每次在执行分词时会加载一遍分词所需的模型和词典，这个对文件操作时（segment_file)没有多大的问题，但是在对句子执行分词（segment)的时候会存在很大的问题，每次都加载数据，在实际产品中基本是不可用的。虽然发现斯坦福分词器提供了一个 –readStdin 的读入标准输入的参数，也尝试通过python subprocess中先load 文件，再用的communicate方法来读入标准输入，但是仍然没有解决问题，发现还是一次执行，一次结束。这个问题困扰了我很久，google了很多资料也没有解决问题，欢迎懂行的同学告知或者来解决这个问题，再此先谢过了。That’s all!&lt;/p&gt;
-&lt;p&gt;注：原创文章，转载请注明出处“&lt;a href=&quot;http://www.52nlp.cn&quot;&gt;我爱自然语言处理&lt;/a&gt;”：&lt;a href=&quot;http://www.52nlp.cn&quot;&gt;www.52nlp.cn&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;本文链接地址：&lt;a href=&quot;http://www.52nlp.cn/?p=6763&quot;&gt;http://www.52nlp.cn/python自然语言处理实践-在nltk中使用斯坦福中文分词器&lt;/a&gt;&lt;/p&gt;
-
-											
-
-</description>
-        <pubDate>Wed, 24 Sep 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-09-24-python%25e8%2587%25aa%25e7%2584%25b6%25e8%25af%25ad%25e8%25a8%2580%25e5%25a4%2584%25e7%2590%2586%25e5%25ae%259e%25e8%25b7%25b5-%25e5%259c%25a8nltk%25e4%25b8%25ad%25e4%25bd%25bf%25e7%2594%25a8%25e6%2596%25af%25e5%259d%25a6%25e7%25a6%258f%25e4%25b8%25ad%25e6%2596%2587%25e5%2588%2586%25e8%25af%258d%25e5%2599%25a8-5dd26d0a5.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-24-python%25e8%2587%25aa%25e7%2584%25b6%25e8%25af%25ad%25e8%25a8%2580%25e5%25a4%2584%25e7%2590%2586%25e5%25ae%259e%25e8%25b7%25b5-%25e5%259c%25a8nltk%25e4%25b8%25ad%25e4%25bd%25bf%25e7%2594%25a8%25e6%2596%25af%25e5%259d%25a6%25e7%25a6%258f%25e4%25b8%25ad%25e6%2596%2587%25e5%2588%2586%25e8%25af%258d%25e5%2599%25a8-5dd26d0a5.html</guid>
-        
-        
-        <category>52nlp</category>
-        
-      </item>
-    
-      <item>
-        <title>在 logstash 里使用其他 RubyGems 模块</title>
-        <description>
-
-  
-  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;在开发和使用一些 logstash 自定义插件的时候，几乎不可避免会导入其他 RubyGems 模块 —— 因为都用不上模块的小型处理，直接写在 &lt;em&gt;filters/ruby&lt;/em&gt; 插件配置里就够了 —— 这时候，运行 logstash 命令可能会发现一个问题：这个 gem 模块一直是 “no found” 状态。&lt;/p&gt;
-&lt;p&gt;这其实是因为我们一般是通过 java 命令来运行的 logstash，这时候它回去寻找的 Gem 路径跟我们预计中的是不一致的。&lt;/p&gt;
-&lt;p&gt;要查看 logstash 运行时实际的 Gem 查找路径，首先要通过 &lt;code&gt;ps aux&lt;/code&gt; 命令确定 ruby 的实际运行方式：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;$ ps uax|grep logstash
-raochenlin      27268  38.0  4.3  3268156 181344 s003  S+    7:10PM   0:22.36 /Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home/bin/java -Xmx500m -XX:+UseParNewGC -XX:+UseConcMarkSweepGC -Djava.awt.headless=true -XX:CMSInitiatingOccupancyFraction=75 -XX:+UseCMSInitiatingOccupancyOnly -jar /Downloads/logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar -I/Users/raochenlin/Downloads/logstash-1.4.2/lib /Users/raochenlin/Downloads/logstash-1.4.2/lib/logstash/runner.rb agent -f test.conf
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;看，实际的运行方式应该是：&lt;code&gt;java -jar logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar -Ilogstash-1.4.2/lib logstash-1.4.2/lib/logstash/runner.rb&lt;/code&gt; 这样。&lt;/p&gt;
-&lt;p&gt;那么我们查看 gem 路径的命令也就知道怎么写了：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;java -jar logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar `which gem` env
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;你会看到这样的输出：&lt;/p&gt;
-&lt;blockquote&gt;
-  &lt;p&gt;RubyGems Environment:
-     - RUBYGEMS VERSION: 2.1.9
-     - RUBY VERSION: 1.9.3 (2014-02-24 patchlevel 392) [java]
-     - INSTALLATION DIRECTORY: file:/Downloads/logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar!/META-INF/jruby.home/lib/ruby/gems/shared
-     - RUBY EXECUTABLE: java -jar /Downloads/logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar
-     - EXECUTABLE DIRECTORY: file:/Downloads/logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar!/META-INF/jruby.home/bin
-     - SPEC CACHE DIRECTORY: /.gem/specs
-     - RUBYGEMS PLATFORMS:
-       - ruby
-       - universal-java-1.7
-     - GEM PATHS:
-        - file:/Downloads/logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar!/META-INF/jruby.home/lib/ruby/gems/shared
-        - /.gem/jruby/1.9
-     - GEM CONFIGURATION:
-        - :update_sources =&amp;gt; true
-        - :verbose =&amp;gt; true
-        - :backtrace =&amp;gt; false
-        - :bulk_threshold =&amp;gt; 1000
-        - “install” =&amp;gt; “–no-rdoc –no-ri –env-shebang”
-        - “update” =&amp;gt; “–no-rdoc –no-ri –env-shebang”
-        - :sources =&amp;gt; [“http://ruby.taobao.org/”]
-     - REMOTE SOURCES:
-        - http://ruby.taobao.org/
-     - SHELL PATH:
-        - /usr/bin
-        - /bin
-        - /usr/sbin
-        - /sbin
-        - /usr/local/bin&lt;/p&gt;
-&lt;/blockquote&gt;
-&lt;p&gt;看到其中的 GEM PATHS 部分，是一个以 &lt;strong&gt;file:&lt;/strong&gt; 开头的路径！也就是说，要求所有的 gem 包都打包在这个 jruby-complete-1.7.11.jar 里面才认。&lt;/p&gt;
-&lt;p&gt;所以我们需要把额外的 gem 包，也加入这个 jar 里：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;jar uf jruby-completa-1.7.11.jar META-INF/jruby.home/lib/ruby/1.9/CUSTOM_RUBY_GEM_LIB
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;&lt;em&gt;注：加入 jar 是用的相对路径，所以前面这串目录要提前创建然后复制文件进去。&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;当然，其实还有另一个办法。&lt;/p&gt;
-&lt;p&gt;让我们返回去再看一次 logstash 的进程，在 jar 后面，还有一个 &lt;code&gt;-I&lt;/code&gt; 参数！所以，其实我们还可以把文件安装在 &lt;code&gt;logstash-1.4.2/lib&lt;/code&gt; 目录下去。&lt;/p&gt;
-&lt;p&gt;最后，你可能会问：那 &lt;code&gt;--pluginpath&lt;/code&gt; 参数指定的位置可不可以呢？&lt;/p&gt;
-&lt;p&gt;答案是：也可以。&lt;/p&gt;
-&lt;p&gt;这个参数指定的位置在 &lt;em&gt;logstash-1.4.2/lib/logstash/agent.rb&lt;/em&gt; 中，被加入了 &lt;code&gt;$LOAD_PATH&lt;/code&gt; 中：&lt;/p&gt;
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ruby&quot; data-lang=&quot;ruby&quot;&gt;&lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;configure_plugin_path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;paths&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;paths&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;each&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-      &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;Dir&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;exists?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-        &lt;span class=&quot;nb&quot;&gt;warn&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;I18n&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;t&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;logstash.agent.configuration.plugin_path_missing&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-                    &lt;span class=&quot;ss&quot;&gt;:path&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;
-      &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-      &lt;span class=&quot;n&quot;&gt;plugin_glob&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;logstash&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;{inputs,codecs,filters,outputs}&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;*.rb&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-      &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Dir&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;glob&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;plugin_glob&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;empty?&lt;/span&gt;
-        &lt;span class=&quot;vi&quot;&gt;@logger&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;warn&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;no&quot;&gt;I18n&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;t&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;logstash.agent.configuration.no_plugins_found&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-                    &lt;span class=&quot;ss&quot;&gt;:path&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:plugin_glob&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;plugin_glob&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;
-      &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-      &lt;span class=&quot;vi&quot;&gt;@logger&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;debug&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;Adding plugin path&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;ss&quot;&gt;:path&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-      &lt;span class=&quot;vg&quot;&gt;$LOAD_PATH&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;unshift&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-&lt;p&gt;&lt;code&gt;$LOAD_PATH&lt;/code&gt; 是 Ruby 的一个特殊变量，类似于 Perl 的 &lt;code&gt;@INC&lt;/code&gt; 或者 Java 的 &lt;code&gt;class_path&lt;/code&gt; 。在这个数组里的路径下的文件，都可以被 require 导入。&lt;/p&gt;
-&lt;p&gt;可以运行如下命令查看：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;$ java -jar logstash-1.4.2/vendor/jar/jruby-complete-1.7.11.jar -e &#39;p $LOAD_PATH&#39;
-[&quot;file:/Users/raochenlin/Downloads/logstash-1.4.2/vendor/jar/rar/jruby-complete-1.7.11.jar!/META-INF/jruby.home/lib/ruby/1.9/site_ruby&quot;, &quot;file:/Users/raochenlin/Downloads/logstash-1.4.2/vendor/jar/rar/jruby-complete-1.7.11.jar!/META-INF/jruby.home/lib/ruby/shared&quot;, &quot;file:/Users/raochenlin/Downloads/logstash-1.4.2/vendor/jar/rar/jruby-complete-1.7.11.jar!/META-INF/jruby.home/lib/ruby/1.9&quot;]
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;这三种方式，你喜欢哪种呢？&lt;/p&gt;
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-  &lt;/div&gt;
-
-</description>
-        <pubDate>Wed, 24 Sep 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-09-24-howto-use-custom-rubygem-in-logstash-205f7f438.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-24-howto-use-custom-rubygem-in-logstash-205f7f438.html</guid>
-        
-        
-        <category>chenlinux</category>
-        
-      </item>
-    
-      <item>
-        <title>游戏引擎学习笔记：介绍、架构、设计及实现</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;从小到大，虽然玩过的游戏不少，但是从写程序开始，目前为此仅仅写过2个游戏。其一是2011年在MTK平台下写的贪食蛇，其二是2010年在嵌入式开发板上写过一个迷宫的游戏。第一个代码量大概有3000行左右，第二个有2000行左右。&lt;/p&gt;
-&lt;p&gt;这2个游戏都很简单，而且网上有很多现成的例子可供参考，因此难度也比较低。&lt;/p&gt;
-&lt;p&gt;这2天把拖延了好久的&lt;strong&gt;《&lt;a href=&quot;http://www.amazon.cn/gp/product/B0033UX10A/ref=as_li_qf_sp_asin_il_tl?ie=UTF8&amp;amp;camp=536&amp;amp;creative=3200&amp;amp;creativeASIN=B0033UX10A&amp;amp;linkCode=as2&amp;amp;tag=vastwork-23&quot; target=&quot;_blank&quot;&gt;Android应用开发揭秘&lt;/a&gt;》&lt;/strong&gt;的游戏引擎的那一章看完了，收获还是很大，在此写一篇读书笔记。&lt;/p&gt;
-&lt;p&gt;关于Game Engine，我能想到的几个问题：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;游戏引擎是什么？&lt;/li&gt;
-&lt;li&gt;Game Engine是为了解决什么问题？&lt;/li&gt;
-&lt;li&gt;Game Engine的架构是什么？&lt;/li&gt;
-&lt;li&gt;如何设计一款游戏引擎？&lt;/li&gt;
-&lt;li&gt;游戏引擎包含哪些模块？&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;下面就来探讨几个问题：&lt;/p&gt;
-&lt;h3&gt;1. Game Engine是什么？&lt;/h3&gt;
-&lt;p&gt;游戏产业在全球来看是一个很大的产业，一款游戏大作包含了非常多的元素。游戏涉及到剧情、人物、任务、关卡、地图、画质、美术、音乐、网络等多种元素。开发一款游戏实际上需要耗费非常多的资源，据说North Star的《GTA V》耗资几亿美元。正因为如此，在开发项目过程中，尽可能复用之前项目成功的东西就非常重要。&lt;/p&gt;
-&lt;p&gt;一款游戏中，&lt;em&gt;Game Engine直接控制着剧情、关卡、美工、音乐、操作&lt;/em&gt;等内容，将游戏的所有元素捆绑在一起。&lt;/p&gt;
-&lt;p&gt;一般来说，一款Game Engine需要包含以下模块：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;基本框架（渲染、逻辑、物理 等等各部分如何组装）&lt;/li&gt;
-&lt;li&gt;资源管理&lt;/li&gt;
-&lt;li&gt;渲染&lt;/li&gt;
-&lt;li&gt;基本逻辑（网游还要解决逻辑的同步问题）&lt;/li&gt;
-&lt;li&gt;物理（有时候和逻辑合并）&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;—————-分割线，以下是重要但较为独立的部分——————–&lt;br&gt;
-6. UI&lt;br&gt;
-7. 音乐音效&lt;br&gt;
-8. 网络&lt;br&gt;
-9. 脚本（有些类型的游戏引擎需要脚本和逻辑的关联性非常强，有些脚本则比较独立）&lt;/p&gt;
-&lt;h3&gt;2. Game Engine为了解决什么问题？&lt;/h3&gt;
-&lt;p&gt;&lt;strong&gt;Game Engine实际上有效的减少开发者编写程序时的冗余劳动，同时增强游戏的可移植性&lt;/strong&gt;。&lt;/p&gt;
-&lt;p&gt;Engine就是游戏的框架，我们需要往框架中填充内容就可以形成一个游戏。&lt;/p&gt;
-&lt;p&gt;引擎，就是一系列的工具和生产链，像Unreal 3，Unity这样的成熟引擎，用起来非常方便，就是因为它的关卡/场景编辑器十分宜用，支持多种脚本语言。这类引擎运用恰当的话，理论上能将关卡调试和物件流水线的大部分工作从程序员那里完全移出。&lt;/p&gt;
-&lt;h3&gt;3. Game Engine的架构&lt;/h3&gt;
-&lt;p&gt;游戏 = 引擎(程序) + 资源(图像、声音、动画等)&lt;br&gt;
-目前的Game Engine的架构都是Model-View-Controller架构，逻辑和显示分开，由一个逻辑控制流来协调Client的请求和Server的行动。&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;View: 负责界面回执&lt;/li&gt;
-&lt;li&gt;Controller：处理工作流程的创建和种植，用户输入，各种事件的处理&lt;/li&gt;
-&lt;li&gt;Model: 模型、逻辑，程序的功能实现&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;&lt;strong&gt;消息循环-&amp;gt;更新数据-&amp;gt;绘制各节点&lt;/strong&gt; 这是绘制的基本结构基本不会有大的改变。&lt;/p&gt;
-&lt;p&gt;各种引擎的变种很大部分是在游戏逻辑上的封装。脚本也好，直接写代码也好。比如较为古老的数据与函数分离，以C语言为代表。大行其道的类结构。以c++为代表。以及现在光环日耀的CBSE，基于组件的架构&lt;/p&gt;
-&lt;h3&gt;4. 如何设计一款游戏引擎？&lt;/h3&gt;
-&lt;h4&gt;&amp;lt;1&amp;gt;. 结构设计及功能设计&lt;/h4&gt;
-&lt;p&gt;Game Engine的设计包括结构设计、功能设计及注意事项。&lt;/p&gt;
-&lt;p&gt;Game Engine包括&lt;strong&gt;图形引擎&lt;/strong&gt;、脚本引擎、物理引擎、工具模块、音效引擎、网络组件、事件组件等。&lt;/p&gt;
-&lt;p&gt;Android游戏主要包括一个Activity类、流程控制类、游戏线程类和游戏对象类。Activity类是游戏的执行单元，负责游戏生命周期的控制。&lt;/p&gt;
-&lt;p&gt;流程控制：提供在游戏中多个界面之间切换方法；&lt;/p&gt;
-&lt;p&gt;游戏线程：不断监测可能发生的各种事件，计算游戏状态，刷新屏幕。&lt;/p&gt;
-&lt;h4&gt;&amp;lt;2&amp;gt;. 注意事项：&lt;/h4&gt;
-&lt;p&gt;手机游戏的主要问题是 硬件限制 及 电池瓶颈。CPU及内存不足，屏幕大小，音效等多方面限制，在设计时需要注意这些方面。&lt;/p&gt;
-&lt;h3&gt;5. 实现一款游戏引擎&lt;/h3&gt;
-&lt;p&gt;游戏引擎&lt;strong&gt;只是一款炒菜的炒菜锅，但有了好的炒菜锅不一定能保证炒出好的菜&lt;/strong&gt;。&lt;/p&gt;
-&lt;p&gt;游戏引擎的实现就很复杂了，需要按照上一节的架构及功能设计去编码实现，目前绝大部分都是面向对象编程，设计好各种类。比如人物、NPC、道具、动画、动植物等等。有余力的同学可以去研究研究。&lt;/p&gt;
-&lt;p&gt;最近流行的一些游戏，其实也并不需要多么NB的游戏引擎，充分发掘用户的痛点才能设计出一款好的游戏。&lt;/p&gt;
-&lt;p&gt;目前有很多开源的Game Engine可供大家研究，比如Unity3D, Box2D等，大家可以去网上搜索并研究。&lt;/p&gt;
-&lt;h3&gt;6. 对手机游戏的展望&lt;/h3&gt;
-&lt;p&gt;这2年玩过的手机游戏也不少，我也来谈谈一款好的手机游戏应该具备哪些特征：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;
-&lt;strong&gt;上手容易，精通不易&lt;/strong&gt;，且玩且珍惜。手游面向的是大众，所以上手难的游戏就一律pass，必须保证游戏具有简单性，让玩家一安装就可以玩的；&lt;/li&gt;
-&lt;li&gt;
-&lt;strong&gt;&lt;em&gt;可中断，时间短&lt;/em&gt;&lt;/strong&gt;。一般玩游戏，都是在公交地铁上等碎片时间里，所以提供的是短时间的娱乐效果，允许在游戏和工作模式之间顺利切换；&lt;/li&gt;
-&lt;li&gt;
-&lt;strong&gt;必须加入SNS元素&lt;/strong&gt;：一款好的手游应该具有社交元素，可以加入LBS寻找周围的玩家，或和好友一起玩游戏及互动，抑或者认识新的好友。因为手游都很简单，所以要留住玩家，加入SNS可以留住玩家；&lt;/li&gt;
-&lt;li&gt;充分利用手机的各项优点：手机的优点比如便携性，私密性，即使抵达。手机是我们身体的延伸，所以一款好的游戏应该充分利用手机的一些传感器、摄像头、网络、蓝牙，找出特点，以便设计出一款优秀的游戏。&lt;/li&gt;
-&lt;li&gt;…&lt;/li&gt;
-&lt;/ol&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 24 Sep 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-09-24-77581-bc434c2db.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-24-77581-bc434c2db.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>无损数据压缩算法的历史</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;h2&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#%E5%BC%95%E8%A8%80&quot; name=&quot;user-content-%E5%BC%95%E8%A8%80&quot;&gt;&lt;/a&gt;引言&lt;/h2&gt;
-&lt;p&gt;有两种主要的压缩算法：有损和无损。有损压缩算法通过移除在保真情形下需要大量的数据去存储的小细节，从而使文件变小。在有损压缩里，因某些必要数据的移除，恢复原文件是不可能的。有损压缩主要用来存储图像和音频文件，同时通过移除数据可以达到一个比较高的压缩率，不过本文不讨论有损压缩。无损压缩，也使文件变小，但对应的解压缩功能可以精确的恢复原文件，不丢失任何数据。无损数据压缩被广泛的应用在计算机领域，从节省你个人电脑的空间，到通过web发送数据。使用Secure Shell交流，查看PNG或GIF图片。&lt;/p&gt;
-&lt;p&gt;无损压缩算法可行的基本原理是，任意一个非随机文件都含有重复数据，这些重复数据可以通过用来确定字符或短语出现概率的统计建模技术来压缩。统计模型可以用来为特定的字符或者短语生成代码，基于它们出现的频率，配置最短的代码给最常用的数据。这些技术包括熵编码(entropy encoding)、游程编码(run-length encoding)以及字典压缩。运用这些技术以及其它技术，一个8-bit长度的字符或者字符串可以用很少的bit来表示，从而大量的重复数据被移除。&lt;/p&gt;
-&lt;h2&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#%E5%8E%86%E5%8F%B2&quot; name=&quot;user-content-%E5%8E%86%E5%8F%B2&quot;&gt;&lt;/a&gt;历史&lt;/h2&gt;
-&lt;p&gt;&lt;img id=&quot;pic&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/e657822be76c892f690831b084d88fbc.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;直到20世纪70年代，数据压缩才在计算机领域开始扮演重要角色，那时互联网变得更加流行，Lempel-Ziv算法被发明出来，但压缩算法在计算机领域之外有着更悠久的历史。发明于1838年的Morse code，是最早的数据压缩实例，为英语中最常用的字母比如”e”和”t”分配更短的Morse code。之后，随着大型机的兴起，Claude Shannon和Robert Fano发明了Shannon-Fano编码算法。他们的算法基于符号(symbol)出现的概率来给符号分配编码(code)。一个符号出现的概率大小与对应的编码成反比，从而用更短的方式来表示符号。&lt;/p&gt;
-&lt;p&gt;两年后，David Huffman在MIT学习信息理论并上了一门Robert Fano老师的课，Fano给班级的同学两个选项，写一篇学期论文或者参加期末考试。Huffman选择的是写学期论文，题目是寻找二叉编码的最优算法。经过几个月的努力后依然没有任何成果，Huffman决定放弃所有论文相关的工作，开始学习为参加期末考试做准备。正在那时，灵感爆发，Huffman找到一个与Shannon-Fano编码相类似但是更有效的编码算法。Shannon-Fano编码和Huffman编码的主要区别是构建概率树的过程不同，前者是自下而上，得到一个次优结果，而后者是自上而下。&lt;/p&gt;
-&lt;p&gt;早期的Shannon-Fano编码和Huffman编码算法实现是使用硬件和硬编码完成的。直到20世纪70年代互联网以及在线存储的出现，软件压缩才被实现为Huffman编码依据输入数据动态产生。随后，1977年Abraham Lempel 和 Jacob Ziv发表了他们独创性的LZ77算法，第一个使用字典来压缩数据的算法。特别的，LZ77使用了一个叫做slidingwindow的动态字典。1978年，这对搭档发表了同样使用字典的LZ78算法。与LZ77不同，LZ78解析输入数据，生成一个静态字典，不像LZ77动态产生。&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#%E6%B3%95%E5%BE%8B%E9%97%AE%E9%A2%98&quot; name=&quot;user-content-%E6%B3%95%E5%BE%8B%E9%97%AE%E9%A2%98&quot;&gt;&lt;/a&gt;法律问题&lt;/h3&gt;
-&lt;p&gt;LZ77和LZ78都快速的流行开来，衍生出多个下图中所示的压缩算法。其中的大多数已经沉寂了，只有那么几个现在被大范围的使用，包括DEFLATE，LZMA以及LZX。绝大多数常用的压缩算法都衍生于LZ77，这不是因为LZ77技术更好，只是由于Sperry在1984年申请了LZ78衍生算法LZW的专利，从而发展受到了专利的阻碍，Sperry开始因专利侵权而起诉软件提供商，服务器管理员，甚至是使用GIF格式但没有License的终端用户。&lt;/p&gt;
-&lt;p&gt;同时，UNIX压缩工具使用了一个叫LZC的LZW算法微调整版本，之后由于专利问题而被弃用。其他的UNIX开发者也开始放弃使用LZW。这导致UNIX社区采用基于DEFLATE的gzip和基于Burrows-Wheeler Transform的bzip2算法。长远来说，对于UNIX社区这是有好处的，因为gzip和bzip2格式几乎总是比LZW有更好的压缩比。围绕LZW的专利问题已经结束，因为LZW的专利2003年就到期了。尽管这样，LZW算法已经很大程度上被替代掉了，仅仅被使用于GIF压缩中。自那以后，也有一些LZW的衍生算法，不过都没有流行开来，LZ77算法仍然是主流。&lt;/p&gt;
-&lt;p&gt;另外一场法律官司发生于1993，关于LZS算法。LZS是由Stac Electronics开发的，用于硬盘压缩软件，如Stacker。微软在开发影片压缩软件时使用了LZS算法，开发的软件随着MS-DOS 6.0一起发布，声称能够使硬盘容量翻倍。当Stac Electronics发现自己的知识财产被使用后，起诉了微软。微软随后被判专利侵权并赔偿Stac Electronics1亿2000万美元，后因微软上诉因非故意侵权而减少了1360万美元。尽管Stac Electronics和微软发生了一个那么大的官司，但它没有阻碍Lempel-Ziv算法的开发，不像LZW专利纠纷那样。唯一的结果就是LZS没有衍生出任何算法。&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#deflate%E7%9A%84%E5%B4%9B%E8%B5%B7&quot; name=&quot;user-content-deflate%E7%9A%84%E5%B4%9B%E8%B5%B7&quot;&gt;&lt;/a&gt;Deflate的崛起&lt;/h3&gt;
-&lt;p&gt;自从Lempel-Ziv算法被发表以来，随着对存储需求的不断增长，一些公司及其他团体开始使用数据压缩技术，这能让他们满足这些需求。然而，数据压缩并没有被大范围的使用，这一局面直到20世纪80年代末期随着互联网的腾飞才开始改变，那时数据压缩的需求出现了。带宽限额，昂贵，数据压缩能够帮助缓解这些瓶颈。当万维网发展起来之后人们开始分享更多的图片以及其它格式的数据，这些数据远比文本大得多，压缩开始变得极其重要。为了满足这些需求，几个新的文件格式被开发出来，包括ZIP，GIF，和PNG。&lt;/p&gt;
-&lt;p&gt;Thom Henderson通过他的公司发布了第一个成功的商业存档格式，叫做ARC，公司名为为System Enhancement Associates。ARC在BBS社区尤为流行，这是因为它是第一个既可以打包又可以压缩的程序，此外还开放了源代码。ARC格式使用一个LZW的衍生算法来压缩数据。一个叫做Phil Katz的家注意到了ARC的流行并决定用汇编语言来重写压缩和解压缩程序，希望改进ARC。他于1987发布了他的共享软件PKARC程序，不久被Henderson以侵犯版权为由起诉。Katz被认定为有罪，并被迫支付版权费用以及其它许可协议费用。他之所以被认定侵权，是由于PKARC是明显抄袭ARC，甚至于一些注释里面的错别字都相同。&lt;/p&gt;
-&lt;p&gt;Phil Katz自1988年之后就因许可证问题不能继续出售PKARC，所以1989年他创建了一个PKARC的修改版，就是现在大家熟知的ZIP格式。由于使用了LZW，它被认为专利侵权的，之后Katz选择转而使用新的IMPLODE算法，这种格式于1993年再次被修改，那时Kata发布了PKZIP的2.0版本，那个版本实现了DEFLATE算法以及一些其它特性，如分割容量等。这个ZIP版本也是我们现在随处可见的格式，所有的ZIP文件都遵循PKZIP 2.0格式，尽管它年代久远。&lt;/p&gt;
-&lt;p&gt;GIF格式，全称Graphics Interchange Format，于1987年由CompuServe创建，允许图像无失真地被共享(尽管这种格式被限定每一帧最多256种颜色)，同时减小文件的大小以允许通过数据机传输。然而，像ZIP格式一样，GIF也是基于LZW算法。尽管专利侵权，Unisys没有办法去阻止GIF的传播。即使是现在，20年后的今天，GIF仍然被使用着，特别是它的动画能力。&lt;/p&gt;
-&lt;p&gt;尽管GIF没有办法被叫停，CompuServe需找一种不受专利束缚的格式，并于1994年引入了Portable Network Graphics (PNG) 格式。像ZIP一样，PNG使用DEFLATE算法来处理压缩。尽管DELLATE的专利属于Katz，这个专利并不是强性制的，正是这样，PNG以及其它基于DEFLATE的格式避免了专利侵权。尽管LZW在压缩历史的初期占据霸主位置，由于Unisys公司的好诉讼作为，LZW慢慢的淡出主流，大家转而使用更快更高效的DEFLATE算法。现在DEFLATE是使用得最多的算法，有些压缩世界里瑞士军刀的味道。&lt;/p&gt;
-&lt;p&gt;除了用于PNG和ZIP格式之外，计算机世界里DEFLATE也被频繁的用在其它地方。例如gzip(.gz)文件格式也使用DEFLATE，gzip是ZIP的一个开源版本。其它还包括HTTP, SSL, 以及其它的高效压缩网络传输数据的技术。&lt;/p&gt;
-&lt;p&gt;遗憾的是，Phil Katz英年早逝，没能看到他的DEFLATE算法统治计算机世界。有几年的时间他酗酒成性，生活也于20世纪90年代末期开始支离破碎，好几次因酒驾或者其它违法行为而被逮捕。Katz于2000年4月14号被发现死于一个酒店的房间，终年37岁。死因是酒精导致的严重胰腺出血，身旁是一堆的空酒瓶。&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#%E5%BD%93%E5%89%8D%E7%9A%84%E4%B8%80%E4%BA%9B%E5%BD%92%E6%A1%A3%E8%BD%AF%E4%BB%B6&quot; name=&quot;user-content-%E5%BD%93%E5%89%8D%E7%9A%84%E4%B8%80%E4%BA%9B%E5%BD%92%E6%A1%A3%E8%BD%AF%E4%BB%B6&quot;&gt;&lt;/a&gt;当前的一些归档软件&lt;/h3&gt;
-&lt;p&gt;ZIP以及其它基于DEFLATE的格式一直占据主导地位，直到20世纪90年代中期，一些新的改进的格式开始出现。1993年，Eugene Roshal发布了一个叫做WinRAR的归档软件，该软件使用RAR格式。最新的RAR结合了PPM和LZSS算法，前面的版本就不太清楚了。RAR开始在互联网分享文件方面成为事实标准，特别是盗版影像的传播。1996年一个叫bzip2d的Burrows-Wheeler Transform算法开源实现发布，并很快在UNIX平台上面流行开来，大有对抗基于DEFLATE算法的gzip格式。1999年另外一个开源压缩程序发布了，以7-Zip或.7z的格式存在，7-Zip应该是第一个能够挑战ZIP和RAR霸主地位的格式，这源于它的高压缩比，模块化以及开放性。这种格式并不仅限于使用一种压缩算法，而是可以在bzip2, LZMA, LZMA2, 和 PPMd算法之间任意选择。最后，归档软件中较新的一个格式是PAQ*格式。第一个PAQ版本于2002年由Matt Mahoney发布，叫做PAQ1。PAQ主要使用一种叫做context mixing的技术来改进PPM算法，context mixing结合了两个甚至是多个统计模型来产生一个更好的符号概率预测，这要比其中的任意一个模型都要好。&lt;/p&gt;
-&lt;h2&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#%E5%8E%8B%E7%BC%A9%E6%8A%80%E6%9C%AF&quot; name=&quot;user-content-%E5%8E%8B%E7%BC%A9%E6%8A%80%E6%9C%AF&quot;&gt;&lt;/a&gt;压缩技术&lt;/h2&gt;
-&lt;p&gt;有许多不同的技术被用来压缩数据。大多数技术都不能单独使用，需要结合起来形成一套算法。那些能够单独使用的&lt;br&gt;
-技术比需要结合的技术通常更加有效。其中的绝大部分都归于entropy编码类别下面，但其它的一些技术也挺常用，如Run-Length Encoding和Burrows-Wheeler Transform。&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#run-length-encoding&quot; name=&quot;user-content-run-length-encoding&quot;&gt;&lt;/a&gt;Run-Length Encoding&lt;/h3&gt;
-&lt;p&gt;Run-Length Encoding是一个非常简单的压缩技术，把重复出现的多个字符替换为重复次数外加字符。单个字符次数为1。RLE非常适合数据重复度比较高的数据，同一行有很多像素颜色相同的渐进图片，也可以结合Burrows-Wheeler Transform等其它技术一起使用。&lt;/p&gt;
-&lt;p&gt;下面是RLE的一个简单例子:&lt;/p&gt;
-&lt;p&gt;输入: AAABBCCCCDEEEEEEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&lt;br&gt;
-输出: 3A2B4C1D6E38A&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#burrows-wheeler-transform&quot; name=&quot;user-content-burrows-wheeler-transform&quot;&gt;&lt;/a&gt;Burrows-Wheeler Transform&lt;/h3&gt;
-&lt;p&gt;Burrows-Wheeler Transform是1994年发明的技术，目的是可逆的处理一段输入数据，使得相同字符连续出现的次数最大化。BWT自身并不做任何的压缩操作，仅简单地转化数据，让Run-Length Encoder等压缩算法可以更有效的编码。&lt;/p&gt;
-&lt;p&gt;BWT算法很简单:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;创建一个字符串数组。&lt;/li&gt;
-&lt;li&gt;把输入字符串的所有排列组合塞入上述字符串数组。&lt;/li&gt;
-&lt;li&gt;按照字符顺序为字符串数组排序。&lt;/li&gt;
-&lt;li&gt;返回数组的最后一列。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;BWT通常处理有很多交叉重复字符的长字符串时效果很好。下面是一个有着理想输入的例子，注意&amp;amp;是文件结束符：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c169ca29581eb3fb92eaa37781c0fdad.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;因为交换相同的符号到一起，输入数据在BWT处理之后得到优化后的结果，另外一个算法可以对该结果进行压缩，比如RLE会得到”3H&amp;amp;3A”。尽管这个例子得到了一个较优的结果，不过现实世界中的数据它不总是这样。&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#entropy-encoding&quot; name=&quot;user-content-entropy-encoding&quot;&gt;&lt;/a&gt;Entropy Encoding&lt;/h3&gt;
-&lt;p&gt;数据压缩中，平均来说为了表示一个字符或短语，Entropy意味着所需要的最少bit数。一个基本的entropy编码器包括一个分析模型以及一套编码。输入文件被解析，并产生一个由字符出现概率组成的统计模型。然后，编码器可以利用该统计模型去决定该给每一个字符多少个bit，从而使得最常用的字符用最短的编码，反之最不常用的字符用最长的编码。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#shannon-fano-coding&quot; name=&quot;user-content-shannon-fano-coding&quot;&gt;&lt;/a&gt;Shannon-Fano Coding&lt;/h4&gt;
-&lt;p&gt;这是最早的压缩技术，于1949年由Claude Shannon和Robert Fano发明。这个技术的其中一个步骤是产生一个代表字符出现概率的二叉树。字符以这样一种方式排序，出现得越频繁的字符越靠近树的顶端，越不常见的越靠近树的底部。&lt;/p&gt;
-&lt;p&gt;一个字符对应的编码通过搜索Shannon-Fano来获得，此外，左分支后面加0，右分支加1。例如，”A”是两个左节点后接一个右节点，那么对于的编码为”0012″。Shannon-Fano coding不总是能够产生最优的编码，主要是由于二叉树是自下而上构建的。由于这个原因，使用的较多的还是对于任意输入都能够得到最优编码的Huffman coding。&lt;/p&gt;
-&lt;p&gt;产生Shannon-Fano编码的算法很简单:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;解析输入，统计每一个字符出现的频率。&lt;/li&gt;
-&lt;li&gt;根据是上述频率计算字符的概率。&lt;/li&gt;
-&lt;li&gt;依据概率对字符降序排序。&lt;/li&gt;
-&lt;li&gt;为每一个字符生成一个叶节点(LeafNode)&lt;/li&gt;
-&lt;li&gt;把字符列表分为左右两部分，使得左边的概率与右边的概率大致相当。&lt;/li&gt;
-&lt;li&gt;左节点加编码”0″，右节点加编码”1″。&lt;/li&gt;
-&lt;li&gt;对两棵子树重复的步骤5和6，直到所有的字符节点都成为叶子节点。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#huffman-coding&quot; name=&quot;user-content-huffman-coding&quot;&gt;&lt;/a&gt;Huffman Coding&lt;/h4&gt;
-&lt;p&gt;Huffman Coding是另外一个entropy coding的例子，与Shannon-Fano Coding非常的相似，只是为了产生最优编码&lt;br&gt;
-二叉树是自上而下构建的。&lt;/p&gt;
-&lt;p&gt;生成Huffman编码的算法前面的三个步骤与Shannon-Fano完全相同:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;解析输入，统计每一个字符出现的频率。&lt;/li&gt;
-&lt;li&gt;根据是上述频率计算字符的概率。&lt;/li&gt;
-&lt;li&gt;依据概率对字符降序排序。&lt;/li&gt;
-&lt;li&gt;为每一个字符生成一个叶节点(LeafNode)，节点包含概率信息P，把节点存入一个队列Queue。&lt;/li&gt;
-&lt;li&gt;While (Nodes in Queue &amp;gt; 1)
-&lt;ul&gt;
-&lt;li&gt;从队列里面取出概率最小的两个节点。&lt;/li&gt;
-&lt;li&gt;给左节点分配编码”0″，右节点分配编码”1″。&lt;/li&gt;
-&lt;li&gt;创建一个新的节点，其概率为上面步骤中的两个节点之和。&lt;/li&gt;
-&lt;li&gt;把两个节点中的第一个设置为新建节点的左节点，第二个节点为新建节点的右节点。&lt;/li&gt;
-&lt;li&gt;把新建节点存入队列&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/li&gt;
-&lt;li&gt;最后一个节点就是二叉树的根节点。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#arithmetic-coding&quot; name=&quot;user-content-arithmetic-coding&quot;&gt;&lt;/a&gt;Arithmetic Coding&lt;/h4&gt;
-&lt;p&gt;1979年该算法在IBM被开发出来，当时IBM正在调研一些压缩算法，以期用于它们的大型机上。如果单论压缩比，Arithmetic coding确实是一个最优的entropy coding技术，通常压缩比方面Arithmetic Coding要比Huffman Coding表现得更好。然而，它却也比其它技术复杂得多。&lt;/p&gt;
-&lt;p&gt;不像其它技术会把字符概率构建成一棵树，arithmetic coding把输入转化为一个0到1之间的有理数，输入字符的个数记为base，里面每一个不同的字符都分配一个0到base之间的值。然后，最后转化为二进制得到最终的结果。结果也可以通过把base恢复为原来的base值，替换为对应字符而得到原输入值。&lt;/p&gt;
-&lt;p&gt;一个基本的计算arithmetic code算法如下:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;计算输入数据里面不同字符的个数。这个数字记为base b(比如 base 2代表2二进制)。&lt;/li&gt;
-&lt;li&gt;按字符出现的顺序分别给每一个字符分配一个0到b之间的值。&lt;/li&gt;
-&lt;li&gt;使用步骤2中德值，把输入中的字符替换为对应的数字(编码)。&lt;/li&gt;
-&lt;li&gt;把步骤3中得到的结果从b进制转化为2进制。&lt;/li&gt;
-&lt;li&gt;如果解码需要的话，记录输入的字符总个数。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;下面是一个编码操作的例子，输入为”ABCDAABD”：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;找到共有4个不同的字符输入, base = 4, length = 8。&lt;/li&gt;
-&lt;li&gt;按出现顺序为不同的字符赋值: A=0, B=1, C=2, D=3。&lt;/li&gt;
-&lt;li&gt;用编码替换字符，得到“0.012300134”，注意最前面的”0.”是为了得到小数而加上去的。最后的4表示base=4。&lt;/li&gt;
-&lt;li&gt;把“0.012300134”从4进制转化为2进制，得到“0.011011000001112”。最后的2表示base=2。&lt;/li&gt;
-&lt;li&gt;在结果中标识输入的总字符数为8。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;假设字符为8个bit表示，输入共需要64个bit空间，然而对应的arithmetic coding只有15个bit，压缩比为24%，&lt;br&gt;
-效果显著。这个例子展示了arithmetic coding是如何良好的压缩固定字符串的。&lt;/p&gt;
-&lt;h2&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#%E5%8E%8B%E7%BC%A9%E7%AE%97%E6%B3%95&quot; name=&quot;user-content-%E5%8E%8B%E7%BC%A9%E7%AE%97%E6%B3%95&quot;&gt;&lt;/a&gt;压缩算法&lt;/h2&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#sliding-window-algorithms&quot; name=&quot;user-content-sliding-window-algorithms&quot;&gt;&lt;/a&gt;Sliding Window Algorithms&lt;/h3&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lz77&quot; name=&quot;user-content-lz77&quot;&gt;&lt;/a&gt;LZ77&lt;/h4&gt;
-&lt;p&gt;LZ77发表于1977年，是名副其实的压缩算法开山之作。它首次引入’sliding window’的概念，相较几个主要的压缩算法，压缩比都有非常明显的提高。LZ77维护了一个字典，用一个三元组来表示offset，run length和分割字符。offset表示从文件起始位置到当前Phase的起始位置的距离，run length记录当前Phase有多少个字符，分割符仅用于分割不同的Phase。Phase就是offset到offset+length之间的子串减掉分隔符。随着文件解析的进行，基于sliding window字典会动态的变化。例如，64MB的sliding window意味着四点将包含64M的输入数据的信息。&lt;/p&gt;
-&lt;p&gt;给定一个输入为”abbadabba”，那么输出可能像”abb(0,1,’d&#39;)(0,3,’a&#39;)”，如下图所示:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/f5966eaefb9fa7f7485591c7b1b1ba87.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;尽管上述的替换看起来比原数据还要大，当输入数据更大一些的时候，效果会比较好。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzr&quot; name=&quot;user-content-lzr&quot;&gt;&lt;/a&gt;LZR&lt;/h4&gt;
-&lt;p&gt;LZR是LZ77的修改版本，于1981年由Michael Rodeh发明。这个算法目标是成为LZ77的一个线性时间替换算法。然而，编码后Udell指针可能指向文件的任意offset，意味着需要耗费可观的内存。加之压缩比表现也差强人意(LZ77好得多)，LZR算是一个不成功的LZ77衍生算法。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#deflate&quot; name=&quot;user-content-deflate&quot;&gt;&lt;/a&gt;DEFLATE&lt;/h4&gt;
-&lt;p&gt;DEFLATE于1993年由Phil Katz发明，是现代绝大多数压缩任务的基石。它仅仅结合了两种算法，先用LZ77或LZSS预处理，然后用Huffman编码，快速的得到不错的压缩结果。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#deflate64&quot; name=&quot;user-content-deflate64&quot;&gt;&lt;/a&gt;DEFLATE64&lt;/h4&gt;
-&lt;p&gt;DEFLATE64是DEFLATE的一个有专利的扩展，把字典的大小提高到64K(名字随之)，从而允许在sliding window里面有更大的距离。相比于DEFLATE，DEFLATE64在性能和压缩比方面都有提高。然而，由于DEFLATE64的专利保护以及相较DEFLATE并没有特别明显的提高，DEFLATE64很少被采用。相反一些开源算法如LZMA被大量的使用。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzss&quot; name=&quot;user-content-lzss&quot;&gt;&lt;/a&gt;LZSS&lt;/h4&gt;
-&lt;p&gt;LZSS，全称Lempel-Ziv-Storer-Szymanski，于1982年由James Storer发表。LZSS相较LZ77有所提高，它能检测到一个替换是否真的减小了文件大小。如果文件大小没有减小，不再替换输入值。此外，输入段被(offset, length)数据对替换，其中offset表示离输入起始位置的bytes数量，length表示从该位置读取了多少个字符。另外一个改进是去除了”next character”信息，仅仅使用offset-length数据对。&lt;/p&gt;
-&lt;p&gt;下面是一个输入为” these theses”简单的例子，结果为” these(0,6)s”，仅仅节省了一个Byte，不过输入数据大的时候效果会好得多。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5de2f6e48b62da018014a831becfae94.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;LZSS依然被用在许多使用广泛的归档格式中，其中最知名的是RAR。LZSS有时也被用于网络数据压缩。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzh&quot; name=&quot;user-content-lzh&quot;&gt;&lt;/a&gt;LZH&lt;/h4&gt;
-&lt;p&gt;LZH发明于1987年，全称为”Lempel-Ziv Huffman”。它是LZSS的一个衍生算法，利用Huffman coding压缩指针，压缩效果有微小的提高。然而使用Huffman coding带来的提高实在是很有限，相较于使用Huffman coding带来的性能损失，不足为取。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzb&quot; name=&quot;user-content-lzb&quot;&gt;&lt;/a&gt;LZB&lt;/h4&gt;
-&lt;p&gt;LZB同样发明于1987年，同样是LZSS的衍生算法。如LZH一样，LZB也致力于通过更加有效的编码指针以达到更好的压缩效果。它的做法是随着sliding window变大，逐步的增大指针的数量。它的压缩效果确实比LZSS和LZH要好，不过因为额外的编码步骤，速度上比LZSS慢得多。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#rolz&quot; name=&quot;user-content-rolz&quot;&gt;&lt;/a&gt;ROLZ&lt;/h4&gt;
-&lt;p&gt;ROLZ全称”Reduced Offset Lempel-Ziv”，它的目标是提高LZ77的压缩效果，通过限制offset的大小，从而减少为offset-length数据对编码的数据量。这项LZ77的衍生技术于1991年首次出现在Ross Williams的LZRW4算法里面。其它的实现包括BALZ，QUAD，和 RZM。高度优化的ROLZ能够达到接近LZMA的压缩比，不过ROLZ不太流行。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzp&quot; name=&quot;user-content-lzp&quot;&gt;&lt;/a&gt;LZP&lt;/h4&gt;
-&lt;p&gt;LZP全称”Lempel-Ziv + Prediction”。它是ROLZ算法的一个特殊案例，offset减小到1。&lt;br&gt;
-有几个衍生的算法使用不同的技术来实现或加快压缩速度，或提高压缩比的目标。LZW4实现了一个数字编码器&lt;br&gt;
-达到了最好的压缩比，不过牺牲了部分速度。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzrw1&quot; name=&quot;user-content-lzrw1&quot;&gt;&lt;/a&gt;LZRW1&lt;/h4&gt;
-&lt;p&gt;Ron Williams于1991年发明了这个算法，第一次引入了Reduced-Offset Lempel-Ziv compressiond的概念。LZRW1&lt;br&gt;
-能够达到很高的压缩比，同时保持快速有效。Ron Williams也发明另外几个基于LZRW1改进的衍生算法，如&lt;br&gt;
-LZRW1-A, 2, 3, 3-A, 和4。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzjb&quot; name=&quot;user-content-lzjb&quot;&gt;&lt;/a&gt;LZJB&lt;/h4&gt;
-&lt;p&gt;Jeff Bonwick于1998年发明了Lempel-Ziv Jeff Bonwick算法，用于Solaris操作系统的Z文件系统(ZFS)。它被认为是&lt;br&gt;
-LZRW算法的一个衍生算法，特别是LZRW1，目标是改进压缩速度。既然它是被用于操作系统，速度显得尤为重要，&lt;br&gt;
-不能因为压缩算法的原因而使得磁盘操作成为瓶颈。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzs&quot; name=&quot;user-content-lzs&quot;&gt;&lt;/a&gt;LZS&lt;/h4&gt;
-&lt;p&gt;Lempel-Ziv-Stac算法于1994年由Stac Electronics发明，用于磁盘压缩软件。它是LZ77的一个修改版本，区分了输出的文字符号与offset-length数据对，此外还移除了分隔符。功能上来说，LZS与LZSS算法很相似。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzx&quot; name=&quot;user-content-lzx&quot;&gt;&lt;/a&gt;LZX&lt;/h4&gt;
-&lt;p&gt;LZX算法于1995年由Jonathan Forbes和Tomi Poutanen发明，用于Amiga计算机。LZX中X没有什么特殊的意义。Forbes于1996年把该算法出售给了微软，并且受雇于微软，那那儿该算法被继续优化并用于微软的cabinet(.CAB)格式。这个算法也被微软用于压缩Compressed HTML Help (CHM) 文件，Windows Imaging Format (WIM)&lt;br&gt;
-文件，和 Xbox Live Avatars。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzo&quot; name=&quot;user-content-lzo&quot;&gt;&lt;/a&gt;LZO&lt;/h4&gt;
-&lt;p&gt;LZO于1996年由Markus发明，该算法的目标是快速的压缩和解压缩。它允许调整压缩级别，并且在最高级别下仍仅需64KB额外的内存空间，同时解压缩仅需要输入和输出的空间。LZO功能上非常类似LZSS，不过是为了速度，而非压缩比做的优化。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzma&quot; name=&quot;user-content-lzma&quot;&gt;&lt;/a&gt;LZMA&lt;/h4&gt;
-&lt;p&gt;Lempel-Ziv Markov chain Algorithm算法于1998年首次发表，是随着7-Zip归档软件一起发布的。大多数情况下它比bzip2, DEFLATE以及其它算法表现都要好。LZMA使用一系列技术来完成输出。首先时一个LZ77的修改版本，它操作的是bitwise级别，而非传统上的bytewise级别，用于解析数据。LZ77算法解析后的输出经过数字编码。更多的技术可被使用，这依赖于具体的LZMA实现。相比其它LZ衍生算法，LZMA在压缩比方面提高明显，这要归功于操作bitewise，而非bytewise。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzma2&quot; name=&quot;user-content-lzma2&quot;&gt;&lt;/a&gt;LZMA2&lt;/h4&gt;
-&lt;p&gt;LZMA2是LZMA的一个增量改进版本，于2009年在7-Zip归档软件的一个更新版本里面首次引入。LZMA2改进了多线程处理功能，同时优化对不可压缩数据的处理，这也稍微提高了压缩效果。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#statistical-lempel-ziv&quot; name=&quot;user-content-statistical-lempel-ziv&quot;&gt;&lt;/a&gt;Statistical Lempel-Ziv&lt;/h4&gt;
-&lt;p&gt;Statistical Lempel-Ziv是于2001年由Sam Kwong博士和Yu Fan Ho博士提出的一个概念。基本的原则是数据的统计分析结果可以与LZ77衍生算法结合起来，进一步优化什么样的编码将存储在字典中。&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#dictionary-algorithms&quot; name=&quot;user-content-dictionary-algorithms&quot;&gt;&lt;/a&gt;Dictionary Algorithms&lt;/h3&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lz78&quot; name=&quot;user-content-lz78&quot;&gt;&lt;/a&gt;LZ78&lt;/h4&gt;
-&lt;p&gt;LZ78于1978年由Lempel和Ziv发明，缩写正是来源于此。不再使用sliding window来生成字典，输入数据要么被预处理之后用来生成字典，或者字典在文件解析过程中逐渐形成。LZ78采用了后者。字典的大小通常被限定为几兆的大小，或者所有编码上限为几个比特，比如8个。这是出于减少对内存要求的考量。算法如何处理正是LZ78的各个衍生算法的区别所在。&lt;/p&gt;
-&lt;p&gt;解析文件的时候，LZ78把新碰到的字符或者字符串加到字典中。针对每一个符号，形如(dictionary index, unknown symbol)的字典记录会对应地生成。如果符号已经存在于字典中，那么将从字典中搜索该符号的子字符串以及其后的其它符号。最长子串的位置即为字典索引(Index)。字典索引对应的数据被设置为最后一个未知子串。如果当前字符是未知的，那么字典索引设置为0，表示它是单字符对。这些数据对形成一个链表数据结构。&lt;/p&gt;
-&lt;p&gt;形如”abbadabbaabaad”的输入，将会产生”(0,a)(0,b)(2,a)(0,d)(1,b)(3,a)(6,d)”这样的输出。&lt;br&gt;
-你能从下面的例子里面看到它是如何演化的:&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/09/0e12905c00473a9d9cfff86a163b2b12.jpg&quot; rel=&quot;lightbox[77247]&quot; title=&quot;无损数据压缩算法的历史&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-77253&quot; alt=&quot;LZ78&quot; src=&quot;/images/jobbole.com/aded11e78678bff55334d118bc8865dd.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzw&quot; name=&quot;user-content-lzw&quot;&gt;&lt;/a&gt;LZW&lt;/h4&gt;
-&lt;p&gt;LZW于1984年由Terry Welch发明，全称为Lempel-Ziv-Welch。它是LZ78大家族中被用得最多的算法，尽管被专利严重的阻碍了使用。LZW改进LZ78的方法与LZSS类似。它删除输出中冗余的数据，使得输出中不再包含指针。压缩之前它就在字典里面包含了每一个字符，也引入了一些技术改进压缩效果，比如把每一个语句的最后一个字符编码为下一个语句的第一个字符。LZW在图像转换格式中较为常见，早期也曾用于ZIP格式里面，也包括一些其他的专业应用。LZW非常的快，不过相较于一些新的算法，压缩效果就显得比较平庸。一些算法会更快，压缩效果也更好。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzc&quot; name=&quot;user-content-lzc&quot;&gt;&lt;/a&gt;LZC&lt;/h4&gt;
-&lt;p&gt;LZC，全称Lempel-Ziv Compress，是LZW算法的一个微小修改版本，用于UNIX压缩工具中。LZC与LZW两者的区别在于，LZC会监控输出的压缩比。当压缩比超过某一个临界值的时候，字典被丢弃并重构。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzt&quot; name=&quot;user-content-lzt&quot;&gt;&lt;/a&gt;LZT&lt;/h4&gt;
-&lt;p&gt;Lempel-Ziv Tischer是LZC的修改版，当字典满了，删除最不常用的的语句，用新的记录替换它。还有一些其它的小改进，不过现在LZC和LZT都不常用了。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzmw&quot; name=&quot;user-content-lzmw&quot;&gt;&lt;/a&gt;LZMW&lt;/h4&gt;
-&lt;p&gt;于1984年由Victor Miller和Mark Wegman发明，LZMW算法非常类似于LZT，它也采用了替换最不常用语句的策略。然而，不是连接字典中相似的语句，而是连接LZMW最后被编码的两个语句并且存储为一条记录。因此，字典的容量能够快速扩展并且LRUs被更频繁的丢弃掉。LZMW压缩效果比LZT更好，然而它也是另外一个这个时代很难看到其应用的算法。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzap&quot; name=&quot;user-content-lzap&quot;&gt;&lt;/a&gt;LZAP&lt;/h4&gt;
-&lt;p&gt;LZAP于1988年由James Storer发明，是LZMW算法的修改版本。AP代表”all prefixes”，以其遍历时在字典里面存储单个语句，字典存储了语句的所有排列组合。例如，如果最后一个语句为”last”，当前语句是”next”，字典将存储”lastn”，”lastne”，”lastnex”，和 “lastnext”。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzwl&quot; name=&quot;user-content-lzwl&quot;&gt;&lt;/a&gt;LZWL&lt;/h4&gt;
-&lt;p&gt;LZWL是2006年发明的一个LZW修改版本，处理音节而非字符。LZWL是专为有很多常用音节的数据集而设计的，比如&lt;br&gt;
-XML。这种算法通常会搭配一个前置处理器，用来把输入数据分解为音节。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#lzj&quot; name=&quot;user-content-lzj&quot;&gt;&lt;/a&gt;LZJ&lt;/h4&gt;
-&lt;p&gt;Matti Jakobsson于1985年发表了LZJ算法，它是LZ78大家族中唯一一位衍生于LZW的算法。LZJ的工作方式是，在字典中存储每一个经过预处理输入中的不同字符串，并为它们编码。当字典满了，移除所有只出现一次的记录。&lt;/p&gt;
-&lt;h3&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#non-dictionary-algorithms&quot; name=&quot;user-content-non-dictionary-algorithms&quot;&gt;&lt;/a&gt;Non-dictionary Algorithms&lt;/h3&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#ppm&quot; name=&quot;user-content-ppm&quot;&gt;&lt;/a&gt;PPM&lt;/h4&gt;
-&lt;p&gt;通过抽样来预测数据是一项统计建模技术，使用输入中的一部分数据，来预测后续的符号将会是什么，通过这种算法来减少输出数据的entropy。该算法与字典算法不一样，PPM预测下一个符号将会是什么，而不是找出下一个符号来编码。PPM通常结合一个编码器来一起使用，如arithmetic编码或者适配的Huffman编码。PPM或者它的衍生算法被实现于许多归档格式中，包括7-Zip和RAR。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#bzip2&quot; name=&quot;user-content-bzip2&quot;&gt;&lt;/a&gt;bzip2&lt;/h4&gt;
-&lt;p&gt;bzip2是Burrows-Wheeler Transform算法的一个开源实现。它的操作原理很简单，不过却在压缩比和速度之间达到了一个平衡，表现良好，这让它在UNIX环境上很流行。首先，使用了一个Run-Length编码器，接下来，Burrows-Wheeler Transform算法加入进来，然后，使用move-to-front transform以达到产生大量相同符号的目标，为接下来的另一个Run-Length 编码器做准备。最后结果用Huffman编码，将一个消息头与其打包。&lt;/p&gt;
-&lt;h4&gt;
-&lt;a class=&quot;anchor&quot; href=&quot;#paq&quot; name=&quot;user-content-paq&quot;&gt;&lt;/a&gt;PAQ&lt;/h4&gt;
-&lt;p&gt;PAQ于2002年由Matt Mahoney发明，是老版PPM的一个改进版。改进的方法是使用一项叫做context mixing的革命性技术。Context mixing是指智能地结合多个(PPM是单个模型)统计模型，来做出对下一个符号的更好预测，比其中的任何一个模型都要好。PAQ是最有前途的技术之一，它有很好的压缩比，开发也很活跃。自它出现后算起，有超过20个衍生算法被发明出来，其中一些在压缩比方面屡破记录。PAQ的最大缺点是速度，这源于使用了多个统计模型来获得更好的压缩比。然而随着硬件速度的不断提升，它或许会是未来的标准。PAQ在应用方面进步缓慢，一个叫PAQ8O的衍生算法可以在一个叫PeaZip的Windows程序里面找到，PAQ8O支持64-bit，速度也有较大提升。其它的PAQ格式仅仅用于命令行程序。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 24 Sep 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-09-24-77247-7dc4d49c7.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-24-77247-7dc4d49c7.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>常见面试之机器学习算法思想简单梳理</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;&lt;strong&gt;前言：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;找工作时（IT行业），除了常见的软件开发以外，机器学习岗位也可以当作是一个选择，不少计算机方向的研究生都会接触这个，如果你的研究方向是机器学习/数据挖掘之类，且又对其非常感兴趣的话，可以考虑考虑该岗位，毕竟在机器智能没达到人类水平之前，机器学习可以作为一种重要手段，而随着科技的不断发展，相信这方面的人才需求也会越来越大。&lt;/p&gt;
-&lt;p&gt;纵观IT行业的招聘岗位，机器学习之类的岗位还是挺少的，国内大点的公司里百度，阿里，腾讯，网易，搜狐，华为（华为的岗位基本都是随机分配，机器学习等岗位基本面向的是博士）等会有相关职位，另外一些国内的中小型企业和外企也会招一小部分。当然了，其中大部分还是百度北京要人最多，上百人。阿里的算法岗位很大一部分也是搞机器学习相关的。另外本人有幸签约了网易杭州研究院的深度学习算法岗位，打算从事机器学习领域至少5年。非常感谢小易收留了我！&lt;/p&gt;
-&lt;p&gt;下面是本人在找机器学习岗位工作时，总结的常见机器学习算法（主要是一些常规分类器）大概流程和主要思想，希望对大家找机器学习岗位时有点帮助。实际上在面试过程中，懂这些算法的基本思想和大概流程是远远不够的，那些面试官往往问的都是一些公司内部业务中的课题，往往要求你不仅要懂得这些算法的理论过程，而且要非常熟悉怎样使用它，什么场合用它，算法的优缺点，以及调参经验等等。说白了，就是既要会点理论，也要会点应用，既要有点深度，也要有点广度，否则运气不好的话很容易就被刷掉，因为每个面试官爱好不同。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;朴素贝叶斯：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;有以下几个地方需要注意：&lt;/p&gt;
-&lt;p&gt;1. 如果给出的特征向量长度可能不同，这是需要归一化为通长度的向量（这里以文本分类为例），比如说是句子单词的话，则长度为整个词汇量的长度，对应位置是该单词出现的次数。&lt;/p&gt;
-&lt;p&gt;2. 计算公式如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b8083cb5e9f6fc73bd4c31350d0463ab.jpg&quot; width=&quot;214&quot; height=&quot;69&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;其中一项条件概率可以通过朴素贝叶斯条件独立展开。要注意一点就是&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4c56b13fde8c16b7ddf93202cb6f1446.jpg&quot;&gt;的计算方法，而由朴素贝叶斯的前提假设可知，&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/21b0b4b9470a5a5c93616f233e3d8b60.jpg&quot;&gt;=&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a2275101ca10e4966b0cab8a292eb00d.jpg&quot;&gt;，因此一般有两种，一种是在类别为ci的那些样本集中，找到wj出现次数的总和，然后除以该样本的总和；第二种方法是类别为ci的那些样本集中，找到wj出现次数的总和，然后除以该样本中所有特征出现次数的总和。&lt;/p&gt;
-&lt;p&gt;3. 如果&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4c56b13fde8c16b7ddf93202cb6f1446.jpg&quot;&gt;中的某一项为0，则其联合概率的乘积也可能为0，即2中公式的分子为0，为了避免这种现象出现，一般情况下会将这一项初始化为1，当然为了保证概率相等，分母应对应初始化为2（这里因为是2类，所以加2，如果是k类就需要加k，术语上叫做laplace光滑, 分母加k的原因是使之满足全概率公式）。&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;朴素贝叶斯的优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;对小规模的数据表现很好，适合多分类任务，适合增量式训练。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;&lt;em&gt;缺点&lt;/em&gt;：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;对输入数据的表达形式很敏感。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;决策树：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;决策树中很重要的一点就是选择一个属性进行分枝，因此要注意一下信息增益的计算公式，并深入理解它。&lt;/p&gt;
-&lt;p&gt;信息熵的计算公式如下:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cd414a54f5e77b0eebd058c4dd8bd280.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;其中的n代表有n个分类类别（比如假设是2类问题，那么n=2）。分别计算这2类样本在总样本中出现的概率p1和p2，这样就可以计算出未选中属性分枝前的信息熵。&lt;/p&gt;
-&lt;p&gt;现在选中一个属性xi用来进行分枝，此时分枝规则是：如果xi=vx的话，将样本分到树的一个分支；如果不相等则进入另一个分支。很显然，分支中的样本很有可能包括2个类别，分别计算这2个分支的熵H1和H2,计算出分枝后的总信息熵H’=p1*H1+p2*H2.，则此时的信息增益ΔH=H-H’。以信息增益为原则，把所有的属性都测试一边，选择一个使增益最大的属性作为本次分枝属性。&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;决策树的优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;计算量简单，可解释性强，比较适合处理有缺失属性值的样本，能够处理不相关的特征；&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;缺点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;容易过拟合（后续出现了随机森林，减小了过拟合现象）；&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Logistic回归：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;Logistic是用来分类的，是一种线性分类器，需要注意的地方有：&lt;/p&gt;
-&lt;p&gt;1. logistic函数表达式为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/20d645eb987a3c33094186fe1964ec86.jpg&quot; width=&quot;372&quot; height=&quot;104&quot;&gt;&lt;/p&gt;
-&lt;p&gt;其导数形式为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/828a60323e7c280125c274e8fd34d095.jpg&quot; width=&quot;273&quot; height=&quot;154&quot;&gt;&lt;/p&gt;
-&lt;p&gt;2. logsitc回归方法主要是用最大似然估计来学习的，所以单个样本的后验概率为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e95dc64a6bceb2e7315fab4d63432469.jpg&quot; width=&quot;342&quot; height=&quot;47&quot;&gt;&lt;/p&gt;
-&lt;p&gt;到整个样本的后验概率：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/7c493852ff0a2dc402c7244891da04e3.jpg&quot; width=&quot;328&quot; height=&quot;141&quot;&gt;&lt;/p&gt;
-&lt;p&gt;其中：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/bf2054e251ff31be712fe68a21c3455c.jpg&quot; width=&quot;265&quot; height=&quot;64&quot;&gt;&lt;/p&gt;
-&lt;p&gt;通过对数进一步化简为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/09c1f28f198bc9578dc8b1e7fd13cd31.jpg&quot; width=&quot;449&quot; height=&quot;89&quot;&gt;&lt;/p&gt;
-&lt;p&gt;3. 其实它的loss function为-l(θ)，因此我们需使loss function最小，可采用梯度下降法得到。梯度下降法公式为:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/eeb652d69cf54cb4f6ef590abc28cf61.jpg&quot; width=&quot;475&quot; height=&quot;129&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/00d8651e45c69d31591c40994e238a24.jpg&quot; width=&quot;277&quot; height=&quot;44&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;em&gt;&lt;strong&gt;Logistic回归优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;1、实现简单；&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;2、分类时计算量非常小，速度很快，存储资源低；&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;em&gt;&lt;strong&gt;缺点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;1、容易欠拟合，一般准确度不太高&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;2、只能处理两分类问题（在此基础上衍生出来的softmax可以用于多分类），且必须线性可分；&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;线性回归：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;线性回归才是真正用于回归的，而不像logistic回归是用于分类，其基本思想是用梯度下降法对最小二乘法形式的误差函数进行优化，当然也可以用normal equation直接求得参数的解，结果为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/58c9408336b88e2ac396eb8f3f3b0b83.jpg&quot; width=&quot;175&quot; height=&quot;51&quot;&gt;&lt;/p&gt;
-&lt;p&gt;而在LWLR（局部加权线性回归）中，参数的计算表达式为:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/524d23873126bdc590eb2d0438736b7a.jpg&quot; width=&quot;246&quot; height=&quot;53&quot;&gt;&lt;/p&gt;
-&lt;p&gt;因为此时优化的是：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c2d064a957f65a1fe4a7bb50f4b5db7e.jpg&quot; width=&quot;389&quot; height=&quot;78&quot;&gt;&lt;/p&gt;
-&lt;p&gt;由此可见LWLR与LR不同，LWLR是一个非参数模型，因为每次进行回归计算都要遍历训练样本至少一次。&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;线性回归优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;实现简单，计算简单；&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;&lt;em&gt;缺点：&lt;/em&gt;&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;不能拟合非线性数据；&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;KNN&lt;/strong&gt;&lt;strong&gt;算法：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;KNN即最近邻算法，其主要过程为：&lt;/p&gt;
-&lt;p&gt;1. 计算训练样本和测试样本中每个样本点的距离（常见的距离度量有欧式距离，马氏距离等）；&lt;/p&gt;
-&lt;p&gt;2. 对上面所有的距离值进行排序；&lt;/p&gt;
-&lt;p&gt;3. 选前k个最小距离的样本；&lt;/p&gt;
-&lt;p&gt;4. 根据这k个样本的标签进行投票，得到最后的分类类别；&lt;/p&gt;
-&lt;p&gt;如何选择一个最佳的K值，这取决于数据。一般情况下，在分类时较大的K值能够减小噪声的影响。但会使类别之间的界限变得模糊。一个较好的K值可通过各种启发式技术来获取，比如，交叉验证。另外噪声和非相关性特征向量的存在会使K近邻算法的准确性减小。&lt;/p&gt;
-&lt;p&gt;近邻算法具有较强的一致性结果。随着数据趋于无限，算法保证错误率不会超过贝叶斯算法错误率的两倍。对于一些好的K值，K近邻保证错误率不会超过贝叶斯理论误差率。&lt;/p&gt;
-&lt;p&gt;注：马氏距离一定要先给出样本集的统计性质，比如均值向量，协方差矩阵等。关于马氏距离的介绍如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d3ff6709b6fffe23f47046a2dcdabd51.jpg&quot; width=&quot;978&quot; height=&quot;270&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;KNN算法的优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;1. 思想简单，理论成熟，既可以用来做分类也可以用来做回归；&lt;/p&gt;
-&lt;p&gt;2. 可用于非线性分类；&lt;/p&gt;
-&lt;p&gt;3. 训练时间复杂度为O(n)；&lt;/p&gt;
-&lt;p&gt;4. 准确度高，对数据没有假设，对outlier不敏感；&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;缺点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;1. 计算量大；&lt;/p&gt;
-&lt;p&gt;2. 样本不平衡问题（即有些类别的样本数量很多，而其它样本的数量很少）；&lt;/p&gt;
-&lt;p&gt;3. 需要大量的内存；&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;SVM&lt;/strong&gt;&lt;strong&gt;：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;要学会如何使用libsvm以及一些参数的调节经验，另外需要理清楚svm算法的一些思路：&lt;/p&gt;
-&lt;p&gt;1. svm中的最优分类面是对所有样本的几何裕量最大（为什么要选择最大间隔分类器，请从数学角度上说明？网易深度学习岗位面试过程中有被问到。答案就是几何间隔与样本的误分次数间存在关系：&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0f747083f984f607d9d27dfa08c13d19.jpg&quot; width=&quot;113&quot; height=&quot;43&quot;&gt;，其中的分母就是样本到分类间隔距离，分子中的R是所有样本中的最长向量值），即：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8c8db41026303a2b79c57050f9395f3e.jpg&quot; width=&quot;364&quot; height=&quot;85&quot;&gt;&lt;/p&gt;
-&lt;p&gt;经过一系列推导可得为优化下面原始目标：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3e9d73851204cb5036ebde77a8239384.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;2. 下面来看看拉格朗日理论：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/39fb79050fd8a64b773662cfca03be14.jpg&quot; width=&quot;426&quot; height=&quot;157&quot;&gt;&lt;/p&gt;
-&lt;p&gt;可以将1中的优化目标转换为拉格朗日的形式（通过各种对偶优化，KKD条件），最后目标函数为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c1e40c1e06abc7c66da00e81b3bd7165.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;我们只需要最小化上述目标函数，其中的α为原始优化问题中的不等式约束拉格朗日系数。&lt;/p&gt;
-&lt;p&gt;3. 对2中最后的式子分别w和b求导可得：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/1cc9dd4cac61d47e71d65dab3e7faa8f.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9b22731a6e39eac8bad74bd575e6b543.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;由上面第1式子可以知道，如果我们优化出了α，则直接可以求出w了，即模型的参数搞定。而上面第2个式子可以作为后续优化的一个约束条件。&lt;/p&gt;
-&lt;p&gt;4. 对2中最后一个目标函数用对偶优化理论可以转换为优化下面的目标函数：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/bc6f9efec5200fb36f5524048050d570.jpg&quot; width=&quot;394&quot; height=&quot;136&quot;&gt;&lt;/p&gt;
-&lt;p&gt;而这个函数可以用常用的优化方法求得α，进而求得w和b。&lt;/p&gt;
-&lt;p&gt;5. 按照道理，svm简单理论应该到此结束。不过还是要补充一点，即在预测时有：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/f7acf5a6a5844a5149bce2dc0298a295.jpg&quot; width=&quot;291&quot; height=&quot;121&quot;&gt;&lt;/p&gt;
-&lt;p&gt;那个尖括号我们可以用核函数代替，这也是svm经常和核函数扯在一起的原因。&lt;/p&gt;
-&lt;p&gt;6. 最后是关于松弛变量的引入，因此原始的目标优化公式为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5b769689705749a5db1621498a025cb2.jpg&quot; width=&quot;389&quot; height=&quot;114&quot;&gt;&lt;/p&gt;
-&lt;p&gt;此时对应的对偶优化公式为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/16d9a4b55cc7e6cdb8f3db3712017c5f.jpg&quot; width=&quot;382&quot; height=&quot;132&quot;&gt;&lt;/p&gt;
-&lt;p&gt;与前面的相比只是α多了个上界。&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;SVM算法优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;可用于线性/非线性分类，也可以用于回归；&lt;/p&gt;
-&lt;p&gt;低泛化误差；&lt;/p&gt;
-&lt;p&gt;容易解释；&lt;/p&gt;
-&lt;p&gt;计算复杂度较低；&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;缺点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;对参数和核函数的选择比较敏感；&lt;/p&gt;
-&lt;p&gt;原始的SVM只比较擅长处理二分类问题；&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Boosting&lt;/strong&gt;&lt;strong&gt;：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;主要以Adaboost为例，首先来看看Adaboost的流程图，如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4c1db6a8672bc7b05ca34e98759931ad.jpg&quot; width=&quot;366&quot; height=&quot;281&quot;&gt;&lt;/p&gt;
-&lt;p&gt;从图中可以看到，在训练过程中我们需要训练出多个弱分类器（图中为3个），每个弱分类器是由不同权重的样本（图中为5个训练样本）训练得到（其中第一个弱分类器对应输入样本的权值是一样的），而每个弱分类器对最终分类结果的作用也不同，是通过加权平均输出的，权值见上图中三角形里面的数值。那么这些弱分类器和其对应的权值是怎样训练出来的呢？&lt;/p&gt;
-&lt;p&gt;下面通过一个例子来简单说明。&lt;/p&gt;
-&lt;p&gt;书中（machine learning in action）假设的是5个训练样本，每个训练样本的维度为2，在训练第一个分类器时5个样本的权重各为0.2. 注意这里样本的权值和最终训练的弱分类器组对应的权值α是不同的，样本的权重只在训练过程中用到，而α在训练过程和测试过程都有用到。&lt;/p&gt;
-&lt;p&gt;现在假设弱分类器是带一个节点的简单决策树，该决策树会选择2个属性（假设只有2个属性）的一个，然后计算出这个属性中的最佳值用来分类。&lt;/p&gt;
-&lt;p&gt;Adaboost的简单版本训练过程如下：&lt;/p&gt;
-&lt;p&gt;1. 训练第一个分类器，样本的权值D为相同的均值。通过一个弱分类器，得到这5个样本（请对应书中的例子来看，依旧是machine learning in action）的分类预测标签。与给出的样本真实标签对比，就可能出现误差(即错误)。如果某个样本预测错误，则它对应的错误值为该样本的权重，如果分类正确，则错误值为0. 最后累加5个样本的错误率之和，记为ε。&lt;/p&gt;
-&lt;p&gt;2. 通过ε来计算该弱分类器的权重α，公式如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9b96480798fabb5e957e460b2eccab4e.jpg&quot; width=&quot;165&quot; height=&quot;71&quot;&gt;&lt;/p&gt;
-&lt;p&gt;3. 通过α来计算训练下一个弱分类器样本的权重D，如果对应样本分类正确，则减小该样本的权重，公式为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e8bf668342cf3a21585a9baf15f8cb6c.jpg&quot; width=&quot;178&quot; height=&quot;79&quot;&gt;&lt;/p&gt;
-&lt;p&gt;如果样本分类错误，则增加该样本的权重，公式为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b496bd79b4a357b608628d041ec3172a.jpg&quot; width=&quot;166&quot; height=&quot;67&quot;&gt;&lt;/p&gt;
-&lt;p&gt;4. 循环步骤1,2,3来继续训练多个分类器，只是其D值不同而已。&lt;/p&gt;
-&lt;p&gt;测试过程如下：&lt;/p&gt;
-&lt;p&gt;输入一个样本到训练好的每个弱分类中，则每个弱分类都对应一个输出标签，然后该标签乘以对应的α，最后求和得到值的符号即为预测标签值。&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;Boosting算法的优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;低泛化误差；&lt;/p&gt;
-&lt;p&gt;容易实现，分类准确率较高，没有太多参数可以调；&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;缺点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;对outlier比较敏感；&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;聚类：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;根据聚类思想划分：&lt;/p&gt;
-&lt;p&gt;1. 基于划分的聚类:&lt;/p&gt;
-&lt;p&gt;K-means, k-medoids(每一个类别中找一个样本点来代表),CLARANS.&lt;/p&gt;
-&lt;p&gt;k-means是使下面的表达式值最小：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/07649c2bc46e9feb1e30be7962d5bb30.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;k-means算法的优点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;（1）k-means算法是解决聚类问题的一种经典算法，算法简单、快速。&lt;/p&gt;
-&lt;p&gt;（2）对处理大数据集，该算法是相对可伸缩的和高效率的，因为它的复杂度大约是O(nkt)，其中n是所有对象的数目，k是簇的数目,t是迭代的次数。通常k&amp;lt;&amp;lt;n。这个算法通常局部收敛。&lt;/p&gt;
-&lt;p&gt;（3）算法尝试找出使平方误差函数值最小的k个划分。当簇是密集的、球状或团状的，且簇与簇之间区别明显时，聚类效果较好。&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;缺点：&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;（1）k-平均方法只有在簇的平均值被定义的情况下才能使用，且对有些分类属性的数据不适合。&lt;/p&gt;
-&lt;p&gt;（2）要求用户必须事先给出要生成的簇的数目k。&lt;/p&gt;
-&lt;p&gt;（3）对初值敏感，对于不同的初始值，可能会导致不同的聚类结果。&lt;/p&gt;
-&lt;p&gt;（4）不适合于发现非凸面形状的簇，或者大小差别很大的簇。&lt;/p&gt;
-&lt;p&gt;（5）对于”噪声”和孤立点数据敏感，少量的该类数据能够对平均值产生极大影响。&lt;/p&gt;
-&lt;p&gt;2. 基于层次的聚类：&lt;/p&gt;
-&lt;p&gt;自底向上的凝聚方法，比如AGNES。&lt;/p&gt;
-&lt;p&gt;自上向下的分裂方法，比如DIANA。&lt;/p&gt;
-&lt;p&gt;3. 基于密度的聚类：&lt;/p&gt;
-&lt;p&gt;DBSACN,OPTICS,BIRCH(CF-Tree),CURE.&lt;/p&gt;
-&lt;p&gt;4. 基于网格的方法：&lt;/p&gt;
-&lt;p&gt;STING, WaveCluster.&lt;/p&gt;
-&lt;p&gt;5. 基于模型的聚类：&lt;/p&gt;
-&lt;p&gt;EM,SOM,COBWEB.&lt;/p&gt;
-&lt;p&gt;以上这些算法的简介可参考&lt;a href=&quot;http://baike.baidu.com/view/31801.htm&quot;&gt;聚类（百度百科）。&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;推荐系统：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;推荐系统的实现主要分为两个方面：基于内容的实现和协同滤波的实现。&lt;/p&gt;
-&lt;p&gt;基于内容的实现：&lt;/p&gt;
-&lt;p&gt;不同人对不同电影的评分这个例子，可以看做是一个普通的回归问题，因此每部电影都需要提前提取出一个特征向量(即x值)，然后针对每个用户建模，即每个用户打的分值作为y值，利用这些已有的分值y和电影特征值x就可以训练回归模型了(最常见的就是线性回归)。这样就可以预测那些用户没有评分的电影的分数。（值得注意的是需对每个用户都建立他自己的回归模型）&lt;/p&gt;
-&lt;p&gt;从另一个角度来看，也可以是先给定每个用户对某种电影的喜好程度（即权值），然后学出每部电影的特征，最后采用回归来预测那些没有被评分的电影。&lt;/p&gt;
-&lt;p&gt;当然还可以是同时优化得到每个用户对不同类型电影的热爱程度以及每部电影的特征。具体可以参考Ng在coursera上的ml教程：&lt;a href=&quot;https://www.coursera.org/course/ml&quot;&gt;https://www.coursera.org/course/ml&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;基于协同滤波的实现：&lt;/p&gt;
-&lt;p&gt;协同滤波（CF）可以看做是一个分类问题，也可以看做是矩阵分解问题。协同滤波主要是基于每个人自己的喜好都类似这一特征，它不依赖于个人的基本信息。比如刚刚那个电影评分的例子中，预测那些没有被评分的电影的分数只依赖于已经打分的那些分数，并不需要去学习那些电影的特征。&lt;/p&gt;
-&lt;p&gt;SVD将矩阵分解为三个矩阵的乘积，公式如下所示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/70b15f485732721065229e4fbd513afc.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;中间的矩阵sigma为对角矩阵，对角元素的值为Data矩阵的奇异值(注意奇异值和特征值是不同的)，且已经从大到小排列好了。即使去掉特征值小的那些特征，依然可以很好的重构出原始矩阵。如下图所示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/98d03f9faad8dde7e137ec02b4c5979b.jpg&quot; width=&quot;431&quot; height=&quot;173&quot;&gt;&lt;/p&gt;
-&lt;p&gt;其中更深的颜色代表去掉小特征值重构时的三个矩阵。&lt;/p&gt;
-&lt;p&gt;果m代表商品的个数，n代表用户的个数，则U矩阵的每一行代表商品的属性，现在通过降维U矩阵（取深色部分）后，每一个商品的属性可以用更低的维度表示（假设为k维）。这样当新来一个用户的商品推荐向量X，则可以根据公式X’*U1*inv(S1)得到一个k维的向量，然后在V’中寻找最相似的那一个用户（相似度测量可用余弦公式等），根据这个用户的评分来推荐（主要是推荐新用户未打分的那些商品）。具体例子可以参考网页：&lt;a href=&quot;http://blog.csdn.net/wuyanyi/article/details/7964883&quot;&gt;SVD在推荐系统中的应用&lt;/a&gt;。&lt;/p&gt;
-&lt;p&gt;另外关于SVD分解后每个矩阵的实际含义可以参考google吴军的《数学之美》一书（不过个人感觉吴军解释UV两个矩阵时好像弄反了，不知道大家怎样认为）。或者参考machine learning in action其中的svd章节。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;pLSA:&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;pLSA由LSA发展过来，而早期LSA的实现主要是通过SVD分解。pLSA的模型图如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5e66a98d735208a96823ac94a18b2049.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;公式中的意义如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/f01167e3a30550ef633892b3a625c039.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;具体可以参考&lt;a href=&quot;http://bcmi.sjtu.edu.cn/ds/download.html&quot;&gt;2010龙星计划：机器学习中对应的主题模型那一讲&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;LDA&lt;/strong&gt;&lt;strong&gt;：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;主题模型，概率图如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3b068ec4f6d0abbb1b29c4ac03c7201e.jpg&quot; width=&quot;257&quot; height=&quot;208&quot;&gt;&lt;/p&gt;
-&lt;p&gt;和pLSA不同的是LDA中假设了很多先验分布，且一般参数的先验分布都假设为Dirichlet分布，其原因是共轭分布时先验概率和后验概率的形式相同。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;GDBT&lt;/strong&gt;&lt;strong&gt;：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;GBDT(Gradient Boosting Decision Tree) 又叫 MART（Multiple Additive Regression Tree)，好像在阿里内部用得比较多（所以阿里算法岗位面试时可能会问到），它是一种迭代的决策树算法，该算法由多棵决策树组成，所有树的输出结果累加起来就是最终答案。它在被提出之初就和SVM一起被认为是泛化能力（generalization)较强的算法。近些年更因为被用于搜索排序的机器学习模型而引起大家关注。&lt;/p&gt;
-&lt;p&gt;GBDT是回归树，不是分类树。其核心就在于，每一棵树是从之前所有树的残差中来学习的。为了防止过拟合，和Adaboosting一样，也加入了boosting这一项。&lt;/p&gt;
-&lt;p&gt;关于GDBT的介绍可以可以参考：&lt;a href=&quot;http://hi.baidu.com/hehehehello/item/96cc42e45c16e7265a2d64ee&quot;&gt;GBDT（MART） 迭代决策树入门教程 | 简介&lt;/a&gt;。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Regularization:&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;作用是（网易电话面试时有问到）：&lt;/p&gt;
-&lt;p&gt;1. 数值上更容易求解；&lt;/p&gt;
-&lt;p&gt;2. 特征数目太大时更稳定；&lt;/p&gt;
-&lt;p&gt;3. 控制模型的复杂度，光滑性。复杂性越小且越光滑的目标函数泛化能力越强。而加入规则项能使目标函数复杂度减小，且更光滑。&lt;/p&gt;
-&lt;p&gt;4. 减小参数空间；参数空间越小，复杂度越低。&lt;/p&gt;
-&lt;p&gt;5. 系数越小，模型越简单，而模型越简单则泛化能力越强（Ng宏观上给出的解释）。&lt;/p&gt;
-&lt;p&gt;6. 可以看出是权值的高斯先验。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;异常检测：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;可以估计样本的密度函数，对于新样本直接计算其密度，如果密度值小于某一阈值，则表示该样本异常。而密度函数一般采用多维的高斯分布。如果样本有n维，则每一维的特征都可以看作是符合高斯分布的，即使这些特征可视化出来不太符合高斯分布，也可以对该特征进行数学转换让其看起来像高斯分布，比如说x=log(x+c), x=x^(1/c)等。异常检测的算法流程如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8b8d0032d9f883a5caa2b93c4993c9f1.jpg&quot; width=&quot;482&quot; height=&quot;290&quot;&gt;&lt;/p&gt;
-&lt;p&gt;其中的ε也是通过交叉验证得到的，也就是说在进行异常检测时，前面的p(x)的学习是用的无监督，后面的参数ε学习是用的有监督。那么为什么不全部使用普通有监督的方法来学习呢（即把它看做是一个普通的二分类问题）？主要是因为在异常检测中，异常的样本数量非常少而正常样本数量非常多，因此不足以学习到好的异常行为模型的参数，因为后面新来的异常样本可能完全是与训练样本中的模式不同。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;另外，上面是将特征的每一维看成是相互独立的高斯分布，其实这样的近似并不是最好的，但是它的计算量较小，因此也常被使用。更好的方法应该是将特征拟合成多维高斯分布，这时有特征之间的相关性，但随之计算量会变复杂，且样本的协方差矩阵还可能出现不可逆的情况（主要在样本数比特征数小，或者样本特征维数之间有线性关系时）。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;上面的内容可以参考Ng的&lt;a href=&quot;https://www.coursera.org/course/ml&quot;&gt;https://www.coursera.org/course/ml&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;EM&lt;/strong&gt;&lt;strong&gt;算法：&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;有时候因为样本的产生和隐含变量有关（隐含变量是不能观察的），而求模型的参数时一般采用最大似然估计，由于含有了隐含变量，所以对似然函数参数求导是求不出来的，这时可以采用EM算法来求模型的参数的（对应模型参数个数可能有多个），EM算法一般分为2步：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;E步：选取一组参数，求出在该参数下隐含变量的条件概率值；&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;M步：结合E步求出的隐含变量条件概率，求出似然函数下界函数（本质上是某个期望函数）的最大值。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;重复上面2步直至收敛。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;公式如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cf4fd695f67722fb350963498da9b2de.jpg&quot; width=&quot;400&quot; height=&quot;150&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;M步公式中下界函数的推导过程：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/28ea30f56c7f1d9fbb6baa305cb8d99f.jpg&quot; width=&quot;434&quot; height=&quot;145&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;EM算法一个常见的例子就是GMM模型，每个样本都有可能由k个高斯产生，只不过由每个高斯产生的概率不同而已，因此每个样本都有对应的高斯分布（k个中的某一个），此时的隐含变量就是每个样本对应的某个高斯分布。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;GMM的E步公式如下（计算每个样本对应每个高斯的概率）：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/213bce677dafac18f097a52b25caac73.jpg&quot; width=&quot;381&quot; height=&quot;71&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;更具体的计算公式为：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/73377ff094f50d0b5e7ca768fa68849d.jpg&quot; width=&quot;509&quot; height=&quot;56&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;M步公式如下（计算每个高斯的比重，均值，方差这3个参数）：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0f680b38ad728be00844b8957f106e3a.jpg&quot; width=&quot;363&quot; height=&quot;192&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;关于EM算法可以参考&lt;a href=&quot;http://cs229.stanford.edu/&quot;&gt;Ng的cs229课程资料&lt;/a&gt;或者网易公开课：&lt;a href=&quot;http://v.163.com/special/opencourse/machinelearning.html&quot;&gt;斯坦福大学公开课 ：机器学习课程&lt;/a&gt;。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Apriori:&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;Apriori是关联分析中比较早的一种方法，主要用来挖掘那些频繁项集合。其思想是：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;1. 如果一个项目集合不是频繁集合，那么任何包含它的项目集合也一定不是频繁集合；&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;2. 如果一个项目集合是频繁集合，那么它的任何非空子集也是频繁集合；&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;Aprioir需要扫描项目表多遍，从一个项目开始扫描，舍去掉那些不是频繁的项目，得到的集合称为L，然后对L中的每个元素进行自组合，生成比上次扫描多一个项目的集合，该集合称为C，接着又扫描去掉那些非频繁的项目，重复…&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;看下面这个例子：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;元素项目表格：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/7d14e78300024a017d3c4b0f8c888568.jpg&quot; width=&quot;448&quot; height=&quot;90&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;如果每个步骤不去掉非频繁项目集，则其扫描过程的树形结构如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/967c4b6d4992d5a3734b8bc523e50340.jpg&quot; width=&quot;252&quot; height=&quot;227&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;在其中某个过程中，可能出现非频繁的项目集，将其去掉（用阴影表示）为：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/ef1d35aacb6051a6d976398982a508d6.jpg&quot; width=&quot;261&quot; height=&quot;248&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;上面的内容主要参考的是machine learning in action这本书。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;FP Growth:&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;FP Growth是一种比Apriori更高效的频繁项挖掘方法，它只需要扫描项目表2次。其中第1次扫描获得当个项目的频率，去掉不符合支持度要求的项，并对剩下的项排序。第2遍扫描是建立一颗FP-Tree(frequent-patten tree)。&lt;/p&gt;
-&lt;p&gt;接下来的工作就是在FP-Tree上进行挖掘。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;比如说有下表：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d6380ab9e623777db1f74efd2fa86ca8.jpg&quot; width=&quot;339&quot; height=&quot;151&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;它所对应的FP_Tree如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8fb9c89aa17e70bdc67c07d907718c9e.jpg&quot; width=&quot;405&quot; height=&quot;214&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;然后从频率最小的单项P开始，找出P的条件模式基，用构造FP_Tree同样的方法来构造P的条件模式基的FP_Tree，在这棵树上找出包含P的频繁项集。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;依次从m,b,a,c,f的条件模式基上挖掘频繁项集，有些项需要递归的去挖掘，比较麻烦，比如m节点，具体的过程可以参考博客：&lt;a href=&quot;http://blog.sina.com.cn/s/blog_68ffc7a40100uebg.html&quot;&gt;Frequent Pattern 挖掘之二(FP Growth算法)&lt;/a&gt;，里面讲得很详细。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;
-&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;参考资料：&lt;/strong&gt;&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;Harrington, P. (2012). Machine Learning in Action, Manning Publications Co.&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://zh.wikipedia.org/wiki/%E6%9C%80%E8%BF%91%E9%84%B0%E5%B1%85%E6%B3%95&quot;&gt;最近邻算法（维基百科）&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://zh.wikipedia.org/wiki/%E9%A9%AC%E6%B0%8F%E8%B7%9D%E7%A6%BB&quot;&gt;马氏距离（维基百科）&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://baike.baidu.com/view/31801.htm&quot;&gt;聚类（百度百科）&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://www.coursera.org/course/ml&quot;&gt;https://www.coursera.org/course/ml&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://blog.csdn.net/wuyanyi/article/details/7964883&quot;&gt;SVD在推荐系统中的应用&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;吴军 and 谷歌 (2012).数学之美, 人民邮电出版社.&lt;/li&gt;
-&lt;li&gt;
-&lt;a href=&quot;http://bcmi.sjtu.edu.cn/ds/download.html&quot;&gt;2010龙星计划：机器学习&lt;/a&gt;对应的视频教程：&lt;a href=&quot;http://pan.baidu.com/share/link?shareid=3053312914&amp;amp;uk=2620399451&quot;&gt; 2010龙星计划机器学习视频教程&lt;/a&gt;
-&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://hi.baidu.com/hehehehello/item/96cc42e45c16e7265a2d64ee&quot;&gt;GBDT（MART） 迭代决策树入门教程 | 简介&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://cs229.stanford.edu/&quot;&gt;Ng的cs229课程资料&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://v.163.com/special/opencourse/machinelearning.html&quot;&gt;斯坦福大学公开课 ：机器学习课程&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://blog.sina.com.cn/s/blog_68ffc7a40100uebg.html&quot;&gt;Frequent Pattern 挖掘之二(FP Growth算法)&lt;/a&gt;&lt;/li&gt;
-&lt;/ol&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 24 Sep 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-09-24-74438-8e0151f4b.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-09-24-74438-8e0151f4b.html</guid>
-        
-        
-        <category>jobbole</category>
         
       </item>
     

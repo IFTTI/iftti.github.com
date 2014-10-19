@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>把Dropbox改造为Git私有仓库</title>
+    <title>PerlAPI 里的 Magic 简介</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2012/2012-11-24-git-with-dropbox.html-227d03fd2.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-10-11-perlapi-magic-intro-49d097729.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,97 +50,58 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>把Dropbox改造为Git私有仓库</h1>
-    <p class="meta"><span class="time">Nov 24, 2012</span><span class="source_url"> • 来自 weizhifeng.net <a name="weizhifeng.net" href="http://weizhifeng.net/git-with-dropbox.html" target="_blank">[原文链接]</a></span></p>
+    <h1>PerlAPI 里的 Magic 简介</h1>
+    <p class="meta"><span class="time">Oct 11, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/10/11/perlapi-magic-intro" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-	<p><img src="/images/weizhifeng.net/6918da8ea368cc748bf9097ee81a401d.jpg" title="Git" alt="Git"> <img src="/images/weizhifeng.net/ffb5ddf7fc8a279a658872ce790c14f3.jpg" title="Dropbox" alt="Dropbox">　</p>
+  <div style="background-color: #FFF;">
+    <p>前几天看到 cindylinz 发了一个新 CPAN 模块叫 <a href="https://metacpan.org/pod/Scalar::Watcher">Scalar::Watcher</a>，有朋友问我这个是怎么实现的，在无限循环啊，多线程啊，IO 阻塞啊等情况下，还能被触发么？</p>
+<p>于是我去仔细看了一下这个模块的代码。最关键的就是下面这几行：</p>
+<div class="highlight"><pre><code class="language-c" data-lang="c"><span class="n">SvUPGRADE</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">SVt_PVMG</span><span class="p">);</span>
+        <span class="n">sv_magicext</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">handler_cv</span><span class="p">,</span> <span class="n">PERL_MAGIC_ext</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">modified_vtbl</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span></code></pre>
+</div>
+<p>这里其实用的是 perlapi 里的 Magic：</p>
+<ul>
+  <li>
+    <p>第一行，设置监听变量为 <code>SVt_PVMG</code>，即带有 Magic 的标量；</p>
+    <p><code>SvUPGRADE</code> 函数见 perlguts 文档的 “<a href="http://perldoc.perl.org/perlguts.html#Assigning-Magic">Assigning Magic</a>” 部分。</p>
+  </li>
+  <li>
+    <p>第二行，设置该变量的 Magic 扩展，即往标量的 Magic 链表上加内容。</p>
+    <p><code>sv_magicext</code> 函数说明见 perlapi 文档的 “<a href="http://perldoc.perl.org/perlapi.html#SV-Body-Allocation">SV-Body Allocation</a>” 部分。</p>
+  </li>
+</ul>
+<p>Magic 主要有两个作用，一个叫 Hook Method，一个叫 Managed Data。我们都很熟悉的 Moose 框架就是利用的 Magic 的 Managed Data 实现的。而这里，用到的是 Hook Method。</p>
+<p>Scalar::Watcher 模块文档较少，虽然好用但是不好懂。我在 CPAN 上发现另一个模块，<a href="https://metacpan.org/pod/Variable::Magic">Variable::Magic</a> 。文档写的很详细。其中的 <code>set</code> 方法就是跟 Scalar::Watcher 类似的作用，大家可以读一读这个模块的文档。</p>
+<p>所以可以回答朋友的问题了，在循环之类的地方每次都可以触发没问题。但是如果你在回调函数里面做阻塞操作，那肯定也是堵塞的。</p>
+    <hr>
 
-<h2>前言</h2>
+    <hr>
+  <!-- UY BEGIN -->
 
-<p><a href="http://git-scm.com/" title="Git">Git</a>作为强大的分布式版本控制工具，越来越受欢迎。大量的开源项目可以在<a href="https://github.com" title="Github">Github</a>上发布，不过项目是公共可见的，即人人可以fork。
-对于一些用户，他们也有自己的项目，但是还不太想立刻就把项目开源出来，有可能是因为还没有完成，所以他们需要通过Git临时性地管理他们的「私有项目」，Github上虽然有私有项目托管服务，不过性价比不高。</p>
-
-<p><a href="https://www.dropbox.com/" title="Dropbox">Dropbox</a>（墙）是最流行的云存储服务，通过Dropbox我们可以实现对Git私有项目的托管。</p>
-
-<h2>思路</h2>
-
-<p>我们的思路是在Dropbox客户端的目录中建立Git仓库，然后我们clone此仓库到本地仓库，然后我们进行提交操作，完成提交之后，我们执行push操作，
-那么本地的数据会被push到Dropbox客户端目录的仓库中，之后Dropbox客户端会把仓库文件的更改同步到Dropbox服务器。</p>
-
-<pre><code>+------------+            +-----------+              +---------+
-|  Dropbox   |  --Sync-&gt;  |  Dropbox  |   --Clone-&gt;  | Working |
-|   Server   |  &lt;-Sync--  |   Client  |   &lt;-Push---  |  Space  |
-+------------+            +-----------+              +---------+
-</code></pre>
-
-<h2>实现</h2>
-
-<p>我们现在Dropbox的目录中创建一个裸git仓库</p>
-
-<pre><code>$ cd ~/Dropbox
-$ git init --bare project.git
-</code></pre>
-
-<p>完成之后，我们clone这个仓库</p>
-
-<pre><code>$ cd ~
-$ git clone ~/Dropbox/project.git project
-$ cd project
-</code></pre>
-
-<p>提交并且push</p>
-
-<pre><code>$ touch README
-$ git add .
-$ git commit -m "init commit"
-$ git push origin master
-</code></pre>
-
-<p>完成之后，Dropbox会把你push的内容同步到服务器，你通过<a href="https://www.dropbox.com/">https://www.dropbox.com/</a>可以查看到仓库的内容。</p>
-
-<h2>参考</h2>
-
-<p><a href="http://stackoverflow.com/questions/1960799/using-gitdropbox-together-effectively">http://stackoverflow.com/questions/1960799/using-gitdropbox-together-effectively</a></p>
-
-	(完)
-
-	<div class="post-info">
-		24 Nov 2012  
-
-	</div>
-
-	<!-- disqus start -->
-
-	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
-</noscript>
-
-	<!-- disqus end -->
-
-	<!-- related start -->
-
-	<!-- related end -->
+<!-- UY END -->
+  </div>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2012/2012-09-23-ruby-on-rails.html-6d77c5f50.html" title="Previous Post: Ruby On Rails环境搭建" data-instant>&laquo; Ruby On Rails环境搭建</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-10-11--p=1633-a5a872824.html" title="Previous Post: SACC-2014-小米-部署系统的前世今生" data-instant>&laquo; SACC-2014-小米-部署系统的前世今生</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-02-03-javascript-prototype.html-70122cc79.html" title="Next Post: JavaScript Prototype" data-instant>JavaScript Prototype &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-10-15-78255-9fab71e7d.html" title="Next Post: 超酷算法：基数估计" data-instant>超酷算法：基数估计 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>25 Aug 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-08-25-blog-with-jekyll-on-github.html-d7bd23d67.html">利用Jekyll在Github上写博客</a></li>
+      <li><span>29 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html">山寨一个 Splunk 的 source 上下文查看功能</a></li>
 
-      <li><span>16 Jun 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-06-16-build-git-server-with-gitosis.html-32806c325.html">使用Gitosis搭建Git服务器</a></li>
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
 
-      <li><span>05 Apr 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-04-05-manage-php-dependency-with-composer.html-d25cc705d.html">PHP依赖管理工具Composer入门</a></li>
+      <li><span>20 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-20-my-first-experience-of-perlxs-f76729254.html">XS 初体验</a></li>
 
   </ul>
 </div>

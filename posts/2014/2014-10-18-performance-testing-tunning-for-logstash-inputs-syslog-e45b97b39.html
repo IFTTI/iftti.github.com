@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>把Dropbox改造为Git私有仓库</title>
+    <title>LogStash::Inputs::Syslog 性能测试与优化</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2012/2012-11-24-git-with-dropbox.html-227d03fd2.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-10-18-performance-testing-tunning-for-logstash-inputs-syslog-e45b97b39.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,97 +50,142 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>把Dropbox改造为Git私有仓库</h1>
-    <p class="meta"><span class="time">Nov 24, 2012</span><span class="source_url"> • 来自 weizhifeng.net <a name="weizhifeng.net" href="http://weizhifeng.net/git-with-dropbox.html" target="_blank">[原文链接]</a></span></p>
+    <h1>LogStash::Inputs::Syslog 性能测试与优化</h1>
+    <p class="meta"><span class="time">Oct 18, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/10/18/performance-testing-tunning-for-logstash-inputs-syslog" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-	<p><img src="/images/weizhifeng.net/6918da8ea368cc748bf9097ee81a401d.jpg" title="Git" alt="Git"> <img src="/images/weizhifeng.net/ffb5ddf7fc8a279a658872ce790c14f3.jpg" title="Dropbox" alt="Dropbox">　</p>
-
-<h2>前言</h2>
-
-<p><a href="http://git-scm.com/" title="Git">Git</a>作为强大的分布式版本控制工具，越来越受欢迎。大量的开源项目可以在<a href="https://github.com" title="Github">Github</a>上发布，不过项目是公共可见的，即人人可以fork。
-对于一些用户，他们也有自己的项目，但是还不太想立刻就把项目开源出来，有可能是因为还没有完成，所以他们需要通过Git临时性地管理他们的「私有项目」，Github上虽然有私有项目托管服务，不过性价比不高。</p>
-
-<p><a href="https://www.dropbox.com/" title="Dropbox">Dropbox</a>（墙）是最流行的云存储服务，通过Dropbox我们可以实现对Git私有项目的托管。</p>
-
-<h2>思路</h2>
-
-<p>我们的思路是在Dropbox客户端的目录中建立Git仓库，然后我们clone此仓库到本地仓库，然后我们进行提交操作，完成提交之后，我们执行push操作，
-那么本地的数据会被push到Dropbox客户端目录的仓库中，之后Dropbox客户端会把仓库文件的更改同步到Dropbox服务器。</p>
-
-<pre><code>+------------+            +-----------+              +---------+
-|  Dropbox   |  --Sync-&gt;  |  Dropbox  |   --Clone-&gt;  | Working |
-|   Server   |  &lt;-Sync--  |   Client  |   &lt;-Push---  |  Space  |
-+------------+            +-----------+              +---------+
+  <div style="background-color: #FFF;">
+    <p>最近因为项目需要，必须想办法提高 logstash indexer 接收 rsyslog 转发数据的性能。首先，就是要了解 logstash 到底能收多快？</p>
+<p>之前用 libev 库写过类似功能的程序，所以一开始也是打算找个能在 JRuby 上运行的 netty 封装。找到了 <a href="https://github.com/m0wfo/foxbat">foxbat</a> 库，不过最后发现效果跟官方的标准 socket 实现差不多。（这部分另篇讲述）</p>
+<p>后来又发现另一个库：<a href="https://github.com/jordansissel/experiments/tree/master/ruby/jruby-netty/syslog-server">jruby-netty</a>，注意到这个作者就是 logstash 作者 jordansissel！</p>
+<p>当然，最终并不是用上这个项目的代码来改写 logstash，而是从这里面学到了如何方便的进行 syslog server 性能压测。测试方式：</p>
+<pre><code>yes "&lt;44&gt;May 19 18:30:17 snack jls: foo bar 32" | nc localhost 3000
 </code></pre>
 
-<h2>实现</h2>
-
-<p>我们现在Dropbox的目录中创建一个裸git仓库</p>
-
-<pre><code>$ cd ~/Dropbox
-$ git init --bare project.git
+<p>或者</p>
+<pre><code>loggen -r 500000 -iS -s 120 -I 50  localhost 3000
 </code></pre>
 
-<p>完成之后，我们clone这个仓库</p>
-
-<pre><code>$ cd ~
-$ git clone ~/Dropbox/project.git project
-$ cd project
+<p>loggen 是 syslog-ng 带的工具，还得另外安装。而上面第一行的方式，这个 <code>yes</code> 用的真是绝妙！</p>
+<p>就用这个测试方法，最终发现单机上 LogStash::Inputs::Syslog 的每秒处理能力只有 700 条：</p>
+<pre><code>input {
+    syslog {
+        port =&gt; 3000
+    }
+}
+output {
+    stdout {
+        codec =&gt; dots
+    }
+}
 </code></pre>
 
-<p>提交并且push</p>
-
-<pre><code>$ touch README
-$ git add .
-$ git commit -m "init commit"
-$ git push origin master
+<p>logstash 配置文件见上。然后测试启动命令如下：</p>
+<pre><code>./bin/logstash -f syslog.conf | pv -abt &gt; /dev/null
 </code></pre>
 
-<p>完成之后，Dropbox会把你push的内容同步到服务器，你通过<a href="https://www.dropbox.com/">https://www.dropbox.com/</a>可以查看到仓库的内容。</p>
+<p><em>注意，centos 上的 pv 命令可能还没有 <code>-a</code> 参数。</em></p>
+<p>为了逐一排除性能瓶颈。我依次注释掉了 <code>lib/logstash/inputs/syslog.rb</code> 中 <code>@date_filters.filter(event)</code> 和 <code>@grok_filters.filter(event)</code> 两段，并重新运行上次的测试。结果发现：</p>
+<ul>
+  <li>TCPServer 接收的性能是每秒 50k 条</li>
+  <li>TCPServer 接收并完成 grok filter 的性能是每秒 5k 条</li>
+  <li>TCPServer 接收并完成 grok 和 date filter 的性能是每秒 700 条</li>
+</ul>
+<p>性能成几何级的下降！</p>
+<p>而另外通过 <code>input { generator { count =&gt; 3000000 } }</code> 测试可以发现，logstash 本身空数据流转的性能也不过就是每秒钟几万条。所以，优化点就在后面的 filter 上。</p>
+<p>LogStash::Inputs::Syslog 中，TCPServer 对每个 client 单独开一个 Thread，但是这个 Thread 内要顺序完成 <code>@codec.decode</code>，<code>@grok_filter.filter</code> 和 <code>@date_filter.filter</code> 三大步骤后，才算完成。而我们都知道：Logstash 配置中 filter 阶段的插件是可以多线程完成的。所以，解决办法就来了：</p>
+<pre><code>input {
+    tcp {
+        port =&gt; 3000
+    }
+}
+filter {
+    grok {
+        overwrite =&gt; "message"
+        match =&gt; ["message", "&lt;\d+&gt;%{SYSLOGLINE}"]
+    }
+    date {
+        locale =&gt; "en"
+        match =&gt; ["timestamp", "MMM dd HH:mm:ss", "MMM  d HH:mm:ss"]
+    }
+}
+output {
+    stdout {
+        codec =&gt; dots
+    }
+}
+</code></pre>
 
-<h2>参考</h2>
+<p>然后重新测试，发现性能提高到了每秒 4.5k。再用下面命令运行测试：</p>
+<pre><code>  ./bin/logstash -f syslog.conf -w 20 | pv -bt &gt; /dev/null
+</code></pre>
 
-<p><a href="http://stackoverflow.com/questions/1960799/using-gitdropbox-together-effectively">http://stackoverflow.com/questions/1960799/using-gitdropbox-together-effectively</a></p>
+<p>发现性能提高到了每秒 30 k 条！</p>
+<p>此外，还陆续完成了另外一些测试。</p>
+<p>比如：</p>
+<ul>
+  <li>outputs/elasticsearch 的 protocol 使用 node 还是 http 的问题。测试在单台环境下，node 只有 5k 的 indexing 速度，而 http 有7k。</li>
+  <li>在 inputs/file 的前提下，outputs/stdout{dots} 比 outputs/elasticsearch{http} 处理速度快一倍，即有 15k。</li>
+  <li>下载了 heka 的二进制包，通过下面配置测试其接受 syslog 输入，并以 logstash 的 schema 输出到文件的性能。结果是每秒 30k，跟之前优化后的 logstash 基本一致。</li>
+</ul>
+<div class="highlight"><pre><code class="language-ini" data-lang="ini"><span class="k">[hekad]</span>
+<span class="na">maxprocs</span> <span class="o">=</span> <span class="s">48</span>
+<span class="k">[TcpInput]</span>
+<span class="na">address</span> <span class="o">=</span> <span class="s">":5140"</span>
+<span class="na">parser_type</span> <span class="o">=</span> <span class="s">"token"</span>
+<span class="na">decoder</span> <span class="o">=</span> <span class="s">"RsyslogDecoder"</span>
+<span class="k">[RsyslogDecoder]</span>
+<span class="na">type</span> <span class="o">=</span> <span class="s">"SandboxDecoder"</span>
+<span class="na">filename</span> <span class="o">=</span> <span class="s">"lua_decoders/rsyslog.lua"</span>
+<span class="k">[RsyslogDecoder.config]</span>
+<span class="na">type</span> <span class="o">=</span> <span class="s">"mweibo"</span>
+<span class="na">template</span> <span class="o">=</span> <span class="s">'&lt;%pri%&gt;%TIMESTAMP% %HOSTNAME% %syslogtag%%msg:::sp-if-no-1st-sp%%msg:::drop-last-lf%\n'</span>
+<span class="na">tz</span> <span class="o">=</span> <span class="s">"Asia/Shanghai"</span>
+<span class="k">[ESLogstashV0Encoder]</span>
+<span class="na">es_index_from_timestamp</span> <span class="o">=</span> <span class="s">true</span>
+<span class="na">fields</span> <span class="o">=</span> <span class="s">["Timestamp", "Payload", "Hostname", "Fields"]</span>
+<span class="na">type_name</span> <span class="o">=</span> <span class="s">"%{Type}"</span>
+<span class="c1"># [ElasticSearchOutput]</span>
+<span class="c1"># message_matcher = "Type == 'nginx.access'"</span>
+<span class="c1"># server = "http://10.13.57.35:9200"</span>
+<span class="c1"># encoder = "ESLogstashV0Encoder"</span>
+<span class="c1"># flush_interval = 50</span>
+<span class="c1"># flush_count = 5000</span>
+<span class="k">[counter_output]</span>
+<span class="na">type</span> <span class="o">=</span> <span class="s">"FileOutput"</span>
+<span class="na">path</span> <span class="o">=</span> <span class="s">"/tmp/debug.log"</span>
+<span class="na">message_matcher</span> <span class="o">=</span> <span class="s">"TRUE"</span>
+<span class="na">encoder</span> <span class="o">=</span> <span class="s">"ESLogstashV0Encoder"</span></code></pre>
+</div>
+<p>heka 文档称 maxprocs 设置为 cpu 数的两倍。不过实际测试中，不配置跟配置总共也就差一倍的性能。</p>
+    <hr>
 
-	(完)
+    <hr>
+  <!-- UY BEGIN -->
 
-	<div class="post-info">
-		24 Nov 2012  
-
-	</div>
-
-	<!-- disqus start -->
-
-	<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a>
-</noscript>
-
-	<!-- disqus end -->
-
-	<!-- related start -->
-
-	<!-- related end -->
+<!-- UY END -->
+  </div>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2012/2012-09-23-ruby-on-rails.html-6d77c5f50.html" title="Previous Post: Ruby On Rails环境搭建" data-instant>&laquo; Ruby On Rails环境搭建</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-10-18-grokdebug-commandline-ca3f2961b.html" title="Previous Post: 在终端命令行上调试 grok 表达式" data-instant>&laquo; 在终端命令行上调试 grok 表达式</a>
 
-    <a class="basic-alignment right" href="/posts/2013/2013-02-03-javascript-prototype.html-70122cc79.html" title="Next Post: JavaScript Prototype" data-instant>JavaScript Prototype &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-10-18-rsyslog-impstats-elasticsearch-92d448be2.html" title="Next Post: Rsyslog 性能数据 impstats 直接写入 Elasticsearch" data-instant>Rsyslog 性能数据 impstats 直接写入 Elasticsearch &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>25 Aug 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-08-25-blog-with-jekyll-on-github.html-d7bd23d67.html">利用Jekyll在Github上写博客</a></li>
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
 
-      <li><span>16 Jun 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-06-16-build-git-server-with-gitosis.html-32806c325.html">使用Gitosis搭建Git服务器</a></li>
+      <li><span>29 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html">山寨一个 Splunk 的 source 上下文查看功能</a></li>
 
-      <li><span>05 Apr 2013</span> &raquo; <a href="http://iftti.com/posts/2013/2013-04-05-manage-php-dependency-with-composer.html-d25cc705d.html">PHP依赖管理工具Composer入门</a></li>
+      <li><span>17 Oct 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-10-17-netty-to-eventmachine-on-jruby-f8df2834b.html">在 JRuby 上用 netty 模拟 eventmachine</a></li>
 
   </ul>
 </div>
