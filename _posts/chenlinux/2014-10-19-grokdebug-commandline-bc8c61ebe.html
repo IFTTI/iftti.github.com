@@ -1,0 +1,83 @@
+---
+layout: post
+title: '在终端命令行上调试 grok 表达式'
+time: 2014-10-19 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/10/19/grokdebug-commandline
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>用 logstash 的人都知道在 <a href="http://grokdebug.herokuapp.com">http://grokdebug.herokuapp.com</a> 上面调试 grok 正则表达式。现在问题来了：<del>翻墙技术哪家强?</del> 页面中用到了来自 google 域名的 js 文件，所以访问经常性失败。所以，在终端上通过命令行方式快速调试成了必需品。</p>
+<p>其实在 logstash 还在 1.1 的年代的时候，官方 wiki 上是有一批专门教大家怎么通过 irb 交互式测试 grok 表达式的。但不知道为什么后来 wiki 这页没了…… 好在代码本身不复杂，稍微写几行脚本，就可以达到目的了：</p>
+<div class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#!/usr/bin/env ruby</span>
+<span class="nb">require</span> <span class="s1">'rubygems'</span>
+<span class="n">gem</span> <span class="s1">'jls-grok'</span><span class="p">,</span> <span class="s1">'=0.11.0'</span>
+<span class="nb">require</span> <span class="s1">'grok-pure'</span>
+<span class="nb">require</span> <span class="s1">'optparse'</span>
+<span class="nb">require</span> <span class="s1">'ap'</span>
+<span class="n">options</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="no">ARGV</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s1">'-h'</span><span class="p">)</span> <span class="k">if</span> <span class="no">ARGV</span><span class="o">.</span><span class="n">size</span> <span class="o">===</span> <span class="mi">0</span>
+<span class="no">OptionParser</span><span class="o">.</span><span class="n">new</span> <span class="k">do</span> <span class="o">|</span><span class="n">opts</span><span class="o">|</span>
+  <span class="n">opts</span><span class="o">.</span><span class="n">banner</span> <span class="o">=</span> <span class="s1">'Run grokdebug at your terminal.'</span>
+  <span class="n">options</span><span class="o">[</span><span class="ss">:dirs</span><span class="o">]</span> <span class="o">=</span> <span class="sx">%w(patterns)</span>
+  <span class="n">options</span><span class="o">[</span><span class="ss">:named</span><span class="o">]</span> <span class="o">=</span> <span class="kp">false</span>
+  <span class="n">opts</span><span class="o">.</span><span class="n">on</span><span class="p">(</span><span class="s1">'-d DIR1,DIR2'</span><span class="p">,</span> <span class="s1">'--dirs DIR1,DIR2'</span><span class="p">,</span> <span class="nb">Array</span><span class="p">,</span> <span class="s1">'Set grok patterns directories. Default: "./patterns"'</span><span class="p">)</span> <span class="k">do</span> <span class="o">|</span><span class="n">value</span><span class="o">|</span>
+    <span class="n">options</span><span class="o">[</span><span class="ss">:dirs</span><span class="o">]</span> <span class="o">=</span> <span class="n">value</span>
+  <span class="k">end</span>
+  <span class="n">opts</span><span class="o">.</span><span class="n">on</span><span class="p">(</span><span class="s1">'-m MESSAGE'</span><span class="p">,</span> <span class="s1">'--msg MESSAGE'</span><span class="p">,</span> <span class="s1">'Your raw message to be matched'</span><span class="p">)</span> <span class="k">do</span> <span class="o">|</span><span class="n">value</span><span class="o">|</span>
+    <span class="n">options</span><span class="o">[</span><span class="ss">:message</span><span class="o">]</span> <span class="o">=</span> <span class="n">value</span>
+  <span class="k">end</span>
+  <span class="n">opts</span><span class="o">.</span><span class="n">on</span><span class="p">(</span><span class="s1">'-p PATTERN'</span><span class="p">,</span> <span class="s1">'--pattern PATTERN'</span><span class="p">,</span> <span class="s1">'Your grok pattern to be compiled'</span><span class="p">)</span> <span class="k">do</span> <span class="o">|</span><span class="n">value</span><span class="o">|</span>
+    <span class="n">options</span><span class="o">[</span><span class="ss">:pattern</span><span class="o">]</span> <span class="o">=</span> <span class="n">value</span>
+  <span class="k">end</span>
+  <span class="n">opts</span><span class="o">.</span><span class="n">on</span><span class="p">(</span><span class="s1">'-n'</span><span class="p">,</span> <span class="s1">'--named'</span><span class="p">,</span> <span class="s1">'Named captures only'</span><span class="p">)</span> <span class="k">do</span>
+    <span class="n">options</span><span class="o">[</span><span class="ss">:named</span><span class="o">]</span> <span class="o">=</span> <span class="kp">true</span>
+  <span class="k">end</span>
+<span class="k">end</span><span class="o">.</span><span class="n">parse!</span>
+<span class="n">grok</span> <span class="o">=</span> <span class="no">Grok</span><span class="o">.</span><span class="n">new</span>
+<span class="n">options</span><span class="o">[</span><span class="ss">:dirs</span><span class="o">].</span><span class="n">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">dir</span><span class="o">|</span>
+  <span class="k">if</span> <span class="no">File</span><span class="o">.</span><span class="n">directory?</span><span class="p">(</span><span class="n">dir</span><span class="p">)</span>
+    <span class="n">dir</span> <span class="o">=</span> <span class="no">File</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dir</span><span class="p">,</span> <span class="s2">"*"</span><span class="p">)</span>
+  <span class="k">end</span>
+  <span class="no">Dir</span><span class="o">.</span><span class="n">glob</span><span class="p">(</span><span class="n">dir</span><span class="p">)</span><span class="o">.</span><span class="n">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">file</span><span class="o">|</span>
+    <span class="n">grok</span><span class="o">.</span><span class="n">add_patterns_from_file</span><span class="p">(</span><span class="n">file</span><span class="p">)</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+<span class="n">grok</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">options</span><span class="o">[</span><span class="ss">:pattern</span><span class="o">]</span><span class="p">,</span> <span class="n">options</span><span class="o">[</span><span class="ss">:named</span><span class="o">]</span><span class="p">)</span>
+<span class="n">ap</span> <span class="n">grok</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">options</span><span class="o">[</span><span class="ss">:message</span><span class="o">]</span><span class="p">)</span><span class="o">.</span><span class="n">captures</span><span class="p">()</span></code></pre></div>
+<p>测试一下：</p>
+<pre><code>$ sudo gem install jls-grok awesome_print
+$ ruby grokdebug.rb
+Run grokdebug at your terminal.
+    -d, --dirs DIR1,DIR2             Set grok patterns directories. Default: "./patterns"
+    -m, --msg MESSAGE                Your raw message to be matched
+    -p, --pattern PATTERN            Your grok pattern to be compiled
+    -n, --named                      Named captures only
+$ ruby grokdebug.rb -m 'abc123' -p '%{NUMBER:test}'
+{
+         "test" =&gt; [
+        [0] "123"
+    ],
+    "BASE10NUM" =&gt; [
+        [0] "123"
+    ]
+}
+$ ruby grokdebug.rb -m 'abc123' -p '%{NUMBER:test:float}' -n
+{
+    "test" =&gt; [
+        [0] 123.0
+    ]
+}
+</code></pre>
+<p>没错，我这比 grokdebug 网站还多了类型转换的功能。它用的 jls-grok 是 0.10.10 版，而我用的是最新的 0.11.0 版。 </p>
+    <hr>
+    
+    <hr>
+  <!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
