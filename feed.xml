@@ -5,9 +5,178 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Sat, 25 Oct 2014 20:36:58 +0800</pubDate>
-    <lastBuildDate>Sat, 25 Oct 2014 20:36:58 +0800</lastBuildDate>
+    <pubDate>Mon, 27 Oct 2014 00:03:33 +0800</pubDate>
+    <lastBuildDate>Mon, 27 Oct 2014 00:03:33 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>实现键值对存储（三）：Kyoto Cabinet和LevelDB的架构比较分析</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;在本文中，我将会逐组件地把Kyoto Cabinet 和 LevelDB的架构过一遍。目标和本系列第二部分讲的差不多，通过分析现有键值对存储的架构来思考我应该如何建立我自己键值对存储的架构。本文将包括：&lt;/p&gt;
+&lt;p&gt;1. 本架构分析的意图和方法&lt;br&gt;
+2. 键值对存储组件概览&lt;br&gt;
+3. Kyoto Cabinet 和LevelDB在结构和概念上的分析&lt;br&gt;
+3.1 用Doxygen建立代码地图&lt;br&gt;
+3.2 整体架构&lt;br&gt;
+3.3 接口&lt;br&gt;
+3.4 参数化&lt;br&gt;
+3.5 字符串&lt;br&gt;
+3.6 错误管理&lt;br&gt;
+3.7 内存管理&lt;br&gt;
+3.8 数据存储&lt;br&gt;
+4. 代码审查&lt;br&gt;
+4.1 声明和定义的组织&lt;br&gt;
+4.2 命名&lt;br&gt;
+4.3 代码重复&lt;br&gt;
+5. 参考文献&lt;/p&gt;
+&lt;p&gt;&lt;img id=&quot;pic&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/e1081ce03f341a5a4b71fbbf3e3f70cd.jpg&quot;&gt;&lt;/p&gt;
+&lt;h3 align=&quot;left&quot;&gt;1. 本架构分析的意图和方法&lt;b&gt;&lt;/b&gt;
+&lt;/h3&gt;
+&lt;p&gt;我曾经想过是应该写两篇独立的文章，一篇写LevelDB另一篇写Kyoto Cabinet，还是应该写一篇综合的文章。我相信软件架构是一门很需要决策的技艺，就如同建筑师需要考虑并选择每个部分的设计一样。方案不能孤立的评估，而应该与其他方案之间进行权衡。软件系统架构的分析只能根据其背景在评价，并与其他架构比较。因此我将把键值对存储中遇到的主要组件过一遍，并比较现有键值对系统的方案。我将会为Kyoto Cabinet 和 LevelDB使用我自己的分析，但其他项目我会使用现有的分析。这里是我选用的其他人的分析：&lt;/p&gt;
+&lt;p&gt;- BerkeleyDB, Chapter 4 in The Architecture of Open Source Applications, by Margo Seltzer and Keith Bostic (Seltzer being one of the two original authors of BerkeleyDB) &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_1&quot;&gt;[1]&lt;/a&gt;&lt;br&gt;
+- Memcached for dummies, by Tinou Bao &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_2&quot;&gt;[2]&lt;/a&gt;&lt;br&gt;
+- Memcached Internals &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_3&quot;&gt;[3]&lt;/a&gt;&lt;br&gt;
+- MongoDB Architecture, by Ricky Ho &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_4&quot;&gt;[4]&lt;/a&gt;&lt;br&gt;
+- Couchbase Architecture, by Ricky Ho &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_5&quot;&gt;[5]&lt;/a&gt;&lt;br&gt;
+- The Architecture of SQLite &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_6&quot;&gt;[6]&lt;/a&gt;&lt;br&gt;
+- Redis Documentation &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_7&quot;&gt;[7]&lt;/a&gt;&lt;/p&gt;
+&lt;h3 align=&quot;left&quot;&gt;2. 键值对存储组件概述&lt;b&gt;&lt;/b&gt;
+&lt;/h3&gt;
+&lt;p&gt;尽管键值对存储的内部架构有很大不同，但总有相似的组件。下面列出了大部分键值对存储中遇到的主要组件及其功能的简述。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;接口：&lt;/strong&gt;键值对存储暴露给用户的一组方法和类，使用户可以与之互动。也叫做API。键值对存储的最小API包括Get(),、Put() 和Delete()方法。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;参数系统：&lt;/strong&gt;选项设置并传递给整个系统的其他组件。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;数据存储：&lt;/strong&gt;接口是用来访问内存中数据（也就是键和值）的。如果数据必须&lt;i&gt;维护&lt;/i&gt;在持久性存储器中，例如硬盘或闪存，那么可能会出现&lt;i&gt;同步性&lt;/i&gt;问题和&lt;i&gt;并发性&lt;/i&gt;问题。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;数据结构：&lt;/strong&gt;用算法和方法来组织数据，并允许高效的存储的检索。通常使用哈希表或者B+树。LevelDB中则是日志结构合并树。数据结构的选择基于数据的内部结构和底层数据存储方案。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;内存管理：&lt;/strong&gt;系统中用来管理内存的算法和技术。内存相当重要，如果数据存储用错误的内存管理技术来访问，会极大地影响性能。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;遍历：&lt;/strong&gt;对数据库中所有键和值进行枚举和顺序访问的方法。解决方案大多是迭代器和游标。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;字符串：&lt;/strong&gt;数据结构是用来访问字符串的。把字符串单独拿出来说或许看起来有些过分详细了，但对于键值对存储来说，大量的时间都用来传递和处理字符串，STL的std::string可能不是最佳方案。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;锁管理：&lt;/strong&gt;所有关系到并发访问（带有信号灯和互斥的）内存区锁的机制，以及当数据存储是文件系统时的文件锁。同时处理关于多线程的问题。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;错误管理：&lt;/strong&gt;用来拦截和处理系统中遇到的错误的技术。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;日志：&lt;/strong&gt;记录系统中发生的事件的机制。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;事务管理：&lt;/strong&gt;能够确保所有操作正常执行的一系列操作的机制，并且在出现错误时，确保没有操作被执行且数据库也没有更改。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;压缩：&lt;/strong&gt;用来压缩数据的算法&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;比较器：&lt;/strong&gt;用来比较两个键是否相同的方法。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;校验和：&lt;/strong&gt;用了测试并确保数据的完整性。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;快照：&lt;/strong&gt;快照提供其创建时全部数据库的只读镜像。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;分区：&lt;/strong&gt;也被称为分片，其包括将整套数据分配到多个数据存储中，可能是网络中的多个节点。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;数据备份：&lt;/strong&gt;为了防止系统或者硬件错误，确保持久性，一些键值对存储允许数据（或者数据分区）有数个同时维护的拷贝，最好是在多个节点上。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;测试框架：&lt;/strong&gt;用来测试系统的框架，包括单元测试和整体测试。&lt;/p&gt;
+&lt;h3 align=&quot;left&quot;&gt;3. Kyoto Cabinet和LevelDB结构和概念的分析&lt;b&gt;&lt;/b&gt;
+&lt;/h3&gt;
+&lt;p&gt;下述关于LevelDB和Kyoto Cabinet的分析将集中在下列组件：参数系统、数据存储、字符串和错误管理。关于接口、数据结构、内存管理、日志和测试框架这些组件将包含在IKVS系列之后的文章中。至于其他的组件，我目前不打算讲。其他系统，例如关系型数据库，有其他的诸如命令处理器、请求处理器、以及计划/优化器之类的组件，但它们已经超出了IKVS系列的内容。&lt;/p&gt;
+&lt;p&gt;在我开始分析之前，请注意我认为Kyoto Cabinet 和 LevelDB是很出色的软件部分，我也很尊敬它们的作者。即便我说了关于他们的设计的坏话，要记得的是他们的代码仍然很出色，而我并没有像他们那样的才华。这就是说，下边的文章是我对于Kyoto Cabinet 和 LevelDB代码的一点意见。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;3.1 用Doxygen建立代码图&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;为了理解Kyoto Cabinet 和LevelDB的架构，我需要挖掘它们的代码。但是我也用Doxygen，一个用来浏览应用模块结构和类的非常强大的工具。 Doxygen是一个适用于多个编程语言的文档系统，它可以直接从源代码中创建报告文档或者HTML网站格式的文档。然而Doxygen同样可以用在没有注释的代码中，并创建基于系统组织方式（文件、命名空间、类和方法）的接口。&lt;/p&gt;
+&lt;p&gt;你可以从官网上获得Doxygen &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_8&quot;&gt;[8]&lt;/a&gt;。在你机器上安装好Doxygen之后，只需要打开shell界面，到包含所有你需要分析的源代码的目录下。然后输入如下命令即可创建默认设置文件。&lt;/p&gt;
+&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ doxygen -g&lt;/pre&gt;
+&lt;p&gt;这将创建一个叫“Doxygen”的文件。打开这个文件，确认下述所有设置都设置为“yes”:EXTRACT_ALL, EXTRACT_PRIVATE, RECURSIVE, HAVE_DOT, CALL_GRAPH, CALLER_GRAPH。这些选项会保证从代码中抽取所有对象，包括子目录，并创建调用图。所有可用设置的描述可以在Doxygen的在线文档中找到&lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_9&quot;&gt;[9]&lt;/a&gt;。只需要输入下面的命令即可用已选好的设置来创建文档。&lt;/p&gt;
+&lt;pre class=&quot;brush: shell; gutter: true&quot;&gt;$ doxygen Doxygen&lt;/pre&gt;
+&lt;p&gt;文档将在“html”文件夹中创建，你可以用任何web浏览器打开“index.html”文件来访问文档。你可以浏览代码，查看类之间的继承关系，并通过图来查看每个方法由其它哪个方法调用。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;3.2 整体架构&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;图3.1和3.1分别是Kyoto Cabinet v1.2.76 和LevelDB 1.7.0的架构。类以UML类图标准表示。组件以圆角矩形表示，黑箭头表示其它实体调用了这个实体。从A到B的黑箭头表示A使用或者访问了B的元素。&lt;/p&gt;
+&lt;p&gt;这些图示表示的功能架构和结构架构基本相同。以图3.1为例，很多组件出现在HashDB类内部，因其这些组件的代码被定义为HashDB类的一部分。&lt;/p&gt;
+&lt;p&gt;依据内部组件的组织方式来比较，LevelDB是大赢家。原因是Kyoto Cabinet中，遍历、参数设置、内存管理和错误管理的组件都作为内核/接口组件的一部分，如图3.1所示。这使得这些组件和内核之间形成了强耦合，并局限了系统的模块化和功能扩展性。与之相反，LevelDB是以一种非常模块化的方法建立的，只有内存管理才是内核组件的一部分。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/be550881a02dba0464593ebed00b3995.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt; 图3.1&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/723ddd253b4d2eccaaa8bf003999eb8f.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;图3.2&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;3.3 接口&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;Kyoto Cabinet 的HashDB类暴露出来至少50个方法，与之相比的是LevelDB的DBImpl类只有15个方法（其中4个还是测试用的）。这是Kyoto Cabinet的Core/Interface组件强耦合的直接结果。&lt;/p&gt;
+&lt;p&gt;API设计将会在将来的IKVS系列中详细讨论。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;3.4 参数设置&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;在Kyoto Cabine中，参数是通过调用HashDB类的方法来调节的。有15个以“tune_”开头的方法来完成这个工作。&lt;/p&gt;
+&lt;p&gt;在LevelDB中，参数被定义在特定的对象中。“Options”对象中是通用参数，“ReadOptions”和“WriteOptions”中是Get()和Put()分别需要的参数，如图3.2中所示。种子解耦提供了比较好的选项的扩展性，而不必像Kyoto Cabinet中调用Core中乱七八糟的公共接口。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;3.5 字符串&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;在键值对存储中，随时都有大量的字符串处理。字符串被迭代、哈希、压缩、传递和返回。因此，巧妙的实现字符串类相当重要，每个对象节省一点，在大规模的运用上将会在全局造成引人注目的影响。&lt;/p&gt;
+&lt;p&gt;LevelDB使用一个特殊的类，称为“Slice” &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_10&quot;&gt;[10]&lt;/a&gt;。一个Slice包含一个字节数组以及数组的长度。这可以在O(1)的时间内获取字符串的长度，&lt;span style=&quot;text-decoration: line-through;&quot;&gt;而不是&lt;/span&gt;&lt;span style=&quot;text-decoration: line-through;&quot;&gt;std::string&lt;/span&gt;&lt;span style=&quot;text-decoration: line-through;&quot;&gt;所需的&lt;/span&gt;&lt;span style=&quot;text-decoration: line-through;&quot;&gt;O(n)&lt;/span&gt;而不是对C的字符串调用strlen()时所需的O(n)。独立保存字符串长度也可以允许保存字符‘’，这表示键和值可以是真正的字节数组而非由null终结的字符串。最后且最重要的是，Slice处理拷贝是通过创建一个浅拷贝，而非深拷贝。这表示它只简单地拷贝字节数组的指针，而不像std::string那样拷贝全部的字节数组。这避免了拷贝有可能出现的非常大的键或值。&lt;/p&gt;
+&lt;p&gt;像LevelDB一样，Redis使用他自己的数据结构来处理字符串。其目标同样是避免取字符串长度的时候避免使用O(n)操作&lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_11&quot;&gt;[11]&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;Kyoto Cabinet使用std::string作为字符串对象。&lt;/p&gt;
+&lt;p&gt;我的意见是，一个字符串类的实现适应于键值对存储的需求是非常必要的。如果能够避免，为什么要花费时间来拷贝字符串并分配内存呢？&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;3.6 错误管理&lt;b&gt;&lt;/b&gt;&lt;/p&gt;
+&lt;p&gt;在我看过的键值对存储的所有C++源代码中，我没有见过一个将异常作为全局的错误管理系统使用。在Kyoto Cabinet中，kcthread.cc文件中的线程组件使用了异常，但我认为这个选择与其说是通用架构倒不如说是只是在处理线程而已。异常十分危险，并应该尽可能的避免。&lt;/p&gt;
+&lt;p&gt;BerkeleyDB有很好的C风格的方法来处理错误。错误信息和代码集中在一个文件中。所有返回错误代码的函数都有一个叫“ret”的整型本地变量，这个变量将会在处理过程中赋值并在最后返回。这种方法贯穿在所有的文件和模块中：相当优雅和标准化的错误管理。在一些函数中使用了向前跳转的goto语句——一种在如Linux内核那样的纯C系统中广泛使用的技巧&lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_12&quot;&gt;[12]&lt;/a&gt;。虽然这种方法十分简洁和干净，但C风格的错误管理方法不太适合C++应用。&lt;/p&gt;
+&lt;p&gt;Kyoto Cabinet中，错误对象存储在每个诸如HashDB的数据库对象中。在数据库类中，各个方法在出现错误的时候调用set_error()来设置错误对象，然后以很符合C风格的返回true或者false。不会像BerkeleyDB那样在方法末尾返回本地变量，返回语句出现在错误出现的地方。&lt;/p&gt;
+&lt;p&gt;LevelDB完全不使用异常，而是使用一个叫做Status的类。这个类有错误值和错误信息。每个方法都返回这个对象，这样错误状态既可以就地处理也可以传递给调用栈中更高的其他方法。这个Status类错误码存储在字符串中，也是一种非常的聪明的实现。我对于这种设计方法的理解是，在大部分时间里，方法将会返回一个“OK”的状态（Status）对象，以表示没有出现任何错误。这样，错误信息字符串是NULL，而这个Status对象的处理是相当轻量的。如果Status对象增加一个属性来保存错误码，那么即便在“OK”状态的Status对象中仍需要给这个属性赋值，这即表示在每次调用方法的时候都要用更多的空间。所有的组件都使用这个Status类，并且没必要像Kyoto Cabinet那样总要调用一个方法，如图 3.1 and 3.2所示。&lt;/p&gt;
+&lt;p&gt;错误管理的所有方案都在上文中讲过了，我个人比较推荐LevelDB使用的方案。这个方案避免使用了异常，也不是一个我看来相当局限的单纯的C风格的错误管理，并且其避免了像Kyoto Cabinet那样与核心组件任何不必要的耦合。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;3.7 内存管理&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;Kyoto Cabinet 和LevelDB都在内核组件中定义了内存管理。对于Kyoto Cabinet，内存管理一来可以跟踪数据库文件中临近的空块，二来当数据项保存的时候可以选择足够大小的块。而文件本身只是用mmap()函数映射出来的内存空间。另外MongoDB也使用内存映射文件&lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_13&quot;&gt;[13]&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;而LevelDB使用的是一个日志结构合并树，其不像保存在硬盘上的哈希表那样文件中有未使用的空间。内存空间管理也包括一旦日志文件大小超过某值后，压缩这些文件的功能&lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_14&quot;&gt;[14]&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;其它如Redis之类的键值对存储，用malloc()来分配内存——在Redis的例子中，内存分配算法不是操作系统提供的dlmalloc或者ptmalloc3，而是jemalloc&lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/#ref_15&quot;&gt;[15]&lt;/a&gt; 。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;3.8 数据存储&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;Kyoto Cabinet, LevelDB, BerkeleyDB, MongoDB 和Redis使用文件系统来存储数据。与之相反Memcached 则是在内存中保存数据。&lt;/p&gt;
+&lt;h3 align=&quot;left&quot;&gt;4. 代码审查&lt;b&gt;&lt;/b&gt;
+&lt;/h3&gt;
+&lt;p&gt;本节是对Kyoto Cabinet 和LevelDB的一个简单的代码审查。这个代码审查并不全面，并只包含了我在阅读源代码时觉得比较出色的元素。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;4.1  声明和定义的组织&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;如果代码都像LevelDB那样正常的组织，声明都在.h头文件中，而定义都在.cc文件中。但我在Kyoto Cabinet中发现了一些令人震惊的事情。实际上，很多类中.cc文件并没有包含任何定义，而方法都直接在.h文件中定义。在其他文件中，一些方法在.h中定义另一些在.cc文件中定义。虽然我理解这样做的背后可能有一些原因，但我仍认为在C++应用中不遵守这些惯例根本是错误的。之所以说是错的是因为一来它让我像那样惊讶，二来我必须在两种不同的文件中找定义。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;4.2 命名&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;首先，Kyoto Cabinet相对于Tokyo Cabinet.有了显著的改进。整体架构和命名规则都大幅改进了。尽管如此，我仍然发现Kyoto Cabinet中的很多名字都很晦涩，譬如属性和方法叫做embcomp、trhard、fmtver()、fpow()。这让人觉得C++代码中混进了一些C代码。另一方面，LevelDB中的命名相当清晰，除了诸如mem、imm和in的一些临时变量。但这些不清晰的密码相当微量而代码可读性相当强。&lt;/p&gt;
+&lt;h4 align=&quot;left&quot;&gt;4.3 代码重复&lt;b&gt;&lt;/b&gt;
+&lt;/h4&gt;
+&lt;p&gt;我在Kyoto Cabinet中确实看到了一些代码重复。这些用来文件碎片整理的代码至少重复了3次，而所有需要分为Unix和Windows两个版本的方法都显示出大量的重复。我没有在LevelDB看到明显的代码重复，我相信应该也有一些，但需要挖掘的更深才能找到。这证明LevelDB的代码重复问题确实比Kyoto Cabinet要小。&lt;/p&gt;
+&lt;h3 align=&quot;left&quot;&gt;5. 参考文献&lt;b&gt;&lt;/b&gt;
+&lt;/h3&gt;
+&lt;p align=&quot;left&quot;&gt;[1] &lt;a href=&quot;http://www.aosabook.org/en/bdb.html&quot; target=&quot;_blank&quot;&gt;http://www.aosabook.org/en/bdb.html&lt;/a&gt;&lt;br&gt;
+[2] &lt;a href=&quot;http://work.tinou.com/2011/04/memcached-for-dummies.html&quot; target=&quot;_blank&quot;&gt;http://work.tinou.com/2011/04/memcached-for-dummies.html&lt;/a&gt;&lt;br&gt;
+[3] &lt;a href=&quot;http://code.google.com/p/memcached/wiki/NewUserInternals&quot; target=&quot;_blank&quot;&gt;http://code.google.com/p/memcached/wiki/NewUserInternals&lt;/a&gt;&lt;br&gt;
+[4] &lt;a href=&quot;http://horicky.blogspot.com/2012/04/mongodb-architecture.html&quot; target=&quot;_blank&quot;&gt;http://horicky.blogspot.com/2012/04/mongodb-architecture.html&lt;/a&gt;&lt;br&gt;
+[5] &lt;a href=&quot;http://horicky.blogspot.com/2012/07/couchbase-architecture.html&quot; target=&quot;_blank&quot;&gt;http://horicky.blogspot.com/2012/07/couchbase-architecture.html&lt;/a&gt;&lt;br&gt;
+[6] &lt;a href=&quot;http://www.sqlite.org/arch.html&quot; target=&quot;_blank&quot;&gt;http://www.sqlite.org/arch.html&lt;/a&gt;&lt;br&gt;
+[7] &lt;a href=&quot;http://redis.io/documentation&quot; target=&quot;_blank&quot;&gt;http://redis.io/documentation&lt;/a&gt;&lt;br&gt;
+[8] &lt;a href=&quot;http://codecapsule.com/2012/12/30/implementing-a-key-value-store-part-3-comparative-analysis-of-the-architectures-of-kyoto-cabinet-and-leveldb/:/doxygen.org&quot; target=&quot;_blank&quot;&gt;http:://doxygen.org&lt;/a&gt;&lt;br&gt;
+[9] &lt;a href=&quot;http://www.stack.nl/~dimitri/doxygen/config.html&quot; target=&quot;_blank&quot;&gt;http://www.stack.nl/~dimitri/doxygen/config.html&lt;/a&gt;&lt;br&gt;
+[10] &lt;a href=&quot;http://leveldb.googlecode.com/svn/trunk/doc/index.html&quot; target=&quot;_blank&quot;&gt;http://leveldb.googlecode.com/svn/trunk/doc/index.html&lt;/a&gt;&lt;br&gt;
+[11] &lt;a href=&quot;http://redis.io/topics/internals-sds&quot; target=&quot;_blank&quot;&gt;http://redis.io/topics/internals-sds&lt;/a&gt;&lt;br&gt;
+[12] &lt;a href=&quot;http://news.ycombinator.com/item?id=3883310&quot; target=&quot;_blank&quot;&gt;http://news.ycombinator.com/item?id=3883310&lt;/a&gt;&lt;br&gt;
+[13] &lt;a href=&quot;http://www.briancarpio.com/2012/05/03/mongodb-memory-management/&quot; target=&quot;_blank&quot;&gt;http://www.briancarpio.com/2012/05/03/mongodb-memory-management/&lt;/a&gt;&lt;br&gt;
+[14] &lt;a href=&quot;http://leveldb.googlecode.com/svn/trunk/doc/impl.html&quot; target=&quot;_blank&quot;&gt;http://leveldb.googlecode.com/svn/trunk/doc/impl.html&lt;/a&gt;&lt;br&gt;
+[15] &lt;a href=&quot;http://oldblog.antirez.com/post/everything-about-redis-24.html&quot; target=&quot;_blank&quot;&gt;http://oldblog.antirez.com/post/everything-about-redis-24.html&lt;/a&gt;&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Fri, 24 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-24-78869-cb93de670.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-24-78869-cb93de670.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
     
       <item>
         <title>通过堡垒机代理SSH运行Ansible（译）</title>
@@ -1672,6 +1841,123 @@ tecmint;2;2014-09-03 12:00:12 UTC;eth0;1.00;0.50;0.12;0.04;0.00;0.00;0.00;0.00&l
       </item>
     
       <item>
+        <title>全能冠军：Linux系统性能和使用活动监控工具 sysstat</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;&lt;strong&gt;Sysstat&lt;/strong&gt;是一个非常方便的工具，它带有众多的系统资源监控工具，用于监控系统的性能和使用情况。我们在日常使用的工具中有相当一部分是来自sysstat工具包的。同时，它还提供了一种使用cron表达式来制定性能和活动数据的收集计划。&lt;/p&gt;
+&lt;p&gt;下表是包含在sysstat包中的工具&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;strong&gt;iostat&lt;/strong&gt;: 输出CPU的统计信息和所有I/O设备的输入输出（I/O）统计信息。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;mpstat&lt;/strong&gt;: 关于CPU的详细信息（单独输出或者分组输出）。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;pidstat&lt;/strong&gt;: 关于运行中的进程/任务、CPU、内存等的统计信息。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;sar&lt;/strong&gt;: 保存并输出不同系统资源（CPU、内存、IO、网络、内核等。。。）的详细信息。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;sadc&lt;/strong&gt;: 系统活动数据收集器，用于收集sar工具的后端数据。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;sa1&lt;/strong&gt;: 系统收集并存储sadc数据文件的二进制数据，与sadc工具配合使用&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;sa2&lt;/strong&gt;: 配合sar工具使用，产生每日的摘要报告。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;sadf&lt;/strong&gt;: 用于以不同的数据格式（CVS或者XML）来格式化sar工具的输出。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;Sysstat&lt;/strong&gt;: sysstat工具的man帮助页面。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;nfsiostat&lt;/strong&gt;: NFS（Network File System）的I/O统计信息。&lt;/li&gt;
+&lt;li&gt;
+&lt;strong&gt;cifsiostat&lt;/strong&gt;: CIFS(Common Internet File System)的统计信息。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;最近(在2014年6月17日)，&lt;strong&gt;sysstat 11.0.0&lt;/strong&gt;（稳定版）已经发布了，同时还新增了一些有趣的特性，如下：&lt;/p&gt;
+&lt;p&gt;pidstat命令新增了一些新的选项：首先是“-R”选项，该选项将会输出有关策略和任务调度的优先级信息。然后是“&lt;strong&gt;-G&lt;/strong&gt;”选项，通过这个选项我们可以使用名称搜索进程，然后列出所有匹配的线程。&lt;/p&gt;
+&lt;p&gt;sar、sadc和sadf命令在数据文件方面同样带来了一些功能上的增强。与以往只能使用“&lt;strong&gt;saDD&lt;/strong&gt;”来命名数据文件。现在使用&lt;strong&gt;-D&lt;/strong&gt;选项可以用“&lt;strong&gt;saYYYYMMDD&lt;/strong&gt;”来重命名数据文件，同样的，现在的数据文件不必放在“&lt;strong&gt;var/log/sa&lt;/strong&gt;”目录中，我们可以使用“SA_DIR”变量来定义新的目录，该变量将应用与sa1和sa2命令。&lt;/p&gt;
+&lt;h3 id=&quot;toc_1&quot;&gt;在Linux系统中安装sysstat&lt;/h3&gt;
+&lt;p&gt;在主要的linux发行版中，‘&lt;strong&gt;sysstat&lt;/strong&gt;’工具包可以在默认的程序库中安装。然而，在默认程序库中的版本通常有点旧，因此，我们将会下载源代码包，编译安装最新版本（&lt;strong&gt;11.0.0&lt;/strong&gt;版本）。&lt;/p&gt;
+&lt;p&gt;首先，使用下面的连接下载最新版本的sysstat包，或者你可以使用&lt;strong&gt;wget&lt;/strong&gt;命令直接在终端中下载。&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://sebastien.godard.pagesperso-orange.fr/download.html&quot;&gt;http://sebastien.godard.pagesperso-orange.fr/download.html&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# wget http://pagesperso-orange.fr/sebastien.godard/sysstat-11.0.0.tar.gz&lt;/pre&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/99cbbe85e86247a53c530aa7a7594207.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;下载sysstat包&lt;/p&gt;
+&lt;p&gt;然后解压缩下载下来的包，进去该目录，开始编译安装&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# tar -xvf sysstat-11.0.0.tar.gz 
+# cd sysstat-11.0.0/&lt;/pre&gt;
+&lt;p&gt;这里，你有两种编译安装的方法：&lt;/p&gt;
+&lt;h4 id=&quot;toc_2&quot;&gt;a)&lt;/h4&gt;
+&lt;p&gt;第一，你可以使用&lt;strong&gt;iconfig&lt;/strong&gt;(这将会给予你很大的灵活性，你可以选择/输入每个参数的自定义值)&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# ./iconfig&lt;/pre&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/91a5b198b581009ce4c36e291eaa7ea4.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;sysstat的iconfig命令&lt;/p&gt;
+&lt;h4 id=&quot;toc_3&quot;&gt;b)&lt;/h4&gt;
+&lt;p&gt;第二，你可以使用标准的&lt;strong&gt;configure&lt;/strong&gt;，在命令行中定义所有选项。你可以运行 &lt;strong&gt;./configure –help 命令&lt;/strong&gt;来列出该命令所支持的所有限选项。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# ./configure --help&lt;/pre&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/6d859dc80b7626f426f9e2d9c8473e22.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;stsstat的cofigure -help&lt;/p&gt;
+&lt;p&gt;在这里，我们使用标准的&lt;strong&gt;./configure&lt;/strong&gt;命令来编译安装sysstat工具包。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# ./configure
+# make
+# make install&lt;/pre&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/f32993f96b93ccc818c0755fe4a49329.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;在Linux系统中配置sysstat&lt;/p&gt;
+&lt;p&gt;在编译完成后，我们将会看到一些类似于上图的输出。现在运行如下命令来查看sysstat的版本。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# mpstat -V
+
+sysstat version 11.0.0
+(C) Sebastien Godard (sysstat &amp;lt;at&amp;gt; orange.fr)&lt;/pre&gt;
+&lt;h3 id=&quot;toc_4&quot;&gt;更新Linux 系统中的sysstat&lt;/h3&gt;
+&lt;p&gt;默认的，sysstat使用“&lt;strong&gt;/usr/local&lt;/strong&gt;”作为其目录前缀。因此，所有的二进制数据/工具都会安装在“&lt;strong&gt;/usr/local/bin&lt;/strong&gt;”目录中。如果你的系统已经安装了sysstat 工具包，则上面提到的二进制数据/工具有可能在“&lt;strong&gt;/usr/bin&lt;/strong&gt;”目录中。&lt;/p&gt;
+&lt;p&gt;因为“&lt;strong&gt;$PATH&lt;/strong&gt;”变量不包含“&lt;strong&gt;/usr/local/bin&lt;/strong&gt;”路径，你在更新时可能会失败。因此，确保“&lt;strong&gt;/usr/local/bin&lt;/strong&gt;”路径包含在“$PATH”环境变量中，或者在更新前，在编译和卸载旧版本时将&lt;strong&gt;-prefix&lt;/strong&gt;选项指定值为“&lt;strong&gt;/usr&lt;/strong&gt;”。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# yum remove sysstat            [On RedHat based System]
+# apt-get remove sysstat        [On Debian based System]&lt;/pre&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# ./configure --prefix=/usr
+# make
+# make install&lt;/pre&gt;
+&lt;p&gt;现在，使用‘mpstat’命令的‘&lt;strong&gt;-V&lt;/strong&gt;’选项查看更新后的版本。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;# mpstat -V
+
+sysstat version 11.0.0
+(C) Sebastien Godard (sysstat &amp;lt;at&amp;gt; orange.fr)&lt;/pre&gt;
+&lt;p&gt;&lt;strong&gt;参考&lt;/strong&gt;: 更多详细的信息请到 &lt;a href=&quot;http://sebastien.godard.pagesperso-orange.fr/documentation.html&quot;&gt;Sysstat Documentation&lt;/a&gt;&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Fri, 17 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-17-78595-fc3f3dce7.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-17-78595-fc3f3dce7.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
+    
+      <item>
         <title>SSLStrip 的未来 —— HTTPS 前端劫持</title>
         <description>
 
@@ -3248,219 +3534,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         
         
         <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>互联网协议入门（一）</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;我们每天使用互联网，你是否想过，它是如何实现的？&lt;/p&gt;
-&lt;p&gt;全世界几十亿台电脑，连接在一起，两两通信。上海的某一块网卡送出信号，洛杉矶的另一块网卡居然就收到了，两者实际上根本不知道对方的物理位置，你不觉得这是很神奇的事情吗？&lt;/p&gt;
-&lt;p&gt;互联网的核心是一系列协议，总称为”互联网协议”（Internet Protocol Suite）。它们对电脑如何连接和组网，做出了详尽的规定。理解了这些协议，就理解了互联网的原理。&lt;/p&gt;
-&lt;p&gt;下面就是我的学习笔记。因为这些协议实在太复杂、太庞大，我想整理一个简洁的框架，帮助自己从总体上把握它们。为了保证简单易懂，我做了大量的简化，有些地方并不全面和精确，但是应该能够说清楚互联网的原理。&lt;/p&gt;
-&lt;p&gt;一、概述&lt;/p&gt;
-&lt;p&gt;1.1 五层模型&lt;/p&gt;
-&lt;p&gt;互联网的实现，分成好几层。每一层都有自己的功能，就像建筑物一样，每一层都靠下一层支持。&lt;/p&gt;
-&lt;p&gt;用户接触到的，只是最上面的一层，根本没有感觉到下面的层。要理解互联网，必须从最下层开始，自下而上理解每一层的功能。&lt;/p&gt;
-&lt;p&gt;如何分层有不同的模型，有的模型分七层，有的分四层。我觉得，把互联网分成五层，比较容易解释。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9958d9fec0030c01cc5a9a3c74d73779.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;如上图所示，最底下的一层叫做”实体层”（Physical Layer），最上面的一层叫做”应用层”（Application Layer），中间的三层（自下而上）分别是”链接层”（Link Layer）、”网络层”（Network Layer）和”传输层”（Transport Layer）。越下面的层，越靠近硬件；越上面的层，越靠近用户。&lt;/p&gt;
-&lt;p&gt;它们叫什么名字，其实并不重要。只需要知道，互联网分成若干层就可以了。&lt;/p&gt;
-&lt;p&gt;1.2 层与协议&lt;/p&gt;
-&lt;p&gt;每一层都是为了完成一种功能。为了实现这些功能，就需要大家都遵守共同的规则。&lt;/p&gt;
-&lt;p&gt;大家都遵守的规则，就叫做”协议”（protocol）。&lt;/p&gt;
-&lt;p&gt;互联网的每一层，都定义了很多协议。这些协议的总称，就叫做”互联网协议”（Internet Protocol Suite）。它们是互联网的核心，下面介绍每一层的功能，主要就是介绍每一层的主要协议。&lt;/p&gt;
-&lt;p&gt;二、实体层&lt;/p&gt;
-&lt;p&gt;我们从最底下的一层开始。&lt;/p&gt;
-&lt;p&gt;电脑要组网，第一件事要干什么？当然是先把电脑连起来，可以用光缆、电缆、双绞线、无线电波等方式。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/db76b0fc26c9ce194d5882fed39bc426.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;这就叫做”实体层”，它就是把电脑连接起来的物理手段。它主要规定了网络的一些电气特性，作用是负责传送0和1的电信号。&lt;/p&gt;
-&lt;p&gt;三、链接层&lt;/p&gt;
-&lt;p&gt;3.1 定义&lt;/p&gt;
-&lt;p&gt;单纯的0和1没有任何意义，必须规定解读方式：多少个电信号算一组？每个信号位有何意义？&lt;/p&gt;
-&lt;p&gt;这就是”链接层”的功能，它在”实体层”的上方，确定了0和1的分组方式。&lt;/p&gt;
-&lt;p&gt;3.2 以太网协议&lt;/p&gt;
-&lt;p&gt;早期的时候，每家公司都有自己的电信号分组方式。逐渐地，一种叫做&lt;a href=&quot;http://zh.wikipedia.org/wiki/%E4%BB%A5%E5%A4%AA%E7%BD%91&quot; target=&quot;_blank&quot;&gt;“以太网”&lt;/a&gt;（Ethernet）的协议，占据了主导地位。&lt;/p&gt;
-&lt;p&gt;以太网规定，一组电信号构成一个数据包，叫做”帧”（Frame）。每一帧分成两个部分：标头（Head）和数据（Data）。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4c1c395fca52fec968d1bcb51b84df6b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;“标头”包含数据包的一些说明项，比如发送者、接受者、数据类型等等；”数据”则是数据包的具体内容。&lt;/p&gt;
-&lt;p&gt;“标头”的长度，固定为18字节。”数据”的长度，最短为46字节，最长为1500字节。因此，整个”帧”最短为64字节，最长为1518字节。如果数据很长，就必须分割成多个帧进行发送。&lt;/p&gt;
-&lt;p&gt;3.3 MAC地址&lt;/p&gt;
-&lt;p&gt;上面提到，以太网数据包的”标头”，包含了发送者和接受者的信息。那么，发送者和接受者是如何标识呢？&lt;/p&gt;
-&lt;p&gt;以太网规定，连入网络的所有设备，都必须具有”网卡”接口。数据包必须是从一块网卡，传送到另一块网卡。网卡的地址，就是数据包的发送地址和接收地址，这叫做MAC地址。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/76968e443b9d437e300cef4b761f568a.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;每块网卡出厂的时候，都有一个全世界独一无二的MAC地址，长度是48个二进制位，通常用12个十六进制数表示。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d70d8ab3fed257d982cea31fbf8d3920.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;前6个十六进制数是厂商编号，后6个是该厂商的网卡流水号。有了MAC地址，就可以定位网卡和数据包的路径了。&lt;/p&gt;
-&lt;p&gt;3.4 广播&lt;/p&gt;
-&lt;p&gt;定义地址只是第一步，后面还有更多的步骤。&lt;/p&gt;
-&lt;p&gt;首先，一块网卡怎么会知道另一块网卡的MAC地址？&lt;/p&gt;
-&lt;p&gt;回答是有一种ARP协议，可以解决这个问题。这个留到后面介绍，这里只需要知道，以太网数据包必须知道接收方的MAC地址，然后才能发送。&lt;/p&gt;
-&lt;p&gt;其次，就算有了MAC地址，系统怎样才能把数据包准确送到接收方？&lt;/p&gt;
-&lt;p&gt;回答是以太网采用了一种很”原始”的方式，它不是把数据包准确送到接收方，而是向本网络内所有计算机发送，让每台计算机自己判断，是否为接收方。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5d6cee57000a2ba8619f72dbb6cd2002.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;上图中，1号计算机向2号计算机发送一个数据包，同一个子网络的3号、4号、5号计算机都会收到这个包。它们读取这个包的”标头”，找到接收方的MAC地址，然后与自身的MAC地址相比较，如果两者相同，就接受这个包，做进一步处理，否则就丢弃这个包。这种发送方式就叫做”广播”（broadcasting）。&lt;/p&gt;
-&lt;p&gt;有了数据包的定义、网卡的MAC地址、广播的发送方式，”链接层”就可以在多台计算机之间传送数据了。&lt;/p&gt;
-&lt;p&gt;四、网络层&lt;/p&gt;
-&lt;p&gt;4.1 网络层的由来&lt;/p&gt;
-&lt;p&gt;以太网协议，依靠MAC地址发送数据。理论上，单单依靠MAC地址，上海的网卡就可以找到洛杉矶的网卡了，技术上是可以实现的。&lt;/p&gt;
-&lt;p&gt;但是，这样做有一个重大的缺点。以太网采用广播方式发送数据包，所有成员人手一”包”，不仅效率低，而且局限在发送者所在的子网络。也就是说，如果两台计算机不在同一个子网络，广播是传不过去的。这种设计是合理的，否则互联网上每一台计算机都会收到所有包，那会引起灾难。&lt;/p&gt;
-&lt;p&gt;互联网是无数子网络共同组成的一个巨型网络，很像想象上海和洛杉矶的电脑会在同一个子网络，这几乎是不可能的。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8df8ad3968765af9aa2d6011d73e61f2.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;因此，必须找到一种方法，能够区分哪些MAC地址属于同一个子网络，哪些不是。如果是同一个子网络，就采用广播方式发送，否则就采用”路由”方式发送。（”路由”的意思，就是指如何向不同的子网络分发数据包，这是一个很大的主题，本文不涉及。）遗憾的是，MAC地址本身无法做到这一点。它只与厂商有关，与所处网络无关。&lt;/p&gt;
-&lt;p&gt;这就导致了”网络层”的诞生。它的作用是引进一套新的地址，使得我们能够区分不同的计算机是否属于同一个子网络。这套地址就叫做”网络地址”，简称”网址”。&lt;/p&gt;
-&lt;p&gt;于是，”网络层”出现以后，每台计算机有了两种地址，一种是MAC地址，另一种是网络地址。两种地址之间没有任何联系，MAC地址是绑定在网卡上的，网络地址则是管理员分配的，它们只是随机组合在一起。&lt;/p&gt;
-&lt;p&gt;网络地址帮助我们确定计算机所在的子网络，MAC地址则将数据包送到该子网络中的目标网卡。因此，从逻辑上可以推断，必定是先处理网络地址，然后再处理MAC地址。&lt;/p&gt;
-&lt;p&gt;4.2 IP协议&lt;/p&gt;
-&lt;p&gt;规定网络地址的协议，叫做IP协议。它所定义的地址，就被称为IP地址。&lt;/p&gt;
-&lt;p&gt;目前，广泛采用的是IP协议第四版，简称IPv4。这个版本规定，网络地址由32个二进制位组成。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/2b37e2ec9913b84d1ffd9b33384f0087.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;习惯上，我们用分成四段的十进制数表示IP地址，从0.0.0.0一直到255.255.255.255。&lt;/p&gt;
-&lt;p&gt;互联网上的每一台计算机，都会分配到一个IP地址。这个地址分成两个部分，前一部分代表网络，后一部分代表主机。比如，IP地址172.16.254.1，这是一个32位的地址，假定它的网络部分是前24位（172.16.254），那么主机部分就是后8位（最后的那个1）。处于同一个子网络的电脑，它们IP地址的网络部分必定是相同的，也就是说172.16.254.2应该与172.16.254.1处在同一个子网络。&lt;/p&gt;
-&lt;p&gt;但是，问题在于单单从IP地址，我们无法判断网络部分。还是以172.16.254.1为例，它的网络部分，到底是前24位，还是前16位，甚至前28位，从IP地址上是看不出来的。&lt;/p&gt;
-&lt;p&gt;那么，怎样才能从IP地址，判断两台计算机是否属于同一个子网络呢？这就要用到另一个参数”子网掩码”（subnet mask）。&lt;/p&gt;
-&lt;p&gt;所谓”子网掩码”，就是表示子网络特征的一个参数。它在形式上等同于IP地址，也是一个32位二进制数字，它的网络部分全部为1，主机部分全部为0。比如，IP地址172.16.254.1，如果已知网络部分是前24位，主机部分是后8位，那么子网络掩码就是11111111.11111111.11111111.00000000，写成十进制就是255.255.255.0。&lt;/p&gt;
-&lt;p&gt;知道”子网掩码”，我们就能判断，任意两个IP地址是否处在同一个子网络。方法是将两个IP地址与子网掩码分别进行AND运算（两个数位都为1，运算结果为1，否则为0），然后比较结果是否相同，如果是的话，就表明它们在同一个子网络中，否则就不是。&lt;/p&gt;
-&lt;p&gt;比如，已知IP地址172.16.254.1和172.16.254.233的子网掩码都是255.255.255.0，请问它们是否在同一个子网络？两者与子网掩码分别进行AND运算，结果都是172.16.254.0，因此它们在同一个子网络。&lt;/p&gt;
-&lt;p&gt;总结一下，IP协议的作用主要有两个，一个是为每一台计算机分配IP地址，另一个是确定哪些地址在同一个子网络。&lt;/p&gt;
-&lt;p&gt;4.3 IP数据包&lt;/p&gt;
-&lt;p&gt;根据IP协议发送的数据，就叫做IP数据包。不难想象，其中必定包括IP地址信息。&lt;/p&gt;
-&lt;p&gt;但是前面说过，以太网数据包只包含MAC地址，并没有IP地址的栏位。那么是否需要修改数据定义，再添加一个栏位呢？&lt;/p&gt;
-&lt;p&gt;回答是不需要，我们可以把IP数据包直接放进以太网数据包的”数据”部分，因此完全不用修改以太网的规格。这就是互联网分层结构的好处：上层的变动完全不涉及下层的结构。&lt;/p&gt;
-&lt;p&gt;具体来说，IP数据包也分为”标头”和”数据”两个部分。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8b44d0d0135d42b5995d10cea39927e1.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;“标头”部分主要包括版本、长度、IP地址等信息，”数据”部分则是IP数据包的具体内容。它放进以太网数据包后，以太网数据包就变成了下面这样。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d4be7e62ee72f2584d711d6426174dd9.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;IP数据包的”标头”部分的长度为20到60字节，整个数据包的总长度最大为65,535字节。因此，理论上，一个IP数据包的”数据”部分，最长为65,515字节。前面说过，以太网数据包的”数据”部分，最长只有1500字节。因此，如果IP数据包超过了1500字节，它就需要分割成几个以太网数据包，分开发送了。&lt;/p&gt;
-&lt;p&gt;4.4 ARP协议&lt;/p&gt;
-&lt;p&gt;关于”网络层”，还有最后一点需要说明。&lt;/p&gt;
-&lt;p&gt;因为IP数据包是放在以太网数据包里发送的，所以我们必须同时知道两个地址，一个是对方的MAC地址，另一个是对方的IP地址。通常情况下，对方的IP地址是已知的（后文会解释），但是我们不知道它的MAC地址。&lt;/p&gt;
-&lt;p&gt;所以，我们需要一种机制，能够从IP地址得到MAC地址。&lt;/p&gt;
-&lt;p&gt;这里又可以分成两种情况。第一种情况，如果两台主机不在同一个子网络，那么事实上没有办法得到对方的MAC地址，只能把数据包传送到两个子网络连接处的”网关”（gateway），让网关去处理。&lt;/p&gt;
-&lt;p&gt;第二种情况，如果两台主机在同一个子网络，那么我们可以用ARP协议，得到对方的MAC地址。ARP协议也是发出一个数据包（包含在以太网数据包中），其中包含它所要查询主机的IP地址，在对方的MAC地址这一栏，填的是FF:FF:FF:FF:FF:FF，表示这是一个”广播”地址。它所在子网络的每一台主机，都会收到这个数据包，从中取出IP地址，与自身的IP地址进行比较。如果两者相同，都做出回复，向对方报告自己的MAC地址，否则就丢弃这个包。&lt;/p&gt;
-&lt;p&gt;总之，有了ARP协议之后，我们就可以得到同一个子网络内的主机MAC地址，可以把数据包发送到任意一台主机之上了。&lt;/p&gt;
-&lt;p&gt;五、传输层&lt;/p&gt;
-&lt;p&gt;5.1 传输层的由来&lt;/p&gt;
-&lt;p&gt;有了MAC地址和IP地址，我们已经可以在互联网上任意两台主机上建立通信。&lt;/p&gt;
-&lt;p&gt;接下来的问题是，同一台主机上有许多程序都需要用到网络，比如，你一边浏览网页，一边与朋友在线聊天。当一个数据包从互联网上发来的时候，你怎么知道，它是表示网页的内容，还是表示在线聊天的内容？&lt;/p&gt;
-&lt;p&gt;也就是说，我们还需要一个参数，表示这个数据包到底供哪个程序（进程）使用。这个参数就叫做”端口”（port），它其实是每一个使用网卡的程序的编号。每个数据包都发到主机的特定端口，所以不同的程序就能取到自己所需要的数据。&lt;/p&gt;
-&lt;p&gt;“端口”是0到65535之间的一个整数，正好16个二进制位。0到1023的端口被系统占用，用户只能选用大于1023的端口。不管是浏览网页还是在线聊天，应用程序会随机选用一个端口，然后与服务器的相应端口联系。&lt;/p&gt;
-&lt;p&gt;“传输层”的功能，就是建立”端口到端口”的通信。相比之下，”网络层”的功能是建立”主机到主机”的通信。只要确定主机和端口，我们就能实现程序之间的交流。因此，Unix系统就把主机+端口，叫做”套接字”（socket）。有了它，就可以进行网络应用程序开发了。&lt;/p&gt;
-&lt;p&gt;5.2 UDP协议&lt;/p&gt;
-&lt;p&gt;现在，我们必须在数据包中加入端口信息，这就需要新的协议。最简单的实现叫做UDP协议，它的格式几乎就是在数据前面，加上端口号。&lt;/p&gt;
-&lt;p&gt;UDP数据包，也是由”标头”和”数据”两部分组成。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5ab85e4f82b18b4bb69762585a74239b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;“标头”部分主要定义了发出端口和接收端口，”数据”部分就是具体的内容。然后，把整个UDP数据包放入IP数据包的”数据”部分，而前面说过，IP数据包又是放在以太网数据包之中的，所以整个以太网数据包现在变成了下面这样：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/7cda488ed620f5b4808494bbadc15fe9.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;UDP数据包非常简单，”标头”部分一共只有8个字节，总长度不超过65,535字节，正好放进一个IP数据包。&lt;/p&gt;
-&lt;p&gt;5.3 TCP协议&lt;/p&gt;
-&lt;p&gt;UDP协议的优点是比较简单，容易实现，但是缺点是可靠性较差，一旦数据包发出，无法知道对方是否收到。&lt;/p&gt;
-&lt;p&gt;为了解决这个问题，提高网络可靠性，TCP协议就诞生了。这个协议非常复杂，但可以近似认为，它就是有确认机制的UDP协议，每发出一个数据包都要求确认。如果有一个数据包遗失，就收不到确认，发出方就知道有必要重发这个数据包了。&lt;/p&gt;
-&lt;p&gt;因此，TCP协议能够确保数据不会遗失。它的缺点是过程复杂、实现困难、消耗较多的资源。&lt;/p&gt;
-&lt;p&gt;TCP数据包和UDP数据包一样，都是内嵌在IP数据包的”数据”部分。TCP数据包没有长度限制，理论上可以无限长，但是为了保证网络的效率，通常TCP数据包的长度不会超过IP数据包的长度，以确保单个TCP数据包不必再分割。&lt;/p&gt;
-&lt;p&gt;六、应用层&lt;/p&gt;
-&lt;p&gt;应用程序收到”传输层”的数据，接下来就要进行解读。由于互联网是开放架构，数据来源五花八门，必须事先规定好格式，否则根本无法解读。&lt;/p&gt;
-&lt;p&gt;“应用层”的作用，就是规定应用程序的数据格式。&lt;/p&gt;
-&lt;p&gt;举例来说，TCP协议可以为各种各样的程序传递数据，比如Email、WWW、FTP等等。那么，必须有不同协议规定电子邮件、网页、FTP数据的格式，这些应用程序协议就构成了”应用层”。&lt;/p&gt;
-&lt;p&gt;这是最高的一层，直接面对用户。它的数据就放在TCP数据包的”数据”部分。因此，现在的以太网的数据包就变成下面这样。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/381d55ee5bc30d802596c65de8bb24d7.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;至此，整个互联网的五层结构，自下而上全部讲完了。这是从系统的角度，解释互联网是如何构成的。&lt;a href=&quot;http://blog.jobbole.com/77931/&quot; target=&quot;_blank&quot;&gt;下一篇&lt;/a&gt;，我反过来，从用户的角度，自上而下看看这个结构是如何发挥作用，完成一次网络数据交换的。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 08 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-08-77851-3c3456586.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-08-77851-3c3456586.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>【翻译】Kibana 4 beta 1 发版日志</title>
-        <description>
-
-  
-  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;原文地址见：&lt;a href=&quot;http://www.elasticsearch.org/blog/kibana-4-beta-1-released/&quot;&gt;http://www.elasticsearch.org/blog/kibana-4-beta-1-released/&lt;/a&gt;&lt;/p&gt;
-&lt;hr&gt;
-&lt;p&gt;今天，我们&lt;del&gt;自豪高兴满意控制不住地兴奋过头欣喜若狂&lt;/del&gt;相当高兴得给大家分享一下 Kibana 项目的未来，以及 Kibana 4 的第一个 beta 版本。&lt;/p&gt;
-&lt;h2 id=&quot;section&quot;&gt;我现在就要！快给我！&lt;/h2&gt;
-&lt;p&gt;从&lt;a href=&quot;http://www.elasticsearch.org/overview/kibana/installation/&quot;&gt;这里&lt;/a&gt;下载，然后看 &lt;a href=&quot;https://github.com/elasticsearch/kibana/blob/master/README.md&quot;&gt;README.md&lt;/a&gt; 里新的而且更简单的安装流程。当然，你最好还是读一下本文剩下的内容，有很多超棒的秘诀呢！&lt;/p&gt;
-&lt;h2 id=&quot;kibana-4&quot;&gt;欢迎来到 kibana 4&lt;/h2&gt;
-&lt;p&gt;我们正走在 Kibana 4 的漫漫长路上：可以预见还会有好几个 beta 版本，每个都有新的特性，可视化和改善。我们梳理了各种反馈、邮件列表、IRC 以及 Github 的 issue ，把特性加入到这个 beta1 版本中，真是罪孽深重。我们已经在为 beta2 版本努力工作，在此，很高兴分享一下我们的 roadmap，查看 Github 上打有 “&lt;a href=&quot;https://github.com/elasticsearch/kibana/issues?q=is%3Aopen+is%3Aissue+label%3Aroadmap&quot;&gt;Roadmap&lt;/a&gt;” 标签的 issue。你们的反馈是我们永远做正确的事的保证。&lt;/p&gt;
-&lt;p&gt;反馈之外，我们回头想了想人们是怎么看数据的，更进一步，人们是怎么解决真实问题的。我们发现一个问题总是能引出另一些问题，而这些问题又能引出更多其他问题。如果你参加了 Monitotama，或者其他 Elasticsearch 见面会，你可能已经看到过 Kibana 4 概念性的原型演示。它可以让你创建更复杂的图标，Kibana 4 从 PoC 出发，扩展出一大堆新特性，让你编写问题，得到解答，然后解决之前从来没这么解决过的问题。&lt;/p&gt;
-&lt;p&gt;这种组合方式在 Kibana 4 中体现为聚合、搜索、可视化和仪表板融合在一起的方式。为了简化组成，我们把 Kibana 4 分成 3 个不同的界面，虽然一起工作，但是每个负责解决不同的一部分问题。&lt;/p&gt;
-&lt;h2 id=&quot;section-1&quot;&gt;熟悉的界面&lt;/h2&gt;
-&lt;p&gt;如果你是 Kibana 老用户，你会发现主页上 Discover 标签页的样子很熟悉。&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/5a81f0bdb5b0982c0f9c0179529485a5.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;Discover 功能跟原先的带有一个文档表格和事件时间轴的搜索界面很像。在搜索框里输入，敲回车，然后让 Kibana 去挖掘你的 Elasticsearch 索引。说到索引，有一个快速下拉菜单让你在搜索的时候灵活的在多个索引之间切换。要切换回上一个索引，点击浏览器的回退按钮即可。不喜欢新的搜索关键词？同样点击回退按钮就能返回原来的搜索词了。当然，搜索框的历史中也存着过去的记录。&lt;/p&gt;
-&lt;p&gt;说道搜索，你既可以输入 Lucene Query String 语法，也可以用上一个经常被要求的特性，&lt;strong&gt;Elasticsearch JSON 搜索&lt;/strong&gt; 到搜索框里。我们知道 JSON 格式可能比较难输对，所以不管你输入的是 Lucene Query String 还是 JSON，我们都会在发送给 Elasticsearch 之前替你验证一遍语法。不管你在 Kibana 4 的任何位置输入请求，这点都是生效的。&lt;/p&gt;
-&lt;p&gt;这样搜索也可以保存下来留待后用。重要的是：搜索不在绑定在仪表板上，他们可以在 Discover 页上再次调用，也可以运用在可能稍后才添加到仪表板上的可视化页里。因为，不管你在仪表板的哪一屏，&lt;strong&gt;搜索一直都会通过 URL 传递&lt;/strong&gt;，所以链接到搜索非常简单。&lt;/p&gt;
-&lt;h2 id=&quot;section-2&quot;&gt;画图的在这里&lt;/h2&gt;
-&lt;p&gt;Kibana 4 的 Visualize 标签是之前说的概念原型里最高潮的地方。Kibana 4 把 Elasticsearch 的 nested 聚合函数的威力带到鼠标点击上。比如我想知道哪些国家访问我的网站，什么时候访问的，他们是否登录认证了？通过一个 canvas 上的单一请求，我就可以问出上面这些问题，然后看到结果是怎么相互联系的：&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/a4a93b13ab5897dfc7ccc580eb7ed395.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;Kibana 3 的时候，时间只能在 histogram 面板上显示，而 terms 只能在柱状图上显示。Kibana 4 可以利用多个 &lt;strong&gt;Elasticsearch 聚合函数&lt;/strong&gt;。这包括 bucket 和 metric 聚合函数，其中有备受期待的&lt;strong&gt;基数&lt;/strong&gt;(又叫唯一计数)聚合函数，更多支持还在实现中。我们不得不创建了一个全新的可视化框架来处理复杂的聚合函数。目前有三种支持的类型：柱状图，线状图和光圈图。同样，更多支持还在实现中。未来每个 Kibana 4 的 beta 版本都值得你期待。&lt;/p&gt;
-&lt;p&gt;光圈图类似多层次的饼图。理论上它可以有无限的环：&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/98999f08bb400c82e886fb6d2371d6a0.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;柱状图现在还不单单可以做时间。这里我们展示根据文件后缀名分解文件大小范围。&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/aa6816aa66f1177f81edee20367e35f6.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;现在你可能已经注意到每个可视化页底部的灰色小条。点击它，就可以看到图背后的源数据，然后，在大众要求下，提供了&lt;strong&gt;导出到CSV&lt;/strong&gt; 以便后续分析的功能。你还可以看到 Elasticsearch 请求和响应的内容，以及请求的处理耗时。&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/504bcf3ceb9a309d0469e3bb5679c3ad.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;Visualization 既可以互动式搜索创建，让你在建图的时候修改请求，也可以关联到一个之前通过 Discover 标签创建保存的请求上。这样你可以关联一个请求到多个可视化页，如果需要更新一个搜索参数，只需要更新单独一个请求就行了。比如，假设你有多个图表，是用下面语句搜索图片内容的：&lt;/p&gt;
-&lt;p&gt;&lt;code&gt;
-png OR jpg
-&lt;/code&gt;&lt;/p&gt;
-&lt;p&gt;保存成 “Images”。然后你打算支持动态 GIF 格式，你只需要更新 “Images” 的内容然后保存即可。所有关联了 “Images” 请求的图都会自动应用变更。&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/cb00f30b6ef8165bbac7c089dfbe6c5b.jpg&quot; alt=&quot;&quot;&gt;]&lt;/p&gt;
-&lt;h2 id=&quot;section-3&quot;&gt;给我看更多的图！&lt;/h2&gt;
-&lt;p&gt;当然，你依然可以创建令人惊叹的仪表板，而且它们现在更方便创建和管理了。过去那堆凌乱的配置框一去不复返了。添加进仪表板的每个面板都可以在 Visualize 标签页理创建、保存，并且重复利用。就像保存了的搜索可以在多个 visualizations 里使用一样，保存了的 visualization 也可以在多个仪表板里使用。你需要更新一个 visualization 的话，只需要在一个地方修改好，每个仪表板里的都会应用变更。&lt;/p&gt;
-&lt;p&gt;更进一步，虽然请求和可视化是绑定到一个选定的索引的，仪表板却不用。&lt;strong&gt;一个仪表板可以有从不同索引来的可视化&lt;/strong&gt;。这意味着，你可以从你的用户索引关联到网站流量索引，从销售数据关联到市场研究再关联到气象站日志。这些都可以在同一屏上！&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/5d03380f74f632ca72a9b8ad1860e21c.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;h2 id=&quot;section-4&quot;&gt;更多&lt;/h2&gt;
-&lt;p&gt;一篇博客里完全不够说完全部内容，所以去下载安装然后亲自试试 &lt;a href=&quot;http://www.elasticsearch.org/overview/kibana/installation/&quot;&gt;HERE&lt;/a&gt; 吧。如果你来自 Kibana 3，我们收集了一个小小的 FAQ 解释：&lt;a href=&quot;https://github.com/elasticsearch/kibana/blob/master/K3_FAQ.md&quot;&gt;HERE&lt;/a&gt;。还是老话，我们需要你的反馈，构建 Kibana 4 的每一天，我们都用得着这些反馈，而我们也会继续让 Kibana 变得更好，更快，更简单。&lt;/p&gt;
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-  &lt;/div&gt;
-
-</description>
-        <pubDate>Tue, 07 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-07-kibana-4-beta-1-released-bce65c2c2.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-07-kibana-4-beta-1-released-bce65c2c2.html</guid>
-        
-        
-        <category>chenlinux</category>
         
       </item>
     
