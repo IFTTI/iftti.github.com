@@ -1,0 +1,79 @@
+---
+layout: post
+title: 'R17新的调度策略+sub'
+time: 2014-05-18 00:00:00 +0800
+site_name: yufeng.info
+source_url: http://blog.yufeng.info/archives/3149
+images:
+  d693438b321d2296cf0024dfaef1d633: http://blog.yufeng.info/wp-content/uploads/2014/05/nmon1.jpg
+  ab99f38faf1db61a4395001b1c8efce6: http://blog.yufeng.info/wp-content/uploads/2014/05/nmon2.jpg
+---
+{% raw %}
+
+			<div style="margin-top: 15px; font-style: italic">
+<p><strong>原创文章，转载请注明：</strong> 转载自<a href="http://blog.yufeng.info/" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/', '系统技术非业余研究']);">系统技术非业余研究</a></p>
+<p><strong>本文链接地址:</strong> <a href="http://blog.yufeng.info/archives/3149" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/archives/3149', 'R17新的调度策略+sub']);">R17新的调度策略+sub</a></p>
+</div>
+<p>R17的<a href="http://www.erlang.org/download/otp_src_17.0.readme" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://www.erlang.org/download/otp_src_17.0.readme', 'release note']);">release note</a>提到：</p>
+<blockquote>
+<p>   OTP-11385  A new optional scheduler utilization balancing mechanism has<br>
+	      been introduced. For more information see the +sub command<br>
+	      line argument.</p>
+<p>	      Characteristics impact: None, when not enabled. When enabled,<br>
+	      changed timing in the system, normally a small overhead due<br>
+	      to measuring of utilization and calculating balancing<br>
+	      information. On some systems, such as old Windows systems,<br>
+	      the overhead can be quite substantial. This time measurement<br>
+	      overhead highly depend on the underlying primitives provided<br>
+	      by the OS.
+</p>
+</blockquote>
+<p>引入了新的调度策略，具体的实现参见：<a href="https://github.com/erlang/otp/commit/e7ea832a4a3a8ba2f94ce02a47ca34b60277cb0a" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'https://github.com/erlang/otp/commit/e7ea832a4a3a8ba2f94ce02a47ca34b60277cb0a', '这里']);">这里</a><br>
+作者是大名鼎鼎的rickard-green，代码质量一定不会错的。 </p>
+<p>那这调度器策略干啥的呢？参见<a href="http://www.erlang.org/doc/man/erl.html" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://www.erlang.org/doc/man/erl.html', 'erl文档']);">erl文档</a>, 写的很清楚了：</p>
+<blockquote><p>+sub true|false<br>
+Enable or disable scheduler utilization balancing of load. By default scheduler utilization balancing is disabled and instead scheduler compaction of load is enabled which will strive for a load distribution which causes as many scheduler threads as possible to be fully loaded (i.e., not run out of work). When scheduler utilization balancing is enabled the system will instead try to balance scheduler utilization between schedulers. That is, strive for equal scheduler utilization on all schedulers.
+</p></blockquote>
+<p>再对比下默认的调度器策略说明,+scl:</p>
+<blockquote><p>+scl true|false<br>
+Enable or disable scheduler compaction of load. By default scheduler compaction of load is enabled. When enabled, load balancing will strive for a load distribution which causes as many scheduler threads as possible to be fully loaded (i.e., not run out of work). This is accomplished by migrating load (e.g. runnable processes) into a smaller set of schedulers when schedulers frequently run out of work. When disabled, the frequency with which schedulers run out of work will not be taken into account by the load balancing logic.
+</p></blockquote>
+<p>就很容易明白，之前的调度策略是先让低ID的调度器忙起来，不够用的话，再把高ID的拉下水，比较节能。但是在某些专机专用的场合，调度器能耗不是重点，希望全部调度器能够参与计算，减少系统的延迟，才是重点。 那这个+sub true就是你想要的。<br>
+这个特性唯一依赖的就是高精度时钟，而linux是不缺的, 默认不开启。<br>
+写段代码验证下，fib:busy让CPU保持狂运算：</p>
+<pre class="brush: bash; title: ; notranslate" title="">
+$ cat fib.erl
+-module(fib).
+-export([fib/1, busy/0]).
+
+fib(0) -&gt; 1;
+fib(1) -&gt; 1;
+fib(N) -&gt; fib(N-1) + fib(N-2).
+busy()-&gt; fib(10), busy().
+</pre>
+<p>分别用不同的调度器策略试验下效果， +sbt db绑定CPU，方便观察：</p>
+<pre class="brush: erlang; title: ; notranslate" title="">
+$ erl  +sbt db +sub true 
+Erlang/OTP 17 [erts-6.0.1] 1 [64-bit] [smp:16:16] [async-threads:10] [hipe] [kernel-poll:false]
+
+Eshell V6.0.1  (abort with ^G)
+1&gt; [spawn(fun()-&gt; fib:busy() end)||_&lt;-lists:seq(1,8)].
+[&lt;0.34.0&gt;,&lt;0.35.0&gt;,&lt;0.36.0&gt;,&lt;0.37.0&gt;,&lt;0.38.0&gt;,&lt;0.39.0&gt;,
+ &lt;0.40.0&gt;,&lt;0.41.0&gt;]
+2&gt; 
+</pre>
+<p>不同的策略，CPU使用情况如下图（<a href="http://nmon.sourceforge.net/pmwiki.php" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://nmon.sourceforge.net/pmwiki.php', 'nmon']);">nmon</a>）：<br>
++sub false<br>
+<a href="http://blog.yufeng.info/wp-content/uploads/2014/05/nmon1.jpg" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/05/nmon1.jpg', '']);"><img src="/images/yufeng.info/d693438b321d2296cf0024dfaef1d633.jpg" alt="nmon1" width="625" height="293" class="alignnone size-full wp-image-3156"></a><br>
++sub true<br>
+<a href="http://blog.yufeng.info/wp-content/uploads/2014/05/nmon2.jpg" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/05/nmon2.jpg', '']);"><img src="/images/yufeng.info/ab99f38faf1db61a4395001b1c8efce6.jpg" alt="nmon2" width="631" height="292" class="alignnone size-full wp-image-3157"></a><br>
+效果非常明显。</p>
+<p>祝玩的开心。
+</p>
+<div style="margin-top: 0; margin-bottom: 15px; color: #888888; font-size: 80%; font-style: italic">
+<p>Post Footer automatically generated by <a href="http://easwy.com/blog/wordpress/wp-posturl/" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://easwy.com/blog/wordpress/wp-posturl/', 'wp-posturl plugin']);" style="color: #8888FF; text-decoration: underline;">wp-posturl plugin</a> for wordpress.</p>
+</div>
+
+			<div class="fixed"></div>
+		
+{% endraw %}

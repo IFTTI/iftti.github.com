@@ -1,0 +1,108 @@
+---
+layout: post
+title: 'Erlang 新数据类型Map的定位和性能'
+time: 2014-03-12 00:00:00 +0800
+site_name: yufeng.info
+source_url: http://blog.yufeng.info/archives/3098
+---
+{% raw %}
+
+			<div style="margin-top: 15px; font-style: italic">
+<p><strong>原创文章，转载请注明：</strong> 转载自<a href="http://blog.yufeng.info/" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/', '系统技术非业余研究']);">系统技术非业余研究</a></p>
+<p><strong>本文链接地址:</strong> <a href="http://blog.yufeng.info/archives/3098" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/archives/3098', 'Erlang 新数据类型Map的定位和性能']);">Erlang 新数据类型Map的定位和性能</a></p>
+</div>
+<p>Erlang R17最大的语言层面的变化莫过是引入 Map数据结构，参见：<a href="http://blog.yufeng.info/archives/3072" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/archives/3072', 'Erlang R17新特性浅评']);">Erlang R17新特性浅评</a> 还有 <a href="http://joearms.github.io/2014/02/01/big-changes-to-erlang.html" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://joearms.github.io/2014/02/01/big-changes-to-erlang.html', '这里']);">这里</a>。</p>
+<p>Map相关的细节在EEP 43上，参见 <a href="http://www.erlang.org/eeps/eep-0043.html" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://www.erlang.org/eeps/eep-0043.html', '这里']);">这里</a>。</p>
+<p>定位：</p>
+<blockquote><p>
+A record replacement is just that, a replacement. It’s like asking the question, “What do we have?” instead of “What can we get?” The instant rebuttal would be “What do we need?” I say Maps.
+</p></blockquote>
+<p>满足的约束：</p>
+<blockquote>
+<p>The new data-type shall have semantics, syntax and operations that:</p>
+<p>&gt; provides an association set from key terms to value terms which can be constructed, accessed and updated using language syntax<br>
+&gt; can be uniquely distinguished from every other data-type in the language<br>
+&gt; has no compile-time dependency for constructing, accessing or updating contents of maps nor for passing maps between modules, processes or over Erlang distribution<br>
+&gt; can be used in matching expressions in the language<br>
+&gt; has a one-to-one association between printing and parsing the data-type<br>
+&gt; has a well defined order between terms of the type and other Erlang types<br>
+&gt; has at most O(log N) time complexity in insert and lookup operations, where N is the number of key-value associations.
+</p>
+</blockquote>
+<p>思遥同学很贴心的写了一篇maps的分析，参看 <a href="http://www.cnblogs.com/zhengsyao/p/erlang_map_brief.html" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://www.cnblogs.com/zhengsyao/p/erlang_map_brief.html', 'Erlang 的新数据结构 map 浅析 ']);">Erlang 的新数据结构 map 浅析 </a></p>
+<p><span id="more-3098"></span><br>
+从源码来分析的话：</p>
+<pre class="brush: cpp; title: ; notranslate" title="">
+/* erl_map.h */
+typedef struct map_s {
+    Eterm thing_word;
+    Uint  size;
+    Eterm keys;      /* tuple */
+} map_t;
+/* map node                                                                                                                                                                                    
+ *                                                                                                                                                                                             
+ * -----------                                                                                                                                                                                 
+ * Eterm   THING                                                                                                                                                                               
+ * Uint    size                                                                                                                                                                                
+ * Eterm   Keys -&gt; {K1, K2, K3, ..., Kn} where n = size                                                                                                                                        
+ * ----                                                                                                                                                                                        
+ * Eterm   V1                                                                                                                                                                                  
+ * ...                                                                                                                                                                                         
+ * Eterm   Vn, where n = size                                                                                                                                                                  
+ * -----------                                                                                                                                                                                 
+ */
+
+* maps:get/2                                                                                                                                                                                  
+ * return value if key *matches* a key in the map                                                                                                                                              
+ * exception bad_key if none matches                                                                                                                                                           
+ */
+
+/*erl_map.c */
+int erts_maps_get(Eterm key, Eterm map, Eterm *value) {
+    Eterm *ks,*vs;
+    map_t *mp;
+    Uint n,i;
+
+    mp  = (map_t*)map_val(map);
+    n   = map_get_size(mp);
+
+    if (n == 0)
+        return 0;
+
+    ks  = map_get_keys(mp);
+    vs  = map_get_values(mp);
+
+    if (is_immed(key)) {
+        for( i = 0; i &lt; n; i++) {
+            if (ks[i] == key) {
+                *value = vs[i];
+		return 1;
+            }
+	}
+    }
+   for( i = 0; i &lt; n; i++) {
+        if (EQ(ks[i], key)) {
+            *value = vs[i];
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int erts_validate_and_sort_map(map_t* mp)
+{
+ ...
+}
+</pre>
+<p>我们知道map的数据结构非常简单：记录个数，keys, values. keys是以tuple有序存放的。所以插入和移除的代价都很高，查询也是遍历方式进行的。</p>
+<p>map数据结构的复杂性和进程字典(put,get)相比都简单很多, 所以map第一天设计就不是为了大量存放kv数据的目的，它的目的是提供一种更好的record的替代品，在细节上改进：支持atom以外的key, 语法和语义更自然。</p>
+<p>小结： 如果要性能，请使用ets, dict等数据结构;如果要替代record用的更顺手,用map。</p>
+<p>祝玩的开心！
+</p>
+<div style="margin-top: 0; margin-bottom: 15px; color: #888888; font-size: 80%; font-style: italic">
+<p>Post Footer automatically generated by <a href="http://easwy.com/blog/wordpress/wp-posturl/" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://easwy.com/blog/wordpress/wp-posturl/', 'wp-posturl plugin']);" style="color: #8888FF; text-decoration: underline;">wp-posturl plugin</a> for wordpress.</p>
+</div>
+
+			<div class="fixed"></div>
+		
+{% endraw %}

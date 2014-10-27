@@ -1,0 +1,150 @@
+---
+layout: post
+title: '基于LLVM的高性能Erlang(Hipe)尝鲜'
+time: 2014-03-25 00:00:00 +0800
+site_name: yufeng.info
+source_url: http://blog.yufeng.info/archives/3104
+images:
+  b508e598990c8b5b837eab184465f98e: http://blog.yufeng.info/wp-content/uploads/2014/03/722x227-hipe_llvm_arch.png
+  63db56edc36fd41466eb3699ad631b81: http://blog.yufeng.info/wp-content/uploads/2014/03/llvm_pipeline.png
+  b1ee617641a245d58d6352a072d7ecd0: http://blog.yufeng.info/wp-content/uploads/2014/03/beam_erllvm.png
+  3567dfd5124eb4041d5d7b7939275f18: http://blog.yufeng.info/wp-content/uploads/2014/03/hipe_erllvm.png
+---
+{% raw %}
+
+			<div style="margin-top: 15px; font-style: italic">
+<p><strong>原创文章，转载请注明：</strong> 转载自<a href="http://blog.yufeng.info/" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/', '系统技术非业余研究']);">系统技术非业余研究</a></p>
+<p><strong>本文链接地址:</strong> <a href="http://blog.yufeng.info/archives/3104" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/archives/3104', '基于LLVM的高性能Erlang(Hipe)尝鲜']);">基于LLVM的高性能Erlang(Hipe)尝鲜</a></p>
+</div>
+<p>即将发布的R17A版本引入很重要的一个针对性能提升的特性：”Support the LLVM backend in HiPE”，具体改变参见<a href="https://github.com/erlang/otp/commit/9d46875b53ffb21bc55aec4a2c76472133ea5d1c" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'https://github.com/erlang/otp/commit/9d46875b53ffb21bc55aec4a2c76472133ea5d1c', '这里']);">这里</a>. 我们知道Erlang是一门领域语言，第一天就是为电信工业高可用，集群和热更新环境而设计的，语言的性能一开始不是重点。直到R12版本才加入SMP多处理器，充分适应多核化的硬件发展趋势，从此向着高性能大步迈进。</p>
+<p>Erlang的虚拟机是register based的，性能上和python类似，和c语言大概有7倍的差距。虽然大部分的集群和网络服务器，性能瓶颈在IO上面，而且这块erts(erlang运行期系统）做的非常的强大，但是一旦涉及到大量的计算，就有点麻烦了，因为它缺乏类似java jit那样强大的支持，让语言足够的快。解决方案是自己写nif、driver或者bif,但是会破坏稳定性。</p>
+<p>它很早有自己的hipe, 主要是Uppsala University大学的Kostis Sagonas带领学生做的, 97年开始做的，性能的提升虽然不少，但是在架构上有些缺点，而且和otp团队是二个不同的团队，在稳定性上无法达到产品质量。为了进一步解决这个问题，他带着Christos Stavrakakis和Yiannis Tsiouris，重新实现了基于LLVM后端的Hipe，也就是erllvm，官方网站在<a href="http://erllvm.softlab.ntua.gr/%20" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://erllvm.softlab.ntua.gr/ ', '这里']);">这里</a>. </p>
+<p>官方描述如下：</p>
+<blockquote><p>ErLLVM is a project aiming at providing multiple back ends for the High Performance Erlang (HiPE) with the use of the LLVM infastructure.
+</p></blockquote>
+<p>这次R17发布就是把ErLLVM融入到erlang主干版本去。那么ErLLVM的技术改进点在哪里？看下面的图就明白了。</p>
+<p><a href="http://blog.yufeng.info/wp-content/uploads/2014/03/722x227-hipe_llvm_arch.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/03/722x227-hipe_llvm_arch.png', '']);"><img src="/images/yufeng.info/b508e598990c8b5b837eab184465f98e.jpg" alt="722x227-hipe_llvm_arch" width="722" height="227" class="alignnone size-full wp-image-3106"></a></p>
+<p>最关键的一点就是之前的hipe自己从RTL生成硬件代码，而ErlLvm把这个事情交给了llvm专业去生成，它只做RTL-&gt;llvm层的薄薄的翻译，这样稳定性的问题就offload交给了llvm，而llvm的稳定性是经过社区规模考验的。</p>
+<p><a href="http://blog.yufeng.info/wp-content/uploads/2014/03/llvm_pipeline.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/03/llvm_pipeline.png', '']);"><img src="/images/yufeng.info/63db56edc36fd41466eb3699ad631b81.jpg" alt="llvm_pipeline" width="411" height="699" class="alignnone size-full wp-image-3107"></a></p>
+<p>这样就很好的解决了稳定性和性能的问题。<span id="more-3104"></span></p>
+<p>作者在erlang factory上有个<a href="http://www.erlang-factory.com/upload/presentations/519/erllvm.pdf" onclick="_gaq.push(['_trackEvent','download','http://www.erlang-factory.com/upload/presentations/519/erllvm.pdf']);">演讲</a>， 我们摘抄<a href="http://erllvm.softlab.ntua.gr/documentation/installation/" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://erllvm.softlab.ntua.gr/documentation/installation/', '']);"></a>下性能数字：</p>
+<p>和原生的beam相比：<br>
+<a href="http://blog.yufeng.info/wp-content/uploads/2014/03/beam_erllvm.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/03/beam_erllvm.png', '']);"><img src="/images/yufeng.info/b1ee617641a245d58d6352a072d7ecd0.jpg" alt="beam_erllvm" width="939" height="469" class="alignnone size-full wp-image-3109"></a></p>
+<p>和最初的hipe相比：<br>
+<a href="http://blog.yufeng.info/wp-content/uploads/2014/03/hipe_erllvm.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/03/hipe_erllvm.png', '']);"><img src="/images/yufeng.info/3567dfd5124eb4041d5d7b7939275f18.jpg" alt="hipe_erllvm" width="941" height="529" class="alignnone size-full wp-image-3110"></a></p>
+<p>我们可以看到和原来的hipe性能相当，但是稳定性提升不少。接下来我们来体验下，安装指南在这里。<br>
+首先需要安装llvm, 下载页面在<a href="http://llvm.org/releases/download.html" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://llvm.org/releases/download.html', '这里']);">这里</a>，只需要安装3.4版本以上就好。</p>
+<blockquote><p>
+NOTE: A custom LLVM version is not needed anymore in order to install and use the LLVM backend for HiPE. You can safely ignore everything below by making sure that you have LLVM 3.4 (or newer) installed in your system.</p></blockquote>
+<p>我的系统是RHEL6U2, 安装过程如下：</p>
+<pre class="brush: bash; title: ; notranslate" title="">
+$ uname -r
+2.6.32-220.23.1.tb704.el6.x86_64
+$ wget http://llvm.org/releases/3.4/llvm-3.4.src.tar.gz
+$ tar xzvf llvm-3.4.src.tar.gz 
+$ cd llvm-3.4
+$ mkdir build &amp;&amp; cd build
+$ ../configure &amp;&amp; make -j 16
+$ sudo make install
+</pre>
+<p>如果不出意外，llvm就安装好了，如何确认呢？<br>
+<code>$ which llc<br>
+/usr/local/bin/llc<br>
+</code><br>
+能顺利看到llc就好了, 说明安装成功，接下来安装erlang. </p>
+<p>erlang我们很熟悉了，我就不啰嗦了，用kerl快速搞起，为了看到效果，我们把lib/hipe/llvm/hipe_llvm_main.erl里面的io:format打开方便调试。</p>
+<pre class="brush: bash; title: ; notranslate" title="">
+$ kerl build git git://github.com/erlang/otp master r17alph
+$ kerl install r17alph r17alph
+$ r17alph/bin/erl
+Erlang/OTP 17 [RELEASE CANDIDATE 2] [erts-6.0] 1 [64-bit] [smp:16:16] [async-threads:10] [hipe] [kernel-poll:false]
+
+Eshell V6.0  (abort with ^G)
+1&gt; 
+</pre>
+<p>看版本号就知道我们安装完毕了，现在来把玩下：</p>
+<pre class="brush: bash; title: ; notranslate" title="">
+$ cat &gt; test.erl
+-module(test).
+-export([hello/1]).
+hello(Name) -&gt;
+  io:format("Hello ~w!~n", [Name]).
+CTRL+D
+
+$ r17alph/bin/erl
+Erlang/OTP 17 [RELEASE CANDIDATE 2] [erts-6.0] 1 [64-bit] [smp:16:16] [async-threads:10] [hipe] [kernel-poll:false]
+
+Eshell V6.0  (abort with ^G)
+1&gt; c(test).
+{ok,test}
+2&gt; hipe:c(test, [to_llvm]).
+OPT: opt -O3 -mem2reg -strip /dev/shm/llvm_319827/module_info_0.ll -o /dev/shm/llvm_319827/module_info_0.bc
+OPT: opt -O3 -mem2reg -strip /dev/shm/llvm_107590586/module_info_1.ll -o /dev/shm/llvm_107590586/module_info_1.bc
+OPT: opt -O3 -mem2reg -strip /dev/shm/llvm_128365190/hello_1.ll -o /dev/shm/llvm_128365190/hello_1.bc
+LLC: llc -O3 -code-model=medium -stack-alignment=8 -tailcallopt -filetype=asm /dev/shm/llvm_319827/module_info_0.bc
+LLC: llc -O3 -code-model=medium -stack-alignment=8 -tailcallopt -filetype=asm /dev/shm/llvm_107590586/module_info_1.bc
+LLC: llc -O3 -code-model=medium -stack-alignment=8 -tailcallopt -filetype=asm /dev/shm/llvm_128365190/hello_1.bc
+gcc: gcc -c /dev/shm/llvm_319827/module_info_0.s -o /dev/shm/llvm_319827/module_info_0.o
+gcc: gcc -c /dev/shm/llvm_107590586/module_info_1.s -o /dev/shm/llvm_107590586/module_info_1.o
+gcc: gcc -c /dev/shm/llvm_128365190/hello_1.s -o /dev/shm/llvm_128365190/hello_1.o
+{ok,test}
+3&gt;  test:hello(world).
+Hello world!
+ok
+4&gt; test:module_info().
+[{exports,[{hello,1},{module_info,0},{module_info,1}]},
+ {imports,[]},
+ {attributes,[{vsn,[66993814452650317180827424605876502141]}]},
+ {compile,[{options,[]},
+           {version,"5.0"},
+           {time,{2014,3,25,12,24,14}},
+           {source,"/home/chuba/test.erl"}]}]
+5&gt; 
+BREAK: (a)bort (c)ontinue (p)roc info (i)nfo (l)oaded
+       (v)ersion (k)ill (D)b-tables (d)istribution
+</pre>
+<p>上面的例子我们演示了，先编译成普通的beam文件再通过hipe转成jit的例子，程序运行正常。同时我们也很清楚的看到llvm的工具链如何在后台生成代码。</p>
+<p>接着我们演示下直接编程成hipe格式的:</p>
+<pre class="brush: bash; title: ; notranslate" title="">
+$ r17alph/bin/erlc +native +"{hipe, [to_llvm]}"  test.erl 
+OPT: opt -O3 -mem2reg -strip /dev/shm/llvm_117655405/module_info_1.ll -o /dev/shm/llvm_117655405/module_info_1.bc
+OPT: opt -O3 -mem2reg -strip /dev/shm/llvm_37062758/module_info_0.ll -o /dev/shm/llvm_37062758/module_info_0.bc
+OPT: opt -O3 -mem2reg -strip /dev/shm/llvm_87781561/hello_1.ll -o /dev/shm/llvm_87781561/hello_1.bc
+LLC: llc -O3 -code-model=medium -stack-alignment=8 -tailcallopt -filetype=asm /dev/shm/llvm_117655405/module_info_1.bc
+LLC: llc -O3 -code-model=medium -stack-alignment=8 -tailcallopt -filetype=asm /dev/shm/llvm_37062758/module_info_0.bc
+LLC: llc -O3 -code-model=medium -stack-alignment=8 -tailcallopt -filetype=asm /dev/shm/llvm_87781561/hello_1.bc
+gcc: gcc -c /dev/shm/llvm_37062758/module_info_0.s -o /dev/shm/llvm_37062758/module_info_0.o
+gcc: gcc -c /dev/shm/llvm_117655405/module_info_1.s -o /dev/shm/llvm_117655405/module_info_1.o
+gcc: gcc -c /dev/shm/llvm_87781561/hello_1.s -o /dev/shm/llvm_87781561/hello_1.o
+
+$ r17alph/bin/erl 
+Erlang/OTP 17 [RELEASE CANDIDATE 2] [erts-6.0] 1 [64-bit] [smp:16:16] [async-threads:10] [hipe] [kernel-poll:false]
+
+Eshell V6.0  (abort with ^G)
+1&gt; test:module_info().
+[{exports,[{hello,1},{module_info,0},{module_info,1}]},
+ {imports,[]},
+ {attributes,[{vsn,[66993814452650317180827424605876502141]}]},
+ {compile,[{options,[{outdir,"/home/chuba"},
+                     {hipe,[to_llvm]},
+                     native]},
+           {version,"5.0"},
+           {time,{2014,3,25,12,25,2}},
+           {source,"/home/chuba/test.erl"}]}]
+2&gt; 
+BREAK: (a)bort (c)ontinue (p)roc info (i)nfo (l)oaded
+       (v)ersion (k)ill (D)b-tables (d)istribution
+
+$ r17alph/bin/erl -noshell -s test hello world  -s erlang halt
+Hello [world]!
+</pre>
+<p>有兴趣的同学可以深入测试下性能和稳定性的提升，分享出来。</p>
+<p>小结： ErLLVM同等性能，稳定性更好, 官方说法是可以在产品中使用。<br>
+祝玩得开心！</p>
+<div style="margin-top: 0; margin-bottom: 15px; color: #888888; font-size: 80%; font-style: italic">
+<p>Post Footer automatically generated by <a href="http://easwy.com/blog/wordpress/wp-posturl/" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://easwy.com/blog/wordpress/wp-posturl/', 'wp-posturl plugin']);" style="color: #8888FF; text-decoration: underline;">wp-posturl plugin</a> for wordpress.</p>
+</div>
+
+			<div class="fixed"></div>
+		
+{% endraw %}

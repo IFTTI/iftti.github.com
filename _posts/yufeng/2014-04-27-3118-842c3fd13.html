@@ -1,0 +1,123 @@
+---
+layout: post
+title: 'Erlang内存分配器之mbcs_pool'
+time: 2014-04-27 00:00:00 +0800
+site_name: yufeng.info
+source_url: http://blog.yufeng.info/archives/3118
+images:
+  45789a3ea6954e612b562fedfb69f260: http://blog.yufeng.info/wp-content/uploads/2014/04/allocators-1.png
+  f91381991753ce87c711eb10feacdd31: http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_acul.png
+  ba6eb2a51d076b7a3b1435c9e7dfad56: http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_acul_default.png
+  07fbf40b17e1cc9ccd37ce8894bc6a1a: http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_recon.png
+---
+{% raw %}
+
+			<div style="margin-top: 15px; font-style: italic">
+<p><strong>原创文章，转载请注明：</strong> 转载自<a href="http://blog.yufeng.info/" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/', '系统技术非业余研究']);">系统技术非业余研究</a></p>
+<p><strong>本文链接地址:</strong> <a href="http://blog.yufeng.info/archives/3118" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/archives/3118', 'Erlang内存分配器之mbcs_pool']);">Erlang内存分配器之mbcs_pool</a></p>
+</div>
+<p>Erlang R17.0 发布的release note 里面花了挺多笔墨讲了内存carrier迁移的特性：</p>
+<blockquote>
+<p>Support for migration of memory carriers between memory allocator instances has been introduced.<br>
+By default this feature is not enabled and do not effect the characteristics of the system. When enabled it has the following impact on the characteristics of the system:</p>
+<p>   * Reduced memory footprint when the memory load is unevenly distributed between scheduler specific allocator instances.<br>
+   * Depending on the default allocaton strategy used on a specific allocator there might or might not be a slight performance loss.<br>
+   * When enabled on the fix_alloc allocator, a different strategy for management of fix blocks will be used.<br>
+   * The information returned from erlang:system_info({allocator, A}), and erlang:system_info({allocator_sizes, A}) will be slightly different when this feature has been enabled. An mbcs_pool tuple will be present giving information about abandoned carriers, and in the fix_alloc case no fix_types tuple will be present.</p>
+<p>For more information, see the documentation of the +M acul command line argument.</p>
+</blockquote>
+<p>那么什么是”migration of memory carriers between memory allocator instances“，解决什么问题呢？<br>
+官方的文档 erts/emulator/internal_doc/CarrierMigration.md, 见<a href="https://github.com/erlang/otp/blob/master/erts/emulator/internal_doc/CarrierMigration.md" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'https://github.com/erlang/otp/blob/master/erts/emulator/internal_doc/CarrierMigration.md', '这里']);">这里</a>, 已经描述的非常清楚了。<br>
+<a href="http://blog.yufeng.info/wp-content/uploads/2014/04/allocators-1.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/04/allocators-1.png', '']);"><img src="/images/yufeng.info/45789a3ea6954e612b562fedfb69f260.jpg" alt="allocators-1" width="567" height="247" class="alignnone size-full wp-image-3128"></a><br>
+我来简单的说下复述下：<br>
+Erlang的内存分配器为了提高性能，每个调度器一个都有自己的内存池，在申请/释放内存的可以避免大量的锁争用，提高了性能。但也带来内存浪费的问题，首先调度器默认使用策略是“full load or not”, 也就是说低ID的调度器如果没饱和的话，不会用下一个调度器。在高负载的情况下，更多的调度器被启用，该调度器上的内存被缓冲，留在池子里。当工作负载下去的的话，因为压力没到，高ID的调度器没机会被使用，也就是说这个时候，这个调度器上的内存就浪费掉了，从整个VM的角度来看，内存的碎片率就很高。Erlang的VM是以稳定性著名的，但是它也有Crash的时候，十有八九是因为内存爆了。我们在设计系统的时候，通常从数据量去反推需要的内存，但是如果有碎片或者浪费存在严重的话，我们就无法准确，就可能导致灾难。 为了解决这个问题，最直接的反应就是当每个调度器池子里面的内存使用率低于一定程度的时候，就把该块内存出让出来，让有需要的调度器能够利用起来。这就是内存carriers迁移要解决的核心问题。</p>
+<p>这个特性在R16加入的默认不启用，R17默认启用了，也就是说+M acul 默认是“de”. 带来的影响有下面几个：<br>
+1. 内存申请的效率，现在的测试是先在自己的池子里面分配，不满足了就找cpool，再不满足才去找mseg或者sys分配器申请。效率和利用率是鱼和熊掌不可兼得。<br>
+2. 内存分配器的内存除了在池子里面还有在cpool里，统计内存的时候要小心。<br>
+3. 内存浪费率到什么时候被废弃。</p>
+<p><span id="more-3118"></span><br>
+我们先来看看acul参数的含义：</p>
+<blockquote><p>+M acul <utilization>|de<br>
+Abandon carrier utilization limit. A valid <utilization> is an integer in the range [0, 100] representing utilization in percent. When a utilization value larger than zero is used, allocator instances are allowed to abandon multiblock carriers. If de (default enabled) is passed instead of a <utilization>, a recomended non zero utilization value will be used. The actual value chosen depend on allocator type and may be changed between ERTS versions. Currently the default equals de, but this may be changed in the future. Carriers will be abandoned when memory utilization in the allocator instance falls below the utilization value used. Once a carrier has been abandoned, no new allocations will be made in it. When an allocator instance gets an increased multiblock carrier need, it will first try to fetch an abandoned carrier from an allocator instances of the same allocator type. If no abandoned carrier could be fetched, it will create a new empty carrier. When an abandoned carrier has been fetched it will function as an ordinary carrier. This feature has special requirements on the allocation strategy used. Currently only the strategies aoff, aoffcbf and aoffcaobf support abandoned carriers. This feature also requires multiple thread specific instances to be enabled. When enabling this feature, multiple thread specific instances will be enabled if not already enabled, and the aoffcbf strategy will be enabled if current strategy does not support abandoned carriers. This feature can be enabled on all allocators based on the alloc_util framework with the exception of temp_alloc (which would be pointless).
+</utilization></utilization></utilization></p></blockquote>
+<p>再从源码我们回到上面的几个问题：<br>
+<a href="http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_acul.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_acul.png', '']);"><img src="/images/yufeng.info/f91381991753ce87c711eb10feacdd31.jpg" alt="mbcs_pool_acul" width="555" height="366" class="alignnone size-full wp-image-3119"></a></p>
+<p>我们知道当acul 设置成“de”, 也就是说default的时候<br>
+<a href="http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_acul_default.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_acul_default.png', '']);"><img src="/images/yufeng.info/ba6eb2a51d076b7a3b1435c9e7dfad56.jpg" alt="mbcs_pool_acul_default" width="440" height="57" class="alignnone size-full wp-image-3120"></a></p>
+<p>这二段源码回答了release note里面“migration of memory carriers” 问题二和三。 问题一在CarrierMigration.md回答掉了。 那现在就剩下问题四需要回答下，这部分内存如何计算的。</p>
+<pre class="brush: bash; title: ; notranslate" title="">
+$ erl
+Erlang/OTP 17 [erts-6.0.1] 1 [64-bit] [smp:16:16] [async-threads:10] [hipe] [kernel-poll:false]
+
+Eshell V6.0.1  (abort with ^G)
+1&gt; erlang:system_info({allocator, binary_alloc}).
+...
+ {instance,2,
+           [{versions,"0.9","3.0"},
+            {options,[{e,true},
+                      {t,true},
+                      {ramv,false},
+                      {sbct,524288},
+                      {asbcst,4145152},
+                      {rsbcst,20},
+                      {rsbcmt,80},
+                      {rmbcmt,50},
+                      {mmbcs,32768},
+                      {mmmbc,18446744073709551615},
+                      {mmsbc,256},
+                      {lmbcs,5242880},
+                      {smbcs,262144},
+                      {mbcgs,10},
+                      {acul,60},
+                      {as,aoffcbf}]},
+            {mbcs,[{blocks,0,0,0},
+                   {blocks_size,0,0,0},
+                   {carriers,1,1,1},
+                   {mseg_alloc_carriers,0},
+                   {sys_alloc_carriers,1},
+                   {carriers_size,32928,32928,32928},
+                   {mseg_alloc_carriers_size,0},
+                   {sys_alloc_carriers_size,32928}]},
+            {mbcs_pool,[{blocks,0},
+                        {blocks_size,0},
+                        {carriers,0},
+                        {carriers_size,0}]},
+            {sbcs,[{blocks,0,0,0},
+                   {blocks_size,0,0,0},
+                   {carriers,0,0,0},
+                   {mseg_alloc_carriers,0},
+                   {sys_alloc_carriers,0},
+                   {carriers_size,0,0,0},
+                   {mseg_alloc_carriers_size,0},
+                   {sys_alloc_carriers_size,0}]},
+            {calls,[{binary_alloc,0,0},
+                    {binary_free,0,0},
+                    {binary_realloc,0,0},
+                    {mseg_alloc,0,0},
+                    {mseg_dealloc,0,0},
+                    {mseg_realloc,0,0},
+                    {sys_alloc,0,1},
+                    {sys_free,0,0},
+                    {sys_realloc,0,0}]}]},
+...
+</pre>
+<p>从R17的binary_alloc我们可以看出，输出里面多了个mbcs_pool信息，而且acul默认是60，也就是ERTS_ALC_DEFAULT_ENABLED_ACUL。</p>
+<p>但是, 内存分配器的这些参数解读非常麻烦，一般的人看不懂。 之前的博文，我就介绍了<a href="http://blog.yufeng.info/archives/3080" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/archives/3080', 'recon']);">recon</a>, 其中的<a href="http://ferd.github.io/recon/recon_alloc.html" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://ferd.github.io/recon/recon_alloc.html', 'recon_alloc']);">recon_alloc</a>模块，就是用来帮用户解决这个问题的：</p>
+<blockquote><p>Functions to deal with Erlang’s memory allocators, or particularly, to try to present the allocator data in a way that makes it simpler to discover possible problems.</p></blockquote>
+<p>recon最近的版本就mbcs_pool做了很好的支持，”Include mbcs_pool in all mbcs values“, 参见 <a href="https://github.com/ferd/recon/commit/28daf8dc59883d2415ae42a54351df85ea0aa123" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'https://github.com/ferd/recon/commit/28daf8dc59883d2415ae42a54351df85ea0aa123', '这里']);">这里</a></p>
+<p><a href="http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_recon.png" onclick="_gaq.push(['_trackEvent', 'outbound-article-int', 'http://blog.yufeng.info/wp-content/uploads/2014/04/mbcs_pool_recon.png', '']);"><img src="/images/yufeng.info/07fbf40b17e1cc9ccd37ce8894bc6a1a.jpg" alt="mbcs_pool_recon" width="707" height="109" class="alignnone size-full wp-image-3121"></a></p>
+<blockquote><p>
+In R16B02 an option to enable a mbc pool was added. In order to<br>
+get the total size of current mbcs we have to include the pool in<br>
+all our calculations with mbcs.
+</p></blockquote>
+<p>有了recon_alloc的帮忙，再花点时间，你就可以非常清楚的知道你的VM内存使用的情况，避免内存使用的悲剧发生。</p>
+<p>另外observer里面的crashdump_viewer.erl也把mbcs_pool的内存使用关注起来了，也更准确了。</p>
+<p>祝玩的开心！</p>
+<div style="margin-top: 0; margin-bottom: 15px; color: #888888; font-size: 80%; font-style: italic">
+<p>Post Footer automatically generated by <a href="http://easwy.com/blog/wordpress/wp-posturl/" onclick="_gaq.push(['_trackEvent', 'outbound-article', 'http://easwy.com/blog/wordpress/wp-posturl/', 'wp-posturl plugin']);" style="color: #8888FF; text-decoration: underline;">wp-posturl plugin</a> for wordpress.</p>
+</div>
+
+			<div class="fixed"></div>
+		
+{% endraw %}
