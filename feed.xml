@@ -5,9 +5,319 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Tue, 28 Oct 2014 21:51:58 +0800</pubDate>
-    <lastBuildDate>Tue, 28 Oct 2014 21:51:58 +0800</lastBuildDate>
+    <pubDate>Thu, 30 Oct 2014 20:40:20 +0800</pubDate>
+    <lastBuildDate>Thu, 30 Oct 2014 20:40:20 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>用 perl6-bench 做 perl6 性能对比</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;Perl6 成员上周在奥地利大会上做了一次大聚集，写了不少博客讲过去几个月的优化以及未来几个月的优化。但是我发现似乎从8月以来就一直没有正式的 perl6-bench 的图表报告了。于是想：干脆自己跑一把吧。&lt;/p&gt;
+&lt;p&gt;perl6-bench 项目地址见：&lt;a href=&quot;https://github.com/japhb/perl6-bench&quot;&gt;https://github.com/japhb/perl6-bench&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;项目的主程序 &lt;code&gt;bench&lt;/code&gt; 本身是用 Perl6 写的。所以运行前，得先安装好 Rakudo Star：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;wget http://rakudo.org/downloads/star/rakudo-star-2014.09.tar.gz
+tar zxvf rakudo-star-2014.09.tar.gz
+cd rakudo-star-2014.09
+perl Configure.pl --backend=moar --gen-moar
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;编译完成后，会在 rakudo-star 目录下创建一个 &lt;code&gt;install&lt;/code&gt; 子目录，里面有 &lt;code&gt;bin&lt;/code&gt;，&lt;code&gt;lib&lt;/code&gt; 等编译完成的文件，把这个 bin 加入到你的 $PATH 里去。&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;sed -i &#39;s!\(PATH=.*\)$!\1:~/download/rakudo-star-2014.09/install/bin!&#39; ~/.bash_profile
+source ~/.bash_profile
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;项目的测试程序 &lt;code&gt;timeall&lt;/code&gt; 是用 Perl5 写的。运行前，也得安装几个 CPAN 模块：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;cpanm Capture::Tiny Data::Alias DateTime JSON JSON::XS List::MoreUtils
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;然后就可以开始测试了：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;./bench setup
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;这个命令会在 &lt;code&gt;components&lt;/code&gt; 子目录下逐一 clone 下来各种可以测试的 perl6 实现的源代码 git 库，包括有：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;arane   niecza  nqp-jvm   nqp-parrot  perl5    rakudo-jvm   rakudo-parrot
+moarvm  nqp-js  nqp-moar  parrot      perlito  rakudo-moar
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;下面就开始正式测试了。用时同样会比较长，和上面 git clone 一样，都建议放在 screen 里运行。&lt;/p&gt;
+&lt;p&gt;然后设定本次测试你打算对比哪些：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;export CHECKOUTS=&#39;perl5/v5.20.1 rakudo-jvm/2014.10 rakudo-moar/2014.10 rakudo-moar/2014.09&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;这个写法规范是：git 库名/git tag名&lt;/p&gt;
+&lt;p&gt;然后运行：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;./bench extract $CHECKOUTS
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;这一步会分别 checkout 具体的 tag 到同级的新目录里，然后开始编译：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;./bench build   $CHECKOUTS
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;然后运行测试程序：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;./bench time    $CHECKOUTS
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;一共有 65 个测试，测试项在 &lt;code&gt;microbenchworks.pl&lt;/code&gt; 文件的大数组里定义了。
+我在测试中发现，第 15/65 测试用例，在 &lt;code&gt;nqp-moar&lt;/code&gt; 时会死循环运行，无法正常完成测试，已回报给作者。&lt;/p&gt;
+&lt;p&gt;最后运行结果对比评分：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;./bench compare $CHECKOUTS
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;结果显示，moar 比 jvm 领先一些，比 perl5 还差着呢：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;==&amp;gt; perl6-bench version 997c920 (ignoring startup time and compile time)
+--- showing PEAK RATE (/s), TIMES SLOWER THAN FASTEST (x), and SUMMARY SCORES (skipping incomplete data)
+                                - Perl 5 -   -------------- Perl 6 --------------
+                                 v5.20.1      2014.10      2014.09      2014.10  
+                                   perl5       rakudo       rakudo       rakudo  
+TEST                               perl5          jvm       moarvm       moarvm  
+                                -------------------------------------------------
+empty                                --             0/s          4/s          4/s
+                                    FAIL         34.0x         1.0x         1.1x 
+zero                                 --             0/s          4/s          4/s
+                                    FAIL         33.3x         1.0x         1.1x 
+hello                                --             0/s          4/s          4/s
+                                    FAIL         33.2x         1.0x         1.1x 
+while_empty                     26678545/s     223006/s    1730328/s    3403743/s
+                                     1.0x       119.6x        15.4x         7.8x 
+while_empty_native              26800035/s   1291144447/s   27583644/s   168949423/s
+                                    48.2x         1.0x        46.8x         7.6x 
+while_bind                           --        249216/s    1682441/s    3381083/s
+                                    FAIL         13.6x         2.0x         1.0x 
+while_concat                    13404147/s      26589/s     166714/s     206047/s
+                                     1.0x       504.1x        80.4x        65.1x 
+while_concat_native             13400671/s      65891/s    4138382/s    5216637/s
+                                     1.0x       203.4x         3.2x         2.6x 
+while_int2str                    6026835/s      57112/s     364208/s     455797/s
+                                     1.0x       105.5x        16.5x        13.2x 
+while_int2str_native             6283498/s     111754/s     543142/s     671402/s
+                                     1.0x        56.2x        11.6x         9.4x 
+while_int2str_concat             8711901/s       7006/s      89566/s      93480/s
+                                     1.0x      1243.5x        97.3x        93.2x 
+while_int2str_concat_native      8403097/s      13824/s     153347/s     167585/s
+                                     1.0x       607.9x        54.8x        50.1x 
+while_push_join                  3656434/s      15223/s      18917/s     111952/s
+                                     1.0x       240.2x       193.3x        32.7x 
+while_push                       7821809/s      90685/s      21289/s     239678/s
+                                     1.0x        86.3x       367.4x        32.6x 
+while_pushme                    14440088/s    3184098/s    1225845/s    1560029/s
+                                     1.0x         4.5x        11.8x         9.3x 
+while_array_set                  6171761/s     112655/s     276032/s     335751/s
+                                     1.0x        54.8x        22.4x        18.4x 
+while_hash_set                   1525235/s      58647/s     158810/s     171691/s
+                                     1.0x        26.0x         9.6x         8.9x 
+postwhile_nil                   36412794/s     515093/s    2939870/s    4147168/s
+                                     1.0x        70.7x        12.4x         8.8x 
+postwhile_nil_native            36083908/s   1676476937/s   34716639/s   167547820/s
+                                    46.5x         1.0x        48.3x        10.0x 
+loop_empty                      24051967/s     257307/s    1686547/s    3321511/s
+                                     1.0x        93.5x        14.3x         7.2x 
+loop_empty_native               24181034/s   2276716196/s   28050857/s   193967640/s
+                                    94.2x         1.0x        81.2x        11.7x 
+for_empty                       33943008/s     894886/s    2315939/s    2515590/s
+                                     1.0x        37.9x        14.7x        13.5x 
+for_bind                             --       1571035/s    2331450/s    2586230/s
+                                    FAIL          1.6x         1.1x         1.0x 
+for_assign                      17713024/s    1532922/s    2006784/s    2391570/s
+                                     1.0x        11.6x         8.8x         7.4x 
+for_assign_native               17765094/s    1658168/s    1895988/s    2006162/s
+                                     1.0x        10.7x         9.4x         8.9x 
+for_postinc                     16640609/s     386218/s    1398445/s    1802886/s
+                                     1.0x        43.1x        11.9x         9.2x 
+for_postinc_native              16670507/s    1037555/s    1859233/s    1994065/s
+                                     1.0x        16.1x         9.0x         8.4x 
+for_concat                      14998496/s      29144/s     182410/s     205988/s
+                                     1.0x       514.6x        82.2x        72.8x 
+for_concat_native               15053529/s      49506/s    1353377/s    1465293/s
+                                     1.0x       304.1x        11.1x        10.3x 
+for_concat_2                     8646049/s      15854/s     107213/s     117943/s
+                                     1.0x       545.4x        80.6x        73.3x 
+for_concat_2_native              8659225/s      23751/s     791213/s     986208/s
+                                     1.0x       364.6x        10.9x         8.8x 
+for_push                         8496867/s     122034/s      25166/s     333166/s
+                                     1.0x        69.6x       337.6x        25.5x 
+for_array_set                    7810807/s      57463/s     286036/s     388650/s
+                                     1.0x       135.9x        27.3x        20.1x 
+for_hash_set                     1567864/s      32265/s     168643/s     171446/s
+                                     1.0x        48.6x         9.3x         9.1x 
+reduce_range                     4964114/s     181283/s     318258/s     345797/s
+                                     1.0x        27.4x        15.6x        14.4x 
+reduce_int_comb_range             470778/s       1495/s       3355/s       3406/s
+                                     1.0x       314.8x       140.3x       138.2x 
+any_equals                       2646212/s      15684/s      61867/s      81787/s
+                                     1.0x       168.7x        42.8x        32.4x 
+trim_string                     13660958/s   33565139/s    9291330/s   17910365/s
+                                     2.5x         1.0x         3.6x         1.9x 
+split_string_constant            5615519/s     100014/s     133572/s     171231/s
+                                     1.0x        56.1x        42.0x        32.8x 
+split_string_regex               2017912/s       4137/s      12573/s      16553/s
+                                     1.0x       487.8x       160.5x       121.9x 
+charrange                         363103/s       3416/s      19831/s      24667/s
+                                     1.0x       106.3x        18.3x        14.7x 
+charrange_ignorecase              363529/s       3788/s      14433/s      17899/s
+                                     1.0x        96.0x        25.2x        20.3x 
+visit_2d_indices_while           7276084/s     152635/s     746903/s    1484712/s
+                                     1.0x        47.7x         9.7x         4.9x 
+visit_2d_indices_while_native   11180261/s     553619/s    1177498/s    1451682/s
+                                     1.0x        20.2x         9.5x         7.7x 
+visit_2d_indices_loop           10123295/s     177783/s     834515/s    1843586/s
+                                     1.0x        56.9x        12.1x         5.5x 
+visit_2d_indices_loop_native    12457926/s   440172780/s    1227550/s    1431680/s
+                                    35.3x         1.0x       358.6x       307.5x 
+visit_2d_indices_for             8548538/s     255887/s     675743/s     847728/s
+                                     1.0x        33.4x        12.7x        10.1x 
+visit_2d_indices_cross           1367865/s       4685/s      31407/s      40470/s
+                                     1.0x       292.0x        43.6x        33.8x 
+create_and_copy_2d_grid_cross     541914/s       2230/s      11564/s      13778/s
+                                     1.0x       243.0x        46.9x        39.3x 
+create_and_iterate_hash_kv           --          1564/s      12248/s      12651/s
+                                    FAIL          8.1x         1.0x         1.0x 
+rat_mul_div_cancel                  7439/s       4852/s      33910/s      40614/s
+                                     5.5x         8.4x         1.2x         1.0x 
+rat_harmonic                        1080/s       1732/s      11089/s      11678/s
+                                    10.8x         6.7x         1.1x         1.0x 
+rand                            10885068/s     230938/s     183511/s     213786/s
+                                     1.0x        47.1x        59.3x        50.9x 
+array_set_xx                    13585287/s    1533694/s     545243/s     597926/s
+                                     1.0x         8.9x        24.9x        22.7x 
+parse-json                            23/s          1/s          1/s          1/s
+                                     1.0x        29.6x        37.0x        22.8x 
+parse-json-no-obj-creation           --             1/s          1/s          1/s
+                                    SKIP          1.4x         1.9x         1.0x 
+rc-forest-fire                      1374/s          2/s          9/s          9/s
+                                     1.0x       588.4x       155.8x       146.7x 
+rc-man-or-boy-test                187464/s        --         41252/s      39966/s
+                                     1.0x        FAIL          4.5x         4.7x 
+rc-self-describing-numbers        219156/s        571/s        775/s        782/s
+                                     1.0x       383.9x       282.9x       280.1x 
+rc-dragon-curve                   149131/s       1704/s       5937/s       6260/s
+                                     1.0x        87.5x        25.1x        23.8x 
+rc-9-billion-names                  1821/s         93/s        216/s        500/s
+                                     1.0x        19.7x         8.4x         3.6x 
+rc-mandelbrot                       1168/s        702/s       1440/s       1519/s
+                                     1.3x         2.2x         1.1x         1.0x 
+spinner                              971/s          4/s          5/s          5/s
+                                     1.0x       228.7x       193.1x       182.9x 
+rc-forest-fire-stringify           11162/s         25/s         35/s         41/s
+                                     1.0x       438.8x       314.7x       275.2x 
+string-escape                    1448636/s        --           --           --   
+                                     1.0x        FAIL         FAIL         FAIL  
+                                =================================================
+SUMMARY SCORE                     2253.9         40.5        100.0        139.6  
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;如何把数据用图的形式展示，我还没有找到办法。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- JiaThis Button BEGIN --&gt;
+&lt;div class=&quot;jiathis_style&quot;&gt;
+&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
+&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
+&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
+&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
+&lt;/div&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+var jiathis_config={
+	data_track_clickback:true,
+	summary:&quot;&quot;,
+	ralateuid:{
+		&quot;tsina&quot;:&quot;1035836154&quot;
+	},
+	shortUrl:false,
+	hideMore:false
+}
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
+&lt;!-- JiaThis Button END --&gt;
+&lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Tue, 28 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-28-perl6-bench-4806c8a78.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-28-perl6-bench-4806c8a78.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>超酷算法：喷泉码</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;是的，是更新这个十分罕见的超酷算法系列新的一集的时候了。如果你不熟悉这个系列，你可以看看之前的&lt;a title=&quot;超酷算法：基数估计&quot; href=&quot;http://blog.jobbole.com/?s=%E8%B6%85%E9%85%B7%E7%AE%97%E6%B3%95&quot; target=&quot;_blank&quot;&gt;一些文章&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;今天的主题是&lt;a title=&quot;Fountain code&quot; href=&quot;http://en.wikipedia.org/wiki/Fountain_code&quot; target=&quot;_blank&quot;&gt;喷泉码&lt;/a&gt;，或者称为“无率码”。喷泉码是将一些数据，例如文件，转化为一个有效的任意数量的编码包的方法，这样只要你接收到稍大于信源数据包数量的编码包的子集，就可以恢复信源数据。换句话说，你创建了一个编码数据的“喷泉”，只要接收端接收到足够的“水滴”，就可以恢复文件，而不管它们接到哪一个遗漏了哪一个。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;让喷泉码如此知名的原因是，它允许你在有损连接（比如说因特网）的情况下传输文件，而且传输过程不依赖于你是否知道丢包率，也不需要接收端反馈哪些数据包丢失了。可以看到在很多场景，从通过广播媒介传送一个静态文件，比如点播电视，到在多源并行下载中传播文件包，像BitTorrent那样，喷泉码都得到了很好的应用。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;虽然从根本上喷泉码惊人地简单。它有许多种类，但是在本文中我们只介绍最简单的——LT码，或者&lt;a title=&quot;Luby transform code&quot; href=&quot;http://en.wikipedia.org/wiki/Luby_transform_code&quot; target=&quot;_blank&quot;&gt;Luby变换码&lt;/a&gt;。LT码生成编码包的步骤如下：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;在 l 和 k 的之间随机选取一个数字 d，d 代表文件中块的数量。我们将会在后面的内容中讨论如何选取最佳的d。&lt;/li&gt;
+&lt;li&gt;从文件中随机选取 d 块，并把它们组合起来。这里我们可以用异或运算来组合这些块。&lt;/li&gt;
+&lt;li&gt;传送合并的块，同时发送它由哪些块构成的信息。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p align=&quot;left&quot;&gt;这些非常简单是不是？主要依赖于我们怎么选取块的数量并组合起来（叫做度分布），在接下来我们会简短的介绍一下。你可以从上面的描述中看到有些编码块最后只由单一源码块组成，而大部分将由多个源码块组成。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;另外一个可能不是立刻显现的事情是，虽然我们确实不得不让接收端知道输出码块由哪些码块合并产生的，我们不需要详细地发送那个列表。如果发送端和接收端使用相同的伪随机数生成器（pseudo-random number generator，PRNG），我们可以用一个随机选择的种子来生成PRNG，并且用这个来选择度和该组源码块。然后我们只需要在发送编码块的同时发送种子，我们的接收端可以用相同的过程来重建我们使用过的源码块列表。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;解码的过程有一点复杂，但是没有很复杂：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;重建用于生成编码块的源码块列表。&lt;/li&gt;
+&lt;li&gt;对于列表中的每一个源码块，如果已经解码了，将它和编码块做异或运算，并且把它从源码块列表中移除。&lt;/li&gt;
+&lt;li&gt;如果在列表剩下至少两个源码块，将编码块加入到一个等候区。&lt;/li&gt;
+&lt;li&gt;如果在列表中只剩下一个源码块，我们已经成功的把另一个源码块解码了，那么把它加入到已解码文件中，迭代等候列表，重复以上过程直到有编码块包含它。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p align=&quot;left&quot;&gt;让我们通过一个译码实例来更清晰说明这个过程。假设我们收到5个编码块，每个长度是一个字节，并且我们知道每个源码块由哪些构成。我们可以用图来表示数据，如下所示：&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b90295de29726f604d4f040ac1797f99.jpg&quot;&gt;&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;左边的结点代表我们收到的编码块，右边的节点代表源码块。我们收到的第一结点0×48只由一个源码块（第一个源码块）构成，所以已经知道是哪个块。沿着指向第一个源码块箭头的反向，可以看到第二个和第三个编码块都只依赖于第一个源码块和另外一个源码块，由于我们知道第一个源码块，我们可以对它们做异或运算，如下图所示：&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/1684ccccd712f551c06dc59fb6a4c459.jpg&quot;&gt;&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;重复以上过程，我们可以看到我们现在有了足够的信息来解码第四个编码块，它依赖于第二个和第三个源码块，而这两个我们现在都知道了。对它们做异或运算，可以得到第五个也是最后一个源码块，如下所示：&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b94c8c179a2d5899a2d1fe32bea0d9b7.jpg&quot;&gt;&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;最后，我们可以解码最后剩下的源码块，得到剩余的信息：&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/68fe24c85d05f9146f275eb946651a4e.jpg&quot;&gt;&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;应该承认的是这是一个非常特殊的例子，这个例子刚好接收到我们在译码这个信息时需要的块，没有剩余的，并且是一个非常简单的顺序，但是这个例子很好的演示算法的原理。我确定你可以看到这个算法应用到大规模码块和大规模文件中会相当简单。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;在前面我提到选择每个编码块都需要的源码块的数量，即度分布，是很重要的，它确实重要。理想情况下，我们需要生成一些只包含一个源码块的编码块，然后可以开始译码了，大多数编码块依赖很少的其他编码块。这种理想的分布是存在的，叫做&lt;a title=&quot;Soliton distribution&quot; href=&quot;http://en.wikipedia.org/wiki/Soliton_distribution&quot; target=&quot;_blank&quot;&gt;理想孤波分布&lt;/a&gt;。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;不幸的是，理想孤波分布在实际情况中并没有这么理想，正如随机变量使得有些源码块不被任何编码块包含，或者当所有知道的块用完之后译码停止了。理想孤波分布的一个变形，叫做稳健孤波分布，在这方面进行了改进，用非常少的源码块生成更多的码块，也通过合并所有的或几乎所有的源码块生成一些码块，来帮助破译最后一些源码块。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;简而言之，这就是喷泉码的，更确切的说是LT码的，工作原理。LT码是已知的喷泉码中效率最低的，但是最易解释的。如果你想进一步学习，我强烈推荐读这篇&lt;a href=&quot;http://switzernet.com/people/emin-gabrielyan/060112-capillary-references/ref/MacKay05.pdf&quot; target=&quot;_blank&quot;&gt;关于喷泉码的技术论文&lt;/a&gt;，也可以读&lt;a title=&quot;Raptor code&quot; href=&quot;http://en.wikipedia.org/wiki/Raptor_code&quot; target=&quot;_blank&quot;&gt;Raptor码&lt;/a&gt;，Raptor码只比LT码增加了一点复杂度，但是在传输开销和计算上都显著的提高了它们的效率。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;在我们总结之前有一个进一步的思考问题。对于系统来说喷泉码可能看起来很理想，比如说比特流，它允许种子生成和散布几乎无限制数量的码块，或多或少的消除了稀疏种子流“最后一块”的问题，而且确保两个随机选择的并行端几乎总有有用信息相互交换。但是它面临一个重大的问题：验证从并行端接收到的数据将会很难。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;像比特流这样的协议使用安全散列函数，比如说SHA1，和一个可信任中心（最初的上传者），向所有的并行端发送一个权威散列表。每个并行然后可以验证他们下载的散列块的文件包，并且和权威散列进行对比。但是对于喷泉码，这个是很难的。根本没有方法在编码块上计算SHA1散列，更不要说单独块上的散列。我们不能相信我们的并行端计算的结果，因为它们可以对我们撒谎。我们可以等到我们得到全部文件，然后从无效码块列表出发，尝试推断什么样的编码块是无效的，但这是困难的也是不可靠的，而且信息来的时候可能已经为时已晚。一个可供选择的方法是让最初发布者公布一个公共密钥，并且标注所有的生成块。然后我们就可以验证编码块了，但代价是：现在只有最初发布者可以生成有效的编码块了，并且我们失去了最初使用喷泉码的很多好处。似乎我们被困住了。&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;还有另一种选择，而且已经证明是一个非常聪明的方案，叫做同态哈希，尽管它有自己的注意事项和缺点。我们将会在下一版的超酷算法中讨论。&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Tue, 28 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-28-78841-72bab084e.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-28-78841-72bab084e.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
     
       <item>
         <title>服务器到底用双电源还是单电源？</title>
@@ -3437,268 +3747,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         <pubDate>Wed, 08 Oct 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-10-08-77963-96ca9f478.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-08-77963-96ca9f478.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>优酷真实视频地址解析</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;序：优酷之前更新了次算法(很久之前了，呵呵。。。)，故此很多博客的解析算法已经无法使用。很多大牛也已经更新了新的解析方法。我也在此写篇解析过程的文章。本文使用语言为C#。&lt;/p&gt;
-&lt;p&gt;由于优酷视频地址时间限制，在你访问本篇文章时，下面所属链接有可能已经失效，望见谅。&lt;/p&gt;
-&lt;p&gt;例：http://v.youku.com/v_show/id_&lt;span style=&quot;color: #ff0000;&quot;&gt;&lt;strong&gt;XNzk2NTI0MzMy&lt;/strong&gt;&lt;/span&gt;.html&lt;/p&gt;
-&lt;h1&gt;1:获取视频vid&lt;/h1&gt;
-&lt;p&gt;在视频url中标红部分。一个&lt;a href=&quot;http://www.cnblogs.com/zhaojunjie/p/3344909.html&quot; target=&quot;_blank&quot;&gt;正则表达式&lt;/a&gt;即可获取。&lt;/p&gt;
-&lt;pre class=&quot;brush: csharp; gutter: true&quot;&gt;string getVid(string url)
-{
-    string strRegex = &quot;(?&amp;lt;=id_)(\\w+)&quot;;
-    Regex reg = new Regex(strRegex);
-    Match match = reg.Match(url);
-    return match.ToString();
-}&lt;/pre&gt;
-&lt;h1&gt;&lt;/h1&gt;
-&lt;h1&gt;2:获取视频元信息&lt;/h1&gt;
-&lt;p&gt;&lt;a href=&quot;http://v.youku.com/player/getPlayList/VideoIDS/XNzk2NTI0MzMy/Pf/4/ctype/12/ev/1&quot; target=&quot;_blank&quot;&gt;http://v.youku.com/player/getPlayList/VideoIDS/&lt;/a&gt;&lt;a href=&quot;http://v.youku.com/player/getPlayList/VideoIDS/XNzk2NTI0MzMy/Pf/4/ctype/12/ev/1&quot; target=&quot;_blank&quot;&gt;&lt;strong&gt;XNzk2NTI0MzMy&lt;/strong&gt;/Pf/4/ctype/12/ev/1&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;将前述vid嵌入到上面url中访问即可得到视频信息文件。由于视频信息过长不在此贴出全部内容。下面是部分重要内容的展示。(获取文件为json文件，可直接解析)&lt;/p&gt;
-&lt;pre class=&quot;brush: csharp; gutter: true&quot;&gt;{ &quot;data&quot;: [ {
-            &quot;ip&quot;: 1991941296,
-            &quot;ep&quot;: &quot;MwXRTAsbJLnb0PbJ8uJxAdSivUU11wnKXxc=&quot;,
-            &quot;segs&quot;: {
-                &quot;hd2&quot;: [
-                    {
-                        &quot;no&quot;: &quot;0&quot;,
-                        &quot;size&quot;: &quot;34602810&quot;,
-                        &quot;seconds&quot;: 205,
-                        &quot;k&quot;: &quot;248fe14b4c1b37302411f67a&quot;,
-                        &quot;k2&quot;: &quot;1c8e113cecad924c5&quot;
-                    },
-                    {
-                        &quot;no&quot;: &quot;1&quot;,
-                    },] }, } ],}&lt;/pre&gt;
-&lt;p&gt;上面显示的内容后面都会使用到。其中&lt;strong&gt;segs包含hd3,hd2,flv,mp4,3gp&lt;/strong&gt;等各种格式，并且每种格式下均分为若干段。本次选用清晰度较高的hd2(视频格式为flv)&lt;/p&gt;
-&lt;h1&gt;&lt;strong&gt;3:拼接m3u8地址&lt;/strong&gt;&lt;/h1&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;http://pl.youku.com/playlist/m3u8?ctype=12&amp;amp;ep={0}&amp;amp;ev=1&amp;amp;keyframe=1&amp;amp;oip={1}&amp;amp;sid={2}&amp;amp;token={3}&amp;amp;type={4}&amp;amp;vid={5}&lt;/pre&gt;
-&lt;p&gt;以上共有6个参数，其中vid和oip已经得到，分别之前的vid和json文件中的ip字段，即(&lt;strong&gt;XNzk2NTI0MzMy&lt;/strong&gt;和&lt;strong&gt;1991941296&lt;/strong&gt;)，但是ep,sid,token需要重新计算(json文件中的ep值不能直接使用)。type比较简单，后面会说。&lt;/p&gt;
-&lt;h2&gt;3.1计算ep,sid,token&lt;/h2&gt;
-&lt;p&gt;计算方法单纯的为数学计算，下面给出计算的函数。三个参数可一次性计算得到。其中涉及到Base64编码解码知识，&lt;a href=&quot;http://www.cnblogs.com/zhaojunjie/p/3946427.html&quot; target=&quot;_blank&quot;&gt;点击查看&lt;/a&gt;。&lt;/p&gt;
-&lt;pre class=&quot;brush: csharp; gutter: true&quot;&gt;private static string myEncoder(string a, byte[] c, bool isToBase64)
-        {
-            string result = &quot;&quot;;
-            List&amp;lt;Byte&amp;gt; bytesR = new List&amp;lt;byte&amp;gt;();
-            int f = 0, h = 0, q = 0;
-            int[] b = new int[256];
-            for (int i = 0; i &amp;lt; 256; i++)
-                    b[i] = i;
-            while (h &amp;lt; 256)
-            {
-                f = (f + b[h] + a[h % a.Length]) % 256;
-                int temp = b[h];
-                b[h] = b[f];
-                b[f] = temp;
-                h++;
-            }
-            f = 0; h = 0; q = 0;
-            while (q &amp;lt; c.Length)
-            {
-                h = (h + 1) % 256;
-                f = (f + b[h]) % 256;
-                int temp = b[h];
-                b[h] = b[f];
-                b[f] = temp;
-                byte[] bytes = new byte[] { (byte)(c[q] ^ b[(b[h] + b[f]) % 256]) };
-                bytesR.Add(bytes[0]);
-                result += System.Text.ASCIIEncoding.ASCII.GetString(bytes);
-                q++;
-            }
-            if (isToBase64)
-            {
-                Byte[] byteR = bytesR.ToArray();
-                result = Convert.ToBase64String(byteR);
-            }
-            return result;
-        }
-        public static void getEp(string vid, string ep, ref string pNew, ref string token, ref string sid)
-        {
-            string template1 = &quot;becaf9be&quot;;
-            string template2 = &quot;bf7e5f01&quot;;
-            byte[] bytes = Convert.FromBase64String(ep);
-            ep = ystem.Text.ASCIIEncoding.ASCII.GetString(bytes);
-            string temp = myEncoder(template1, bytes, false);
-            string[] part = temp.Split(&#39;_&#39;);
-            sid = part[0];
-            token = part[1];
-            string whole = string.Format(&quot;{0}_{1}_{2}&quot;, sid, vid, token);
-            byte[] newbytes = System.Text.ASCIIEncoding.ASCII.GetBytes(whole);
-            epNew = myEncoder(template2, newbytes, true);
-        }&lt;/pre&gt;
-&lt;p&gt;计算得到ep,token,sid分别为diaVGE+IVMwB5CXXjz8bNHi0cCEHXJZ0vESH/7YbAMZuNaHQnT/Wzw==, 4178, 441265221168712cdf4f8。注意，此时ep并不能直接拼接到url中，需要对此做一下url编码ToUrlEncode(ep)。最终ep为diaVGE%2bIVMwB5CXXjz8bNHi0cCEHXJZ0vESH%2f7YbAMZuNaHQnT%2fWzw%3d%3d&lt;/p&gt;
-&lt;h2 align=&quot;left&quot;&gt;3.2计算type&lt;/h2&gt;
-&lt;p align=&quot;left&quot;&gt;Type值和选择的segs有密切关系。如本文选择的hd2，type即为flv，下面是segs,type和清晰度的对照。&lt;/p&gt;
-&lt;pre class=&quot;brush: csharp; gutter: true&quot;&gt;“segs”,”type”,”清晰度”
-&quot;hd3&quot;, &quot;flv&quot;, &quot;1080P&quot;
-&quot;hd2&quot;, &quot;flv&quot;, &quot;超清&quot;
-&quot;mp4&quot;, &quot;mp4&quot;, &quot;高清&quot;
-&quot;flvhd&quot;, &quot;flv&quot;, &quot;高清&quot;
-&quot;flv&quot;, &quot;flv&quot;, &quot;标清&quot;
-&quot;3gphd&quot;, &quot;3gp&quot;, &quot;高清&quot;&lt;/pre&gt;
-&lt;h2 align=&quot;left&quot;&gt;3.3拼接地址&lt;/h2&gt;
-&lt;p align=&quot;left&quot;&gt;　　最后的m3u8地址为&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;a href=&quot;http://pl.youku.com/playlist/m3u8?ctype=12&amp;amp;ep=diaVGE%2bIVMwB5CXXjz8bNHi0cCEHXJZ0vESH%2f7YbAMZuNaHQnT%2fWzw%3d%3d&amp;amp;ev=1&amp;amp;keyframe=1&amp;amp;oip=1991941296&amp;amp;sid=441265221168712cdf4f8&amp;amp;token=4178&amp;amp;type=flv&amp;amp;vid=XNzk2NTI0MzMy&quot; target=&quot;_blank&quot;&gt;http://pl.youku.com/playlist/m3u8?ctype=12&amp;amp;ep=diaVGE%2bIVMwB5CXXjz8bNHi0cCEHXJZ0vESH%2f7YbAMZuNaHQnT%2fWzw%3d%3d&amp;amp;ev=1&amp;amp;keyframe=1&amp;amp;oip=1991941296&amp;amp;sid=441265221168712cdf4f8&amp;amp;token=4178&amp;amp;type=flv&amp;amp;vid=XNzk2NTI0MzMy&lt;/a&gt;&lt;/p&gt;
-&lt;h1&gt;4:获取视频地址&lt;/h1&gt;
-&lt;p&gt;将上述m3u8文件下载后，其中内容即为真实地址，不过还需要稍微处理一下。部分内容如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;#EXTM3U
-#EXT-X-TARGETDURATION:12
-#EXT-X-VERSION:3
-#EXTINF:6,
-
-http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv?ts_start=0&amp;amp;ts_end=5.9&amp;amp;ts_seg_no=0&amp;amp;ts_keyframe=1
-
-#EXTINF:5.533,
-
-http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv?ts_start=5.9&amp;amp;ts_end=11.433&amp;amp;ts_seg_no=1&amp;amp;ts_keyframe=1
-
-#EXTINF:5.467,
-
-http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv?ts_start=11.433&amp;amp;ts_end=16.9&amp;amp;ts_seg_no=2&amp;amp;ts_keyframe=1
-
-#EXTINF:9.267,&lt;/pre&gt;
-&lt;p&gt;其中每条url只包含6s左右视频，但是可将url中参数部分去掉即可得到实际的长度。但是每条去掉后需合并一下相同的url，如上述列表可得到url片段&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv&quot; target=&quot;_blank&quot;&gt;http://59.108.137.14/696CD107FE4D821FFBF173EB3/03000208005430B01849631468DEFEC61C5678-3A78-37BA-1971-21A0D4EEA0E7.flv&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;将m3u8中所有的url片段全部下载即可大功告成。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 08 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-08-77936-d38b502cb.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-08-77936-d38b502cb.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>谈谈网站测试中的AB测试方法</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;&lt;strong&gt;什么是A/B测试?&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;A / B测试，即你设计的页面有两个版本(A和B)，A为现行的设计， B是新的设计。比较这两个版本之间你所关心的数据(转化率，业绩，跳出率等) ，最后选择效果最好的版本。&lt;/p&gt;
-&lt;p&gt;A / B测试不是一个时髦名词。现在很多有经验的营销和设计工作者用它来获得访客行为信息来提高转换率。这是一种很有效的方式，并且由于各种分析工具的发展，测试成本也越来越低，因此很多电商网站都会采用。&lt;/p&gt;
-&lt;p&gt;但是大部分人对于A/B测试只有一个基本的认知，如何将它的效应发挥到最大?本文提供19个建议。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;1、减少页面摩擦&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;页面摩擦就是用户在浏览网页的过程中遇到了一些阻碍，会降低转换率。通常造成页面摩擦的原因有三：&lt;/p&gt;
-&lt;p&gt;信息栏——要求用户填写信息&lt;/p&gt;
-&lt;p&gt;步骤指引——网站地图太复杂&lt;/p&gt;
-&lt;p&gt;长页面——太长的页面会磨掉用户的耐心。&lt;/p&gt;
-&lt;p&gt;最好的状态是一种“不在场”的状态，就像人的身体一样，没有病痛的时候你不会记得身体的存在。用户用得行云流水，所有的步骤都顺理成章，这才是最好的体验。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;2、信息输入焦虑&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;有的用户不愿意输入太多信息，因为不确定输了那么多信息以后会不会得到应有的回馈(有的人填了一大推信息之后得到一封广告邮件之类的东西，会产生一种被坑的感觉)。越多的信息需要填写，用户流失率就会越高。&lt;/p&gt;
-&lt;p&gt;但如果用户很明确知道他们的努力可能会换来什么回馈，他们就很乐意按照网页的指引一步一步往下走，也愿意填那些表格。&lt;/p&gt;
-&lt;p align=&quot;center&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cf8d2b77036a9b698081b3a3e897d870.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;3、明晰每一个页面的目的&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;有时候“目标清晰”比什么都重要，回答下面3个问题，你可以省略很多不必要的步骤|：&lt;/p&gt;
-&lt;p&gt;这个页面是什么?让用户清晰地知道他到了哪一个步骤;&lt;/p&gt;
-&lt;p&gt;我可以再这里干什么?让用户一眼看明白这一个页面是为了展示什么;&lt;/p&gt;
-&lt;p&gt;为什么我要在这个页面?要把核心优势直观展示出来。用户不需要去思考在这一页可以干什么，自然也不需要思考为什么要在这一页停留。&lt;/p&gt;
-&lt;p&gt;用户都很懒，一旦他弄不明白他在哪个网页上可以做什么，他可能马上就关掉那个网页。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;4、倾听用户需求&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;一个B2C的网站，最好是把B和C都找来，听听他们各自的需求，请他们互相提要求。请用户试用网站，并观察他们的使用习惯，这总是有百利而无一害的。&lt;/p&gt;
-&lt;p&gt;最后，单独留下C，请他们说说更深层的意见，以及他们是如何与网站交互，哪些功能很好，哪些多余等等。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;5、定价&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;对于电商网站来说，定价是一件至关重要的事。消费者除了关心数字，还关心价值，除了数字，还可以在文案、图片上面做工作。一个完美的定价不是一味只考虑便宜，而是要让消费者觉得他占到了便宜。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;6、尝试提价&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;不要想当然地认为价钱便宜就一定会提升销量，反之，价格高也不等于销量少。有的消费者看到价钱便宜的商品会懒得点开看，因为觉得“便宜没好货”，实际上那个商品质量还不错——所以定价要秉着一分货一分钱的原则。&lt;/p&gt;
-&lt;p&gt;此外，还可以尝试小额的加价。比如一次加2%，看看销售量如何，在消费者承受范围之内再加个2%，小额的加价不会让用户觉得你在漫天要价。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;7、测试社交因素&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;很多产品旁边都有一键分享至社交网站的功能。但是，电商们有真正调查过这些功能会提升还是抑制销量吗?&lt;/p&gt;
-&lt;p&gt;我看过一个很有意思的调研报告：说是一个祛痘产品的页面因为有了分享功能而减少了25%的销量。毕竟，有的敏感的商品消费者是不愿意和别人分享的(设想一下如果人家买的是杜蕾斯或是什么，你也要他分享到Facebook上吗)。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;8、把广告位放低一点&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;常识可能告诉你广告位越高越显眼就会给目标页面带来更多流量——但是A\B测试通常就是要测那些自以为是常识的东西。&lt;/p&gt;
-&lt;p&gt;你花了一定的成本获得了一个位置很好的广告位，这个广告为你提升了50%的销量，但实际上这些收益还抵不上你为广告花费的成本。稍微算一算你就知道投入产出比了。这个报告告诉我们：即便你认为是常识的东西，也不妨去做一个A\B测试。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;9、测试每一个“黄金准则”&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;上一条告诉你要测试常识性的东西，这一条还要补充一点：测试看起来是黄金准则的准则。黄金准则之所以黄金，也是因为经过了无数次的测试(那么也不在乎再多倍测试一次)，比如标题党会让客户对你的信誉产生质疑，这就是一条黄金准则。&lt;/p&gt;
-&lt;p&gt;但是，非常时段可以用一些非常方法，如果销售结果总是不如预期，那么你也可以去测一下是不是某条黄金准则出了问题。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;10、利用一些工具&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;如果你需要找到数据变动的原因又不想花太多时间，可以用一些第三方工具，比如Silverback，可以帮你记录用户在网页上的操作并给出有效的数据。&lt;/p&gt;
-&lt;p align=&quot;center&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/62c066af0b7eab57d48d444ecdf592bd.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;11、时刻记得支撑起转化率的“三只脚”&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;相关性：你的登陆页是否满足用户的预期?你能保持这种风格的连贯性?&lt;/p&gt;
-&lt;p&gt;价值：你能符合用户的价值期待吗?你能给他们想要的东西?&lt;/p&gt;
-&lt;p&gt;应激性：用户知道自己来这个网站要干什么吗?用户知道要怎么操作吗?&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;12、试试不同的用词&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;微小的网页调整会改变转化率，微小的用词上的改变当然也可以引起不同的结果。比如，“Join Now”和“Buy Now”哪一个更能刺激用户的购买欲?测试一下。同理，整个网页上的文案风格的转变也能造成不同的效果。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;13、一个页面只展示一个信息&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;转化率最高的页面都有一个共同特点：一个页面集中展示一个信息，不要让你的用户感到迷茫，让他们看一眼就知道想干什么可以干什么。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;14、测试哪个属性是最吸引的&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;一个商品有无数个属性，价格、颜色、材质、产地，等等，那一种属性对用户构成最致命的吸引?一个一个地尝试。再一次重申，不要想当然的替消费者决定他们在标题里最想看到的是哪一个，你要测试才知道。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;15、连小得变态的细节都不放过&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;2007年AJ Kohn测试了两个域名www.YourDomain.com和www.yourdomain.com，仅仅是首字母大小写的问题，结果令人大吃一惊：大写的那个点击率比小写的高出53%!这个事件说明有时候你看不上眼的小细节也能造成很不同的后果。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;16、完美?No!&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;有的人想要做出“完美”的登录页面，可是我想告诉你，没有完美的页面，A\B测试的精髓就是让每一次测试的结果都比上次更好。&lt;/p&gt;
-&lt;p&gt;那句广告语是怎么说的? 没有最好，只有更好。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;17、寻求成本更低的测试方式&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;A\B测试不是要让你用最新的技术、最新的软件或者算法，大部分时候一个纸上的原型或者线框里5秒钟的测试都能帮你找到方向。好好利用那些简单、低廉的测试方式。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;18、等到测试完成&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;上文里无数次地强调不要想当然，在测试没有结束之前，所有的数据都可能是片面的，不要想着用部分的结果去替代全部。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;19、永远不停地测试&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;A\B测试的精髓就在于：永远不要满足于目前的结果，总有更好的解决方案。一次的A\B测试也许能提升50%甚至更好的转换率，但这并不意味着到顶了。生命不息，测试不止。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 08 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-08-77933-f1476a44d.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-08-77933-f1476a44d.html</guid>
         
         
         <category>jobbole</category>

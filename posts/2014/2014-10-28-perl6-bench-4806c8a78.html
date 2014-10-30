@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>用 perl6-bench 做 perl6 性能对比</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-10-28-perl6-bench-4806c8a78.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>用 perl6-bench 做 perl6 性能对比</h1>
+    <p class="meta"><span class="time">Oct 28, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/10/28/perl6-bench" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+  <div style="background-color: #FFF;">
+    <p>Perl6 成员上周在奥地利大会上做了一次大聚集，写了不少博客讲过去几个月的优化以及未来几个月的优化。但是我发现似乎从8月以来就一直没有正式的 perl6-bench 的图表报告了。于是想：干脆自己跑一把吧。</p>
+<p>perl6-bench 项目地址见：<a href="https://github.com/japhb/perl6-bench">https://github.com/japhb/perl6-bench</a>。</p>
+<p>项目的主程序 <code>bench</code> 本身是用 Perl6 写的。所以运行前，得先安装好 Rakudo Star：</p>
+<pre><code>wget http://rakudo.org/downloads/star/rakudo-star-2014.09.tar.gz
+tar zxvf rakudo-star-2014.09.tar.gz
+cd rakudo-star-2014.09
+perl Configure.pl --backend=moar --gen-moar
+</code></pre>
+
+<p>编译完成后，会在 rakudo-star 目录下创建一个 <code>install</code> 子目录，里面有 <code>bin</code>，<code>lib</code> 等编译完成的文件，把这个 bin 加入到你的 $PATH 里去。</p>
+<pre><code>sed -i 's!\(PATH=.*\)$!\1:~/download/rakudo-star-2014.09/install/bin!' ~/.bash_profile
+source ~/.bash_profile
+</code></pre>
+
+<p>项目的测试程序 <code>timeall</code> 是用 Perl5 写的。运行前，也得安装几个 CPAN 模块：</p>
+<pre><code>cpanm Capture::Tiny Data::Alias DateTime JSON JSON::XS List::MoreUtils
+</code></pre>
+
+<p>然后就可以开始测试了：</p>
+<pre><code>./bench setup
+</code></pre>
+
+<p>这个命令会在 <code>components</code> 子目录下逐一 clone 下来各种可以测试的 perl6 实现的源代码 git 库，包括有：</p>
+<pre><code>arane   niecza  nqp-jvm   nqp-parrot  perl5    rakudo-jvm   rakudo-parrot
+moarvm  nqp-js  nqp-moar  parrot      perlito  rakudo-moar
+</code></pre>
+
+<p>下面就开始正式测试了。用时同样会比较长，和上面 git clone 一样，都建议放在 screen 里运行。</p>
+<p>然后设定本次测试你打算对比哪些：</p>
+<pre><code>export CHECKOUTS='perl5/v5.20.1 rakudo-jvm/2014.10 rakudo-moar/2014.10 rakudo-moar/2014.09'
+</code></pre>
+
+<p>这个写法规范是：git 库名/git tag名</p>
+<p>然后运行：</p>
+<pre><code>./bench extract $CHECKOUTS
+</code></pre>
+
+<p>这一步会分别 checkout 具体的 tag 到同级的新目录里，然后开始编译：</p>
+<pre><code>./bench build   $CHECKOUTS
+</code></pre>
+
+<p>然后运行测试程序：</p>
+<pre><code>./bench time    $CHECKOUTS
+</code></pre>
+
+<p>一共有 65 个测试，测试项在 <code>microbenchworks.pl</code> 文件的大数组里定义了。
+我在测试中发现，第 15/65 测试用例，在 <code>nqp-moar</code> 时会死循环运行，无法正常完成测试，已回报给作者。</p>
+<p>最后运行结果对比评分：</p>
+<pre><code>./bench compare $CHECKOUTS
+</code></pre>
+
+<p>结果显示，moar 比 jvm 领先一些，比 perl5 还差着呢：</p>
+<pre><code>==&gt; perl6-bench version 997c920 (ignoring startup time and compile time)
+--- showing PEAK RATE (/s), TIMES SLOWER THAN FASTEST (x), and SUMMARY SCORES (skipping incomplete data)
+                                - Perl 5 -   -------------- Perl 6 --------------
+                                 v5.20.1      2014.10      2014.09      2014.10  
+                                   perl5       rakudo       rakudo       rakudo  
+TEST                               perl5          jvm       moarvm       moarvm  
+                                -------------------------------------------------
+empty                                --             0/s          4/s          4/s
+                                    FAIL         34.0x         1.0x         1.1x 
+zero                                 --             0/s          4/s          4/s
+                                    FAIL         33.3x         1.0x         1.1x 
+hello                                --             0/s          4/s          4/s
+                                    FAIL         33.2x         1.0x         1.1x 
+while_empty                     26678545/s     223006/s    1730328/s    3403743/s
+                                     1.0x       119.6x        15.4x         7.8x 
+while_empty_native              26800035/s   1291144447/s   27583644/s   168949423/s
+                                    48.2x         1.0x        46.8x         7.6x 
+while_bind                           --        249216/s    1682441/s    3381083/s
+                                    FAIL         13.6x         2.0x         1.0x 
+while_concat                    13404147/s      26589/s     166714/s     206047/s
+                                     1.0x       504.1x        80.4x        65.1x 
+while_concat_native             13400671/s      65891/s    4138382/s    5216637/s
+                                     1.0x       203.4x         3.2x         2.6x 
+while_int2str                    6026835/s      57112/s     364208/s     455797/s
+                                     1.0x       105.5x        16.5x        13.2x 
+while_int2str_native             6283498/s     111754/s     543142/s     671402/s
+                                     1.0x        56.2x        11.6x         9.4x 
+while_int2str_concat             8711901/s       7006/s      89566/s      93480/s
+                                     1.0x      1243.5x        97.3x        93.2x 
+while_int2str_concat_native      8403097/s      13824/s     153347/s     167585/s
+                                     1.0x       607.9x        54.8x        50.1x 
+while_push_join                  3656434/s      15223/s      18917/s     111952/s
+                                     1.0x       240.2x       193.3x        32.7x 
+while_push                       7821809/s      90685/s      21289/s     239678/s
+                                     1.0x        86.3x       367.4x        32.6x 
+while_pushme                    14440088/s    3184098/s    1225845/s    1560029/s
+                                     1.0x         4.5x        11.8x         9.3x 
+while_array_set                  6171761/s     112655/s     276032/s     335751/s
+                                     1.0x        54.8x        22.4x        18.4x 
+while_hash_set                   1525235/s      58647/s     158810/s     171691/s
+                                     1.0x        26.0x         9.6x         8.9x 
+postwhile_nil                   36412794/s     515093/s    2939870/s    4147168/s
+                                     1.0x        70.7x        12.4x         8.8x 
+postwhile_nil_native            36083908/s   1676476937/s   34716639/s   167547820/s
+                                    46.5x         1.0x        48.3x        10.0x 
+loop_empty                      24051967/s     257307/s    1686547/s    3321511/s
+                                     1.0x        93.5x        14.3x         7.2x 
+loop_empty_native               24181034/s   2276716196/s   28050857/s   193967640/s
+                                    94.2x         1.0x        81.2x        11.7x 
+for_empty                       33943008/s     894886/s    2315939/s    2515590/s
+                                     1.0x        37.9x        14.7x        13.5x 
+for_bind                             --       1571035/s    2331450/s    2586230/s
+                                    FAIL          1.6x         1.1x         1.0x 
+for_assign                      17713024/s    1532922/s    2006784/s    2391570/s
+                                     1.0x        11.6x         8.8x         7.4x 
+for_assign_native               17765094/s    1658168/s    1895988/s    2006162/s
+                                     1.0x        10.7x         9.4x         8.9x 
+for_postinc                     16640609/s     386218/s    1398445/s    1802886/s
+                                     1.0x        43.1x        11.9x         9.2x 
+for_postinc_native              16670507/s    1037555/s    1859233/s    1994065/s
+                                     1.0x        16.1x         9.0x         8.4x 
+for_concat                      14998496/s      29144/s     182410/s     205988/s
+                                     1.0x       514.6x        82.2x        72.8x 
+for_concat_native               15053529/s      49506/s    1353377/s    1465293/s
+                                     1.0x       304.1x        11.1x        10.3x 
+for_concat_2                     8646049/s      15854/s     107213/s     117943/s
+                                     1.0x       545.4x        80.6x        73.3x 
+for_concat_2_native              8659225/s      23751/s     791213/s     986208/s
+                                     1.0x       364.6x        10.9x         8.8x 
+for_push                         8496867/s     122034/s      25166/s     333166/s
+                                     1.0x        69.6x       337.6x        25.5x 
+for_array_set                    7810807/s      57463/s     286036/s     388650/s
+                                     1.0x       135.9x        27.3x        20.1x 
+for_hash_set                     1567864/s      32265/s     168643/s     171446/s
+                                     1.0x        48.6x         9.3x         9.1x 
+reduce_range                     4964114/s     181283/s     318258/s     345797/s
+                                     1.0x        27.4x        15.6x        14.4x 
+reduce_int_comb_range             470778/s       1495/s       3355/s       3406/s
+                                     1.0x       314.8x       140.3x       138.2x 
+any_equals                       2646212/s      15684/s      61867/s      81787/s
+                                     1.0x       168.7x        42.8x        32.4x 
+trim_string                     13660958/s   33565139/s    9291330/s   17910365/s
+                                     2.5x         1.0x         3.6x         1.9x 
+split_string_constant            5615519/s     100014/s     133572/s     171231/s
+                                     1.0x        56.1x        42.0x        32.8x 
+split_string_regex               2017912/s       4137/s      12573/s      16553/s
+                                     1.0x       487.8x       160.5x       121.9x 
+charrange                         363103/s       3416/s      19831/s      24667/s
+                                     1.0x       106.3x        18.3x        14.7x 
+charrange_ignorecase              363529/s       3788/s      14433/s      17899/s
+                                     1.0x        96.0x        25.2x        20.3x 
+visit_2d_indices_while           7276084/s     152635/s     746903/s    1484712/s
+                                     1.0x        47.7x         9.7x         4.9x 
+visit_2d_indices_while_native   11180261/s     553619/s    1177498/s    1451682/s
+                                     1.0x        20.2x         9.5x         7.7x 
+visit_2d_indices_loop           10123295/s     177783/s     834515/s    1843586/s
+                                     1.0x        56.9x        12.1x         5.5x 
+visit_2d_indices_loop_native    12457926/s   440172780/s    1227550/s    1431680/s
+                                    35.3x         1.0x       358.6x       307.5x 
+visit_2d_indices_for             8548538/s     255887/s     675743/s     847728/s
+                                     1.0x        33.4x        12.7x        10.1x 
+visit_2d_indices_cross           1367865/s       4685/s      31407/s      40470/s
+                                     1.0x       292.0x        43.6x        33.8x 
+create_and_copy_2d_grid_cross     541914/s       2230/s      11564/s      13778/s
+                                     1.0x       243.0x        46.9x        39.3x 
+create_and_iterate_hash_kv           --          1564/s      12248/s      12651/s
+                                    FAIL          8.1x         1.0x         1.0x 
+rat_mul_div_cancel                  7439/s       4852/s      33910/s      40614/s
+                                     5.5x         8.4x         1.2x         1.0x 
+rat_harmonic                        1080/s       1732/s      11089/s      11678/s
+                                    10.8x         6.7x         1.1x         1.0x 
+rand                            10885068/s     230938/s     183511/s     213786/s
+                                     1.0x        47.1x        59.3x        50.9x 
+array_set_xx                    13585287/s    1533694/s     545243/s     597926/s
+                                     1.0x         8.9x        24.9x        22.7x 
+parse-json                            23/s          1/s          1/s          1/s
+                                     1.0x        29.6x        37.0x        22.8x 
+parse-json-no-obj-creation           --             1/s          1/s          1/s
+                                    SKIP          1.4x         1.9x         1.0x 
+rc-forest-fire                      1374/s          2/s          9/s          9/s
+                                     1.0x       588.4x       155.8x       146.7x 
+rc-man-or-boy-test                187464/s        --         41252/s      39966/s
+                                     1.0x        FAIL          4.5x         4.7x 
+rc-self-describing-numbers        219156/s        571/s        775/s        782/s
+                                     1.0x       383.9x       282.9x       280.1x 
+rc-dragon-curve                   149131/s       1704/s       5937/s       6260/s
+                                     1.0x        87.5x        25.1x        23.8x 
+rc-9-billion-names                  1821/s         93/s        216/s        500/s
+                                     1.0x        19.7x         8.4x         3.6x 
+rc-mandelbrot                       1168/s        702/s       1440/s       1519/s
+                                     1.3x         2.2x         1.1x         1.0x 
+spinner                              971/s          4/s          5/s          5/s
+                                     1.0x       228.7x       193.1x       182.9x 
+rc-forest-fire-stringify           11162/s         25/s         35/s         41/s
+                                     1.0x       438.8x       314.7x       275.2x 
+string-escape                    1448636/s        --           --           --   
+                                     1.0x        FAIL         FAIL         FAIL  
+                                =================================================
+SUMMARY SCORE                     2253.9         40.5        100.0        139.6  
+</code></pre>
+
+<p>如何把数据用图的形式展示，我还没有找到办法。</p>
+    <hr>
+
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-10-28-78841-72bab084e.html" title="Previous Post: 超酷算法：喷泉码" data-instant>&laquo; 超酷算法：喷泉码</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>24 Apr 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-04-24-yaml-dump-pm6-70ae5ebb1.html">Perl6 的 YAML::Dumper 模块</a></li>
+
+      <li><span>12 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-12-perl-tips-031b63583.html">Perl 编程的个人惯例</a></li>
+
+      <li><span>04 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-04-openssh-perl6-94df9f44f.html">在 Perl6 脚本中并发执行 ssh 命令</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
