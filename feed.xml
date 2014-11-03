@@ -5,9 +5,167 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Thu, 30 Oct 2014 20:40:20 +0800</pubDate>
-    <lastBuildDate>Thu, 30 Oct 2014 20:40:20 +0800</lastBuildDate>
+    <pubDate>Mon, 03 Nov 2014 11:51:29 +0800</pubDate>
+    <lastBuildDate>Mon, 03 Nov 2014 11:51:29 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>Catching Your CPUs Napping</title>
+        <description>
+
+&lt;p&gt;When you see high CPU usage, you may be forgiven for believing that your CPUs must be furiously executing software, like obedient robots that never rest. In reality, you don&#39;t know what&#39;s happening from the CPU utilization alone. Your CPUs might be napping, during an instruction, while they wait for some resource.&lt;/p&gt;
+
+&lt;p&gt;Understanding what the CPUs are really doing helps direct performance tuning. The simplest way is to measure the average cycles-per-instruction (CPI) ratio: higher values mean it takes more cycles to complete instructions (often &quot;stalled cycles&quot; waiting on memory I/O). This is usually studied as a system-wide metric.&lt;/p&gt;
+
+&lt;p&gt;The following new visualization takes a &lt;a href=&quot;/FlameGraphs/cpuflamegraphs.html&quot;&gt;CPU flame graph&lt;/a&gt; and then assigns colors relative to CPI:&lt;/p&gt;
+
+&lt;p&gt;&lt;object data=&quot;/images/brendangregg.com/d037142ed9a1f3c9ad42491b303e4962.svg&quot; type=&quot;image/svg+xml&quot; width=&quot;720&quot; height=&quot;475&quot;&gt;
+&lt;img src=&quot;/images/brendangregg.com/d037142ed9a1f3c9ad42491b303e4962.jpg&quot; width=&quot;720&quot;&gt;
+&lt;/object&gt;&lt;/p&gt;
+
+&lt;p&gt;Wow! For the first time I can &lt;em&gt;see&lt;/em&gt; where the stall cycles are, providing a clear visualization of CPU efficiency by function.&lt;/p&gt;
+
+&lt;p&gt;The width of each frame shows the time a function (or its children) was on-CPU, as with a normal CPU flame graph. The color now shows what that function was doing when it was on-CPU: running or stalled.&lt;/p&gt;
+
+&lt;p&gt;The color range in this example has been scaled to color the highest CPI blue (slowest instructions), and lowest CPI red (fastest instructions). Flame graphs also now do click to zoom (thanks Adrien Mahieux), as well as mouse-overs. (Direct &lt;a href=&quot;/blog/images/2014/cpi-freebsd-kernel.svg&quot;&gt;SVG&lt;/a&gt; link.)&lt;/p&gt;
+
+&lt;p&gt;This example is showing a FreeBSD kernel. The vm_* (virtual memory) functions have the slowest instructions, which is expected as they involve memory I/O to walk page tables, which may not cache as well as other workloads. The fastest instructions were in __mtx_lock_sleep, which is also expected as it is a spin loop.&lt;/p&gt;
+
+&lt;p&gt;The most color saturated frames on the left (vm_page_alloc-&amp;gt;__mtx_lock_sleep) are being worked on by a fellow engineer in our OCA development team. Had that not already been the case, this CPI flame graph should have prompted their study and development.&lt;/p&gt;
+
+&lt;p&gt;There are two parts that make this possible: differential flame graphs, and measuring stacks on instructions and stall cycles. I&#39;ll briefly summarize these, with the latter using pmcstat(8) on FreeBSD (this approach is also possible on Linux, provided you have PMC access, which my current cloud instances don&#39;t!).&lt;/p&gt;
+
+&lt;h2&gt;Differential Flame Graphs&lt;/h2&gt;
+
+&lt;p&gt;This is a new feature which I&#39;ll explain in a separate post (I also want to add some more options first). In summary, flamegraph.pl usually takes input like the following:&lt;/p&gt;
+
+&lt;pre&gt;
+func_a;func_b;func_c 31
+...
+&lt;/pre&gt;
+
+&lt;p&gt;These are single line entries with a semi-colon delimited stack followed by a sample count.&lt;/p&gt;
+
+&lt;p&gt;A differential flame graph will be generated if you provide the following input:&lt;/p&gt;
+
+&lt;pre&gt;
+func_a;func_b;func_c 31 35
+...
+&lt;/pre&gt;
+
+&lt;p&gt;This now has two value columns, which are intended to show before and after counts. The flame graph is sized using the second column (the &quot;after&quot;, or &quot;now&quot;), and then colored using the delta of 2 - 1: positive is red, negative is blue. The difffolded.pl tool takes two folded-style profiles (generated using the stackcollapse scripts) and emits this two-column output.&lt;/p&gt;
+
+&lt;p&gt;For CPI flame graphs, the two value columns are:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;stall cycle count&lt;/li&gt;
+&lt;li&gt;unhalted cycle count&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The first is scaled so that its average is the same as the second column, and the full blue-red range is used. Otherwise, there&#39;s always more unhalted cycles, and the differential flame graph is just red.&lt;/p&gt;
+
+&lt;h2&gt;FreeBSD pmcstat&lt;/h2&gt;
+
+&lt;p&gt;The data in this example was collected using FreeBSD&#39;s &lt;a href=&quot;https://www.freebsd.org/cgi/man.cgi?query=pmcstat&quot;&gt;pmcstat(8)&lt;/a&gt; using the following (on Intel):&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;pmcstat -n 1000000 -S RESOURCE_STALLS.ANY -S CPU_CLK_UNHALTED.THREAD_P -O out.pmclog_cpi01 sleep 10&lt;/b&gt;
+# &lt;b&gt;pmcstat -R out.pmclog_cpi01 -z 32 -G out.pmcstat_cpi01&lt;/b&gt;
+CONVERSION STATISTICS:
+ #exec/elf                                12
+ #samples/total                           123464
+ #samples/unknown-function                2059
+ #callchain/dubious-frames                4723
+# &lt;b&gt;ls -lh *cpi01&lt;/b&gt;
+-rw-r--r--  1 root  wheel    14M Oct 29 04:24 out.pmclog_cpi01
+-rw-r--r--  1 root  wheel   7.2M Oct 29 04:24 out.pmcstat_cpi01
+&lt;/pre&gt;
+
+&lt;p&gt;Be careful with pmcstat(8): you can generate a lot of output quickly, which in turn can perturb the performance of what you are measuring. I only measured for 10 seconds (sleep 10), and only one event every million (-n 1000000). Despite this, the raw output file is 14 Mbytes.&lt;/p&gt;
+
+&lt;p&gt;In this example I measured kernel stacks (-S), and up to 32 frames deep. Note that I did need to set kern.hwpmc.callchaindepth=32 in /boot/loader.conf and reboot, as my stacks were at first always being truncated to 8 frames.&lt;/p&gt;
+
+&lt;p&gt;pmstat -G was used to create a callchain text file. It looks like this:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;more out.pmcstat_cpi01&lt;/b&gt;
+@ CPU_CLK_UNHALTED.THREAD_P [10867 samples]
+
+07.86%  [854]      __mtx_lock_sleep @ /boot/kernel/kernel
+ 48.95%  [418]       vm_page_alloc
+  99.76%  [417]        vm_page_grab
+   99.04%  [413]         allocbuf
+    100.0%  [413]          getblk
+     95.16%  [393]           cluster_rbuild
+      100.0%  [393]            cluster_read
+       100.0%  [393]             ffs_read
+        100.0%  [393]              VOP_READ_APV
+         100.0%  [393]               vn_read
+          100.0%  [393]                vn_io_fault
+           100.0%  [393]                 aio_daemon
+            100.0%  [393]                  fork_exit
+     04.84%  [20]            cluster_read
+      100.0%  [20]             ffs_read
+[...]
+@ CPU_CLK_UNHALTED.THREAD_P [10856 samples]
+[...]
+@ RESOURCE_STALLS.ANY [3462 samples]
+
+06.15%  [213]      sf_buf_mext @ /boot/kernel/kernel
+ 100.0%  [213]       mb_free_ext
+  100.0%  [213]        m_freem
+   54.46%  [116]         reclaim_tx_descs
+    100.0%  [116]          t4_eth_tx
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;For each counter, and then each CPU, the samples are printed as call chains. &lt;/p&gt;
+
+&lt;h2&gt;CPI Flame Graph&lt;/h2&gt;
+
+&lt;p&gt;To make a CPI flame graph from this call chain output, I needed to separate out the counters into separate files. I did this in about 60 seconds using vi, creating:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;out.pmcstat_cycles: all the sections titled CPU_CLK_UNHALTED.THREAD_P&lt;/li&gt;
+&lt;li&gt;out.pmcstat_stalls: all the sections titled RESOURCE_STALLS.ANY&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Yes, I should just write some Perl/awk to do this. I will next time.&lt;/p&gt;
+
+&lt;p&gt;I then converted these to the folded format, using stackcollapse-pmc.pl (by Ed Maste):&lt;/p&gt;
+
+&lt;pre&gt;
+$ &lt;b&gt;cat out.pmcstat_cycles | ./stackcollapse-pmc.pl &amp;gt; out.pmcstat_cycles.folded&lt;/b&gt;
+$ &lt;b&gt;cat out.pmcstat_stalls | ./stackcollapse-pmc.pl &amp;gt; out.pmcstat_stalls.folded&lt;/b&gt;
+&lt;/pre&gt;
+
+&lt;p&gt;Finally, making the CPI flame graph:&lt;/p&gt;
+
+&lt;pre&gt;
+$ &lt;b&gt;./difffolded.pl -n out.pmcstat_stall.folded out.pmcstat_cycles.folded | \
+    ./flamegraph.pl --title &quot;CPI Flame Graph: blue=stalls, red=instructions&quot; --width=900 &amp;gt; cpi.svg&lt;/b&gt;
+&lt;/pre&gt;
+
+&lt;p&gt;That&#39;s the &lt;a href=&quot;/blog/images/2014/cpi-freebsd-kernel.svg&quot;&gt;SVG&lt;/a&gt; at the top of this page.&lt;/p&gt;
+
+&lt;p&gt;All the flame graph software (flamegraph.pl, stackcollapse-pmc.pl, difffolded.pl) can be found in the &lt;a href=&quot;https://github.com/brendangregg/FlameGraph&quot;&gt;Flame Graph&lt;/a&gt; collection on github.&lt;/p&gt;
+
+&lt;h2&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;There is much you can do as either a software developer or system administrator once you know that CPU is either memory-bound or instruction-bound, resulting in small to large performance improvements. CPU flame graphs are already a great way to visualize how your software is using the CPUs. CPI flame graphs use color to show what the CPUs are really doing: their efficiency by function.&lt;/p&gt;
+
+&lt;p&gt;PS. This weekend I&#39;m speaking at &lt;a href=&quot;https://www.meetbsd.com/&quot;&gt;MeetBSD&lt;/a&gt; on performance analysis. I will be sure to mention pmcstat(8), which can do a lot more than just stalls and cycles.&lt;/p&gt;
+
+
+</description>
+        <pubDate>Fri, 31 Oct 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-10-31-cpi-flame-graphs.html-4930d6376.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-31-cpi-flame-graphs.html-4930d6376.html</guid>
+        
+        
+        <category>brendangregg</category>
+        
+      </item>
     
       <item>
         <title>用 perl6-bench 做 perl6 性能对比</title>
@@ -3519,234 +3677,6 @@ openssl ocsp -text -no_nonce -issuer level1.crt -CAfile CAbundle.crt -cert level
         <pubDate>Thu, 09 Oct 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-10-09-78042-47b5a041c.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-09-78042-47b5a041c.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>天气又转热了，我给她做了个智能小风扇</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;黄花深巷，
-红叶低窗，
-凄凉一片秋声。
-豆雨声来，
-中间夹带风声。
-疏疏二十五点，
-丽谯门、不锁更声。
-故人远，
-问谁摇玉佩，
-檐底铃声。
-彩角声吹月堕，
-渐连营马动，
-四起笳声。
-闪烁邻灯，
-灯前尚有砧声。
-知他诉愁到晓，
-碎哝哝、多少蛩声。
-诉未了，把一半、分与雁声。&lt;/pre&gt;
-&lt;p&gt;一首短诗《声声慢 秋声》献与大家。蒋捷的这首短诗共96字，其中有十个“声”字；其通过风声、雨声、更声、铃声、笳声、砧声、蛩声、雁声来形容秋天的到来，颇有节奏感。&lt;/p&gt;
-&lt;p&gt;一直颇喜欢古典诗词，怎奈天赋不佳，至今连完整的四言诗都木写出来过……哎……不提伤心往事了……五音不全不能阻止我喜爱音乐，不能作诗亦不能阻止我爱诗哒！！记得小时候在乡间，对四季的变化非常敏锐，树枝张新芽了，知春来了；知了叫了，知夏来了，树叶黄了，知秋来了；雪花飘了，知深冬了。如今，生活在钢筋水泥之间，对季节的感觉淡漠了，似乎是麻木了，唯一触发人知觉的只有温度，冷了暖气，热了风扇/空调；对于季节的感受全然变了被遗弃的孩子，尽管它在冬天里猛力的哭号，也没有多少人能听见……向往古人感受季节的敏锐……&lt;/p&gt;
-&lt;p&gt;……&lt;/p&gt;
-&lt;p&gt;我这是说哪去了呢……哎……情不自禁啊……大家谅解……&lt;/p&gt;
-&lt;p&gt;话说，长沙天气的热是出了名的，四大火炉之一啊！只是今年天气有点异常，只有在7月热了一小段时间，后面一直是清凉气爽的天！！！在这样的天气下，舒服地过了几个月后（咱家席子都换成被子了），现在又突然变热，大家都有点不适应，GF表现得尤为突出。坐一会就焦躁不安地站起来，说热死了，热死了，显得燥热难耐的样子（她本身散热面积就挺大，不知为啥比我还热……）。好吧，那就开风扇吧，可没吹多久，又说这风吹着不舒服，风大了点还冷。额……，这可是开得最小档啊！为了让GF乖乖的做在我旁边陪我写代码（当然她可以用手机玩游戏），我试着用技术来解决这个问题……&lt;/p&gt;
-&lt;p&gt;学技术，去哪里，当然是山东蓝翔啊，哈哈……开个玩笑，最近关于蓝翔的段子还真不少，咱就不跟这个风了。 咱可是程序员，用一现有技术拼凑（高大上的说法是集成）就能解决问题好不。下面就说说我要做的智能风扇的功能吧：&lt;/p&gt;
-&lt;p&gt;1、  风速无级调节&lt;/p&gt;
-&lt;p&gt;2、  手机控制风扇开关及风速&lt;/p&gt;
-&lt;p&gt;3、  语音控制风扇开关及风速（能够根据语义进行智能控制）&lt;/p&gt;
-&lt;p&gt;4、  通过检测皮肤的温湿度控制风扇开关及风速（手环啊）&lt;/p&gt;
-&lt;p&gt;要做的功能确定了，那就设计方案和准备材料吧。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;硬件&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;1、风扇&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d673736d0c3e882bf1a32c04b438ab95.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;7寸大号丝雨usb电风扇，用着好用就帮人家推荐下（塑料的，轻，便宜），这是我做人的原则&lt;/p&gt;
-&lt;p&gt;2、主控板&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/243a5813c1205aa9d364cde7c78d7c69.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;拿着师弟做的带WiFi功能的Arduino板子，不给钱的，光线暗拍着不好看，其实做的还蛮精致的。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/293d9805a60e604cbd491b0059ce0594.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;3、  控制接口电路&lt;/p&gt;
-&lt;p&gt;通过主控板pwm输出控制电源给风扇供电，用万用板焊接好后如下&lt;br&gt;
-&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4360f0f54dfbaa77a52cb8e4ada951a7.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;3、  手机&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cdb4e5769b7ef86b8514fc22602a1c31.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;如果配送这个手机的话，风扇应该会被扔掉，所以坚决不用这种档次的手机。&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;3、  手环&lt;/p&gt;
-&lt;p&gt;听说又要变天了，为了在天气变凉前把风扇做出来，这个还是在第二版再做吧。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;软件&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;1、  Arduino IDE编程&lt;/p&gt;
-&lt;p&gt;是的，控制端的程序我就是用arduino写的，你们就尽情的鄙视我吧。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c4f946daa5cce96a2a10cb9849e20273.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;而且关于pwm调节只要这么一条语句就实现了哦。&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;analogWrite( 7 , hp*25 );&lt;/pre&gt;
-&lt;div&gt;&lt;/div&gt;
-&lt;p&gt;2、  Alljoyn通信&lt;/p&gt;
-&lt;p&gt;用Alljoyn完全是为了装逼，可以对别人吹牛说，我的风扇里用了最先进的物联网技术，其实用tcp通信就能实现。&lt;/p&gt;
-&lt;p&gt;主控板端Alljoyn接口代码：&lt;/p&gt;
-&lt;div&gt;&lt;/div&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;static const char* const testInterface[] = {
-    &quot;org.alljoyn.sample.ledcontroller&quot;,
-    &quot;?Flash msec&amp;lt;u&quot;,
-    &quot;?On&quot;,
-    &quot;?Off&quot;,
-    NULL
-};&lt;/pre&gt;
-&lt;p&gt;3、  科大飞讯语音引擎&lt;/p&gt;
-&lt;p&gt;大家用着都说好，我试了下，果然不错！科大飞讯，中国人都用它。&lt;/p&gt;
-&lt;p&gt;语音识别关键部分代码：&lt;/p&gt;
-&lt;div&gt;
-&lt;div id=&quot;highlighter_280789&quot;&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;private InitListener mInitListener = new InitListener() {
-
-        @Override
-        public void onInit(int code) {
-            Log.d(TAG, &quot;SpeechRecognizer init() code = &quot; + code);
-            if (code == ErrorCode.SUCCESS) {
-                findViewById(R.id.isr_recognize).setEnabled(true);
-            }
-        }
-    };
-
-    /**
-     * 构建语法监听器。
-     */
-    private GrammarListener grammarListener = new GrammarListener() {
-        @Override
-        public void onBuildFinish(String grammarId, SpeechError error) {
-            if(error == null){
-                String grammarID = new String(grammarId);
-                Editor editor = mSharedPreferences.edit();
-                if(!TextUtils.isEmpty(grammarId))
-                    editor.putString(KEY_GRAMMAR_ABNF_ID, grammarID);
-                editor.commit();
-                showTip(&quot;语法构建成功：&quot; + grammarId);
-            }else{
-                showTip(&quot;语法构建失败,错误码：&quot; + error.getErrorCode());
-            }           
-        }
-    };
-
-    /**
-     * 识别监听器。
-     */
-    private RecognizerListener mRecognizerListener = new RecognizerListener() {
-
-        @Override
-        public void onVolumeChanged(int volume) {
-            showTip(&quot;当前正在说话，音量大小：&quot; + volume);
-        }
-
-        @Override
-        public void onResult(final RecognizerResult result, boolean isLast) {
-            runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    if (null != result) {
-                        Log.d(TAG, &quot;recognizer result：&quot; + result.getResultString());
-                        String text = &quot;&quot;;
-                        if(mEngineType.equals(SpeechConstant.TYPE_CLOUD))
-                        {
-                            //解析云端结果
-                            text = JsonParser.parseGrammarResult(result.getResultString());
-                        }else {
-                            //解析本地结果
-                            text = XmlParser.parseNluResult(result.getResultString());
-                        }
-                        // 显示
-                        //((EditText)findViewById(R.id.isr_text)).setText(text);   
-
-                        //分析识别结果
-                        Boolean analyzeRelult = analyzeWords(text);
-
-                        //发送控制指令
-                        if(analyzeRelult)
-                        {
-                            controlFan(mWindLevel);
-                        }
-
-                    } else {
-                        Log.d(TAG, &quot;recognizer result : null&quot;);
-                    }   
-                    SystemClock.sleep(100);
-                    //下一次语音识别
-                    Button recognizeButton = (Button)findViewById(R.id.isr_recognize);
-
-                    recognizeButton.performClick();
-                }
-            });
-
-        }
-
-        @Override
-        public void onEndOfSpeech() {
-            showTip(&quot;结束说话&quot;);
-
-        }
-
-        @Override
-        public void onBeginOfSpeech() {
-            showTip(&quot;开始说话&quot;);
-        }
-
-        @Override
-        public void onError(SpeechError error) {
-            showTip(&quot;onError Code：&quot; + error.getErrorCode());
-            SystemClock.sleep(100);
-            //下一次语音识别
-            Button recognizeButton = (Button)findViewById(R.id.isr_recognize);
-
-            recognizeButton.performClick();
-        }
-
-        @Override
-        public void onEvent(int eventType, int arg1, int agr2, String msg) {
-        }
-    };&lt;/pre&gt;
-&lt;/div&gt;
-&lt;/div&gt;
-&lt;p&gt;4、  Android&lt;/p&gt;
-&lt;p&gt;做出来手机软件界面是这样的&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/dc5203fe4034fcc536b8f0d9ebfdf6e5.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;结果&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;我最初想做出来的智能风扇应该是这样的：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/dc404baea36c60455963b4108bb893cd.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;但事实上做出来却是这样的：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8932efb2dd9d88e44fd3d72ce3192922.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;至于具体功能怎么样，我晚点上视频。至于GF用着什么反应，这个……&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Wed, 08 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-08-77963-96ca9f478.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-08-77963-96ca9f478.html</guid>
         
         
         <category>jobbole</category>
