@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>编写最简单的内核：HelloWorld</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-11-03-79249-b3546a20d.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>编写最简单的内核：HelloWorld</h1>
+    <p class="meta"><span class="time">Nov 3, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/79249/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>内核是操作系统最核心的内容，主要提供硬件抽象层、磁盘及文件系统控制、多任务等功能，由于其涉及非常广泛的计算机知识，很少被人们所熟悉，因而披上了一层神秘的面纱。</p>
+<p>本文将从零开始实现一个最简单的内核，其可以通过x86系统的GRUB引导启动，并向屏幕输出“Hello World!“字符串。该内核代码非常简短，并且在本人的Debian 7系统中可以正常运行。</p>
+<h2>x86机器启动过程</h2>
+<p>在具体实现这个内核之前，我们先看看机器具体是怎么启动并且把控制权交给内核的。</p>
+<p>x86的CPU固定地在物理地址为[0xFFFFFFF0]的地方开始运行，这是32位地址空间的最后16个字节。这里只包含了一个跳转指令，跳转到BIOS把它自己拷贝到的内存区域的地址。</p>
+<p>然后，BIOS开始执行。它首先根据配置的设备启动顺序依次寻找可启动的设备（根据一个特定的魔数可以决定一个设备是否启动）。一旦找到一个可启动的设备，它就把该设备第一个扇区的内容复制到RAM中物理地址从[0x7C00]开始的地方，然后跳转到该地址并且开始执行那里加载的代码。这段代码称为启动引导装载程序(bootloader)。Bootloader然后在物理地址为[0x100000]的地方加载内核，地址[0x100000]就是x86机器上内核的起始地址。</p>
+<h2>需要的工具</h2>
+<ul>
+<li>一台x86电脑</li>
+<li>Linux</li>
+<li>NASM汇编器</li>
+<li>gcc</li>
+<li>ld（GNU链接器）</li>
+<li>grub</li>
+</ul>
+<h2>汇编入口点</h2>
+<p>我们希望用C来写所有的代码，但免不了要写一点汇编代码。我们会写一个x86汇编语言的小文件来作为内核的起始点，这段汇编所做的事情就是调用一个我们用C写的外部函数，然后停止程序运行。</p>
+<p>怎么确定这段汇编代码会作为内核的起始点呢？<br>
+我们会使用一个链接脚本来链接所有的目标文件来产生一个最终的内核可执行映像。在这个链接脚本中，我们会显式指明二进制文件要加载在地址为[0x100000]的地方，这就是内核所在的地方。于是，bootloader会负责触发这个内核的入口点。</p>
+<p>以下是汇编代码：</p>
+<pre class="brush: text; gutter: true">;;kernel.asm，内核汇编代码
+bits 32         ;nasm伪指令
+section .text   ;代码段
+
+global start    ;全局变量
+extern kmain    ;kmain定义在C文件中
+
+start:
+    cli         ;禁止中断
+    call kmain  ;调用kmain函数
+    hlt         ;终止CPU运行</pre>
+
+<p>第一条指令中的bit 32不是x86汇编指令，而是NASM汇编器的伪指令，表明将会产生一段运行在32位处理器上代码。这句代码不是必须的，但显示加上会是一个好的编程实践。</p>
+<p>第二行开始就是代码段，即放置代码的地方。<br>
+global也是NASM的伪指令，表示把源代码中的一个符号设置成全局符号。于是链接器知道start符号在哪里，其实这就是我们的入口点。<br>
+kmain是将会在kernel.c中实现的一个函数，extern表明这个函数会在其他地方定义。</p>
+<p>于是，我们有了start函数，它会调用kmain函数，然后通过hlt指令停止CPU。由于中断会从hlt指令中唤醒CPU，所以我们事先使用cli（意为clear interrupts）指令禁止中断。</p>
+<h2>C语言内核</h2>
+<p>我们在kernel.asm中调用kmain()函数，所以C代码会从kmain()开始执行。</p>
+<pre class="brush: c; gutter: true">//kernel.c文件
+void kmain(void)
+{
+	char *str = "Hello World！";
+	char *vidptr = (char*)0xb8000; //显存开始地址
+	unsigned int i = 0;
+	unsigned int j = 0;
+	//清空屏幕，共25行，每行80个字符，每个字符2字节
+	while(j &lt; 80 * 25 * 2) {
+		//空白字符
+		vidptr[j] = ' ';
+		//属性字节：黑色背景，灰色前景
+		vidptr[j+1] = 0x07; 		
+		j = j + 2;
+	}
+	j = 0;
+	while(str[j] != '') {
+		vidptr[i] = str[j];
+		vidptr[i+1] = 0x07;
+		++j;
+		i = i + 2;
+	}
+	return;
+}</pre>
+
+<p>这里内核所做的事情就是：清空屏幕，打印字符串“Hello World!”。</p>
+<p>首先是指针vidptr指向地址[0xb8000]，这是保护模式下显存的开始地址。屏幕的文本内存只是地址空间的一连串内存区域，它从[0xb8000]开始映射屏幕的输入输出，支持25行，每行80个ASCII字符，每个字符用16位（2字节）表示，而不是我们熟悉的8位（1字节）。2字节中第1个字节是该字符的ASCII表示，第2个字节是属性字节，描述字符的包括颜色在内的属性。如果要让背景为黑色而字体为绿色，可以在第1个字节保存字符的ASCII值，在第2个字节保存值[0x02]：0代表黑色背景，2代表绿色前景。</p>
+<p>其它颜色属性定义如下：</p>
+<table width="350" border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td align="center" valign="middle">0</td>
+<td align="center" valign="middle">1</td>
+<td align="center" valign="middle">2</td>
+<td align="center" valign="middle">3</td>
+<td align="center" valign="middle">4</td>
+<td align="center" valign="middle">5</td>
+<td align="center" valign="middle">6</td>
+<td align="center" valign="middle">7</td>
+</tr>
+<tr>
+<td align="center" valign="middle">Black</td>
+<td align="center" valign="middle">Blue</td>
+<td align="center" valign="middle">Green</td>
+<td align="center" valign="middle">Cyan</td>
+<td align="center" valign="middle">Red</td>
+<td align="center" valign="middle">Magenta</td>
+<td align="center" valign="middle">Brown</td>
+<td align="center" valign="middle">Light Grey</td>
+</tr>
+<tr>
+<td align="center" valign="middle">8</td>
+<td align="center" valign="middle">9</td>
+<td align="center" valign="middle">10</td>
+<td align="center" valign="middle">11</td>
+<td align="center" valign="middle">12</td>
+<td align="center" valign="middle">13</td>
+<td align="center" valign="middle">14</td>
+<td align="center" valign="middle">15</td>
+</tr>
+<tr>
+<td align="center" valign="middle">Dark Grey</td>
+<td align="center" valign="middle">Light Blue</td>
+<td align="center" valign="middle">Light Green</td>
+<td align="center" valign="middle">Light Cyan</td>
+<td align="center" valign="middle">Light Red</td>
+<td align="center" valign="middle">Light Magenta</td>
+<td align="center" valign="middle">Light Brown</td>
+<td align="center" valign="middle">White</td>
+</tr>
+</tbody>
+</table>
+<p>我们的内核使用了黑色背景以及灰色字体，所以属性字节为[0x07]。</p>
+<p>在第一个while循环中，程序在所有的25行80列中写入空字符和[0x07]属性，从而清空了屏幕。<br>
+在第二个while循环中，字符串”Hello World!“被写到了显存的开始区域，每个字符仍是拥有[0x07]属性。这就在屏幕上打印了该字符串。</p>
+<h2>链接部分</h2>
+<p>使用NASM把kernel.asm编译成目标文件，再使用GCC把kernel.c编译成另一个目标文件，然后需要把这两个目标文件链接成一个可以启动的内核映像。<br>
+我们使用链接脚本来达到这个目的，链接脚本可以作为参数传递进链接器ld中以控制链接的过程。</p>
+<pre class="brush: text; gutter: true">//link.ld文件
+OUTPUT_FORMAT(elf32-i386)
+ENTRY(start)
+SECTIONS
+{
+    . = 0x100000;
+    .text : { *(.text) }
+    .data : { *(.data) }
+    .bss  : { *(.bss)  }
+}</pre>
+
+<p>OUTPUT_FORMAT设置输出的可执行文件为32位的ELF文件，ELF是x86架构上类Unix系统的标准二进制文件格式。</p>
+<p>ENTRY接受一个参数，指定其为最终可执行文件的入口点。</p>
+<p>SECTION是这里最关键的部分，它指定不同的段怎么合并以及放在什么地方，从而定义最终可执行文件的布局。<br>
+大括号内就是SECTION的语句，句点(.)为位置计数器，一般被初始化为SECTIONS块开始的地方[0x0]，但可以任意修改。因为内核代码需要在地址[0x100000]处开始，所以设置位置计数器为[0x100000]。<br>
+第二行中的星号是通配符，可以匹配任何文件名，*(.text)即表示匹配所有输入文件的代码段。于是，链接器合并所有目标文件的代码段到可执行文件的代码段中，具体地址由位置计数器决定，这里即为[0x100000]。链接器产生代码段后，位置计数器会变成：0×100000 + 输出代码段的大小。<br>
+同样地，数据段和bss段会被合并，并放置在位置计数器指定的地方。</p>
+<h2>Grub和多重引导</h2>
+<p>现在已经准备好了构建内核的所有文件了，但要用GRUB进行引导还需要最后一个步骤。</p>
+<p>多重引导规范(Multiboot specification)是一个使用bootloader加载不同X86内核的标准，GRUB只会加载满足这个规范的内核。根据这个规范，内核必须在它的前8KB字节中包含头信息（Multiboot header）。这个头信息包含4字节对齐的3个域，分别为：</p>
+<ul>
+<li>魔数域：包含魔数[0x1BADB002]。</li>
+<li>标志域：这里不关心这个域，置为0。</li>
+<li>校验和域：检验和域和前面两个域相加之后的结果必须为0。</li>
+</ul>
+<p>于是kernel.asm应该修改为，代码中的dd表示定义一个4字节的双字：</p>
+<pre class="brush: text; gutter: true">;;kernel.asm，内核汇编代码
+
+bits 32         ;nasm伪指令
+section .text   ;代码段
+        ;多重引导规范
+        align 4
+        dd 0x1BADB002            ;魔数
+        dd 0x00                  ;标志
+        dd - (0x1BADB002 + 0x00) ;校验和
+
+global start    ;全局变量
+extern kmain    ;kmain定义在C文件中
+
+start:
+    cli         ;禁止中断
+    call kmain  ;调用kmain函数
+    hlt         ;终止CPU运行</pre>
+
+<h2>构建内核</h2>
+<p>现在可以从kernel.asm和kernel.c生成目标文件，然后使用连接脚本进行链接。</p>
+<p>使用汇编器nasm产生ELF-32格式的目标文件kasm.o：</p>
+<pre class="brush: text; gutter: true">nasm -f elf32 kernel.asm -o kasm.o</pre>
+
+<p>使用编译器gcc产生目标文件kc.o，”-c”参数保证只编译，不进行链接：</p>
+<pre class="brush: text; gutter: true">gcc -m32 -c kernel.c -o kc.o</pre>
+
+<p>使用链接器ld根据链接控制脚本产生可执行映像文件kernel：</p>
+<pre class="brush: text; gutter: true">ld -m elf_i386 -T link.ld -o kernel kasm.o kc.o</pre>
+
+<h2>配置GRUB并运行内核</h2>
+<p>GRUB需要内核以kernel-&lt;version&gt;形式命名，于是把内核kernel重命名为kernel-701，并利用超级管理员权限放到/boot目录下。</p>
+<p>对于bootloader为GRUB的发行版，修改配置文件/boot/grub/grub.cfg，添加以下条目：</p>
+<pre class="brush: text; gutter: true">title myKernel
+	root (hd0,0)
+	kernel /boot/kernel-701 ro</pre>
+
+<p>对于bootloader为GRUB2的发行版，添加的配置应该为：</p>
+<pre class="brush: text; gutter: true">menuentry 'kernel 701' {
+	set root='hd0,msdos1'
+	multiboot /boot/kernel-701 ro
+}</pre>
+
+<p>重启电脑，选择GRUB列表中新增加的kernel-701内核选项，这时可以看到屏幕上显示”Hello World!“。<br>
+这就是你的内核！</p>
+
+<!-- div id="ad1">
+</div -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-10-31-cpi-flame-graphs.html-4930d6376.html" title="Previous Post: Catching Your CPUs Napping" data-instant>&laquo; Catching Your CPUs Napping</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-11-03-79252-ea7eb2e7a.html" title="Next Post: 10分钟掌握XML、JSON及其解析" data-instant>10分钟掌握XML、JSON及其解析 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>23 Sep 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-09-23-77248-d39d792ab.html">用 C 语言编写一个简单的垃圾回收器</a></li>
+
+      <li><span>17 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-17-73257-503521781.html">BASH的保护性编程技巧</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
