@@ -1,0 +1,213 @@
+---
+layout: post
+title: '编写最简单的内核：HelloWorld'
+time: 2014-11-03 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/79249/
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>内核是操作系统最核心的内容，主要提供硬件抽象层、磁盘及文件系统控制、多任务等功能，由于其涉及非常广泛的计算机知识，很少被人们所熟悉，因而披上了一层神秘的面纱。</p>
+<p>本文将从零开始实现一个最简单的内核，其可以通过x86系统的GRUB引导启动，并向屏幕输出“Hello World!“字符串。该内核代码非常简短，并且在本人的Debian 7系统中可以正常运行。</p>
+<h2>x86机器启动过程</h2>
+<p>在具体实现这个内核之前，我们先看看机器具体是怎么启动并且把控制权交给内核的。</p>
+<p>x86的CPU固定地在物理地址为[0xFFFFFFF0]的地方开始运行，这是32位地址空间的最后16个字节。这里只包含了一个跳转指令，跳转到BIOS把它自己拷贝到的内存区域的地址。</p>
+<p>然后，BIOS开始执行。它首先根据配置的设备启动顺序依次寻找可启动的设备（根据一个特定的魔数可以决定一个设备是否启动）。一旦找到一个可启动的设备，它就把该设备第一个扇区的内容复制到RAM中物理地址从[0x7C00]开始的地方，然后跳转到该地址并且开始执行那里加载的代码。这段代码称为启动引导装载程序(bootloader)。Bootloader然后在物理地址为[0x100000]的地方加载内核，地址[0x100000]就是x86机器上内核的起始地址。</p>
+<h2>需要的工具</h2>
+<ul>
+<li>一台x86电脑</li>
+<li>Linux</li>
+<li>NASM汇编器</li>
+<li>gcc</li>
+<li>ld（GNU链接器）</li>
+<li>grub</li>
+</ul>
+<h2>汇编入口点</h2>
+<p>我们希望用C来写所有的代码，但免不了要写一点汇编代码。我们会写一个x86汇编语言的小文件来作为内核的起始点，这段汇编所做的事情就是调用一个我们用C写的外部函数，然后停止程序运行。</p>
+<p>怎么确定这段汇编代码会作为内核的起始点呢？<br>
+我们会使用一个链接脚本来链接所有的目标文件来产生一个最终的内核可执行映像。在这个链接脚本中，我们会显式指明二进制文件要加载在地址为[0x100000]的地方，这就是内核所在的地方。于是，bootloader会负责触发这个内核的入口点。</p>
+<p>以下是汇编代码：</p>
+<pre class="brush: text; gutter: true">;;kernel.asm，内核汇编代码
+bits 32         ;nasm伪指令
+section .text   ;代码段
+
+global start    ;全局变量
+extern kmain    ;kmain定义在C文件中
+
+start:
+    cli         ;禁止中断
+    call kmain  ;调用kmain函数
+    hlt         ;终止CPU运行</pre>
+<p>第一条指令中的bit 32不是x86汇编指令，而是NASM汇编器的伪指令，表明将会产生一段运行在32位处理器上代码。这句代码不是必须的，但显示加上会是一个好的编程实践。</p>
+<p>第二行开始就是代码段，即放置代码的地方。<br>
+global也是NASM的伪指令，表示把源代码中的一个符号设置成全局符号。于是链接器知道start符号在哪里，其实这就是我们的入口点。<br>
+kmain是将会在kernel.c中实现的一个函数，extern表明这个函数会在其他地方定义。</p>
+<p>于是，我们有了start函数，它会调用kmain函数，然后通过hlt指令停止CPU。由于中断会从hlt指令中唤醒CPU，所以我们事先使用cli（意为clear interrupts）指令禁止中断。</p>
+<h2>C语言内核</h2>
+<p>我们在kernel.asm中调用kmain()函数，所以C代码会从kmain()开始执行。</p>
+<pre class="brush: c; gutter: true">//kernel.c文件
+void kmain(void)
+{
+	char *str = "Hello World！";
+	char *vidptr = (char*)0xb8000; //显存开始地址
+	unsigned int i = 0;
+	unsigned int j = 0;
+	//清空屏幕，共25行，每行80个字符，每个字符2字节
+	while(j &lt; 80 * 25 * 2) {
+		//空白字符
+		vidptr[j] = ' ';
+		//属性字节：黑色背景，灰色前景
+		vidptr[j+1] = 0x07; 		
+		j = j + 2;
+	}
+	j = 0;
+	while(str[j] != '') {
+		vidptr[i] = str[j];
+		vidptr[i+1] = 0x07;
+		++j;
+		i = i + 2;
+	}
+	return;
+}</pre>
+<p>这里内核所做的事情就是：清空屏幕，打印字符串“Hello World!”。</p>
+<p>首先是指针vidptr指向地址[0xb8000]，这是保护模式下显存的开始地址。屏幕的文本内存只是地址空间的一连串内存区域，它从[0xb8000]开始映射屏幕的输入输出，支持25行，每行80个ASCII字符，每个字符用16位（2字节）表示，而不是我们熟悉的8位（1字节）。2字节中第1个字节是该字符的ASCII表示，第2个字节是属性字节，描述字符的包括颜色在内的属性。如果要让背景为黑色而字体为绿色，可以在第1个字节保存字符的ASCII值，在第2个字节保存值[0x02]：0代表黑色背景，2代表绿色前景。</p>
+<p>其它颜色属性定义如下：</p>
+<table width="350" border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td align="center" valign="middle">0</td>
+<td align="center" valign="middle">1</td>
+<td align="center" valign="middle">2</td>
+<td align="center" valign="middle">3</td>
+<td align="center" valign="middle">4</td>
+<td align="center" valign="middle">5</td>
+<td align="center" valign="middle">6</td>
+<td align="center" valign="middle">7</td>
+</tr>
+<tr>
+<td align="center" valign="middle">Black</td>
+<td align="center" valign="middle">Blue</td>
+<td align="center" valign="middle">Green</td>
+<td align="center" valign="middle">Cyan</td>
+<td align="center" valign="middle">Red</td>
+<td align="center" valign="middle">Magenta</td>
+<td align="center" valign="middle">Brown</td>
+<td align="center" valign="middle">Light Grey</td>
+</tr>
+<tr>
+<td align="center" valign="middle">8</td>
+<td align="center" valign="middle">9</td>
+<td align="center" valign="middle">10</td>
+<td align="center" valign="middle">11</td>
+<td align="center" valign="middle">12</td>
+<td align="center" valign="middle">13</td>
+<td align="center" valign="middle">14</td>
+<td align="center" valign="middle">15</td>
+</tr>
+<tr>
+<td align="center" valign="middle">Dark Grey</td>
+<td align="center" valign="middle">Light Blue</td>
+<td align="center" valign="middle">Light Green</td>
+<td align="center" valign="middle">Light Cyan</td>
+<td align="center" valign="middle">Light Red</td>
+<td align="center" valign="middle">Light Magenta</td>
+<td align="center" valign="middle">Light Brown</td>
+<td align="center" valign="middle">White</td>
+</tr>
+</tbody>
+</table>
+<p>我们的内核使用了黑色背景以及灰色字体，所以属性字节为[0x07]。</p>
+<p>在第一个while循环中，程序在所有的25行80列中写入空字符和[0x07]属性，从而清空了屏幕。<br>
+在第二个while循环中，字符串”Hello World!“被写到了显存的开始区域，每个字符仍是拥有[0x07]属性。这就在屏幕上打印了该字符串。</p>
+<h2>链接部分</h2>
+<p>使用NASM把kernel.asm编译成目标文件，再使用GCC把kernel.c编译成另一个目标文件，然后需要把这两个目标文件链接成一个可以启动的内核映像。<br>
+我们使用链接脚本来达到这个目的，链接脚本可以作为参数传递进链接器ld中以控制链接的过程。</p>
+<pre class="brush: text; gutter: true">//link.ld文件
+OUTPUT_FORMAT(elf32-i386)
+ENTRY(start)
+SECTIONS
+{
+    . = 0x100000;
+    .text : { *(.text) }
+    .data : { *(.data) }
+    .bss  : { *(.bss)  }
+}</pre>
+<p>OUTPUT_FORMAT设置输出的可执行文件为32位的ELF文件，ELF是x86架构上类Unix系统的标准二进制文件格式。</p>
+<p>ENTRY接受一个参数，指定其为最终可执行文件的入口点。</p>
+<p>SECTION是这里最关键的部分，它指定不同的段怎么合并以及放在什么地方，从而定义最终可执行文件的布局。<br>
+大括号内就是SECTION的语句，句点(.)为位置计数器，一般被初始化为SECTIONS块开始的地方[0x0]，但可以任意修改。因为内核代码需要在地址[0x100000]处开始，所以设置位置计数器为[0x100000]。<br>
+第二行中的星号是通配符，可以匹配任何文件名，*(.text)即表示匹配所有输入文件的代码段。于是，链接器合并所有目标文件的代码段到可执行文件的代码段中，具体地址由位置计数器决定，这里即为[0x100000]。链接器产生代码段后，位置计数器会变成：0×100000 + 输出代码段的大小。<br>
+同样地，数据段和bss段会被合并，并放置在位置计数器指定的地方。</p>
+<h2>Grub和多重引导</h2>
+<p>现在已经准备好了构建内核的所有文件了，但要用GRUB进行引导还需要最后一个步骤。</p>
+<p>多重引导规范(Multiboot specification)是一个使用bootloader加载不同X86内核的标准，GRUB只会加载满足这个规范的内核。根据这个规范，内核必须在它的前8KB字节中包含头信息（Multiboot header）。这个头信息包含4字节对齐的3个域，分别为：</p>
+<ul>
+<li>魔数域：包含魔数[0x1BADB002]。</li>
+<li>标志域：这里不关心这个域，置为0。</li>
+<li>校验和域：检验和域和前面两个域相加之后的结果必须为0。</li>
+</ul>
+<p>于是kernel.asm应该修改为，代码中的dd表示定义一个4字节的双字：</p>
+<pre class="brush: text; gutter: true">;;kernel.asm，内核汇编代码
+
+bits 32         ;nasm伪指令
+section .text   ;代码段
+        ;多重引导规范
+        align 4
+        dd 0x1BADB002            ;魔数
+        dd 0x00                  ;标志
+        dd - (0x1BADB002 + 0x00) ;校验和
+
+global start    ;全局变量
+extern kmain    ;kmain定义在C文件中
+
+start:
+    cli         ;禁止中断
+    call kmain  ;调用kmain函数
+    hlt         ;终止CPU运行</pre>
+<h2>构建内核</h2>
+<p>现在可以从kernel.asm和kernel.c生成目标文件，然后使用连接脚本进行链接。</p>
+<p>使用汇编器nasm产生ELF-32格式的目标文件kasm.o：</p>
+<pre class="brush: text; gutter: true">nasm -f elf32 kernel.asm -o kasm.o</pre>
+<p>使用编译器gcc产生目标文件kc.o，”-c”参数保证只编译，不进行链接：</p>
+<pre class="brush: text; gutter: true">gcc -m32 -c kernel.c -o kc.o</pre>
+<p>使用链接器ld根据链接控制脚本产生可执行映像文件kernel：</p>
+<pre class="brush: text; gutter: true">ld -m elf_i386 -T link.ld -o kernel kasm.o kc.o</pre>
+<h2>配置GRUB并运行内核</h2>
+<p>GRUB需要内核以kernel-&lt;version&gt;形式命名，于是把内核kernel重命名为kernel-701，并利用超级管理员权限放到/boot目录下。</p>
+<p>对于bootloader为GRUB的发行版，修改配置文件/boot/grub/grub.cfg，添加以下条目：</p>
+<pre class="brush: text; gutter: true">title myKernel
+	root (hd0,0)
+	kernel /boot/kernel-701 ro</pre>
+<p>对于bootloader为GRUB2的发行版，添加的配置应该为：</p>
+<pre class="brush: text; gutter: true">menuentry 'kernel 701' {
+	set root='hd0,msdos1'
+	multiboot /boot/kernel-701 ro
+}</pre>
+<p>重启电脑，选择GRUB列表中新增加的kernel-701内核选项，这时可以看到屏幕上显示”Hello World!“。<br>
+这就是你的内核！</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}
