@@ -5,9 +5,261 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Tue, 04 Nov 2014 11:39:12 +0800</pubDate>
-    <lastBuildDate>Tue, 04 Nov 2014 11:39:12 +0800</lastBuildDate>
+    <pubDate>Thu, 06 Nov 2014 19:23:06 +0800</pubDate>
+    <lastBuildDate>Thu, 06 Nov 2014 19:23:06 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>回收站功能在 Linux 中的实现</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;本文仿照 Windows 回收站的功能，运用 Bash 脚本在 Linux 上做了实现，创建 delete 脚本代替 rm 命令对文件或目录进行删除操做。该脚本实现了以下功能：对大于 2G 的文件或目录直接删除，否则放入$HOME/trash 目录下；恢复 trash 目录中的被删除文件到原目录下；文件存放在 trash 目录中超过七天被自动删除。&lt;/p&gt;
+&lt;h2 id=&quot;2.概述 |outline&quot;&gt;概述&lt;/h2&gt;
+&lt;p&gt;删除是危险系数很高的操作，一旦误删可能会造成难以估计的损失。在 Linux 系统中这种危险尤为明显，一条简单的语句：rm –rf /* 就会把整个系统全部删除，而 Linux 并不会因为这条语句的不合理而拒绝执行。 在 Windows 中，为了防止误删，系统提供了回收站功能。用户在执行删除操作后，文件并不会直接从硬盘中删除，而是被放到回收站中。在清空回收站前，如果发现有文件被误删，用户可以将回收站中的文件恢复到原来的位置。而 Linux 并没有提供类似功能，删除命令 rm 一旦确认执行，文件就会直接从系统中删除，很难恢复。&lt;/p&gt;
+&lt;h2 id=&quot;3.回收站构成 |outline&quot;&gt;回收站构成&lt;/h2&gt;
+&lt;p&gt;本文共用三个脚本实现了回收站的主要功能：Delete 脚本、logTrashDir 脚本和 restoreTrash 脚本。其中 Delete 脚本是核心脚本，其作用是重新封装 rm 命令。相对于 rm 的直接删除，该命令会先将文件或目录移动到$home/trash 目录下。如果用户想要将文件直接删除，可以用 -f 选项，delete 脚本会直接调用 rm –f 命令将文件从硬盘上删除。logTrashDir 脚本用于将被删除文件的信息记录到 trash 目录下的一个隐藏文件中。restoreTrash 脚本用来将放入 trash 中的文件或目录重新恢复到原路径下。在 Linux 系统中，只要将这三个脚本放到/bin/目录下，并用 chmod +X filename 赋予可执行权限，即可直接使用。下面将介绍每个脚本的主要部分&lt;/p&gt;
+&lt;h2 id=&quot;4.Delete 脚本 |outline&quot;&gt;Delete 脚本&lt;/h2&gt;
+&lt;h3 id=&quot;N1005A&quot;&gt;创建目录&lt;/h3&gt;
+&lt;p&gt;首先要创建目录来存放被删除的文件，本文在用户根目录$HOME 下建立 trash 目录来存放文件。具体代码如下：&lt;/p&gt;
+&lt;h5 id=&quot;N10063&quot;&gt;清单 1.创建回收站目录&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;realrm=&quot;/bin/rm&quot;
+if [ ! -d ~/trash ]
+ then
+      mkdir -v ~/trash
+      chmod 777 ~/trash
+ fi&lt;/pre&gt;
+&lt;p&gt;如上所示，先判断目录是否已建立，如未建立，即第一次运行该脚本，则创建 trash 目录。变量 realrm 存放了 Linux 的 rm 脚本位置，用于在特定条件下调用以直接删除文件或目录。&lt;/p&gt;
+&lt;h3 id=&quot;N1006A&quot;&gt;输出帮助信息&lt;/h3&gt;
+&lt;p&gt;该脚本在用户仅输入脚本名而未输入参数执行时，输出简要帮助信息，代码如下：&lt;/p&gt;
+&lt;h5 id=&quot;N10073&quot;&gt;清单 2.输出帮助信息&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;if [ $# -eq 0 ]
+  then
+      echo &quot;Usage:delete file1 [file2 file3....]&quot;
+      echo &quot;If the options contain -f,then the script will exec &#39;rm&#39; directly&quot;&lt;/pre&gt;
+&lt;p&gt;如代码所示，该脚本的运用格式是 delete 后跟要删除的文件或目录的路径，中间用空格隔开。&lt;/p&gt;
+&lt;h3 id=&quot;N1007A&quot;&gt;直接删除文件&lt;/h3&gt;
+&lt;p&gt;有些用户确认失效并想直接删除的文件，不应放入回收站中，而应直接从硬盘中删除。Delete 脚本提供了-f 选项来执行这项操作：&lt;/p&gt;
+&lt;h5 id=&quot;N10083&quot;&gt;清单 3.直接删除文件&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;while getopts &quot;dfiPRrvW&quot; opt
+      do
+        case $opt in
+            f)
+               exec $realrm &quot;$@&quot;
+                ;;
+            *)
+               
+               # do nothing     
+                ;;
+        esac
+      done&lt;/pre&gt;
+&lt;p&gt;如果用户在命令中加入了-f 选项，则 delete 脚本会直接调用 rm 命令将文件或目录直接删除。如代码中所示，所有的参数包括选项都会传递给 rm 命令。所以只要选项中包括选项-f 就等于调用 rm 命令，可以使用 rm 的所有功能。如：delete –rfv filename 等于 rm –rfv filename。&lt;/p&gt;
+&lt;h3 id=&quot;N1008A&quot;&gt;用户交互&lt;/h3&gt;
+&lt;p&gt;需要与用户确认是否将文件放入回收站。相当于 Windows 的弹窗提示，防止用户误操作。&lt;/p&gt;
+&lt;h5 id=&quot;N10093&quot;&gt;清单 4.用户交互&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;echo -ne &quot;Are you sure you want to move the files to the trash?[Y/N]:\a&quot;
+ read reply
+if [ $reply = &quot;y&quot; -o $reply = &quot;Y&quot; ]
+  then #####&lt;/pre&gt;
+&lt;h3 id=&quot;N10098&quot;&gt;判断文件类型并直接删除大于 2G 文件&lt;/h3&gt;
+&lt;p&gt;本脚本只对普通文件和目录做操作，其他类型文件不做处理。先对每个参数做循环，判断他们的类型，对于符合的类型再判断他们的大小是否超过 2G，如果是则直接从系统中删除，避免回收站占用太大的硬盘空间。&lt;/p&gt;
+&lt;h5 id=&quot;N100A1&quot;&gt;清单 5.删除大于 2G 的文件&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;for file in $@
+ do
+if [ -f &quot;$file&quot; –o –d &quot;$file&quot; ]
+then
+if [ -f &quot;$file&quot; ] &amp;amp;&amp;amp; [ `ls –l $file|awk &#39;{print $5}&#39;` -gt 2147483648 ]
+   then
+      echo &quot;$file size is larger than 2G,will be deleted directly&quot;
+        `rm –rf $file`
+elif [ -d &quot;$file&quot; ] &amp;amp;&amp;amp; [ `du –sb $file|awk &#39;{print $1}&#39;` -gt 2147483648 ]
+   then
+      echo &quot;The directory:$file is larger than 2G,will be deleted directly&quot;
+        `rm –rf $file`&lt;/pre&gt;
+&lt;p&gt;如以上代码所示，该脚本用不同的命令分别判断目录和文件的大小。鉴于目录的大小应该是包含其中的文件以及子目录的总大小，所以运用了’du -sb’命令。两种情况都使用了 awk 来获取特定输出字段的值来作比较。&lt;/p&gt;
+&lt;h3 id=&quot;N100A8&quot;&gt;移动文件到回收站并做记录&lt;/h3&gt;
+&lt;p&gt;该部分是 Delete 脚本的主要部分，主要完成以下几个功能&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;获取参数的文件名。因为用户指定的参数中可能包含路径，所以要从中获取到文件名，用来生成 mv 操作的参数。该脚本中运用了字符串正则表达式’${file##*/}’来获取。&lt;/li&gt;
+&lt;li&gt;生成新文件名。在原文件名中加上日期时间后缀以生成新的文件名，这样用户在浏览回收站时，对于每个文件的删除日期即可一目了然。&lt;/li&gt;
+&lt;li&gt;生成被删文件的绝对路径。为了以后可能对被删文件进行的恢复操作，要从相对路径生成绝对路径并记录。用户输入的参数可能有三种情况：只包含文件名的相对路径，包含点号的相对路径以及绝对路径，脚本中用字符串处理对三种情况进行判断，并进行相应的处理。&lt;/li&gt;
+&lt;li&gt;调用 logTrashDir 脚本，将回收站中的新文件名、原文件名、删除时间、原文件绝对路径记录到隐藏文件中&lt;/li&gt;
+&lt;li&gt;将文件通过 mv 命令移动到 Trash 目录下。详细代码如下所示：&lt;br&gt;
+&lt;h5 id=&quot;N100BE&quot;&gt;清单 6.移动文件到回收站并做记录&lt;/h5&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;now=`date +%Y%m%d_%H_%M_%S`
+filename=&quot;${file##*/}&quot;
+newfilename=&quot;${file##*/}_${now}&quot;
+mark1=&quot;.&quot;
+mark2=&quot;/&quot;
+if  [ &quot;$file&quot; = ${file/$mark2} ]
+ then
+  fullpath=&quot;$(pwd)/$file&quot;
+elif [ &quot;$file&quot; != ${file/$mark1} ]
+ then
+  fullpath=&quot;$(pwd)${file/$mark1}&quot;
+else
+  fullpath=&quot;$file&quot;
+fi	    
+echo &quot;the full path of this file is :$fullpath&quot;
+if mv -f $file ~/trash/$newfilename
+ then
+  $(/logTrashDir &quot;$newfilename $filename $now $fullpath&quot;)
+   echo &quot;files: $file is deleted&quot;
+ else
+  echo &quot;the operation is failed&quot;
+ fi&lt;/pre&gt;
+&lt;div&gt;&lt;/div&gt;
+&lt;h2 id=&quot;5.logTrashDir 脚本 |outline&quot;&gt;logTrashDir 脚本&lt;/h2&gt;
+&lt;p&gt;该脚本较简单，仅是一个简单的文件写入操作，之所以单独作为一个脚本，是为了以后扩展的方便，具体代码如下：&lt;/p&gt;
+&lt;h5 id=&quot;N100CC&quot;&gt;清单 7.logTrashDir 代码&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;if [ ! -f ~/trash/.log ]
+  then
+     touch ~/trash/.log
+     chmod 700~/trash/.log
+fi
+   echo $1 $2 $3 $4&amp;gt;&amp;gt; ~/trash/.log&lt;/pre&gt;
+&lt;p&gt;该脚本先建立.log 隐藏文件，然后往里添加删除文件的记录。&lt;/p&gt;
+&lt;div&gt;&lt;/div&gt;
+&lt;h2 id=&quot;6.restoreTrash 脚本 |outline&quot;&gt;restoreTrash 脚本&lt;/h2&gt;
+&lt;p&gt;该脚本主要完成以下功能：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;从.log 文件中找到用户想要恢复的文件对应的记录。此处依然使用 awk，通过正表达式匹配找到包含被删除文件名的一行&lt;/li&gt;
+&lt;li&gt;从记录中找到记录原文件名的字段，以给用户提示&lt;/li&gt;
+&lt;li&gt;将回收站中的文件移动到原来的位置，在这里运用了 mv –b 移动文件，之所以加入-b 选项是为了防止原位置有同名文件的情况。&lt;/li&gt;
+&lt;li&gt;将.log 文件中与被恢复文件相对应的记录删除&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h5 id=&quot;N100E5&quot;&gt;清单 8.获取相应记录&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;originalPath=$(awk /$filename/&#39;{print $4}&#39; &quot;$HOME/trash/.log&quot;)&lt;/pre&gt;
+&lt;h5 id=&quot;N100EC&quot;&gt;清单 9.查找原文件名及现文件名字段&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;filenameNow=$(awk /$filename/&#39;{print $1}&#39; ~/trash/.log)
+filenamebefore=$(awk /$filename/&#39;{print $2}&#39; ~/trash/.log)
+echo &quot;you are about to restore $filenameNow,original name is $filenamebefore&quot;
+echo &quot;original path is $originalPath&quot;&lt;/pre&gt;
+&lt;h5 id=&quot;N100F3&quot;&gt;清单 10.恢复文件到原来位置并删除相应记录&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;echo &quot;Are you sure to do that?[Y/N]&quot;
+  read reply
+  if [ $reply = &quot;y&quot; ] || [ $reply = &quot;Y&quot; ]
+   then
+$(mv -b &quot;$HOME/trash/$filename&quot; &quot;$originalPath&quot;)
+$(sed -i /$filename/&#39;d&#39; &quot;$HOME/trash/.log&quot;)
+  else
+    echo &quot;no files restored&quot;
+  fi&lt;/pre&gt;
+&lt;div&gt;&lt;/div&gt;
+&lt;h2 id=&quot;7.自动定期清理 trash 目录 |outline&quot;&gt;自动定期清理 trash 目录&lt;/h2&gt;
+&lt;p&gt;因为 delete 操作并不是真正删除文件，而是移动操作，经过一段时间的积累，trash 目录可能会占用大量的硬盘空间，造成资源浪费，所以定期自动清理 trash 目录下的文件是必须得。本文的清理规则是：在回收站中存在 7 天以上的文件及目录将会被自动从硬盘中删除。运用的工具是 Linux 自带的 crontab。&lt;/p&gt;
+&lt;p&gt;Crontab 是 Linux 用来定期执行程序的命令。当安装完成操作系统之后，默认便会启动此任务调度命令。Crontab 命令会定期检查是否有要执行的工作，如果有要执行的工作便会自动执行该工作。而 Linux 任务调度的工作主要分为以下两类：&lt;/p&gt;
+&lt;p&gt;1、系统执行的工作：系统周期性所要执行的工作，如备份系统数据、清理缓存&lt;/p&gt;
+&lt;p&gt;2、个人执行的工作：某个用户定期要做的工作，例如每隔 10 分钟检查邮件服务器是否有新信，这些工作可由每个用户自行设置。&lt;/p&gt;
+&lt;p&gt;首先编写 crontab 执行时要调用的脚本 cleanTrashCan.如清单 10 所示，该脚本主要完成两项功能：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;判断回收站中的文件存放时间是否已超过 7 天，如果超过则从回收站中删除。&lt;/li&gt;
+&lt;li&gt;将删除文件在.log 文件中相应的记录删除，保持其中数据的有效性，提高查找效率。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h5 id=&quot;N1010E&quot;&gt;清单 11.删除存在回收站超过 7 天的文件并删除.log 中相应记录&lt;/h5&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;arrayA=($(find ~/trash/* -mtime +7 | awk &#39;{print $1}&#39;))
+   for file in ${arrayA[@]}
+    do
+      $(rm -rf &quot;${file}&quot;)
+      filename=&quot;${file##*/}&quot;
+      echo $filename
+      $(sed -i /$filename/&#39;d&#39; &quot;$HOME/trash/.log&quot;)
+    done&lt;/pre&gt;
+&lt;p&gt;脚本编写完成后通过 chmod 命令赋予其执行权限，然后运过 crontab –e 命令添加一条新的任务调度：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt; 10 18 * * * /bin/ cleanTrashCan&lt;/pre&gt;
+&lt;p&gt;该语句的含义为，在每天的下午 6 点 10 分执行 cleanTrashCan 脚本&lt;/p&gt;
+&lt;p&gt;通过这条任务调度，trash 的大小会得到有效的控制，不会持续增大以致影响用户的正常操作。&lt;/p&gt;
+&lt;div&gt;&lt;/div&gt;
+&lt;h2 id=&quot;8.实际应用 |outline&quot;&gt;实际应用&lt;/h2&gt;
+&lt;p&gt;首先要将 delete 脚本，logTrashDir 脚本，restoreTrash 脚本和 cleanTrashCan 放到/bin 目录下，然后用 chmod +x delete restoreTrash logTrashDir cleanTrashCan 命令赋予这三个脚本可执行权限。&lt;/p&gt;
+&lt;p&gt;运用 delete 脚本删除文件，例如要删除在/usr 目录下的 useless 文件。根据用户目前所在的位置，可以用相对路径或绝对路径来指定参数，如：delete useless，delete ./useless 或者 delete /usr/useless。执行过程如图 1 所示：&lt;/p&gt;
+&lt;h5 id=&quot;N10127&quot;&gt;图 1.delete 脚本执行过程&lt;/h5&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/1488ffe8dd392a8caf548028f6ee49ff.jpg&quot; rel=&quot;lightbox[79313]&quot; title=&quot;回收站功能在 Linux 中的实现&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-79397&quot; alt=&quot;image003&quot; src=&quot;/images/jobbole.com/9bf0193aaae730616666828d81018cfe.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;执行之后，useless 文件会从原目录中删除，被移动到$HOME/trash 下，并被重命名，如图 2.所示：&lt;/p&gt;
+&lt;h5 id=&quot;N10135&quot;&gt;图 2.回收站目录&lt;/h5&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/c62874c0b0fb36caec0c9c26d00f6301.jpg&quot; rel=&quot;lightbox[79313]&quot; title=&quot;回收站功能在 Linux 中的实现&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-79398&quot; alt=&quot;image005&quot; src=&quot;/images/jobbole.com/5e42f2c8e37cb677ed7962b7be5d6792.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;h5&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/6df787e911e282b998946f932177ffaa.jpg&quot; rel=&quot;lightbox[79313]&quot; title=&quot;回收站功能在 Linux 中的实现&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-79399&quot; alt=&quot;image007&quot; src=&quot;/images/jobbole.com/5ed7d99913240815f1e8cb98a9482af3.jpg&quot;&gt;&lt;/a&gt;&lt;/h5&gt;
+&lt;p&gt;生成的.log 记录如图 3.所示：&lt;/p&gt;
+&lt;h5 id=&quot;N1014E&quot;&gt;图 3.log 记录&lt;/h5&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/fb3cc01aca176dac4b8de5003863ba39.jpg&quot; rel=&quot;lightbox[79313]&quot; title=&quot;回收站功能在 Linux 中的实现&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-79400&quot; alt=&quot;image009&quot; src=&quot;/images/jobbole.com/4bad97bdbf03ecc07c57738085e6c2f7.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;如果用户在七天之内发现该文件还有使用价值，则可以使用 restoreTrash 命令将被删除文件恢复到原路径下：restoreTrash ~/trash/useless_20140923_06_28_57。具体执行情况如图 4 所示：&lt;/p&gt;
+&lt;h5 id=&quot;N1015C&quot;&gt;图 4.restoreTrash 脚本执行情况&lt;/h5&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/a647a44bbc8b903dec781d0417b2c587.jpg&quot; rel=&quot;lightbox[79313]&quot; title=&quot;回收站功能在 Linux 中的实现&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-79401&quot; alt=&quot;image011&quot; src=&quot;/images/jobbole.com/fd13b0000d0ab6c74919fb9cd121f79a.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;查看/usr 目录，可以发现 useless 文件已经被恢复至此。&lt;/p&gt;
+&lt;h5 id=&quot;N1016A&quot;&gt;图 5.useless 文件被恢复&lt;/h5&gt;
+&lt;p&gt;&lt;a href=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/7b09d2a61e3388cf5918859e9f8197cc.jpg&quot; rel=&quot;lightbox[79313]&quot; title=&quot;回收站功能在 Linux 中的实现&quot;&gt;&lt;img class=&quot;alignnone size-full wp-image-79402&quot; alt=&quot;image013&quot; src=&quot;/images/jobbole.com/eeee368634807fbdf6270628e50ae8a8.jpg&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;div&gt;&lt;/div&gt;
+&lt;h2 id=&quot;9.总结 |outline&quot;&gt;总结&lt;/h2&gt;
+&lt;p&gt;本文仿照 Windows 中回收站的功能，在 Linux 中做了实现，可以有效的防止由于误删而造成的损失。读者只需要将四个脚本拷到/bin 目录下，并配置 crontab 即可使用 Linux 版回收站。&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Wed, 05 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-05-79313-559cf949a.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-05-79313-559cf949a.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
+    
+      <item>
+        <title>使用共享网口方式访问管理控制器</title>
+        <description>
+
+                &lt;p&gt;发现没有你的服务器会额外多出一个以太网口来，那个网口是专门用来访问管理控制器（BMC）的，当然也可以通过普通网口的共享模式访问BMC。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;什么是共享网口方式？&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;这里要简单地提到NC-SI（Network Controller – Sideband Interface）技术，即网络控制器边带接口技术。这一技术是用来实现BMC芯片和以太网控制器之间信息传递的，它使得BMC芯片能够像使用独立管理网口那样使用主板上的网络接口。以下是共享访问模式的实现结构图：&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://noops.me/wp-content/uploads/2014/11/NCSI.png&quot;&gt;&lt;img class=&quot;wp-image-1719 alignnone&quot; alt=&quot;NCSI&quot; src=&quot;/images/noops.me/e9e2dbaca60b8e9f6f7652441345c7ac.jpg&quot; width=&quot;363&quot; height=&quot;398&quot;&gt;&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;简单理解：&lt;/strong&gt;BMC其实是一个单片机，它有自己独立的IO设备，而独立网口就是其中之一。将BMC芯片和网络控制器互联，通过NC-SI技术使得BMC芯片能够使用网络控制器上的接口。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;为何要使用共享网口访问管理控制器？&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;1、减少物料成本：共享访问模式能够为单机节省一根网线；&lt;/p&gt;
+&lt;p&gt;2、减少人力成本：如果业务网只需要接一根网线，共享方案可以减少一半的布线人力支出；&lt;/p&gt;
+&lt;p&gt;3、减少交换机投入：独立网口会多占用一个交换机端口，增加交换机采购数量，使用共享模式减少了这部分的支出和额外的交换机运维成本；&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;如何实现共享网口模式？&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;1、BIOS或者WEB bmc界面中将IPMI访问方式修改为share（共享模式）；&lt;/p&gt;
+&lt;p&gt;2、为共享网口独立分配一个VLAN号和IP地址，以便和业务网剥离；&lt;/p&gt;
+&lt;p&gt;3、在交换机端开启802.1q协议，并分配相同的VLAN号。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+            
+
+</description>
+        <pubDate>Wed, 05 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-05--p=1717-4732406e0.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-05--p=1717-4732406e0.html</guid>
+        
+        
+        <category>noops</category>
+        
+      </item>
     
       <item>
         <title>浅谈算法和数据结构（12）：无向图相关算法基础</title>
@@ -5775,144 +6027,6 @@ $ ruby grokdebug.rb -m &#39;abc123&#39; -p &#39;%{NUMBER:test:float}&#39; -n
         <pubDate>Sun, 19 Oct 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-10-19-grokdebug-commandline-bc8c61ebe.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-19-grokdebug-commandline-bc8c61ebe.html</guid>
-        
-        
-        <category>chenlinux</category>
-        
-      </item>
-    
-      <item>
-        <title>读书笔记:架构之道(V1.0)</title>
-        <description>
-&lt;p&gt;&lt;a href=&quot;/images/arch/TaoOfArch.jpg&quot; target=&quot;_blank&quot;&gt;&lt;img src=&quot;/images/sharecore.net/ef19ea1e831ae9e1e85f10e574cd2d1c.jpg&quot; alt=&quot;读书笔记:架构之道&quot;&gt;&lt;/a&gt;&lt;/p&gt;
-
-&lt;p&gt;下载链接：&lt;a href=&quot;/images/arch/TaoOfArch.xmind&quot;&gt;读书笔记:架构之道(v1.0).xmind&lt;/a&gt;&lt;/p&gt;
-
-</description>
-        <pubDate>Sun, 19 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-19-du-shu-bi-ji-jia-gou-zhi-dao-a7e671223.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-19-du-shu-bi-ji-jia-gou-zhi-dao-a7e671223.html</guid>
-        
-        
-        <category>sharecore</category>
-        
-      </item>
-    
-      <item>
-        <title>LogStash::Inputs::Syslog 性能测试与优化</title>
-        <description>
-
-  
-  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;最近因为项目需要，必须想办法提高 logstash indexer 接收 rsyslog 转发数据的性能。首先，就是要了解 logstash 到底能收多快？&lt;/p&gt;
-&lt;p&gt;之前用 libev 库写过类似功能的程序，所以一开始也是打算找个能在 JRuby 上运行的 netty 封装。找到了 &lt;a href=&quot;https://github.com/m0wfo/foxbat&quot;&gt;foxbat&lt;/a&gt; 库，不过最后发现效果跟官方的标准 socket 实现差不多。（这部分另篇讲述）&lt;/p&gt;
-&lt;p&gt;后来又发现另一个库：&lt;a href=&quot;https://github.com/jordansissel/experiments/tree/master/ruby/jruby-netty/syslog-server&quot;&gt;jruby-netty&lt;/a&gt;，注意到这个作者就是 logstash 作者 jordansissel！&lt;/p&gt;
-&lt;p&gt;当然，最终并不是用上这个项目的代码来改写 logstash，而是从这里面学到了如何方便的进行 syslog server 性能压测。测试方式：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;yes &quot;&amp;lt;44&amp;gt;May 19 18:30:17 snack jls: foo bar 32&quot; | nc localhost 3000
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;或者&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;loggen -r 500000 -iS -s 120 -I 50  localhost 3000
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;loggen 是 syslog-ng 带的工具，还得另外安装。而上面第一行的方式，这个 &lt;code&gt;yes&lt;/code&gt; 用的真是绝妙！&lt;/p&gt;
-&lt;p&gt;就用这个测试方法，最终发现单机上 LogStash::Inputs::Syslog 的每秒处理能力只有 700 条：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;input {
-    syslog {
-        port =&amp;gt; 3000
-    }
-}
-output {
-    stdout {
-        codec =&amp;gt; dots
-    }
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;logstash 配置文件见上。然后测试启动命令如下：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;./bin/logstash -f syslog.conf | pv -abt &amp;gt; /dev/null
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;&lt;em&gt;注意，centos 上的 pv 命令可能还没有 &lt;code&gt;-a&lt;/code&gt; 参数。&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;为了逐一排除性能瓶颈。我依次注释掉了 &lt;code&gt;lib/logstash/inputs/syslog.rb&lt;/code&gt; 中 &lt;code&gt;@date_filters.filter(event)&lt;/code&gt; 和 &lt;code&gt;@grok_filters.filter(event)&lt;/code&gt; 两段，并重新运行上次的测试。结果发现：&lt;/p&gt;
-&lt;ul&gt;
-  &lt;li&gt;TCPServer 接收的性能是每秒 50k 条&lt;/li&gt;
-  &lt;li&gt;TCPServer 接收并完成 grok filter 的性能是每秒 5k 条&lt;/li&gt;
-  &lt;li&gt;TCPServer 接收并完成 grok 和 date filter 的性能是每秒 700 条&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;性能成几何级的下降！&lt;/p&gt;
-&lt;p&gt;而另外通过 &lt;code&gt;input { generator { count =&amp;gt; 3000000 } }&lt;/code&gt; 测试可以发现，logstash 本身空数据流转的性能也不过就是每秒钟几万条。所以，优化点就在后面的 filter 上。&lt;/p&gt;
-&lt;p&gt;LogStash::Inputs::Syslog 中，TCPServer 对每个 client 单独开一个 Thread，但是这个 Thread 内要顺序完成 &lt;code&gt;@codec.decode&lt;/code&gt;，&lt;code&gt;@grok_filter.filter&lt;/code&gt; 和 &lt;code&gt;@date_filter.filter&lt;/code&gt; 三大步骤后，才算完成。而我们都知道：Logstash 配置中 filter 阶段的插件是可以多线程完成的。所以，解决办法就来了：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;input {
-    tcp {
-        port =&amp;gt; 3000
-    }
-}
-filter {
-    grok {
-        overwrite =&amp;gt; &quot;message&quot;
-        match =&amp;gt; [&quot;message&quot;, &quot;&amp;lt;\d+&amp;gt;%{SYSLOGLINE}&quot;]
-    }
-    date {
-        locale =&amp;gt; &quot;en&quot;
-        match =&amp;gt; [&quot;timestamp&quot;, &quot;MMM dd HH:mm:ss&quot;, &quot;MMM  d HH:mm:ss&quot;]
-    }
-}
-output {
-    stdout {
-        codec =&amp;gt; dots
-    }
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;然后重新测试，发现性能提高到了每秒 4.5k。再用下面命令运行测试：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;  ./bin/logstash -f syslog.conf -w 20 | pv -bt &amp;gt; /dev/null
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;发现性能提高到了每秒 30 k 条！&lt;/p&gt;
-&lt;p&gt;此外，还陆续完成了另外一些测试。&lt;/p&gt;
-&lt;p&gt;比如：&lt;/p&gt;
-&lt;ul&gt;
-  &lt;li&gt;outputs/elasticsearch 的 protocol 使用 node 还是 http 的问题。测试在单台环境下，node 只有 5k 的 indexing 速度，而 http 有7k。&lt;/li&gt;
-  &lt;li&gt;在 inputs/file 的前提下，outputs/stdout{dots} 比 outputs/elasticsearch{http} 处理速度快一倍，即有 15k。&lt;/li&gt;
-  &lt;li&gt;下载了 heka 的二进制包，通过下面配置测试其接受 syslog 输入，并以 logstash 的 schema 输出到文件的性能。结果是每秒 30k，跟之前优化后的 logstash 基本一致。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;k&quot;&gt;[hekad]&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;maxprocs&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;48&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;[TcpInput]&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;address&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;:5140&quot;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;parser_type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;token&quot;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;decoder&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;RsyslogDecoder&quot;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;[RsyslogDecoder]&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;SandboxDecoder&quot;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;filename&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;lua_decoders/rsyslog.lua&quot;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;[RsyslogDecoder.config]&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;mweibo&quot;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;template&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&#39;&amp;lt;%pri%&amp;gt;%TIMESTAMP% %HOSTNAME% %syslogtag%%msg:::sp-if-no-1st-sp%%msg:::drop-last-lf%\n&#39;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;tz&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;Asia/Shanghai&quot;&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;[ESLogstashV0Encoder]&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;es_index_from_timestamp&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;true&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;fields&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;[&quot;Timestamp&quot;, &quot;Payload&quot;, &quot;Hostname&quot;, &quot;Fields&quot;]&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;type_name&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;%{Type}&quot;&lt;/span&gt;
-&lt;span class=&quot;c1&quot;&gt;# [ElasticSearchOutput]&lt;/span&gt;
-&lt;span class=&quot;c1&quot;&gt;# message_matcher = &quot;Type == &#39;nginx.access&#39;&quot;&lt;/span&gt;
-&lt;span class=&quot;c1&quot;&gt;# server = &quot;http://10.13.57.35:9200&quot;&lt;/span&gt;
-&lt;span class=&quot;c1&quot;&gt;# encoder = &quot;ESLogstashV0Encoder&quot;&lt;/span&gt;
-&lt;span class=&quot;c1&quot;&gt;# flush_interval = 50&lt;/span&gt;
-&lt;span class=&quot;c1&quot;&gt;# flush_count = 5000&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;[counter_output]&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;FileOutput&quot;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;path&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;/tmp/debug.log&quot;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;message_matcher&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;TRUE&quot;&lt;/span&gt;
-&lt;span class=&quot;na&quot;&gt;encoder&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;ESLogstashV0Encoder&quot;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-&lt;p&gt;heka 文档称 maxprocs 设置为 cpu 数的两倍。不过实际测试中，不配置跟配置总共也就差一倍的性能。&lt;/p&gt;
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-  &lt;/div&gt;
-
-</description>
-        <pubDate>Sat, 18 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-18-performance-testing-tunning-for-logstash-inputs-syslog-e45b97b39.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-18-performance-testing-tunning-for-logstash-inputs-syslog-e45b97b39.html</guid>
         
         
         <category>chenlinux</category>
