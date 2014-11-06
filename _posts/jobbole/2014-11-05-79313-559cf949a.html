@@ -1,0 +1,221 @@
+---
+layout: post
+title: '回收站功能在 Linux 中的实现'
+time: 2014-11-05 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/79313/
+images:
+  9bf0193aaae730616666828d81018cfe: http://jbcdn2.b0.upaiyun.com/2014/11/1488ffe8dd392a8caf548028f6ee49ff.jpg
+  5e42f2c8e37cb677ed7962b7be5d6792: http://jbcdn2.b0.upaiyun.com/2014/11/c62874c0b0fb36caec0c9c26d00f6301.jpg
+  5ed7d99913240815f1e8cb98a9482af3: http://jbcdn2.b0.upaiyun.com/2014/11/6df787e911e282b998946f932177ffaa.jpg
+  4bad97bdbf03ecc07c57738085e6c2f7: http://jbcdn2.b0.upaiyun.com/2014/11/fb3cc01aca176dac4b8de5003863ba39.jpg
+  fd13b0000d0ab6c74919fb9cd121f79a: http://jbcdn2.b0.upaiyun.com/2014/11/a647a44bbc8b903dec781d0417b2c587.jpg
+  eeee368634807fbdf6270628e50ae8a8: http://jbcdn2.b0.upaiyun.com/2014/11/7b09d2a61e3388cf5918859e9f8197cc.jpg
+---
+{% raw %}
+
+					
+		
+<!-- div id="ad1">
+<script type="text/javascript">
+google_ad_client = "ca-pub-7056282119617872";
+google_ad_slot = "6645040531";
+google_ad_width = 300;
+google_ad_height = 250;
+</script>
+<script type="text/javascript"
+src="http://pagead2.googlesyndication.com/pagead/show_ads.js">
+</script>
+</div>
+<br/ -->
+
+<p>本文仿照 Windows 回收站的功能，运用 Bash 脚本在 Linux 上做了实现，创建 delete 脚本代替 rm 命令对文件或目录进行删除操做。该脚本实现了以下功能：对大于 2G 的文件或目录直接删除，否则放入$HOME/trash 目录下；恢复 trash 目录中的被删除文件到原目录下；文件存放在 trash 目录中超过七天被自动删除。</p>
+<h2 id="2.概述 |outline">概述</h2>
+<p>删除是危险系数很高的操作，一旦误删可能会造成难以估计的损失。在 Linux 系统中这种危险尤为明显，一条简单的语句：rm –rf /* 就会把整个系统全部删除，而 Linux 并不会因为这条语句的不合理而拒绝执行。 在 Windows 中，为了防止误删，系统提供了回收站功能。用户在执行删除操作后，文件并不会直接从硬盘中删除，而是被放到回收站中。在清空回收站前，如果发现有文件被误删，用户可以将回收站中的文件恢复到原来的位置。而 Linux 并没有提供类似功能，删除命令 rm 一旦确认执行，文件就会直接从系统中删除，很难恢复。</p>
+<h2 id="3.回收站构成 |outline">回收站构成</h2>
+<p>本文共用三个脚本实现了回收站的主要功能：Delete 脚本、logTrashDir 脚本和 restoreTrash 脚本。其中 Delete 脚本是核心脚本，其作用是重新封装 rm 命令。相对于 rm 的直接删除，该命令会先将文件或目录移动到$home/trash 目录下。如果用户想要将文件直接删除，可以用 -f 选项，delete 脚本会直接调用 rm –f 命令将文件从硬盘上删除。logTrashDir 脚本用于将被删除文件的信息记录到 trash 目录下的一个隐藏文件中。restoreTrash 脚本用来将放入 trash 中的文件或目录重新恢复到原路径下。在 Linux 系统中，只要将这三个脚本放到/bin/目录下，并用 chmod +X filename 赋予可执行权限，即可直接使用。下面将介绍每个脚本的主要部分</p>
+<h2 id="4.Delete 脚本 |outline">Delete 脚本</h2>
+<h3 id="N1005A">创建目录</h3>
+<p>首先要创建目录来存放被删除的文件，本文在用户根目录$HOME 下建立 trash 目录来存放文件。具体代码如下：</p>
+<h5 id="N10063">清单 1.创建回收站目录</h5>
+<pre class="brush: actionscript3; gutter: true">realrm="/bin/rm"
+if [ ! -d ~/trash ]
+ then
+      mkdir -v ~/trash
+      chmod 777 ~/trash
+ fi</pre>
+<p>如上所示，先判断目录是否已建立，如未建立，即第一次运行该脚本，则创建 trash 目录。变量 realrm 存放了 Linux 的 rm 脚本位置，用于在特定条件下调用以直接删除文件或目录。</p>
+<h3 id="N1006A">输出帮助信息</h3>
+<p>该脚本在用户仅输入脚本名而未输入参数执行时，输出简要帮助信息，代码如下：</p>
+<h5 id="N10073">清单 2.输出帮助信息</h5>
+<pre class="brush: actionscript3; gutter: true">if [ $# -eq 0 ]
+  then
+      echo "Usage:delete file1 [file2 file3....]"
+      echo "If the options contain -f,then the script will exec 'rm' directly"</pre>
+<p>如代码所示，该脚本的运用格式是 delete 后跟要删除的文件或目录的路径，中间用空格隔开。</p>
+<h3 id="N1007A">直接删除文件</h3>
+<p>有些用户确认失效并想直接删除的文件，不应放入回收站中，而应直接从硬盘中删除。Delete 脚本提供了-f 选项来执行这项操作：</p>
+<h5 id="N10083">清单 3.直接删除文件</h5>
+<pre class="brush: actionscript3; gutter: true">while getopts "dfiPRrvW" opt
+      do
+        case $opt in
+            f)
+               exec $realrm "$@"
+                ;;
+            *)
+               
+               # do nothing     
+                ;;
+        esac
+      done</pre>
+<p>如果用户在命令中加入了-f 选项，则 delete 脚本会直接调用 rm 命令将文件或目录直接删除。如代码中所示，所有的参数包括选项都会传递给 rm 命令。所以只要选项中包括选项-f 就等于调用 rm 命令，可以使用 rm 的所有功能。如：delete –rfv filename 等于 rm –rfv filename。</p>
+<h3 id="N1008A">用户交互</h3>
+<p>需要与用户确认是否将文件放入回收站。相当于 Windows 的弹窗提示，防止用户误操作。</p>
+<h5 id="N10093">清单 4.用户交互</h5>
+<pre class="brush: actionscript3; gutter: true">echo -ne "Are you sure you want to move the files to the trash?[Y/N]:\a"
+ read reply
+if [ $reply = "y" -o $reply = "Y" ]
+  then #####</pre>
+<h3 id="N10098">判断文件类型并直接删除大于 2G 文件</h3>
+<p>本脚本只对普通文件和目录做操作，其他类型文件不做处理。先对每个参数做循环，判断他们的类型，对于符合的类型再判断他们的大小是否超过 2G，如果是则直接从系统中删除，避免回收站占用太大的硬盘空间。</p>
+<h5 id="N100A1">清单 5.删除大于 2G 的文件</h5>
+<pre class="brush: actionscript3; gutter: true">for file in $@
+ do
+if [ -f "$file" –o –d "$file" ]
+then
+if [ -f "$file" ] &amp;&amp; [ `ls –l $file|awk '{print $5}'` -gt 2147483648 ]
+   then
+      echo "$file size is larger than 2G,will be deleted directly"
+        `rm –rf $file`
+elif [ -d "$file" ] &amp;&amp; [ `du –sb $file|awk '{print $1}'` -gt 2147483648 ]
+   then
+      echo "The directory:$file is larger than 2G,will be deleted directly"
+        `rm –rf $file`</pre>
+<p>如以上代码所示，该脚本用不同的命令分别判断目录和文件的大小。鉴于目录的大小应该是包含其中的文件以及子目录的总大小，所以运用了’du -sb’命令。两种情况都使用了 awk 来获取特定输出字段的值来作比较。</p>
+<h3 id="N100A8">移动文件到回收站并做记录</h3>
+<p>该部分是 Delete 脚本的主要部分，主要完成以下几个功能</p>
+<ul>
+<li>获取参数的文件名。因为用户指定的参数中可能包含路径，所以要从中获取到文件名，用来生成 mv 操作的参数。该脚本中运用了字符串正则表达式’${file##*/}’来获取。</li>
+<li>生成新文件名。在原文件名中加上日期时间后缀以生成新的文件名，这样用户在浏览回收站时，对于每个文件的删除日期即可一目了然。</li>
+<li>生成被删文件的绝对路径。为了以后可能对被删文件进行的恢复操作，要从相对路径生成绝对路径并记录。用户输入的参数可能有三种情况：只包含文件名的相对路径，包含点号的相对路径以及绝对路径，脚本中用字符串处理对三种情况进行判断，并进行相应的处理。</li>
+<li>调用 logTrashDir 脚本，将回收站中的新文件名、原文件名、删除时间、原文件绝对路径记录到隐藏文件中</li>
+<li>将文件通过 mv 命令移动到 Trash 目录下。详细代码如下所示：<br>
+<h5 id="N100BE">清单 6.移动文件到回收站并做记录</h5>
+</li>
+</ul>
+<pre class="brush: actionscript3; gutter: true">now=`date +%Y%m%d_%H_%M_%S`
+filename="${file##*/}"
+newfilename="${file##*/}_${now}"
+mark1="."
+mark2="/"
+if  [ "$file" = ${file/$mark2} ]
+ then
+  fullpath="$(pwd)/$file"
+elif [ "$file" != ${file/$mark1} ]
+ then
+  fullpath="$(pwd)${file/$mark1}"
+else
+  fullpath="$file"
+fi	    
+echo "the full path of this file is :$fullpath"
+if mv -f $file ~/trash/$newfilename
+ then
+  $(/logTrashDir "$newfilename $filename $now $fullpath")
+   echo "files: $file is deleted"
+ else
+  echo "the operation is failed"
+ fi</pre>
+<div></div>
+<h2 id="5.logTrashDir 脚本 |outline">logTrashDir 脚本</h2>
+<p>该脚本较简单，仅是一个简单的文件写入操作，之所以单独作为一个脚本，是为了以后扩展的方便，具体代码如下：</p>
+<h5 id="N100CC">清单 7.logTrashDir 代码</h5>
+<pre class="brush: actionscript3; gutter: true">if [ ! -f ~/trash/.log ]
+  then
+     touch ~/trash/.log
+     chmod 700~/trash/.log
+fi
+   echo $1 $2 $3 $4&gt;&gt; ~/trash/.log</pre>
+<p>该脚本先建立.log 隐藏文件，然后往里添加删除文件的记录。</p>
+<div></div>
+<h2 id="6.restoreTrash 脚本 |outline">restoreTrash 脚本</h2>
+<p>该脚本主要完成以下功能：</p>
+<ul>
+<li>从.log 文件中找到用户想要恢复的文件对应的记录。此处依然使用 awk，通过正表达式匹配找到包含被删除文件名的一行</li>
+<li>从记录中找到记录原文件名的字段，以给用户提示</li>
+<li>将回收站中的文件移动到原来的位置，在这里运用了 mv –b 移动文件，之所以加入-b 选项是为了防止原位置有同名文件的情况。</li>
+<li>将.log 文件中与被恢复文件相对应的记录删除</li>
+</ul>
+<h5 id="N100E5">清单 8.获取相应记录</h5>
+<pre class="brush: actionscript3; gutter: true">originalPath=$(awk /$filename/'{print $4}' "$HOME/trash/.log")</pre>
+<h5 id="N100EC">清单 9.查找原文件名及现文件名字段</h5>
+<pre class="brush: actionscript3; gutter: true">filenameNow=$(awk /$filename/'{print $1}' ~/trash/.log)
+filenamebefore=$(awk /$filename/'{print $2}' ~/trash/.log)
+echo "you are about to restore $filenameNow,original name is $filenamebefore"
+echo "original path is $originalPath"</pre>
+<h5 id="N100F3">清单 10.恢复文件到原来位置并删除相应记录</h5>
+<pre class="brush: actionscript3; gutter: true">echo "Are you sure to do that?[Y/N]"
+  read reply
+  if [ $reply = "y" ] || [ $reply = "Y" ]
+   then
+$(mv -b "$HOME/trash/$filename" "$originalPath")
+$(sed -i /$filename/'d' "$HOME/trash/.log")
+  else
+    echo "no files restored"
+  fi</pre>
+<div></div>
+<h2 id="7.自动定期清理 trash 目录 |outline">自动定期清理 trash 目录</h2>
+<p>因为 delete 操作并不是真正删除文件，而是移动操作，经过一段时间的积累，trash 目录可能会占用大量的硬盘空间，造成资源浪费，所以定期自动清理 trash 目录下的文件是必须得。本文的清理规则是：在回收站中存在 7 天以上的文件及目录将会被自动从硬盘中删除。运用的工具是 Linux 自带的 crontab。</p>
+<p>Crontab 是 Linux 用来定期执行程序的命令。当安装完成操作系统之后，默认便会启动此任务调度命令。Crontab 命令会定期检查是否有要执行的工作，如果有要执行的工作便会自动执行该工作。而 Linux 任务调度的工作主要分为以下两类：</p>
+<p>1、系统执行的工作：系统周期性所要执行的工作，如备份系统数据、清理缓存</p>
+<p>2、个人执行的工作：某个用户定期要做的工作，例如每隔 10 分钟检查邮件服务器是否有新信，这些工作可由每个用户自行设置。</p>
+<p>首先编写 crontab 执行时要调用的脚本 cleanTrashCan.如清单 10 所示，该脚本主要完成两项功能：</p>
+<ul>
+<li>判断回收站中的文件存放时间是否已超过 7 天，如果超过则从回收站中删除。</li>
+<li>将删除文件在.log 文件中相应的记录删除，保持其中数据的有效性，提高查找效率。</li>
+</ul>
+<h5 id="N1010E">清单 11.删除存在回收站超过 7 天的文件并删除.log 中相应记录</h5>
+<pre class="brush: actionscript3; gutter: true">arrayA=($(find ~/trash/* -mtime +7 | awk '{print $1}'))
+   for file in ${arrayA[@]}
+    do
+      $(rm -rf "${file}")
+      filename="${file##*/}"
+      echo $filename
+      $(sed -i /$filename/'d' "$HOME/trash/.log")
+    done</pre>
+<p>脚本编写完成后通过 chmod 命令赋予其执行权限，然后运过 crontab –e 命令添加一条新的任务调度：</p>
+<pre class="brush: actionscript3; gutter: true"> 10 18 * * * /bin/ cleanTrashCan</pre>
+<p>该语句的含义为，在每天的下午 6 点 10 分执行 cleanTrashCan 脚本</p>
+<p>通过这条任务调度，trash 的大小会得到有效的控制，不会持续增大以致影响用户的正常操作。</p>
+<div></div>
+<h2 id="8.实际应用 |outline">实际应用</h2>
+<p>首先要将 delete 脚本，logTrashDir 脚本，restoreTrash 脚本和 cleanTrashCan 放到/bin 目录下，然后用 chmod +x delete restoreTrash logTrashDir cleanTrashCan 命令赋予这三个脚本可执行权限。</p>
+<p>运用 delete 脚本删除文件，例如要删除在/usr 目录下的 useless 文件。根据用户目前所在的位置，可以用相对路径或绝对路径来指定参数，如：delete useless，delete ./useless 或者 delete /usr/useless。执行过程如图 1 所示：</p>
+<h5 id="N10127">图 1.delete 脚本执行过程</h5>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/11/1488ffe8dd392a8caf548028f6ee49ff.jpg" rel="lightbox[79313]" title="回收站功能在 Linux 中的实现"><img class="alignnone size-full wp-image-79397" alt="image003" src="/images/jobbole.com/9bf0193aaae730616666828d81018cfe.jpg"></a></p>
+<p>执行之后，useless 文件会从原目录中删除，被移动到$HOME/trash 下，并被重命名，如图 2.所示：</p>
+<h5 id="N10135">图 2.回收站目录</h5>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/11/c62874c0b0fb36caec0c9c26d00f6301.jpg" rel="lightbox[79313]" title="回收站功能在 Linux 中的实现"><img class="alignnone size-full wp-image-79398" alt="image005" src="/images/jobbole.com/5e42f2c8e37cb677ed7962b7be5d6792.jpg"></a></p>
+<h5><a href="http://jbcdn2.b0.upaiyun.com/2014/11/6df787e911e282b998946f932177ffaa.jpg" rel="lightbox[79313]" title="回收站功能在 Linux 中的实现"><img class="alignnone size-full wp-image-79399" alt="image007" src="/images/jobbole.com/5ed7d99913240815f1e8cb98a9482af3.jpg"></a></h5>
+<p>生成的.log 记录如图 3.所示：</p>
+<h5 id="N1014E">图 3.log 记录</h5>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/11/fb3cc01aca176dac4b8de5003863ba39.jpg" rel="lightbox[79313]" title="回收站功能在 Linux 中的实现"><img class="alignnone size-full wp-image-79400" alt="image009" src="/images/jobbole.com/4bad97bdbf03ecc07c57738085e6c2f7.jpg"></a></p>
+<p>如果用户在七天之内发现该文件还有使用价值，则可以使用 restoreTrash 命令将被删除文件恢复到原路径下：restoreTrash ~/trash/useless_20140923_06_28_57。具体执行情况如图 4 所示：</p>
+<h5 id="N1015C">图 4.restoreTrash 脚本执行情况</h5>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/11/a647a44bbc8b903dec781d0417b2c587.jpg" rel="lightbox[79313]" title="回收站功能在 Linux 中的实现"><img class="alignnone size-full wp-image-79401" alt="image011" src="/images/jobbole.com/fd13b0000d0ab6c74919fb9cd121f79a.jpg"></a></p>
+<p>查看/usr 目录，可以发现 useless 文件已经被恢复至此。</p>
+<h5 id="N1016A">图 5.useless 文件被恢复</h5>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/11/7b09d2a61e3388cf5918859e9f8197cc.jpg" rel="lightbox[79313]" title="回收站功能在 Linux 中的实现"><img class="alignnone size-full wp-image-79402" alt="image013" src="/images/jobbole.com/eeee368634807fbdf6270628e50ae8a8.jpg"></a></p>
+<div></div>
+<h2 id="9.总结 |outline">总结</h2>
+<p>本文仿照 Windows 中回收站的功能，在 Linux 中做了实现，可以有效的防止由于误删而造成的损失。读者只需要将四个脚本拷到/bin 目录下，并配置 crontab 即可使用 Linux 版回收站。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}
