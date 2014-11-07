@@ -5,9 +5,526 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Thu, 06 Nov 2014 19:23:06 +0800</pubDate>
-    <lastBuildDate>Thu, 06 Nov 2014 19:23:06 +0800</lastBuildDate>
+    <pubDate>Fri, 07 Nov 2014 10:47:10 +0800</pubDate>
+    <lastBuildDate>Fri, 07 Nov 2014 10:47:10 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>你不知道的页面编码，浏览器选择编码，get，post各种乱码由来</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;&lt;strong&gt;asp.net页面编码和浏览器的选择编码&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;每个asp.net的朋友都知道，在新版本的visual studio，在没有任何设置的情况下，新建页面时的默认编码为utf-8&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;我们可以从两个地方可以看出：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;第一：&lt;/strong&gt;打开aspx页面，“文件”-&amp;gt;“高级保存选项”，如下图，可以看出编码为：Unicode（UTF-8带签名）&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b62ea9762abc232aaa7bd7271782ef0b.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;第二：&lt;/strong&gt;找到aspx存放路径，用系统自带的文本编辑器打开，然后“文件”-&amp;gt;”另存为”，如下图，可以看出编码为UTF-8&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c1a2e8fbcae174f37f383f78e5b06964.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;很多时候我们有些疑问，我们经常在aspx页面的&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=gb2312″ /&amp;gt;强制把carset改为gb2312&lt;/p&gt;
+&lt;p&gt;然后我们在“文件”-&amp;gt;“高级保存选项”，可以看出编码为：GB2312（如果你前面把carset改为gb2312，vs会自动在高级保存选项中进行绑定改变）,然后编译运行后，右击html“查看源”发现&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=gb2312″ /&amp;gt;没有变化，这时候一切正常&lt;/p&gt;
+&lt;p&gt;下面以IE为例：我们以为此时 “右击浏览器”-&amp;gt;“编码” 看到的是 浏览器会选中简体中文（GB2312）,但是事实上，你看到的还是选中的Unicode（UTF-8）  (再勾选了‘自动选择’前提下)&lt;/p&gt;
+&lt;p&gt;现象已经很明显，但是需要验证浏览器为何会这样，F12调试浏览器（如下图），我们发现content-type竟然是“text/html；charset=utf-8”！&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/42453fac14aef0a0e43e15f8fe23f6da.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;这个现象至少说了两个问题点：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;&lt;strong&gt;1、&lt;/strong&gt;&lt;/em&gt;asp.net机制至少在某个地方改变了response的ContentEncoding，导致虽然html页面代码上看到的设置&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=gb2312″ /&amp;gt;并没有生效&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;&lt;em&gt;2、&lt;/em&gt;&lt;/strong&gt;浏览器再自动选择编码方式的时候不会优先根据html源码中的所展示的&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=gb2312″ /&amp;gt;代码来决定选择什么编码方式，很明显，以上的现象证明浏览器是优先根据“响应标头-response header”中的键为“Content-Type”的值来自动选择判断，导致html中的所看到的&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=gb2312″ /&amp;gt;形同虚设。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;以上两个问题点很快得到论证：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;&lt;strong&gt;问题1、&lt;/strong&gt;&lt;/em&gt;在任意新建一个测试页面，在第一个“}”处设置断点,然后命中断点后再“即时窗口”中写入“Response.ContentEncoding.EncodingName”，按enter执行，输出什么？没错：”Unicode (UTF-8)”&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;protected void Page_Load(object sender, EventArgs e)
+{
+
+}&lt;/pre&gt;
+&lt;p&gt;如果了解asp.net生命机制的朋友知道，在执行到Page_Load之前已经执行了很多潜在的初始化事件，类似：Page_Init，LoadViewState， LoadPostData等等，可以想象一定是在某个地方系统为响应页面指定修改了ContentEncoding的值，也就是“响应标头-response header”中的键为“Content-Type”的值为“UTF-8”&lt;/p&gt;
+&lt;p&gt;我们不妨做一个测试，上面说过，我把&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=gb2312″ /&amp;gt;的carset改为gb2312,是没有效果的，那么我如果在Page_Load事件中如下写上代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;protected void Page_Load(object sender, EventArgs e)
+{
+            Encoding gb2312 = Encoding.GetEncoding(&quot;gb2312&quot;);
+            Response.ContentEncoding = gb2312;
+ }&lt;/pre&gt;
+&lt;p&gt;即我在load事件中再次强制性把响应标头中的“Content-Type”改为gb2312，那么浏览器表现如何呢？&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/6aa9fc339817cd2db675de39d4718ecf.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/ff598546ac6d0660237a6228dc5c3bd5.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;这正是我们想看到的，我相信很多朋友有过中文乱码的情况，我先不说具体乱码的解决方案，但是至少搜索发现很多解决方案是在web.config下添加如下节点，即把网站内所有网页的请求编码和响应编码都改为utf-8&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;&amp;lt;system.web&amp;gt;
+&amp;lt;globalization requestEncoding=&quot;utf-8&quot; responseEncoding=&quot;utf-8&quot; /&amp;gt;
+&amp;lt;/system.web&amp;gt;&lt;/pre&gt;
+&lt;p&gt;其实，上面案例其实只是单个页面的修改response Encoding为gb2312，我们也可以在web.config中添加&amp;lt;globalization requestEncoding=”gb2312″ responseEncoding=”gb2312″ /&amp;gt;，即整个网站有效&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;&lt;strong&gt;问题2、&lt;/strong&gt;&lt;/em&gt;浏览器编码方式是根据“响应标头-response header”中的键为“Content-Type”的值来自动选择判断，而不会简单的根据你在html中看到的标签值&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=gb2312″ /&amp;gt;来判定，虽然这个标签一般情况下会写入header，但是有时候会被暗中修改掉，导致html中看到的和调试捕捉到的Content-Type不一致的情况&lt;/p&gt;
+&lt;p&gt;当然在老版本的ie中，有时候出现的页面全部为空白，右击ie浏览器编码发现没有勾选“自动选择”的情况下会出现这种白屏现象，那不是本文讨论的范围，但是简单的说下原因（拷贝）：老版本的ie浏览器解析网页编码时以HTML内的标签优先，而后才是HTTP header内的讯息，而mozilla系列的浏览器则刚刚相反，由于UTF-8为3个字节表示一个汉字，而普通的GB2312或BIG5是两个。页面输出时，由于上述原因，使浏览器解析、输 出&amp;lt;title$amp;&amp;gt;amp;$lt;/title&amp;gt;的内容时，如果在&amp;lt;/title&amp;gt;前有奇数个全角字符时，IE把UTF-8当作两 个字节解析时出现半个汉字的情况，这时该半个汉字会和&amp;lt;/title&amp;gt;的&amp;lt;结合成一个乱码字，导致IE无法读 完&amp;lt;title&amp;gt;部分，使整个页面为空百输出。而这个时候如果察看源文件的话，会发现实际上整个叶面全部已经输出了&lt;/p&gt;
+&lt;p&gt;解决方法：将&amp;lt;meta http-equiv=”Content-Type” content=”text/html; charset=utf-8″ /&amp;gt;放在&amp;lt;title&amp;gt;测试标题&amp;lt;/title&amp;gt;之前（好像现在新建网页默认都在title之前）&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;asp.net URL参数编码&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;几乎所有的朋友都会遇到中文情况下乱码的问题，其原因到底是为何？&lt;/p&gt;
+&lt;p&gt;我先不说乱码问题，先说get和post的区别，几乎没有人不知道&lt;/p&gt;
+&lt;p&gt;我们在新建asp.net页面时，是很少去对form进行修改的，即保持默认的&amp;lt;form id=”form1″ runat=”server”&amp;gt;，可是编译运行后查看代码发现变成&amp;lt;form method=”post” action=”Default2.aspx” id=”form1″&amp;gt;&lt;/p&gt;
+&lt;p&gt;很显然，asp.net默认会为form的method写上post，但是需要注意的是如果仅仅是单纯的html页面，form默认的method是get&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;我这边可以举一个例子诠释一些无关紧要但是又比较重要的东西：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;情况1（post）：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;浏览器选择编码 ：  &lt;/strong&gt;utf-8&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;编译前的aspx  ：&lt;/strong&gt;  &amp;lt;form id=”form1″  runat=”server”&amp;gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;运行后的html  ：&lt;/strong&gt;  &amp;lt;form id=”form1″ action=”Default2.aspx” method=”post”&amp;gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;点击服务器按钮(按钮文本：阿道夫)：&lt;/strong&gt;F12在请求正文中有如下图内容&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/eefcc91951ecbb323eea06f4e7bf5ca6.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;情况2（get）：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;浏览器选择编码 ：  &lt;/strong&gt;utf-8&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;编译前的aspx  ：&lt;/strong&gt;  &amp;lt;form id=”form1″  runat=”server” method=”get”&amp;gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;运行后的html  ：&lt;/strong&gt;  &amp;lt;form id=”form1″ action=”Default2.aspx” method=”get”&amp;gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;点击服务器按钮(按钮文本：阿道夫)：&lt;/strong&gt;F12在请求正文中有如下图内容&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cf2b99ca759574904318487eddbe29c0.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;其实，情况1和情况2的对比，并不是我今天想说的意图，但是我还是要稍微顺带说下：&lt;/p&gt;
+&lt;p&gt;1、我们可以看到get方式的提交，参数仅仅是拼接在url后面，然后直接向web服务器请求，所以我们图中“请求标头-request header”中就可以看到参数的值，而post可以从图中看到，在“请求标头”中并看不到值，而在“请求正文”中看到值，说明post提交时值是包装在请求的body中，发送给服务器，然后向服务器请求数据&lt;/p&gt;
+&lt;p&gt;2、在asp.net中，图中可以看到不管是get还是post，提交形式不一样，内容确是一样的，本文仅为测试，所以内容相对较少，但是看起来也非常的长了，如果用get提交方式，这就带来隐患，浏览器到底支持多长的uri，web服务器到底支持多长的uri，反正是有限制的（具体长度见：&lt;a href=&quot;http://www.cnblogs.com/henryhappier/archive/2010/10/09/1846554.html&quot;&gt;http://www.cnblogs.com/henryhappier/archive/2010/10/09/1846554.html&lt;/a&gt;），不仅仅是长度，数据量也是有限制，get数据量较小，不能大于2KB。post传送的数据量较大，一般被默认为不受限制。但理论上，web服务器载体例如iis应该会有限制，比如IIS5的post最大传输量为100kb等&lt;/p&gt;
+&lt;p&gt;3、安全性，get更加容易暴露参数，而且会被保存在浏览器的历史记录中，但是对于稍微专业点的人来说，post请求传送的数据也是可以被捕捉到的&lt;/p&gt;
+&lt;p&gt;4、缓存和seo优化等就不提了&lt;/p&gt;
+&lt;p&gt;5、&lt;strong&gt;编码问题！！！（这边上面说这么多，就是为了最后一个“编码问题”）&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;我将着重讲解编码问题：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;在Form元素的语法中，EncType表明提交数据的格式&lt;br&gt;
+用 Enctype 属性指定将数据回发到服务器时浏览器使用的编码类型。&lt;br&gt;
+一般是下面几种类型：&lt;br&gt;
+application/x-www-form-urlencoded： 窗体数据被编码为名称/值对。这是标准的编码格式。&lt;br&gt;
+multipart/form-data： 窗体数据被编码为一条消息，页上的每个控件对应消息中的一个部分。&lt;br&gt;
+text/plain： 窗体数据以纯文本形式进行编码，其中不含任何控件或格式字符。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;假设此时使用get提交form方式：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;浏览器则会用x-www-form-urlencoded的数据格式，虽然在F12浏览器调试或者cs代码中的Request.ContentType都看不出来。注意如下是我的get提交的url：&lt;/p&gt;
+&lt;p&gt;GET /Default2.aspx?__VIEWSTATE=MGASeC9kBMq4iDCI2YLRzkZYqkKYhDhWH2jlP5mpv7idP8gAoNcy0T0y6g6wRvccP%2BFz%2FVx4HdMGwLLW%2BYPbJsMEOTMi5PjS7Ea66DmHQJc%3D&amp;amp;__VIEWSTATEGENERATOR=9BD98A7D&amp;amp;__EVENTVALIDATION=BFMAr0Q6mSwngMhaCLeScGaXywIIRlFClDYAnVhHprxOeifBIGWKNbsunWO9yVOAV6jWHW%2FJ4g2laHQpTvJe%2Fc7X8vralK3hyO5Y0nuiJkT%2FdfxEj9NnCb8S5BfNvZKXVJA%2FOy8yH4Bf9K5DN%2FRI9aDR3EFR86Zm6fN4iEkvJfc%3D&amp;amp;Button2=%E9%98%BF%E9%81%93%E5%A4%AB&lt;/p&gt;
+&lt;p&gt;我只看最后部分“Button2=%E9%98%BF%E9%81%93%E5%A4%AB”，这是我的服务器按钮“阿道夫”，这一串“%E9%98%BF%E9%81%93%E5%A4%AB”是“阿道夫”三个汉字编码后的，究竟这个编码方式到底是什么？又是如何经常引起乱码问题的呢？&lt;/p&gt;
+&lt;p&gt;首先：get只能向服务器发送ASCII字符，这是W3C组织规定的，所以任何参数最后都要以ASCII码的形式传递，例如“Button2=%E9%98%BF%E9%81%93%E5%A4%AB”都是ASCII码中的英文字符和符号等字符，没有任何中文字符，其次编码方式是根据当前网页采用选择的编码来编码，例如asp.net网页使用的是utf-8码，那么“阿道夫”用utf-8的编码后的十六进制字符串就是“E9-98-BF-E9-81-93-E5-A4-AB”，和上面提到的“%E9%98%BF%E9%81%93%E5%A4%AB”是不是非常的类似，只是多了百分号&lt;/p&gt;
+&lt;p&gt;如何查看中文字符的十六进制字符串？方法：BitConverter.ToString(System.Text.Encoding.&lt;strong&gt;UTF8&lt;/strong&gt;.GetBytes(“阿道夫”));&lt;/p&gt;
+&lt;p&gt;如果用本文一开始介绍的方法，在Page_Load中加上&lt;/p&gt;
+&lt;p&gt;Encoding gb2312 = Encoding.GetEncoding(“gb2312″);&lt;br&gt;
+Response.ContentEncoding = gb2312;&lt;/p&gt;
+&lt;p&gt;强制把当前页面编码改为gb2312，然后点击按钮，那么我们猜测在F12浏览器调试时，get提交的url的最后部分一定不再是“%E9%98%BF%E9%81%93%E5%A4%AB”，&lt;/p&gt;
+&lt;p&gt;调试后发现是：“%B0%A2%B5%C0%B7%F2”&lt;/p&gt;
+&lt;p&gt;那么用BitConverter.ToString(System.Text.Encoding.&lt;strong&gt;Default&lt;/strong&gt;.GetBytes(“阿道夫”))生成的值呢？答案是：B0-A2-B5-C0-B7-F2&lt;/p&gt;
+&lt;p&gt;这一切证明了url参数编码方式是根据当前网页采用选择的编码来编码&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;然后我将在服务端接受参数，这边有两种情况&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;情况1、&lt;/strong&gt;ok，我再次以get方式提交form，并是以utf-8编码（默认），此时，我在服务端通过Request.QueryString[&quot;Button2&quot;]，我将得到“阿道夫”，一切正常&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;情况2、&lt;/strong&gt;ok，我继续以get方式提交form，并是以gb2312编码（如何设置上文讲过），此时，我在服务端通过Request.QueryString[&quot;Button2&quot;]，我将得到“������”，正如我愿&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;为何一开始正常，后面会出现乱码，我这边做几个假设：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;假设1、&lt;/strong&gt;对于情况1 的Request.QueryString[&quot;Button2&quot;]没有出现乱码，我是否可以猜测微软Request.QueryString内部自带有解码的操作？并且在这种情况下该操作是utf-8的解码方式&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;假设2、&lt;/strong&gt;对于情况2 的Request.QueryString[&quot;Button2&quot;]出现乱码,我是否可以猜测是因为微软Request.QueryString内部自带有解码的操作，并按照utf-8解码方式 解码我用gb2312编码的字符，这种不对称的解码肯定是错误的&lt;/p&gt;
+&lt;p&gt;如何验证我的结论？&lt;a href=&quot;http://www.cnblogs.com/cyq1162/archive/2010/11/29/1891124.html&quot; target=&quot;_blank&quot;&gt;路过秋天&lt;/a&gt;  的这篇文章写的很详细，我总结下大概就是：&lt;/p&gt;
+&lt;p&gt;反编译Request.QueryString属性，你会发现有这么如下代码：最后深入到代码关键点：this._queryString.FillFromEncodedBytes(queryStringBytes, this.QueryStringEncoding);从FillFromEncodedBytes方法中可以看出调用HttpUtility.UrlDecode(bytes, num2, num3 - num2, encoding)的解码方法，我们现在知道Request.QueryString内部实现是调用了HttpUtility.UrlDecode解码的方法，那么关键点就在HttpUtility.UrlDecode方法的第三个参数encoding到底是哪种解码方式&lt;/p&gt;
+&lt;div&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;public NameValueCollection QueryString
+{
+    get
+    {
+        this.EnsureQueryString();
+        if (this._flags[1])
+        {
+            this._flags.Clear(1);
+            this.ValidateHttpValueCollection(this._queryString, RequestValidationSource.QueryString);
+        }
+        return this._queryString;
+    }
+}
+
+QueryString&lt;/pre&gt;
+&lt;/div&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;internal HttpValueCollection EnsureQueryString()
+{
+    if (this._queryString == null)
+    {
+        this._queryString = new HttpValueCollection();
+        if (this._wr != null)
+        {
+            this.FillInQueryStringCollection();
+        }
+        this._queryString.MakeReadOnly();
+    }
+    return this._queryString;
+}
+
+EnsureQueryString&lt;/pre&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;private void FillInQueryStringCollection()
+{
+    byte[] queryStringBytes = this.QueryStringBytes;
+    if (queryStringBytes != null)
+    {
+        if (queryStringBytes.Length != 0)
+        {
+            this._queryString.FillFromEncodedBytes(queryStringBytes, this.QueryStringEncoding);
+            return;
+        }
+    }
+    else
+    {
+        if (!string.IsNullOrEmpty(this.QueryStringText))
+        {
+            this._queryString.FillFromString(this.QueryStringText, true, this.QueryStringEncoding);
+        }
+    }
+}&lt;/pre&gt;
+&lt;p&gt;下面是FillFromEncodedBytes方法实现：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;internal void FillFromEncodedBytes(byte[] bytes, Encoding encoding)
+{
+    int num = (bytes != null) ? bytes.Length : 0;
+    for (int i = 0; i &amp;lt; num; i++)
+    {
+        this.ThrowIfMaxHttpCollectionKeysExceeded();
+        int num2 = i;
+        int num3 = -1;
+        while (i &amp;lt; num)
+        {
+            byte b = bytes[i];
+            if (b == 61)
+            {
+                if (num3 &amp;lt; 0)
+                {
+                    num3 = i;
+                }
+            }
+            else
+            {
+                if (b == 38)
+                {
+                    break;
+                }
+            }
+            i++;
+        }
+        string name;
+        string value;
+        if (num3 &amp;gt;= 0)
+        {
+            name = HttpUtility.UrlDecode(bytes, num2, num3 - num2, encoding);
+            value = HttpUtility.UrlDecode(bytes, num3 + 1, i - num3 - 1, encoding);
+        }
+        else
+        {
+            name = null;
+            value = HttpUtility.UrlDecode(bytes, num2, i - num2, encoding);
+        }
+        base.Add(name, value);
+        if (i == num - 1 &amp;amp;&amp;amp; bytes[i] == 38)
+        {
+            base.Add(null, string.Empty);
+        }
+    }
+}&lt;/pre&gt;
+&lt;p&gt;this.QueryStringEncoding是HttpUtility.UrlDecode解码的关键，我们发现系统默认会先取globalization配置节点的编码方式，如果取不到，则默认为UTF-8编码方式&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;internal Encoding QueryStringEncoding
+{
+    get
+    {
+        Encoding contentEncoding = this.ContentEncoding;
+        if (!contentEncoding.Equals(Encoding.Unicode))
+        {
+            return contentEncoding;
+        }
+        return Encoding.UTF8;
+    }
+}&lt;/pre&gt;
+&lt;div&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;public Encoding ContentEncoding
+{
+    get
+    {
+        if (this._flags[32] &amp;amp;&amp;amp; this._encoding != null)
+        {
+            return this._encoding;
+        }
+        this._encoding = this.GetEncodingFromHeaders();
+        if (this._encoding is UTF7Encoding &amp;amp;&amp;amp; !AppSettings.AllowUtf7RequestContentEncoding)
+        {
+            this._encoding = null;
+        }
+        if (this._encoding == null)
+        {
+            GlobalizationSection globalization = RuntimeConfig.GetLKGConfig(this._context).Globalization;
+            this._encoding = globalization.RequestEncoding;
+        }
+        this._flags.Set(32);
+        return this._encoding;
+    }
+    set
+    {
+        this._encoding = value;
+        this._flags.Set(32);
+    }
+}&lt;/pre&gt;
+&lt;/div&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;得出结论：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;在method为get的提交方式中，如果在web.config中不配置任何globalization相关节点，那么Request.QueryString属性获取uri参数时会自动用utf-8解码，如果此时你的页面是采用gb2312编码，那么cs端获取必定会是乱码&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;解决方法（form提交method为get）：&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;方法1、&lt;/strong&gt;配置globalization节点，例如&amp;lt;globalization requestEncoding=”gb2312″ responseEncoding=”gb2312″ fileEncoding=”gb2312″ culture=”zh-CN”/&amp;gt;&lt;br&gt;
+那么get提交的uri附加的参数会采用gb2312编码，cs服务端Request.QueryString就会根据globalization配置的requestEncoding值gb2312进行内部的HttpUtility.UrlDecode&lt;br&gt;
+&lt;strong&gt;方法2、&lt;/strong&gt;不配置globalization任何节点，在html端对将要拼接到uri后面的中文参数进行encodeURIComponent或者encodeURI编码处理，因为encodeURIComponent或者encodeURI就是utf-8的编码方法（永远不会变），然后再cs服务端Request.QueryString接收后，再用 HttpUtility.UrlDecode(“”, Encoding.Default)进行解码（或者用Server.UrlDecode（）解码，效果一样，Server.UrlDecode为使用当前操作系统的编码解码方式），如下：&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;&lt;em&gt;假设form method=get，当前环境ContentEncoding为gb2312&lt;/em&gt;&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;&lt;em&gt;未做任何处理操作时要请求服务器的uri的一部分：&lt;/em&gt;&lt;/strong&gt;&lt;br&gt;
+Default2.aspx?Button2=%B0%A2%B5%C0%B7%F2&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;&lt;strong&gt;在脚本端用encodeURIComponent对”阿道夫“进行编码后的将要请求服务器的uri的一部分：&lt;/strong&gt;&lt;/em&gt;&lt;br&gt;
+Default2.aspx?Button2=%E9%98%BF%E9%81%93%E5%A4%AB&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;&lt;em&gt;cs服务端:&lt;br&gt;
+&lt;/em&gt;&lt;/strong&gt;string param1 = Request.QueryString[&quot;Button2&quot;];//param1的值为：%E9%98%BF%E9%81%93%E5%A4%AB，虽然Request.QueryString内部有utf-8解码操作，但是对于全是英文和符号等属于assic码的字符不会做任何解码操作（utf-8包含assic）&lt;br&gt;
+string param2 = HttpUtility.UrlDecode(param1, Encoding.UTF8);//再针对性的用Encoding.UTF8对在脚本端用encodeURIComponent（编码方式为：utf-8）编码的param1进行对应解码，一切都安静了。值为“阿道夫”&lt;/p&gt;
+&lt;p&gt;如果理解了编码解码的机制，那么如果仅仅是在cs服务端编码传递带有中文参数的url到另一个页面，也需要注意对应的编码解码问题，比如A页面的按钮点击后跳转到B页面，我举四种情况，大家判断哪种情况下在B页面接收时会有乱码出现&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;&lt;em&gt;备注： &lt;/em&gt;&lt;/strong&gt; HttpUtility.UrlDecode(param1)在没有第二个参数的情况下默认和HttpUtility.UrlDecode(param1, Encoding.UTF8)等效，除非你强制指定第二个参数比如：HttpUtility.UrlDecode(param1, Encoding.Default)&lt;br&gt;
+第一种：没有配置任何globalization节点（&lt;strong&gt;正确&lt;/strong&gt;）&lt;br&gt;
+A页面的按钮代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;protected void Button1_Click(object sender, EventArgs e)
+         {
+             string param = &quot;阿道夫&quot;;
+             Response.Redirect(&quot;~/Default.aspx?param=&quot; + param);
+         }&lt;/pre&gt;
+&lt;p&gt;B页面的接收代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;string param1 = Request.QueryString[&quot;param&quot;];&lt;/pre&gt;
+&lt;p&gt;第二种：配置了globalization节点&amp;lt;globalization requestEncoding=”gb2312″ responseEncoding=”gb2312″ fileEncoding=”gb2312″ culture=”zh-CN”/&amp;gt;（&lt;strong&gt;正确&lt;/strong&gt;）&lt;/p&gt;
+&lt;p&gt;A页面的按钮代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;protected void Button1_Click(object sender, EventArgs e)
+         {
+             string param = &quot;阿道夫&quot;;
+             Response.Redirect(&quot;~/Default.aspx?param=&quot; + param);
+         }&lt;/pre&gt;
+&lt;p&gt;B页面的接收代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;string param1 = Request.QueryString[&quot;param&quot;];&lt;/pre&gt;
+&lt;p&gt;第三种：没有配置任何globalization节点（&lt;strong&gt;正确&lt;/strong&gt;）&lt;br&gt;
+A页面的按钮代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;protected void Button1_Click(object sender, EventArgs e)
+         {
+             string param = &quot;阿道夫&quot;;
+             Response.Redirect(&quot;~/Default.aspx?param=&quot; + HttpUtility.UrlEncode(param));
+         }&lt;/pre&gt;
+&lt;p&gt;B页面的接收代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;string param1 = Request.QueryString[&quot;param&quot;];&lt;/pre&gt;
+&lt;p&gt;第四种：配置了globalization节点&amp;lt;globalization requestEncoding=”gb2312″ responseEncoding=”gb2312″ fileEncoding=”gb2312″ culture=”zh-CN”/&amp;gt;（&lt;strong&gt;乱码&lt;/strong&gt;）&lt;/p&gt;
+&lt;p&gt;A页面的按钮代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;protected void Button1_Click(object sender, EventArgs e)
+         {
+             string param = &quot;阿道夫&quot;;
+             Response.Redirect(&quot;~/Default.aspx?param=&quot; + HttpUtility.UrlEncode(param));
+         }&lt;/pre&gt;
+&lt;p&gt;B页面的接收代码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;string param1 = Request.QueryString[&quot;param&quot;];&lt;/pre&gt;
+&lt;p&gt;参考上面的解释，应该能理解为何第四种是乱码，这里不再做太多解释&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;另外在jquery被大行其道的现在，&lt;/strong&gt;$.ajax{}、$.post()、$.get()等函数使用时更是应该注意编码解码的问题，大致注意如下：&lt;br&gt;
+如果你的页面使用的是gb2312编码，不要用jquery的$.get()或$.post()做ajax提交，因为这两个方法默认为utf-8，而且是无法指定修改contentType的，默认为：contentType:”pplication/x-www-form-urlencoded; charset=UTF-8″，为什么无法修改？因为$.post 和$.get()本身就只是 $.ajax 的 post 或者get方式的一种简写形式，既然是简写为了方便使用当然会固定死很多属性&lt;br&gt;
+可以用$.ajax()并在其中加入：contentType:”application/x-www-form-urlencoded; charset=GB2312″;&lt;br&gt;
+写成以下形式，可以在大多数情况避免乱码：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;$.ajax({ 
+  type: &quot;POST&quot;,
+ contentType:&quot;pplication/x-www-form-urlencoded; charset=GB2312&quot;, 
+  url: &quot;XXX“, 
+  data: {},
+  success: function(msg){ alert( msg ); }
+});&lt;/pre&gt;
+&lt;p&gt;*****以上使用get提交form方式的介绍真的可以告一段落，我想我写的很臃肿，表达上会有很多冗余的地方******&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;下面介绍post提交form的方式&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;在asp.net页面的form不做任何处理的时候，默认编译生成html时会自动加上method=”post” ，F12调试，发现Content-Type的值是：application/x-www-form-urlencoded，这也是我上面提到过的Form元素的EncType属性：表明提交数据的格式&lt;br&gt;
+一般Enctype 属性指定将数据回发到服务器时浏览器使用的编码类型。&lt;br&gt;
+application/x-www-form-urlencoded： 窗体数据被编码为名称/值对。这是标准的编码格式。&lt;br&gt;
+multipart/form-data： 窗体数据被编码为一条消息，页上的每个控件对应消息中的一个部分。&lt;br&gt;
+text/plain： 窗体数据以纯文本形式进行编码，其中不含任何控件或格式字符&lt;/p&gt;
+&lt;p&gt;那也就是说，假如我使用post方式提交，Enctype为application/x-www-form-urlencoded，那么那些需要提交服务器的值依然会被编码，只不过这次不是拼接在uri后面，而是存放在body里面，那么这样依然在不小心的情况下会带来上面描述的乱码问题，当然如果你是post提交，（或者你在asp.net页面不操作form任何属性，保持默认）那么在cs服务端请不要再用Request.QueryString获取值了，这是获取不到的，应该用Request.Form[&quot;&quot;]，请尽量少用Request[&quot;&quot;]或者Request.Params[&quot;&quot;]，这两个将加大你的遍历搜索你需要参数值的范围，Request可以访问的有QueryString、Form、Cookies 或 ServerVariables这4个集合的数据，get请求用Request.QueryString，post用Request.Form，而Request[&quot;&quot;]是依次访问这4个集合，找到就返回结果，而Request.Params[&quot;&quot;]是在访问时，先将4个集合的数据合并到一个新集合(集合不存在时创建)再去查找，效率可想而知&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;p&gt;我现在手动将form改为：&amp;lt;form id=”form1″ enctype=”multipart/form-data” method=”post” runat=”server”&amp;gt; 注意multipart/form-data只能用于post&lt;/p&gt;
+&lt;p&gt;浏览器会把整个表单以控件为单位分割，并为每个部分加上Content-Disposition(form-data或者file),Content-Type(默认为text/plain),name(控件name)等信息，并加上分割符&lt;br&gt;
+&lt;strong&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/aa207300263aceddce82a73190123285.jpg&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/14392398024ed2438b738da2f602714f.jpg&quot;&gt;&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;“boundary”是分隔符的意思，一般multipart/form-data用于文件上传，普通的传参或者提交form元素列表值还是使用默认的application/x-www-form-urlencoded吧&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Thu, 06 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-06-79424-c859d07eb.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-06-79424-c859d07eb.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
+    
+      <item>
+        <title>我的Git笔记</title>
+        <description>
+
+					
+		
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+google_ad_client = &quot;ca-pub-7056282119617872&quot;;
+google_ad_slot = &quot;6645040531&quot;;
+google_ad_width = 300;
+google_ad_height = 250;
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot;
+src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
+&lt;/script&gt;
+&lt;/div&gt;
+&lt;br/ --&gt;
+
+&lt;p&gt;转眼间加入git的阵营已经快两年了，结识git，缘起github，2年前在寻找代码托管网站，当时还是用svn，起初使用google code，可是google的服务虽好，在天朝你懂得，后来发现了github，多亏了蒋鑫老师的《GotGitHub》将我带入github的大门，如果你是个github新手，那我强烈建议你阅读这篇文章，里面讲了很多东西。&lt;/p&gt;
+&lt;p&gt;起初的时候我是用github for windows这个客户端，在切换到多分支的时候被，自动转换换行符坑的不浅，后来越来阅读了《&lt;a href=&quot;http://www.open-open.com/lib/view/open1328069609436.html&quot; target=&quot;_blank&quot;&gt;git详解&lt;/a&gt;》系列文章，对git的了解深入了一步，并开始转到命令行上来，如今我在github上开源了60几个库，借助git，可自由在这些项目之间穿梭，同时还维护了github家园的微博和Q群(193091696)，如果你想获取关于git和github的最新消息可以关注微博，如果你有什么疑问或者问题，欢迎加群一起讨论。&lt;/p&gt;
+&lt;p&gt;这篇文章记录个人常用的一些命令，和记不住的一些命令。&lt;/p&gt;
+&lt;h2 id=&quot;section&quot;&gt;安装&lt;/h2&gt;
+&lt;p&gt;在 Windows 上安装 Git 同样轻松，有个叫做 msysGit 的项目提供了安装包：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;http://msysgit.github.io/&lt;/pre&gt;
+&lt;p&gt;完成安装之后，就可以使用命令行的 git 工具（已经自带了 ssh 客户端）了，另外还有一个图形界面的 Git 项目管理工具。&lt;/p&gt;
+&lt;h2 id=&quot;section-1&quot;&gt;配置&lt;/h2&gt;
+&lt;p&gt;首先是配置帐号信息&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git config --global user.name yanhaijing
+git config --global user.email yanhaijing@yeah.net
+
+git config --list#查看配置的信息
+
+git help config#获取帮助信息&lt;/pre&gt;
+&lt;p&gt;配置自动换行（自动转换坑太大）&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git config --global core.autocrlf input #提交到git是自动将换行符转换为lf&lt;/pre&gt;
+&lt;p&gt;配置密钥&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;ssh-keygen -t rsa -C yanhaijing@yeah.net #生成密钥
+
+ssh -T git@github.com #测试是否成功&lt;/pre&gt;
+&lt;h2 id=&quot;section-2&quot;&gt;新建仓库&lt;/h2&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git init#初始化
+git status#获取状态
+git add file#.或*代表全部添加
+git commit -m &quot;message&quot;#此处注意乱码
+git remote add origin git@github.com:yanhaijing/test.git#添加源
+git push -u origin master#push同事设置默认跟踪分支&lt;/pre&gt;
+&lt;h2 id=&quot;section-3&quot;&gt;从现有仓库克隆&lt;/h2&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git clone git://github.com/yanhaijing/data.js.git	
+git clone git://github.com/schacon/grit.git mypro#克隆到自定义文件夹&lt;/pre&gt;
+&lt;h2 id=&quot;section-4&quot;&gt;本地&lt;/h2&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git add *#跟踪新文件
+
+rm *&amp;amp;git rm *#移除文件
+git rm -f *#移除文件
+git rm --cached *#取消跟踪
+git mv file_from file_to#重命名跟踪文件
+
+git log#查看提交记录
+
+git commit#提交更新
+git commit -m &#39;message&#39;
+git commit -a#跳过使用暂存区域，把所有已经跟踪过的文件暂存起来一并提交
+git commit --amend#修改最后一次提交
+
+git reset HEAD *#取消已经暂存的文件
+
+git checkout -- file#取消对文件的修改（从暂存区去除file）
+git checkout branch|tag|commit -- file_name#从仓库取出file覆盖当前分支
+git checkout -- .#从暂存区去除文件覆盖工作区&lt;/pre&gt;
+&lt;h2 id=&quot;section-5&quot;&gt;分支&lt;/h2&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git branch#列出本地分支
+git branch -r#列出远端分支
+git branch -a#列出所有分支
+git branch -v#查看各个分支最后一个提交对象的信息
+git branch --merge#查看已经合并到当前分支的分支
+git branch --no-merge#查看为合并到当前分支的分支
+
+git branch test#新建test分支
+git checkout test#切换到test分支
+git checkout -b test#新建+切换到test分支
+git checkout -b test dev#基于dev新建test分支，并切换
+
+git branch -d test#删除test分支
+git branch -D test#强制删除test分支
+
+git merge test#将test分支合并到当前分支
+git rebase master#将master分之上超前的提交，变基到当前分支&lt;/pre&gt;
+&lt;h2 id=&quot;section-6&quot;&gt;远端&lt;/h2&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git fetch originname branchname#拉去远端上指定分支
+git merge originname branchname#合并远端上指定分支
+git push originname branchname#推送到远端上指定分支
+git push originname localbranch:serverbranch#推送到远端上指定分支
+
+git checkout -b test origin/dev#基于远端dev新建test分支
+
+git push origin :server#删除远端分支&lt;/pre&gt;
+&lt;h2 id=&quot;section-7&quot;&gt;源&lt;/h2&gt;
+&lt;p&gt;git是一个分布式代码管理工具，所以可以支持多个仓库，在git里，服务器上的仓库在本地称之为remote。&lt;/p&gt;
+&lt;p&gt;个人开发时，多源用的可能不多，但多源其实非常有用。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git remote add origin1 git@github.com:yanhaijing/data.js.git
+
+git remote#显示全部源
+git remote -v#显示全部源+详细信息
+
+git remote rename origin1 origin2#重命名
+
+git remote rm origin1#删除
+
+git remote show origin1#查看指定源的全部信息&lt;/pre&gt;
+&lt;h2 id=&quot;section-8&quot;&gt;标签&lt;/h2&gt;
+&lt;p&gt;当开发到一定阶段时，给程序打标签是非常棒的功能。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git tag#列出现有标签	
+
+git tag v0.1#新建标签
+git tag -a v0.1 -m &#39;my version 1.4&#39;#新建带注释标签
+
+git checkout tagname#切换到标签
+
+git push origin v1.5#推送分支到源上
+git push origin --tags#一次性推送所有分支
+
+git tag -d v0.1#删除标签
+git push origin :refs/tags/v0.1#删除远程标签&lt;/pre&gt;
+&lt;h2 id=&quot;section-9&quot;&gt;总结&lt;/h2&gt;
+&lt;p&gt;啊哈！终于总结完了，以后不会的时候，再也不用到处去找了。&lt;/p&gt;
+&lt;p&gt;其实还有两个最有用的命令还未提到。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;git help *#获取命令的帮助信息
+git status#获取当前的状态，非常有用，因为git会提示接下来的能做的事情&lt;/pre&gt;
+&lt;h2 id=&quot;section-10&quot;&gt;参考资料&lt;/h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://gitref.org/zh/index.html&quot;&gt;Git参考手册&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://www.mceiba.com/tool/git-cheat-sheet.html&quot;&gt;Git简明手册&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://www-cs-students.stanford.edu/~blynn/gitmagic/intl/zh_cn/&quot;&gt;Git Magic&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://gitbook.liuhui998.com/index.html&quot;&gt;Git Community Book 中文版&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://git-scm.com/book/en/v2&quot;&gt;Pro Git&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://marklodato.github.io/visual-git-guide/index-zh-cn.html&quot;&gt;图解Git&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://rogerdudler.github.io/git-guide/index.zh.html&quot;&gt;git-简明指南&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://pcottle.github.io/learnGitBranching/&quot;&gt;learnGitBranching&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Thu, 06 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-06-79417-b73b5e65d.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-06-79417-b73b5e65d.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
     
       <item>
         <title>回收站功能在 Linux 中的实现</title>
@@ -5861,175 +6378,6 @@ git push origin
         
         
         <category>apple_swift</category>
-        
-      </item>
-    
-      <item>
-        <title>Rsyslog 性能数据 impstats 直接写入 Elasticsearch</title>
-        <description>
-
-  
-  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;Rsyslog 的性能数据，可以通过自带的 impstats 插件输出。但是在用的比较复杂的场景下，每次输出都会有好几十个 action 的各种状态，肉眼观察变得比较困难，这时候，我们可以直接输出给 Elasticsearch ，然后利用 Kibana 做快速搜索和分析。&lt;/p&gt;
-&lt;p&gt;Rsyslog 官方提供了直接输出给 Elasticsearch 的插件：&lt;code&gt;omelasticsearch&lt;/code&gt;。配置如下：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;module(load=&quot;omelasticsearch&quot;)
-module(load=&quot;impstats&quot; interval=&quot;120&quot; severity=&quot;6&quot; log.syslog=&quot;on&quot; format=&quot;json&quot; resetCounters=&quot;on&quot;)
-template(name=&quot;logstash-index&quot; type=&quot;list&quot;) {
-    constant(value=&quot;logstash-rsyslog-&quot;)
-    property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot; position.from=&quot;1&quot; position.to=&quot;4&quot;)
-    constant(value=&quot;.&quot;)
-    property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot; position.from=&quot;6&quot; position.to=&quot;7&quot;)
-    constant(value=&quot;.&quot;)
-    property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot; position.from=&quot;9&quot; position.to=&quot;10&quot;)
-}
-template(name=&quot;plain-syslog&quot; type=&quot;list&quot;) {
-    constant(value=&quot;{&quot;)
-    constant(value=&quot;\&quot;@timestamp\&quot;:\&quot;&quot;) property(name=&quot;timereported&quot; dateFormat=&quot;rfc3339&quot;)
-    constant(value=&quot;\&quot;,\&quot;host\&quot;:\&quot;&quot;)    property(name=&quot;hostname&quot;)
-    constant(value=&quot;\&quot;,&quot;)   property(name=&quot;msg&quot; position.from=&quot;2&quot;)
-}
-if ( $syslogfacility-text == &#39;syslog&#39; ) then {
-    action( type=&quot;omelasticsearch&quot;
-            template=&quot;plain-syslog&quot;
-            server=&quot;10.13.57.35&quot;
-            searchIndex=&quot;logstash-index&quot;
-            searchType=&quot;impstats&quot;
-            bulkmode=&quot;on&quot;
-            dynSearchIndex=&quot;on&quot;
-    )
-    stop
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;这里用到一个小窍门。impstats 只是 message 部分内容是 JSON 格式，那么如果合在总的内容里，可能就得跟老版的 logstash 事件格式一样，专门放在 &lt;code&gt;@fields:&lt;/code&gt; 里面去了。但是，利用 &lt;code&gt;position.from&lt;/code&gt; 参数，把 message 部分的开头 &lt;code&gt;{&lt;/code&gt; 给删掉，就把整个内容都提升到顶层了，变成了新版 logstash 的事件格式了！&lt;/p&gt;
-&lt;p&gt;Rsyslog 的 template 语法多变，实现这个同样的目的，在 &lt;code&gt;mmjsonparse&lt;/code&gt; 或者 &lt;code&gt;mmnormalize&lt;/code&gt; 的配合下，就可以有不同写法：&lt;/p&gt;
-&lt;ul&gt;
-  &lt;li&gt;Rsyslog 官方的 &lt;code&gt;$!all-json&lt;/code&gt; 玩法 &lt;a href=&quot;http://www.rsyslog.com/json-elasticsearch/&quot;&gt;Parsing JSON (CEE) Logs and Sending them to Elasticsearch&lt;/a&gt;
-&lt;/li&gt;
-  &lt;li&gt;Rackspace 官博的 &lt;code&gt;subtree&lt;/code&gt; 玩法 &lt;a href=&quot;https://developer.rackspace.com/blog/rsyslog-and-elasticsearch/&quot;&gt;rsyslog &amp;amp; ElasticSearch&lt;/a&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;normalize 是 rsyslog 作者自己写的一个日志格式分析工具，搞怪的是它的文本格式示例文件后缀名叫 &lt;code&gt;.rb&lt;/code&gt;，不是 Ruby，而是 RuleBase……&lt;/p&gt;
-&lt;p&gt;RuleBase 支持的&lt;a href=&quot;http://www.liblognorm.com/files/manual/index.html&quot;&gt;语法&lt;/a&gt;不多：&lt;/p&gt;
-&lt;ul&gt;
-  &lt;li&gt;date-rfc3164: date as specified in rfc3164 (example: %date:date-rfc3164%)&lt;/li&gt;
-  &lt;li&gt;date-rfc5424: date as specified in rfc5424 (example: %date:date-rfc5424%)&lt;/li&gt;
-  &lt;li&gt;ipv4: IP adress (example: %ip:ipv4%)&lt;/li&gt;
-  &lt;li&gt;number: sequence of numbers (example: %port:number%)&lt;/li&gt;
-  &lt;li&gt;word: everything until the next blank (example: %host:word%)&lt;/li&gt;
-  &lt;li&gt;char-to: the field will be defined by the sign in the additional information (example: %tag:char-to:\x3a%: (x3a means “:” in the additional information))&lt;/li&gt;
-  &lt;li&gt;quoted-string: If a quoted string is present, a property can be filled with the whole string (example: %quote:quoted-string%)&lt;/li&gt;
-  &lt;li&gt;date-iso: date in ISO format (example: %date:date-iso%)&lt;/li&gt;
-  &lt;li&gt;time-24hr: detects time in 24hr format (example: %time:time-24hr%)&lt;/li&gt;
-  &lt;li&gt;time-12hr: detects time in 12hr format (example: %time:time-12hr%)&lt;/li&gt;
-  &lt;li&gt;iptables: parses IP tables messages and fills properties accordingly(example: %tables:iptables%)&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;从这个格式设计也可以看出，主要还是用来分析系统日志比较多。&lt;/p&gt;
-&lt;p&gt;目前来看，使用 Rsyslog 做整套日志处理系统的话，在数据结构化这步，还是用 &lt;a href=&quot;http://www.rsyslog.com/doc/v8-stable/configuration/modules/mmexternal.html&quot;&gt;mmexternal&lt;/a&gt; 插件来完成比较合适。&lt;/p&gt;
-&lt;p&gt;mmexternal 模块类似 squid 的 &lt;code&gt;url_rewrite_program&lt;/code&gt; ，都是支持用任意语言写的脚本，死循环接收 STDIN(可以配置传输 line 还是 json 格式)，处理完成后(JSON 格式)输出给 STDOUT 即可。官方示例见：&lt;a href=&quot;https://github.com/rsyslog/rsyslog/blob/master/plugins/external/messagemod/anon_cc_nbrs/anon_cc_nbrs.py&quot;&gt;https://github.com/rsyslog/rsyslog/blob/master/plugins/external/messagemod/anon_cc_nbrs/anon_cc_nbrs.py&lt;/a&gt;。性能如何，有待测试了。&lt;/p&gt;
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-  &lt;/div&gt;
-
-</description>
-        <pubDate>Sun, 19 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-19-rsyslog-impstats-elasticsearch-89a14c62c.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-19-rsyslog-impstats-elasticsearch-89a14c62c.html</guid>
-        
-        
-        <category>chenlinux</category>
-        
-      </item>
-    
-      <item>
-        <title>在终端命令行上调试 grok 表达式</title>
-        <description>
-
-  
-  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;用 logstash 的人都知道在 &lt;a href=&quot;http://grokdebug.herokuapp.com&quot;&gt;http://grokdebug.herokuapp.com&lt;/a&gt; 上面调试 grok 正则表达式。现在问题来了：&lt;del&gt;翻墙技术哪家强?&lt;/del&gt; 页面中用到了来自 google 域名的 js 文件，所以访问经常性失败。所以，在终端上通过命令行方式快速调试成了必需品。&lt;/p&gt;
-&lt;p&gt;其实在 logstash 还在 1.1 的年代的时候，官方 wiki 上是有一批专门教大家怎么通过 irb 交互式测试 grok 表达式的。但不知道为什么后来 wiki 这页没了…… 好在代码本身不复杂，稍微写几行脚本，就可以达到目的了：&lt;/p&gt;
-&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-ruby&quot; data-lang=&quot;ruby&quot;&gt;&lt;span class=&quot;c1&quot;&gt;#!/usr/bin/env ruby&lt;/span&gt;
-&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;rubygems&#39;&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;gem&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;jls-grok&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;=0.11.0&#39;&lt;/span&gt;
-&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;grok-pure&#39;&lt;/span&gt;
-&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;optparse&#39;&lt;/span&gt;
-&lt;span class=&quot;nb&quot;&gt;require&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;ap&#39;&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{}&lt;/span&gt;
-&lt;span class=&quot;no&quot;&gt;ARGV&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;push&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-h&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;ARGV&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;size&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;===&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;
-&lt;span class=&quot;no&quot;&gt;OptionParser&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;banner&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Run grokdebug at your terminal.&#39;&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:dirs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;sx&quot;&gt;%w(patterns)&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:named&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;false&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-d DIR1,DIR2&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--dirs DIR1,DIR2&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Array&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Set grok patterns directories. Default: &quot;./patterns&quot;&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:dirs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-m MESSAGE&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--msg MESSAGE&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Your raw message to be matched&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:message&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-p PATTERN&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--pattern PATTERN&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Your grok pattern to be compiled&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:pattern&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;value&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;n&quot;&gt;opts&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;on&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;-n&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;--named&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;Named captures only&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:named&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;kp&quot;&gt;true&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;parse!&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;Grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;new&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:dirs&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;each&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;directory?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;no&quot;&gt;File&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;*&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-  &lt;span class=&quot;no&quot;&gt;Dir&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;glob&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;each&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;do&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;|&lt;/span&gt;
-    &lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;add_patterns_from_file&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;file&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;end&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;compile&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:pattern&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:named&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;ap&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;grok&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;match&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;options&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;ss&quot;&gt;:message&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;captures&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
-&lt;p&gt;测试一下：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;$ sudo gem install jls-grok awesome_print
-$ ruby grokdebug.rb
-Run grokdebug at your terminal.
-    -d, --dirs DIR1,DIR2             Set grok patterns directories. Default: &quot;./patterns&quot;
-    -m, --msg MESSAGE                Your raw message to be matched
-    -p, --pattern PATTERN            Your grok pattern to be compiled
-    -n, --named                      Named captures only
-$ ruby grokdebug.rb -m &#39;abc123&#39; -p &#39;%{NUMBER:test}&#39;
-{
-         &quot;test&quot; =&amp;gt; [
-        [0] &quot;123&quot;
-    ],
-    &quot;BASE10NUM&quot; =&amp;gt; [
-        [0] &quot;123&quot;
-    ]
-}
-$ ruby grokdebug.rb -m &#39;abc123&#39; -p &#39;%{NUMBER:test:float}&#39; -n
-{
-    &quot;test&quot; =&amp;gt; [
-        [0] 123.0
-    ]
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;没错，我这比 grokdebug 网站还多了类型转换的功能。它用的 jls-grok 是 0.10.10 版，而我用的是最新的 0.11.0 版。 &lt;/p&gt;
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-  &lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-  &lt;/div&gt;
-
-</description>
-        <pubDate>Sun, 19 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-19-grokdebug-commandline-bc8c61ebe.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-19-grokdebug-commandline-bc8c61ebe.html</guid>
-        
-        
-        <category>chenlinux</category>
         
       </item>
     
