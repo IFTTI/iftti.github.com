@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Differential Flame Graphs</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-11-09-differential-flame-graphs.html-eb140f444.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>Differential Flame Graphs</h1>
+    <p class="meta"><span class="time">Nov 9, 2014</span><span class="source_url"> • 来自 brendangregg.com <a name="brendangregg.com" href="http://www.brendangregg.com/blog/2014-11-09/differential-flame-graphs.html" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+<p>How quickly can you debug a CPU performance regression? If your environment is complex and changing quickly, this becomes challenging with existing tools. If it takes a week to root cause a regression, the code may have changed multiple times, and now you have new regressions to debug.</p>
+
+<p>Debugging CPU usage is easy in most cases, thanks to <a href="/FlameGraphs/cpuflamegraphs.html">CPU flame graphs</a>. To debug regressions, I would load before and after flame graphs in separate browser tabs, and then blink between them like searching for <a href="http://en.wikipedia.org/wiki/Planets_beyond_Neptune#Discovery_of_Pluto">Pluto</a>. It got the job done, but I wondered about a better way.</p>
+
+<p>Introducing <strong>red/blue differential flame graphs</strong>:</p>
+
+<p><object data="/images/brendangregg.com/2aa60bc452509468303f37e584575032.svg" type="image/svg+xml" width="720" height="296">
+<img src="/images/brendangregg.com/2aa60bc452509468303f37e584575032.jpg" width="720">
+</object></p>
+
+<p>This is an interactive SVG (direct <a href="/blog/images/2014/zfs-flamegraph-diff.svg">link</a>). The color shows <strong>red for growth</strong>, and <strong>blue for reductions</strong>.</p>
+
+<p>The size and shape of the flame graph is the same as a CPU flame graph for the second profile (y-axis is stack depth, x-axis is population, and the width of each frame is proportional to its presence in the profile; the top edge is what's actually running on CPU, and everything beneath it is ancestry.)</p>
+
+<p>In this example, a workload saw a CPU increase after a system update. Here's the CPU flame graph (<a href="/blog/images/2014/zfs-flamegraph-after.svg">SVG</a>):</p>
+
+<p><object data="/images/brendangregg.com/49970762d02ea8e1b80cbd5bc5eb1a97.svg" type="image/svg+xml" width="720" height="296">
+<img src="/images/brendangregg.com/49970762d02ea8e1b80cbd5bc5eb1a97.jpg" width="720">
+</object></p>
+
+<p>Normally, the colors are picked at random to differentiate frames and towers. Red/blue differential flame graphs use color to show the difference between two profiles.</p>
+
+<p>The deflate_slow() code and children were running more in the second profile, highlighted earlier as red frames. The cause was that ZFS compression was enabled in the system update, which it wasn't previously.</p>
+
+<p>While this makes for a clear example, I didn't really need a differential flame graph for this one. Imagine tracking down subtle regressions, of less than 5%, and where the code is also more complex.</p>
+
+<h2>Red/Blue Differential Flame Graphs</h2>
+
+<p>I've had many discussions about this for years, and finally wrote an implementation that I hope makes sense. It works like this:</p>
+
+<ol>
+<li>Take stack profile 1.</li>
+<li>Take stack profile 2.</li>
+<li>Generate a flame graph using 2. (This sets the width of all frames using profile 2.)</li>
+<li>Colorize the flame graph using the "2 - 1" delta. If a frame appeared more times in 2, it is red, less times, it is blue. The saturation is relative to the delta.</li>
+</ol>
+
+<p>The intent is for use with before &amp; after profiles, such as for <strong>non-regression testing</strong> or benchmarking code changes. The flame graph is drawn using the "after" profile (such that the frame widths show the current CPU consumption), and then colorized by the delta to show how we got there.</p>
+
+<p>The colors show the difference that function directly contributed (eg, being on-CPU), not its children.</p>
+
+<h2>Generation</h2>
+
+<p>I've pushed a simple implementation to github (see <a href="https://github.com/brendangregg/FlameGraph">FlameGraph</a>), which includes a new program, difffolded.pl. To show how it works, here are the steps using Linux <a href="http://www.brendangregg.com/perf.html">perf_events</a> (you can use other profilers).</p>
+
+<p>Collect profile 1:</p>
+
+<pre>
+# <b>perf record -F 99 -a -g -- sleep 30</b>
+# <b>perf script &gt; out.stacks1</b>
+</pre>
+
+<p>Some time later (or after a code change), collect profile 2:</p>
+
+<pre>
+# <b>perf record -F 99 -a -g -- sleep 30</b>
+# <b>perf script &gt; out.stacks2</b>
+</pre>
+
+<p>Now fold these profile files, and generate a differential flame graph:</p>
+
+<pre>
+$ <b>git clone --depth 1 http://github.com/brendangregg/FlameGraph</b>
+$ <b>cd FlameGraph</b>
+$ <b>./stackcollapse-perf.pl ../out.stacks1 &gt; out.folded1</b>
+$ <b>./stackcollapse-perf.pl ../out.stacks2 &gt; out.folded2</b>
+$ <b>./difffolded.pl out.folded1 out.folded2 | ./flamegraph.pl &gt; diff2.svg</b>
+</pre>
+
+<p>difffolded.pl operates on the "folded" style of stack profiles, which are generated by the stackcollapse collection of tools (see the files in <a href="https://github.com/brendangregg/FlameGraph">FlameGraph</a>). It emits a three column output, with the folded stack trace and two value columns, one for each profile. Eg:</p>
+
+<pre>
+func_a;func_b;func_c 31 33
+[...]
+</pre>
+
+<p>This would mean the stack composed of "func_a()-&gt;func_b()-&gt;func_c()" was seen 31 times in profile 1, and in 33 times in profile 2. If flamegraph.pl is handed this three column input, it will automatically generate a red/blue differential flame graph.</p>
+
+<h2>Options</h2>
+
+<p>Some options you'll want to know about:</p>
+
+<p><strong>difffolded.pl -n</strong>: This normalizes the first profile count to match the second. If you don't do this, and take profiles at different times of day, then all the stack counts will naturally differ due to varied load. Everything will look red if the load increased, or blue if load decreased. The -n option balances the first profile, so you get the full red/blue spectrum.</p>
+
+<p><strong>difffolded.pl -x</strong>: This strips hex addresses. Sometimes profilers can't translate addresses into symbols, and include raw hex addresses. If these addresses differ between profiles, then they'll be shown as differences, when in fact the executed function was the same. Fix with -x.</p>
+
+<p><strong>flamegraph.pl --negate</strong>: Inverts the red/blue scale. See the next section.</p>
+
+<h2>Negation</h2>
+
+<p>While my red/blue differential flame graphs are useful, there is a problem: if code paths vanish completely in the second profile, then there's nothing to color blue. You'll be looking at the current CPU usage, but missing information on how we got there.</p>
+
+<p>One solution is to reverse the order of the profiles and draw a negated flame graph differential. Eg:</p>
+
+<p><object data="/images/brendangregg.com/81122e6264570b8aefad9516038fef3a.svg" type="image/svg+xml" width="720" height="296">
+<img src="/images/brendangregg.com/81122e6264570b8aefad9516038fef3a.jpg" width="720">
+</object></p>
+
+<p>Now the widths show the first profile, and the colors show what <em>will</em> happen. The blue highlighting on the right shows we're about to spend a lot less time in the CPU idle path. (Note that I usually filter out cpu_idle from the folded files, by including a grep -v cpu_idle.)</p>
+
+<p>This also highlights the vanishing code problem (or rather, <em>doesn't</em> highlight), as since compression wasn't enabled in the "before" profile, there is nothing to color red.</p>
+
+<p>This was generated using:</p>
+
+<pre>
+$ <b>./difffolded.pl out.folded2 out.folded1 | ./flamegraph.pl --negate &gt; diff1.svg</b>
+</pre>
+
+<p>Which, along with the earlier diff2.svg, gives us:</p>
+
+<ul>
+<li>
+<strong>diff1.svg</strong>: widths show the before profile, colored by what WILL happen</li>
+<li>
+<strong>diff2.svg</strong>: widths show the after profile, colored by what DID happen</li>
+</ul>
+
+<p>If I were to automate this for non-regression testing, I'd generate and show both side by side.</p>
+
+<h2>CPI Flame Graphs</h2>
+
+<p>I first used this code for my <a href="/blog/2014-10-31/cpi-flame-graphs.html">CPI flame graphs</a>, where instead of doing a difference between two profiles, I showed the difference between CPU cycles and stall cycles, which highlights what the CPUs were doing.</p>
+
+<h2>Other Differential Flame Graphs</h2>
+
+<div style="float:right;padding-left:10px;padding-bottom:1px"><a href="http://www.slideshare.net/brendangregg/blazing-performance-with-flame-graphs/167"><img src="/images/brendangregg.com/6c97a332cb2bc9ee6379a7a58928be8d.jpg" width="250" border="0"></a></div>
+
+<p>There's other ways flame graph differentials can be done. <a href="http://dtrace.org/blogs/rm">Robert Mustacchi</a> experimented with <a href="http://www.slideshare.net/brendangregg/blazing-performance-with-flame-graphs/167">differentials</a> a while ago, and used an approach similar to a colored code review: only the difference is shown, colored red for added (increased) code paths, and blue for removed (decreased) code paths. The key difference is that the frame widths are now relative to the size of the difference only. An example is on the right. It's a good idea, but in practice I found it a bit weird, and hard to follow without the bigger picture context: a standard flame graph showing the full profile.</p>
+
+<div style="float:right;padding-left:10px;padding-bottom:1px"><a href="https://github.com/corpaul/flamegraphdiff"><img src="/images/brendangregg.com/a8b78e5863c9d43ebbf6a4c588ea1548.jpg" width="250" border="0"></a></div>
+
+<p>Cor-Paul Bezemer has created <a href="http://corpaul.github.io/flamegraphdiff/">flamegraphdiff</a>, which shows the profile difference using three flame graphs at the same time: the standard before and after flame graphs, and then a differential flame graph where the widths show the difference. See the <a href="http://corpaul.github.io/flamegraphdiff/demos/dispersy/dispersy_diff.html">example</a>. You can mouse-over frames in the differential, which highlights frames in all profiles. This solves the context problem, since you can see the standard flame graph profiles.</p>
+
+<p>My red/blue flame graphs, Robert's hue differential, and Cor-Paul's triple-view, all have their strengths. These could be combined: the top two flame graphs in Cor-Paul's view could be my diff1.svg and diff2.svg. Then the bottom flame graph colored using Robert's approach. For consistency, the bottom flame graph could use the same palette range as mine: blue-&gt;white-&gt;red.</p>
+
+<p>Flame graphs are spreading, and are now used by many companies. I wouldn't be surprised if there were already other implementations of flame graph differentials I didn't know about. (Leave a comment!)</p>
+
+<h2>Conclusion</h2>
+
+<p>If you have problems with performance regressions, red/blue differential flame graphs may be the quickest way to find the root cause. These take a normal flame graph and then use colors to show the difference between two profiles: red for greater samples, and blue for fewer. The size and shape of the flame graph shows the current ("after") profile, so that you can easily see where the samples are based on the widths, and then the colors show how we got there: the profile difference.</p>
+
+<p>These differential flame graphs could also be generated by a nightly non-regression test suite, so that performance regressions can be quickly debugged after the fact.</p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-11-08-79494-3c1703041.html" title="Previous Post: 5 分钟上手 Tmux" data-instant>&laquo; 5 分钟上手 Tmux</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>31 Oct 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-10-31-cpi-flame-graphs.html-4930d6376.html">Catching Your CPUs Napping</a></li>
+
+      <li><span>09 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-09-java-cpu-sampling-using-hprof.html-6086da145.html">Java CPU Sampling Using hprof</a></li>
+
+      <li><span>16 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-16-iosnoop-for-linux.html-3e14ce40a.html">iosnoop For Linux</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
