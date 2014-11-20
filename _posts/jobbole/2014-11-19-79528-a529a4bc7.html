@@ -1,0 +1,592 @@
+---
+layout: post
+title: 'UDP有多不可靠？'
+time: 2014-11-19 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/79528/
+images:
+  12610ea111a41bca1d747d2b055954c2: http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png
+---
+{% raw %}
+
+        <div style="margin-bottom: 10px;">
+            <a href="http://www.luobo360.com" rel="nofollow" target="_blank"><img src="/images/jobbole.com/12610ea111a41bca1d747d2b055954c2.jpg"></a>
+        </div>
+
+		
+<p style="text-align: left;" align="center">最近我意识到了一件事：我实际上对UDP一无所知。好吧，我知道它是无连接的，没有三次握手过程，所以它对传输的质量不作任何保证。但是，在实际工程应用时，UDP的这些特征意味什么呢？</p>
+<p>我启用了5个VPS（虚拟专用服务器，译者注），在7个小时相互发送UDP包，不过网络负载并不大（不过可以尝试下加大负载的情况）。每台服务器，每9-11秒就会随机地接收一个包并且发送5-10个包，包的大小从16到1016字节不等。</p>
+<p>其中两个服务器位于新泽西州（NJ）的同一个数据中心，其余三台分别位于洛杉矶（LA）、阿姆斯特丹（NLD）和东京（JPN）。</p>
+<h2>可靠性分析<b></b>
+</h2>
+<p>我想知道的第一件事是UDP到底有多不可靠。看到下表，我很好奇，我们是在讨论25%，50%，75%的传送率吗？</p>
+<p>包的接收数目</p>
+<table width="687" border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td valign="top" width="95"> </td>
+<td colspan="5" width="473">
+
+</td>
+</tr>
+<tr>
+<td valign="top" width="95"> </td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">-</td>
+<td width="95">2981/2981</td>
+<td width="95">2888/2889</td>
+<td width="95">2964/2964</td>
+<td width="95">3053/3054</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">3016/3016</td>
+<td width="95">-</td>
+<td width="95">3100/3101</td>
+<td width="95">2734/2735</td>
+<td width="95">3054/3054</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">2901/2941</td>
+<td width="95">2932/2975</td>
+<td width="95">-</td>
+<td width="95">2938/2942</td>
+<td width="95">2712/2712</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">3038/3038</td>
+<td width="95">2771/2772</td>
+<td width="95">2724/2724</td>
+<td width="95">-</td>
+<td width="95">2791/2791</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">2551/2552</td>
+<td width="95">2886/2886</td>
+<td width="95">2836/2838</td>
+<td width="95">2887/2887</td>
+<td width="95">-</td>
+</tr>
+</tbody>
+</table>
+<p>包的接收率</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td valign="top" width="95"> </td>
+<td colspan="5" width="473">
+
+</td>
+</tr>
+<tr>
+<td valign="top" width="95"> </td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">-</td>
+<td width="95">100</td>
+<td width="95">99.97</td>
+<td width="95">100</td>
+<td width="95">99.97</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">100</td>
+<td width="95">-</td>
+<td width="95">99.97</td>
+<td width="95">99.97</td>
+<td width="95">100</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">98.64</td>
+<td width="95">98.55</td>
+<td width="95">-</td>
+<td width="95">99.86</td>
+<td width="95">100</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">100</td>
+<td width="95">99.97</td>
+<td width="95">100</td>
+<td width="95">-</td>
+<td width="95">100</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">99.96</td>
+<td width="95">100</td>
+<td width="95">100</td>
+<td width="95">100</td>
+<td width="95">-</td>
+</tr>
+</tbody>
+</table>
+<p>这些数据远超过我的预期。我原以为从NLD—JPN一线会有明显超出均值的丢包，但是事实并不是这样的。反而是从LA发出、传送到NJ的数据有些异常。原因何在？</p>
+<p>首先，我将原因锁定在包的大小。我会使包尽量小（16字节的头，0-1000字节的有效数据）：</p>
+<p>每种大小的包的丢失个数</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td width="114">0-115</td>
+<td width="114">116-215</td>
+<td width="114">216-315</td>
+<td width="114">316-515</td>
+<td width="114">516-715</td>
+</tr>
+<tr>
+<td width="114">13</td>
+<td width="114">11</td>
+<td width="114">12</td>
+<td width="114">13</td>
+<td width="114">23</td>
+</tr>
+</tbody>
+</table>
+<p>没有什么异常。那么，这些包丢失的时间如何分布呢？</p>
+<p>不幸的是，我没有保存时间戳啊（Why？！），但是我统计了每一对服务器间丢包时间分布。从LA到NJ2的丢失的所有的43个包中，其中29个包在第1-2分钟内丢失。NJ1的包也大部分在刚开始很短的时间内丢失。</p>
+<p> </p>
+<h2>排队<b></b>
+</h2>
+<p>我关注的另一个点是排队。</p>
+<p>为了探讨这个问题，我们首先要讨论下数组的逆序数。逆序数就是数组中位置顺序与大小顺序相反的一对数。假设现有一个数组10,8,3,7,4，那么你必须要调换8次才能达到正确的顺序，这8次分别是：（（10,8），（10,3），（10,7），（10,4），（8,3），（8,7），（8,4），（7,4））。</p>
+<p>逆序数</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td width="95"> </td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">-</td>
+<td width="95">0</td>
+<td width="95">2994</td>
+<td width="95">2581</td>
+<td width="95">4658</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">0</td>
+<td width="95">-</td>
+<td width="95">3147</td>
+<td width="95">2459</td>
+<td width="95">4645</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">3980</td>
+<td width="95">3861</td>
+<td width="95">-</td>
+<td width="95">3237</td>
+<td width="95">4010</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">3125</td>
+<td width="95">1826</td>
+<td width="95">3133</td>
+<td width="95">-</td>
+<td width="95">4189</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">3920</td>
+<td width="95">4417</td>
+<td width="95">4147</td>
+<td width="95">4425</td>
+<td width="95">-</td>
+</tr>
+</tbody>
+</table>
+<p>不知道你觉得怎样，我不确定这组数据是否有价值。这确实看上去很高，当然，使用UDP的一个很重要的原因是你可以丢弃掉某些包。如果你发送了10000个包，最后一个包先来，之前的9999个包之后才依次到来，那么你就不需要做9999次调换了，直接把那第1个包丢掉即可。</p>
+<p>如果我们把比已经处理过的包的号码小的包丢弃会怎样？比如，现在有5个包来了，1,5,4,3，6,7，由于我们已经处理过了5，所以把3和4给丢弃了。那么还剩下几个“good”的包呢？</p>
+<p>正常顺序的包的数目</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td width="95"> </td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">-</td>
+<td width="95">100</td>
+<td width="95">52.40</td>
+<td width="95">55.94</td>
+<td width="95">36.77</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">100</td>
+<td width="95">-</td>
+<td width="95">52.47</td>
+<td width="95">54.22</td>
+<td width="95">38.02</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">41.72</td>
+<td width="95">42.32</td>
+<td width="95">-</td>
+<td width="95">50.48</td>
+<td width="95">39.34</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">46.32</td>
+<td width="95">59.34</td>
+<td width="95">44.79</td>
+<td width="95">-</td>
+<td width="95">39.27</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">980</td>
+<td width="95">1083</td>
+<td width="95">1141</td>
+<td width="95">1087</td>
+<td width="95">-</td>
+</tr>
+</tbody>
+</table>
+<p>正常顺序的包的比率</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td width="95"> </td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">-</td>
+<td width="95">100</td>
+<td width="95">52.40</td>
+<td width="95">55.94</td>
+<td width="95">36.77</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">100</td>
+<td width="95">-</td>
+<td width="95">52.47</td>
+<td width="95">54.22</td>
+<td width="95">38.02</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">41.72</td>
+<td width="95">42.32</td>
+<td width="95">-</td>
+<td width="95">50.48</td>
+<td width="95">39.34</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">46.32</td>
+<td width="95">59.34</td>
+<td width="95">44.79</td>
+<td width="95">-</td>
+<td width="95">39.27</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">38.40</td>
+<td width="95">37.53</td>
+<td width="95">40.20</td>
+<td width="95">37.65</td>
+<td width="95">-</td>
+</tr>
+</tbody>
+</table>
+<p>做一个小小的调整，如果我们将5个包整合到一起，再次使用上面的丢弃算法：</p>
+<p>正常顺序的包的数目（包整合之后）：</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td width="95"> </td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">-</td>
+<td width="95">2981</td>
+<td width="95">2061</td>
+<td width="95">2235</td>
+<td width="95">1807</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">3016</td>
+<td width="95">-</td>
+<td width="95">2214</td>
+<td width="95">2041</td>
+<td width="95">1889</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">1868</td>
+<td width="95">1873</td>
+<td width="95">-</td>
+<td width="95">2066</td>
+<td width="95">1720</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">2200</td>
+<td width="95">2273</td>
+<td width="95">1920</td>
+<td width="95">-</td>
+<td width="95">1712</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">60.38</td>
+<td width="95">62.51</td>
+<td width="95">61.13</td>
+<td width="95">59.99</td>
+<td width="95">-</td>
+</tr>
+</tbody>
+</table>
+<p>正常顺序的包的比率（包整合之后）：</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td width="95"> </td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+<td width="95">
+
+</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">-</td>
+<td width="95">100</td>
+<td width="95">71.34</td>
+<td width="95">75.40</td>
+<td width="95">59.17</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">100</td>
+<td width="95">-</td>
+<td width="95">71.40</td>
+<td width="95">74.63</td>
+<td width="95">61.85</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">63.52</td>
+<td width="95">62.96</td>
+<td width="95">-</td>
+<td width="95">70.22</td>
+<td width="95">63.42</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">72.42</td>
+<td width="95">82.00</td>
+<td width="95">70.48</td>
+<td width="95">-</td>
+<td width="95">61.34</td>
+</tr>
+<tr>
+<td width="95">
+
+</td>
+<td width="95">1541</td>
+<td width="95">1804</td>
+<td width="95">1735</td>
+<td width="95">1732</td>
+<td width="95">-</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<h2>结论：</h2>
+<p>没有长时间的、大量的数据做支撑，很难得到任何结论。然而，上面的数据表明UDP的可靠性还是相当不错的。但是距离越远，遇到的跳变就越多，这也意味着发生不可预知错误的概率就越大，但是如果一切都还OK，距离也不成问题了。</p>
+<p>排队机制是个问题。通过整合包，我们发现性能有了很大的提升。在许多场合，排队都不会产生质的影响，除非你在疯狂发包，否则通过一个简单的时间戳和接收端的重排机制，UDP的性能依旧可观。</p>
+<p>我会做更多的测试、更长的时间、更多的数据、更多的地点。同时，我还会把UDP和TCP的相关性能做个对比。但是无论如何，我认为，可靠性超出我预期的UDP会成为我工具箱中的一员了。</p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}

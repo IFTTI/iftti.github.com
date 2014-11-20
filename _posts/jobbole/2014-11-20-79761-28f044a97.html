@@ -1,0 +1,90 @@
+---
+layout: post
+title: '计算机算法：数据压缩之相对编码（4）'
+time: 2014-11-20 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/79761/
+images:
+  12610ea111a41bca1d747d2b055954c2: http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png
+  3fad8a15b90e48d724e1bb8036fefbda: http://ww2.sinaimg.cn/large/63918611gw1emh61f7qrvj20mr0co414.jpg
+  c19fa5a1a690d2a4f79e6929703d618a: http://ww4.sinaimg.cn/large/63918611gw1emh61gcll6j20mr0cotbf.jpg
+  92bd70c5fdd5339a160b1c40eb0a84ee: http://ww3.sinaimg.cn/mw690/63918611gw1emh61gu2w4j20go0abjrz.jpg
+  0911a3a6c537f407a0dd5814589baa3b: http://ww2.sinaimg.cn/mw690/63918611gw1emh61h7rytj20go0abjrh.jpg
+---
+{% raw %}
+
+        <div style="margin-bottom: 10px;">
+            <a href="http://www.luobo360.com" rel="nofollow" target="_blank"><img src="/images/jobbole.com/12610ea111a41bca1d747d2b055954c2.jpg"></a>
+        </div>
+
+		
+<p><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;">概述</span></p>
+<p>相对编码是另一种数据压缩算法。<a href="http://blog.jobbole.com/79758/" target="_blank">游程编码</a>、<a href="http://blog.jobbole.com/79760/" target="_blank">位图编码</a>以及<a href="http://blog.jobbole.com/79952/" target="_blank">图编码和模式替换</a>都基于减少重复数据实现，而相对编码目标略有不同。的确，游程编码要查找连续重复出现的元素，模式替换和位图编码要“映射”重复出现的位置。</p>
+<p>这些算法的唯一问题在于输入数据并非总是由重复元素组成。很明显，如果输入数据流包含许多重复元素，必定能减少。然而，这并不意味着没有重复元素的数据就不能压缩。这取决于数据。假设我们要压缩的数据如下。</p>
+<pre class="brush: actionscript3; gutter: true">1, 2, 3, 4, 5, 6, 7</pre>
+<p>难以想象这个数据流能被压缩。压缩字母时可能存在同样的问题。的确，字母是构成单词的基础，是构成单词的最小单元而且很难再压缩。</p>
+<p>幸运的是，事实并非如此。相对编码可以处理非重复数据。让我们看看下面的输入流——一段给定的年份（90年的）。</p>
+<pre class="brush: actionscript3; gutter: true">1991,1991,1999,1998,1991,1993,1992,1992</pre>
+<p>这里有39个字符，我们能够压缩它们。我们通常使用的方法是去掉前面的“19”。</p>
+<pre class="brush: actionscript3; gutter: true">91,91,99,98,91,93,92,92</pre>
+<p>现在我们得到一个更短的字符串，但在保留第一个年份的基础上可以更进一步的压缩。其余的年份均相对于该年份。</p>
+<pre class="brush: actionscript3; gutter: true">91,0,8,7,0,2,1,1</pre>
+<p>此时传输的数据量减少了很多（从39降至16——超过50%）。然而，我们首先需要考虑一些问题，因为数据流的格式不会总是如此巧合。下面字符流会怎样？</p>
+<pre class="brush: actionscript3; gutter: true">91,94,95,95,98,100,101,102,105,110</pre>
+<p>我们看到数值100在区间的中间，使用该值作为相对编码的基准很方便。那么上面的数据流就变成如下：</p>
+<pre class="brush: actionscript3; gutter: true">-9,-6,-5,-5,-2,100,1,2,5,10</pre>
+<p>问题在于决定哪一个数值作为基准值并不容易。如果数据以不同方式排列会怎样。</p>
+<pre class="brush: actionscript3; gutter: true">96,97,98,99,100,101,102,103,999,1000,1001,1002</pre>
+<p>此时，数值“100”不能作为基准值，因为以该值为基准将得到如下结果：</p>
+<pre class="brush: actionscript3; gutter: true">-4,-3,-2,-1,100,1,2,3,899,900,901,902</pre>
+<p>对某基准值附近的相对值分组将会更加方便。</p>
+<pre class="brush: actionscript3; gutter: true">(-4,-3,-2,-1,100,1,2,3)(-1,1000,1,2)</pre>
+<p>然而，找出基准值并不那么容易。编码格式也并不那么重要。但是下面提到的这种情况，这种编码却很有用。</p>
+<h1><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;">实现</span></h1>
+<p>该算法的实现取决于特定的任务和数据流格式。假设我们要使用JSON从web服务器传输年份数据流到浏览器，下面是一段简单的PHP片段。</p>
+<pre class="brush: actionscript3; gutter: true">// JSON: [1991,1991,1999,1998,1999,1998,1995,1997,1994,1993]
+$years = array(1991,1991,1999,1998,1999,1998,1995,1997,1994,1993);
+
+function relative_encoding($input)
+{
+       $output = array();
+       $inputLength = count($input);
+
+       $base = $input[0];
+
+       $output[] = $base;
+
+       for ($i = 1; $i &lt; $inputLength; $i++) {
+               $output[] = $input[$i] - $base;
+       }
+
+       return $output;
+}
+
+// JSON: [1991,0,8,7,8,7,4,6,3,2]
+echo json_encode(relative_encoding($years));</pre>
+<h1>应用</h1>
+<p>该算法在很多情况都很有效，以下是其中一例。网络上有很多地图应用。例如<a href="http://maps.google.com/">谷歌地图</a>，<a href="http://maps.yahoo.com/">雅虎地图</a>，<a href="http://www.bing.com/maps/">必应地图</a>就是非常有名的应用，同时也有非常有用的开源项目<a href="http://www.openstreetmap.org/">OpenStreetMap</a>。成千上万的网站使用这些应用。</p>
+<p>典型的使用案例是使用JSON从服务器传输大量地理坐标到浏览器。的确，地球上任何地理坐标点都相对于非洲西海岸附近的（0,0）点而言，在一定范围内，当有大量标记时，我们可以使用相对编码来传输信息。</p>
+<p>例如，下图为标识了一些点的旧金山地图。它们的坐标都是相对于地球的（0,0）点而言。</p>
+<p><img id="pic" alt="" src="/images/jobbole.com/3fad8a15b90e48d724e1bb8036fefbda.jpg"></p>
+<p style="text-align: center;"><span style="color: #888888;">地图标记相对于地球的（0,0）点而言，有时没什么效果。</span></p>
+<p>更加有效方式是相对市中心对那些标记进行编码，这样可以节省空间。</p>
+<p style="text-align: center;"><img id="pic" alt="" src="/images/jobbole.com/c19fa5a1a690d2a4f79e6929703d618a.jpg"></p>
+<p style="text-align: center;"><span style="color: #888888;">在一定范围内对地图标记使用相对编码非常有效！</span></p>
+<p>然而，这种压缩类型可能会非常棘手，比如拖动地图和更新坐标数组时。此外，如果需要加载多个城市，我们必须对坐标进行分组。所以，在实现时必须谨慎。但另一方面，这也会很有用——例如在初始化加载地图时可以减少数据量，缩短加载时间。</p>
+<p>使用相对编码，我们只要保存相对基准值（数据）的偏移量——就像版本控制系统一样，这样可以降低传输和加载的数据。这里有一个图形的例子。第一种情况下，我们看到以下图标中的每一项都是单独保存。它与相邻元素无关，可以独立与其他元素存在。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/92bd70c5fdd5339a160b1c40eb0a84ee.jpg"></p>
+<p>我们能只保存第一个元素，其余元素都相对与该元素，如下图标所示。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/0911a3a6c537f407a0dd5814589baa3b.jpg"></p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}

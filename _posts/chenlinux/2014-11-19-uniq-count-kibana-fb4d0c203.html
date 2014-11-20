@@ -1,0 +1,69 @@
+---
+layout: post
+title: '在 kibana 里实现去重计数'
+time: 2014-11-19 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/11/19/uniq-count-kibana
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>如何在 elk 里统计或者展示去重计数，是一个持续很久的需求了。几乎每个月都会有新手提问题说：“我怎么在 kibana 里统计网站 UV 啊？”可惜这个问题的回答总是：做不到……</p>
+<p>其实 Elasticsearch 从 1.1.0 版本开始已经可以做到<a href="http://www.elasticsearch.org/blog/count-elasticsearch/">去重统计</a>了。但是 kibana3 本身是在 0.90 版本基础上实现的，所以也就没办法了。</p>
+<p>今天抽出时间，把 histogram 面板的代码重写了一遍，用 aggregations 接口替换了 facets 接口。改造完成后，再加上去重就很容易了。</p>
+<p>aggregations 接口最大的特点是层级关系。不过也不是可以完全随便嵌套的，原先 date_histogram facets 里的 global 参数，被拆分成了 global aggregation，但是这个 global aggregation 就强制要求必须用在顶层。所以最后 request 相关代码就变成了这个样子：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="kd">var</span> <span class="nx">aggr</span> <span class="o">=</span> <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">DateHistogramAggregation</span><span class="p">(</span><span class="nx">q</span><span class="p">.</span><span class="nx">id</span><span class="p">);</span>
+<span class="k">if</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">mode</span> <span class="o">===</span> <span class="s1">'count'</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">aggr</span> <span class="o">=</span> <span class="nx">aggr</span><span class="p">.</span><span class="nx">field</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">time_field</span><span class="p">);</span>
+<span class="p">}</span> <span class="k">else</span> <span class="k">if</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">mode</span> <span class="o">===</span> <span class="s1">'uniq'</span><span class="p">)</span> <span class="p">{</span>
+  <span class="nx">aggr</span> <span class="o">=</span> <span class="nx">aggr</span><span class="p">.</span><span class="nx">field</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">time_field</span><span class="p">).</span><span class="nx">agg</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">CardinalityAggregation</span><span class="p">(</span><span class="nx">q</span><span class="p">.</span><span class="nx">id</span><span class="p">).</span><span class="nx">field</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">value_field</span><span class="p">));</span>
+<span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+  <span class="nx">aggr</span> <span class="o">=</span> <span class="nx">aggr</span><span class="p">.</span><span class="nx">field</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">time_field</span><span class="p">).</span><span class="nx">agg</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">StatsAggregation</span><span class="p">(</span><span class="nx">q</span><span class="p">.</span><span class="nx">id</span><span class="p">).</span><span class="nx">field</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">value_field</span><span class="p">));</span>
+<span class="p">}</span>
+<span class="nx">request</span> <span class="o">=</span> <span class="nx">request</span><span class="p">.</span><span class="nx">agg</span><span class="p">(</span>
+  <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">GlobalAggregation</span><span class="p">(</span><span class="nx">q</span><span class="p">.</span><span class="nx">id</span><span class="p">).</span><span class="nx">agg</span><span class="p">(</span>
+    <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">FilterAggregation</span><span class="p">(</span><span class="nx">q</span><span class="p">.</span><span class="nx">id</span><span class="p">).</span><span class="nx">filter</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">QueryFilter</span><span class="p">(</span><span class="nx">query</span><span class="p">)).</span><span class="nx">agg</span><span class="p">(</span>
+      <span class="nx">aggr</span><span class="p">.</span><span class="nx">interval</span><span class="p">(</span><span class="nx">_interval</span><span class="p">)</span>
+    <span class="p">)</span>
+  <span class="p">)</span>
+<span class="p">).</span><span class="nx">size</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">annotate</span><span class="p">.</span><span class="nx">enable</span> <span class="o">?</span> <span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">annotate</span><span class="p">.</span><span class="nx">size</span> <span class="o">:</span> <span class="mi">0</span><span class="p">);</span></code></pre></div>
+<p>完整的代码已经提交到 github，见 <a href="https://github.com/chenryn/kibana-authorization/commit/6cb4d28a6c610d28680fffdb81c9f6c83cfaf488">https://github.com/chenryn/kibana-authorization/commit/6cb4d28a6c610d28680fffdb81c9f6c83cfaf488</a></p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
