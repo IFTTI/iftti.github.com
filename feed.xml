@@ -5,9 +5,1038 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Tue, 18 Nov 2014 13:35:30 +0800</pubDate>
-    <lastBuildDate>Tue, 18 Nov 2014 13:35:30 +0800</lastBuildDate>
+    <pubDate>Thu, 20 Nov 2014 11:27:07 +0800</pubDate>
+    <lastBuildDate>Thu, 20 Nov 2014 11:27:07 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>计算机算法：数据压缩之相对编码（4）</title>
+        <description>
+
+        &lt;div style=&quot;margin-bottom: 10px;&quot;&gt;
+            &lt;a href=&quot;http://www.luobo360.com&quot; rel=&quot;nofollow&quot; target=&quot;_blank&quot;&gt;&lt;img src=&quot;/images/jobbole.com/12610ea111a41bca1d747d2b055954c2.jpg&quot;&gt;&lt;/a&gt;
+        &lt;/div&gt;
+
+		
+&lt;p&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;&quot;&gt;概述&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;相对编码是另一种数据压缩算法。&lt;a href=&quot;http://blog.jobbole.com/79758/&quot; target=&quot;_blank&quot;&gt;游程编码&lt;/a&gt;、&lt;a href=&quot;http://blog.jobbole.com/79760/&quot; target=&quot;_blank&quot;&gt;位图编码&lt;/a&gt;以及&lt;a href=&quot;http://blog.jobbole.com/79952/&quot; target=&quot;_blank&quot;&gt;图编码和模式替换&lt;/a&gt;都基于减少重复数据实现，而相对编码目标略有不同。的确，游程编码要查找连续重复出现的元素，模式替换和位图编码要“映射”重复出现的位置。&lt;/p&gt;
+&lt;p&gt;这些算法的唯一问题在于输入数据并非总是由重复元素组成。很明显，如果输入数据流包含许多重复元素，必定能减少。然而，这并不意味着没有重复元素的数据就不能压缩。这取决于数据。假设我们要压缩的数据如下。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;1, 2, 3, 4, 5, 6, 7&lt;/pre&gt;
+&lt;p&gt;难以想象这个数据流能被压缩。压缩字母时可能存在同样的问题。的确，字母是构成单词的基础，是构成单词的最小单元而且很难再压缩。&lt;/p&gt;
+&lt;p&gt;幸运的是，事实并非如此。相对编码可以处理非重复数据。让我们看看下面的输入流——一段给定的年份（90年的）。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;1991,1991,1999,1998,1991,1993,1992,1992&lt;/pre&gt;
+&lt;p&gt;这里有39个字符，我们能够压缩它们。我们通常使用的方法是去掉前面的“19”。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;91,91,99,98,91,93,92,92&lt;/pre&gt;
+&lt;p&gt;现在我们得到一个更短的字符串，但在保留第一个年份的基础上可以更进一步的压缩。其余的年份均相对于该年份。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;91,0,8,7,0,2,1,1&lt;/pre&gt;
+&lt;p&gt;此时传输的数据量减少了很多（从39降至16——超过50%）。然而，我们首先需要考虑一些问题，因为数据流的格式不会总是如此巧合。下面字符流会怎样？&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;91,94,95,95,98,100,101,102,105,110&lt;/pre&gt;
+&lt;p&gt;我们看到数值100在区间的中间，使用该值作为相对编码的基准很方便。那么上面的数据流就变成如下：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;-9,-6,-5,-5,-2,100,1,2,5,10&lt;/pre&gt;
+&lt;p&gt;问题在于决定哪一个数值作为基准值并不容易。如果数据以不同方式排列会怎样。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;96,97,98,99,100,101,102,103,999,1000,1001,1002&lt;/pre&gt;
+&lt;p&gt;此时，数值“100”不能作为基准值，因为以该值为基准将得到如下结果：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;-4,-3,-2,-1,100,1,2,3,899,900,901,902&lt;/pre&gt;
+&lt;p&gt;对某基准值附近的相对值分组将会更加方便。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;(-4,-3,-2,-1,100,1,2,3)(-1,1000,1,2)&lt;/pre&gt;
+&lt;p&gt;然而，找出基准值并不那么容易。编码格式也并不那么重要。但是下面提到的这种情况，这种编码却很有用。&lt;/p&gt;
+&lt;h1&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;&quot;&gt;实现&lt;/span&gt;&lt;/h1&gt;
+&lt;p&gt;该算法的实现取决于特定的任务和数据流格式。假设我们要使用JSON从web服务器传输年份数据流到浏览器，下面是一段简单的PHP片段。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;// JSON: [1991,1991,1999,1998,1999,1998,1995,1997,1994,1993]
+$years = array(1991,1991,1999,1998,1999,1998,1995,1997,1994,1993);
+
+function relative_encoding($input)
+{
+       $output = array();
+       $inputLength = count($input);
+
+       $base = $input[0];
+
+       $output[] = $base;
+
+       for ($i = 1; $i &amp;lt; $inputLength; $i++) {
+               $output[] = $input[$i] - $base;
+       }
+
+       return $output;
+}
+
+// JSON: [1991,0,8,7,8,7,4,6,3,2]
+echo json_encode(relative_encoding($years));&lt;/pre&gt;
+&lt;h1&gt;应用&lt;/h1&gt;
+&lt;p&gt;该算法在很多情况都很有效，以下是其中一例。网络上有很多地图应用。例如&lt;a href=&quot;http://maps.google.com/&quot;&gt;谷歌地图&lt;/a&gt;，&lt;a href=&quot;http://maps.yahoo.com/&quot;&gt;雅虎地图&lt;/a&gt;，&lt;a href=&quot;http://www.bing.com/maps/&quot;&gt;必应地图&lt;/a&gt;就是非常有名的应用，同时也有非常有用的开源项目&lt;a href=&quot;http://www.openstreetmap.org/&quot;&gt;OpenStreetMap&lt;/a&gt;。成千上万的网站使用这些应用。&lt;/p&gt;
+&lt;p&gt;典型的使用案例是使用JSON从服务器传输大量地理坐标到浏览器。的确，地球上任何地理坐标点都相对于非洲西海岸附近的（0,0）点而言，在一定范围内，当有大量标记时，我们可以使用相对编码来传输信息。&lt;/p&gt;
+&lt;p&gt;例如，下图为标识了一些点的旧金山地图。它们的坐标都是相对于地球的（0,0）点而言。&lt;/p&gt;
+&lt;p&gt;&lt;img id=&quot;pic&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/3fad8a15b90e48d724e1bb8036fefbda.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;地图标记相对于地球的（0,0）点而言，有时没什么效果。&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;更加有效方式是相对市中心对那些标记进行编码，这样可以节省空间。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img id=&quot;pic&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/c19fa5a1a690d2a4f79e6929703d618a.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;在一定范围内对地图标记使用相对编码非常有效！&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;然而，这种压缩类型可能会非常棘手，比如拖动地图和更新坐标数组时。此外，如果需要加载多个城市，我们必须对坐标进行分组。所以，在实现时必须谨慎。但另一方面，这也会很有用——例如在初始化加载地图时可以减少数据量，缩短加载时间。&lt;/p&gt;
+&lt;p&gt;使用相对编码，我们只要保存相对基准值（数据）的偏移量——就像版本控制系统一样，这样可以降低传输和加载的数据。这里有一个图形的例子。第一种情况下，我们看到以下图标中的每一项都是单独保存。它与相邻元素无关，可以独立与其他元素存在。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/92bd70c5fdd5339a160b1c40eb0a84ee.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;我们能只保存第一个元素，其余元素都相对与该元素，如下图标所示。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0911a3a6c537f407a0dd5814589baa3b.jpg&quot;&gt;&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Thu, 20 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-20-79761-28f044a97.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-20-79761-28f044a97.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
+    
+      <item>
+        <title>在 kibana 里实现去重计数</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;如何在 elk 里统计或者展示去重计数，是一个持续很久的需求了。几乎每个月都会有新手提问题说：“我怎么在 kibana 里统计网站 UV 啊？”可惜这个问题的回答总是：做不到……&lt;/p&gt;
+&lt;p&gt;其实 Elasticsearch 从 1.1.0 版本开始已经可以做到&lt;a href=&quot;http://www.elasticsearch.org/blog/count-elasticsearch/&quot;&gt;去重统计&lt;/a&gt;了。但是 kibana3 本身是在 0.90 版本基础上实现的，所以也就没办法了。&lt;/p&gt;
+&lt;p&gt;今天抽出时间，把 histogram 面板的代码重写了一遍，用 aggregations 接口替换了 facets 接口。改造完成后，再加上去重就很容易了。&lt;/p&gt;
+&lt;p&gt;aggregations 接口最大的特点是层级关系。不过也不是可以完全随便嵌套的，原先 date_histogram facets 里的 global 参数，被拆分成了 global aggregation，但是这个 global aggregation 就强制要求必须用在顶层。所以最后 request 相关代码就变成了这个样子：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;kd&quot;&gt;var&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;DateHistogramAggregation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;q&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;mode&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;===&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;count&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;time_field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;mode&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;===&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;uniq&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;time_field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;agg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;CardinalityAggregation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;q&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;value_field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;time_field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;agg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;StatsAggregation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;q&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;value_field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;nx&quot;&gt;request&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;request&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;agg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+  &lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;GlobalAggregation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;q&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;agg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+    &lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;FilterAggregation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;q&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;id&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;filter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;QueryFilter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;query&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;agg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
+      &lt;span class=&quot;nx&quot;&gt;aggr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;interval&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;_interval&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;annotate&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;enable&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;?&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;annotate&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;size&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;完整的代码已经提交到 github，见 &lt;a href=&quot;https://github.com/chenryn/kibana-authorization/commit/6cb4d28a6c610d28680fffdb81c9f6c83cfaf488&quot;&gt;https://github.com/chenryn/kibana-authorization/commit/6cb4d28a6c610d28680fffdb81c9f6c83cfaf488&lt;/a&gt;&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- JiaThis Button BEGIN --&gt;
+&lt;div class=&quot;jiathis_style&quot;&gt;
+&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
+&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
+&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
+&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
+&lt;/div&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+var jiathis_config={
+	data_track_clickback:true,
+	summary:&quot;&quot;,
+	ralateuid:{
+		&quot;tsina&quot;:&quot;1035836154&quot;
+	},
+	shortUrl:false,
+	hideMore:false
+}
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
+&lt;!-- JiaThis Button END --&gt;
+&lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Wed, 19 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-19-uniq-count-kibana-fb4d0c203.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-19-uniq-count-kibana-fb4d0c203.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>计算机算法：数据压缩之图编码和模式替换（3）</title>
+        <description>
+
+        &lt;div style=&quot;margin-bottom: 10px;&quot;&gt;
+            &lt;a href=&quot;http://www.luobo360.com&quot; rel=&quot;nofollow&quot; target=&quot;_blank&quot;&gt;&lt;img src=&quot;/images/jobbole.com/12610ea111a41bca1d747d2b055954c2.jpg&quot;&gt;&lt;/a&gt;
+        &lt;/div&gt;
+
+		
+&lt;p&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;概述&lt;/span&gt;&lt;/p&gt;
+&lt;p align=&quot;left&quot;&gt;&lt;a href=&quot;http://blog.jobbole.com/79758/&quot; target=&quot;_blank&quot;&gt;游程编码有两种变形&lt;/a&gt;，分别是“图编码”和“模式替换算法”。图编码是一种非常简单的算法，它不像游程编码那样必须要求输入字符串中必须含有很多重复的元素，比如&lt;em&gt;“aaaaaa”&lt;/em&gt;。这些情况在自然语言中很少出现，但是被称之为“图”的字符串几乎会出现在所有自然语言中。日常英语中就有些图，例如&lt;em&gt;“the”&lt;/em&gt;，&lt;em&gt;“and”&lt;/em&gt;，&lt;em&gt;“ing”&lt;/em&gt;（例如在&lt;em&gt;“waiting”&lt;/em&gt;中），&lt;em&gt;“aa”&lt;/em&gt;，&lt;em&gt;“tt”&lt;/em&gt;，&lt;em&gt;“ee”&lt;/em&gt;这些双字母。事实上我们可以通过添加字符串两边的空格来扩展这些图。这样我们可以不编码&lt;em&gt;“the”，&lt;/em&gt;而编码&lt;em&gt;“ the ”&lt;/em&gt;，就可以编码5个字符了（3个字符，2个空格），从而获得更好的压缩率。另一方面，在日常英语中有很多包含双字母的字符串，而这些情况在游程编码中并不能有效地被压缩，这样导致压缩效率非常低。有时候会有更加糟糕的情况出现，压缩后的长度比原来的长度还要长。我们看一些例子：&lt;/p&gt;
+&lt;p&gt;我们谈一谈怎么编码这个包含了四对双字母的字符串“successfully accomplished”。很不幸，如果用游程编码的话，压缩这四对双字母至少需要八个字符，这意味着对压缩数据来说没有任何帮助。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;// 八个字母还是被八个字母替换了!?
+压缩编码前：&quot;successfully accomplished&quot;
+压缩编码后：&quot;su2ce2sfu2ly a2complished&quot;&lt;/pre&gt;
+&lt;p&gt;这里有个问题，如果原本的输入字符串中含有数字的话，比如&lt;em&gt;“2”&lt;/em&gt;，那么我们必须指定一个字符（比如&lt;em&gt;“@”&lt;/em&gt;）用来描述我们编码替换开始的位置。那么如果输入的字符串为&lt;em&gt;“2 successfully accomplished tasks”&lt;/em&gt;，压缩之后就变为“&lt;em&gt;2 su@2ce@2sfu@2ly a@2complished tasks”&lt;/em&gt;，这时候输出的字符串比输入的字符串还要长！&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;// 压缩后的信息比压缩之前的还要长！！！
+压缩编码前：&quot;2 successfully accomplished&quot;
+压缩编码后：&quot;2 su@2ce@2sfu@2ly a@2complished tasks&quot;&lt;/pre&gt;
+&lt;p&gt;如果输入的字符串中包含转义字符，我们必须找到另一个，然后问题就来了：若不进行全局查找，我们就很难找到另外一个出现在输入字符串中的转义字符。&lt;/p&gt;
+&lt;p&gt;游程编码在压缩纯文本的时候并不是一个好的解决方案，因为长的重复情况（&lt;em&gt;“aaaaa”&lt;/em&gt;）出现频率太小了。当然，在失真压缩的时候是一个特例。很明显，当你要求解压出来的文本需要是完全一致的时候，失真压缩文本并没有很大用处。但是有时候失真压缩可能有用，比如在我们要去除空格的情况中。字符串&lt;em&gt;“&lt;strong&gt;successfully&lt;/strong&gt;           &lt;strong&gt;accomplished&lt;/strong&gt;”&lt;/em&gt;表达的意思和&lt;em&gt;“&lt;strong&gt;successfully accomplished&lt;/strong&gt;”&lt;/em&gt;确实完全相同。在这种情况下，我们能够很简单地去除那些空格。我们可以像这样用一个标记去代替一长串的空格：&lt;em&gt;“&lt;strong&gt;successfully@6 accomplished&lt;/strong&gt;”&lt;/em&gt;，这样可以使输入字符串完全没有损失，但是我们也有另一种选择，可以直接把那些空格直接扔掉。这个选择取决于我们的目的是什么，只有当我们很确定删除换行标记符和制表标记符能够完全保证表达出相同的意思时，才能下决定扔掉那些空格。但是话又说回来，现实中出现这种问题的情况也是少数，所以对纯文本压缩选择图压缩方法比游程编码更好。&lt;/p&gt;
+&lt;h2&gt;问题&lt;/h2&gt;
+&lt;p&gt;在理解了图编码的基本规则之后，让我们看一些例子。在上面的例子中，最好的替代双字母的方法是，用“#”符号替代“cc”，用“@”替代“ss”，用“%”替代“ll”。这样的话输入字符串就可以表示为“su#e@fu%y a#omplished”，这样就可以比输入字符串短了。但是如果输入字符串中包含“# @ %”这些符号怎么办呢？而且我们也不能确定的说在输入字符串中有足够多的双字母让我们有理由去替换它们。一个更好的方式是模式替换。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/191cb637eefd2d38c88b5de67b8ddd80.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;游程编码对普通文本压缩并不是一个好的方法，因为长重复很少在自然语言中出现。&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;模式替换&lt;/span&gt;&lt;/h2&gt;
+&lt;p&gt;模式替换算法是图编码的一种变形。我在上面说过，在日常英语中&lt;em&gt;“ the ”&lt;/em&gt;这种单词会经常出现。我们现在可以把它替换为类似于&lt;em&gt;“$%”&lt;/em&gt;这样的字符。如果输入字符串是&lt;em&gt;“&lt;strong&gt;I send the message&lt;/strong&gt;”&lt;/em&gt;，那么压缩之后变成了&lt;em&gt;“&lt;strong&gt;I send$%message&lt;/strong&gt;”&lt;/em&gt;。但是这种方法也有一些缺陷。&lt;/p&gt;
+&lt;p&gt;第一个问题是我们需要知道了解将要被压缩的这门语言，而且我们要定义出来哪些模式是经常被使用的。如果一条信息用我们完全不懂的语言写的。比如下面的拉丁文：&lt;/p&gt;
+&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras venenatis, sapien eget suscipit placerat, justo quam blandit mauris, quis tempor ante sapien sodales augue. Praesent ut mauris quam. Phasellus scelerisque, ante quis consequat tristique, metus turpis consectetur leo, vitae facilisis sapien mi eu sapien. Praesent vitae ligula elit, et faucibus augue. Sed rhoncus sodales dolor ut gravida. In quis augue ac nulla auctor mattis sed sed libero. Donec eget purus eget enim tempor porta vitae eget diam. Mauris aliquet malesuada ipsum, non pulvinar urna vestibulum ac. Donec feugiat velit vitae nunc cursus imperdiet. Donec accumsan faucibus dictum. Phasellus sed mauris sapien. Maecenas mi metus, tincidunt sed rhoncus nec, sodales non sapien.&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;很明显，如果我们不懂拉丁文，那么定义出来一个常用模式会十分困难。所以如果我们事先知道一些单词或者字母的话，会让我们更方便运用模式替换。&lt;/p&gt;
+&lt;p&gt;第二个问题是关于解压缩。我们需要构造一个用来解压缩的字典。如果我们能够找到比三个字母长的模式会非常好。但是如果找不到，那么压缩率会比较低。而不幸的是，这种长的（3个字符以及3个以上的）模式在自然语言中很少出现。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e6fb413aabd037fd44f90ce2d812e2dc.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;在压缩纯文本的情况下，图编码和模式替换都要优于游程编码。而且，模式替换在压缩编程语言的情况下十分高效。&lt;/span&gt;&lt;/p&gt;
+&lt;h2&gt;应用&lt;/h2&gt;
+&lt;p&gt;一个很有趣的问题是，怎么使用图编码和模式替换算法压缩纯文本，特别是当我们不太了解被压缩文本使用的语言时。答案其实就在问题中，我们可以不压缩自然语言，转而压缩编程语言。因为编程语言限制了一个有限的小单词和符号集合。它几乎对任何编程语言都适用。比如PHP，&lt;em&gt;“function”&lt;/em&gt;，&lt;em&gt;“while”&lt;/em&gt;，&lt;em&gt;“for”&lt;/em&gt;，&lt;em&gt;“break”&lt;/em&gt;，&lt;em&gt;“switch”&lt;/em&gt;，&lt;em&gt;“foreach”&lt;/em&gt;都是经常用的，或者在&lt;em&gt;HTML&lt;/em&gt;中，有很多常用的标签。也许最好的例子是&lt;em&gt;CSS&lt;/em&gt;，在&lt;em&gt;CSS&lt;/em&gt;中只有属性值能够变化。&lt;em&gt;CSS&lt;/em&gt;文件中也经常有很多为了提高可读性的换行符，制表符以及空格。&lt;/p&gt;
+&lt;p&gt;这里就有一个问题，很明显压缩之后的文件对程序员和计算机来说都完全不能发挥作用了，那么为什么我们要压缩这些文件呢。确实是这样，但是如果我们要把不同版本的文件存入数据库作为备份呢。想象一下你正在为一个网站托管公司工作，每天要存储大量托管网站的备份文件。即使只是一个小的网站托管网站上面只有少量的托管网站，那备份文件也是一个惊人的数量。用一个简易压缩工具压缩那些文件显然不是一个好主意。我们每天都必须要备份整个网站，但是我们知道每天网站的版本更新的地方非常少。版本控制系统是一个解决方案，但是你必须去存储那些纯文本文件。&lt;/p&gt;
+&lt;p&gt;也许一个好方法是运用相对编码：用模式替换去压缩这些文本，而且只记录变化更新的部分——类似于版本控制。&lt;/p&gt;
+&lt;p&gt;运用上面的方法我们能够节省很多磁盘空间，而且我们能够很方便进行压缩和解压缩。另外一个好处是你可以类似于版本控制把所有的更改保存到原始的文件中，而这个文件也可以被压缩。&lt;/p&gt;
+&lt;h2&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;&quot;&gt;实现&lt;/span&gt;&lt;/h2&gt;
+&lt;p&gt;这个算法的实现也是基于&lt;em&gt;PHP&lt;/em&gt;，希望能够描述这个压缩算法的主要思想，在这个例子中我试图利用上面的压缩方法压缩一个&lt;em&gt;CSS&lt;/em&gt;文件。虽然这个例子非常简单，但是我们仍然能看到很多有趣的地方。首先你只需要一个压缩和解压缩的字典。在实际中这个压缩过程和解压缩过程是相同的，所以你不需要去写两个不同的函数。在这里用了一个原生的PHP函数&lt;em&gt;“str_replace”&lt;/em&gt;&lt;a title=&quot;&quot; href=&quot;/%E5%AD%A6%E4%B9%A0%E6%96%87%E4%BB%B6/%E4%BC%AF%E4%B9%90%E5%9C%A8%E7%BA%BF/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%AE%97%E6%B3%95%EF%BC%9A%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9%E5%92%8C%E6%A8%A1%E5%BC%8F%E6%9B%BF%E6%8D%A2.docx#_ftn1&quot;&gt;[1]&lt;/a&gt;，因为这个算法的目的不是介绍实现模式替换的技术细节，而是描述模式替换的思想。所以我们假定编程语言有操作字符串的特定函数。&lt;/p&gt;
+&lt;div&gt;
+&lt;hr align=&quot;left&quot; size=&quot;1&quot; width=&quot;33%&quot;&gt;
+&lt;div&gt;
+&lt;p&gt;&lt;a title=&quot;&quot; href=&quot;/%E5%AD%A6%E4%B9%A0%E6%96%87%E4%BB%B6/%E4%BC%AF%E4%B9%90%E5%9C%A8%E7%BA%BF/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%AE%97%E6%B3%95%EF%BC%9A%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9%E5%92%8C%E6%A8%A1%E5%BC%8F%E6%9B%BF%E6%8D%A2.docx#_ftnref1&quot;&gt;[1]&lt;/a&gt; 函数原型：m&lt;em&gt;ixed str_replace(mixed $search, mixed $replace, mixed $subject [, int $count])&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;功能：所有在&lt;em&gt;subject&lt;/em&gt;中出现的&lt;em&gt;search&lt;/em&gt;字符串替换成&lt;em&gt;replace&lt;/em&gt;&lt;/p&gt;
+&lt;pre class=&quot;brush: php; gutter: true&quot;&gt;$str = file_get_contents(&#39;large_style_file.css&#39;);
+
+$encoding_dict = array(
+	&quot;n&quot; 		=&amp;gt; &#39;$0&#39;,
+	&#39;text&#39; 		=&amp;gt; &#39;$1&#39;,
+	&#39;color&#39; 	=&amp;gt; &#39;$2&#39;,
+	&#39;display&#39; 	=&amp;gt; &#39;$3&#39;,
+	&#39;font&#39; 		=&amp;gt; &#39;$4&#39;,
+	&#39;width&#39; 	=&amp;gt; &#39;$5&#39;,
+	&#39;height&#39;	=&amp;gt; &#39;$6&#39;,	
+	&#39; &#39;		=&amp;gt; &#39;&#39;,
+);
+
+function replace_patterns($input, $dict) 
+{
+	foreach ($dict as $pattern =&amp;gt; $replace) {
+		$input = str_replace($pattern, $replace, $input);
+	}
+
+	return $input;
+}
+
+$result = replace_patterns($str, $encoding_dict);&lt;/pre&gt;
+&lt;p&gt;我仅仅替换了少数几个&lt;em&gt;CSS&lt;/em&gt;的属性，但是我就已经得到了40%的压缩率（见下图）！初始文件大小为202KB，但是压缩之后只有131KB（当然它主要是依赖了&lt;em&gt;CSS&lt;/em&gt;文件的特性）。如果我把所有属性都替换成短字符呢。那样的压缩率将会更高。&lt;/p&gt;
+
+&lt;/div&gt;
+&lt;/div&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Wed, 19 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-19-79952-fafd494bc.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-19-79952-fafd494bc.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
+    
+      <item>
+        <title>UDP有多不可靠？</title>
+        <description>
+
+        &lt;div style=&quot;margin-bottom: 10px;&quot;&gt;
+            &lt;a href=&quot;http://www.luobo360.com&quot; rel=&quot;nofollow&quot; target=&quot;_blank&quot;&gt;&lt;img src=&quot;/images/jobbole.com/12610ea111a41bca1d747d2b055954c2.jpg&quot;&gt;&lt;/a&gt;
+        &lt;/div&gt;
+
+		
+&lt;p style=&quot;text-align: left;&quot; align=&quot;center&quot;&gt;最近我意识到了一件事：我实际上对UDP一无所知。好吧，我知道它是无连接的，没有三次握手过程，所以它对传输的质量不作任何保证。但是，在实际工程应用时，UDP的这些特征意味什么呢？&lt;/p&gt;
+&lt;p&gt;我启用了5个VPS（虚拟专用服务器，译者注），在7个小时相互发送UDP包，不过网络负载并不大（不过可以尝试下加大负载的情况）。每台服务器，每9-11秒就会随机地接收一个包并且发送5-10个包，包的大小从16到1016字节不等。&lt;/p&gt;
+&lt;p&gt;其中两个服务器位于新泽西州（NJ）的同一个数据中心，其余三台分别位于洛杉矶（LA）、阿姆斯特丹（NLD）和东京（JPN）。&lt;/p&gt;
+&lt;h2&gt;可靠性分析&lt;b&gt;&lt;/b&gt;
+&lt;/h2&gt;
+&lt;p&gt;我想知道的第一件事是UDP到底有多不可靠。看到下表，我很好奇，我们是在讨论25%，50%，75%的传送率吗？&lt;/p&gt;
+&lt;p&gt;包的接收数目&lt;/p&gt;
+&lt;table width=&quot;687&quot; border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td valign=&quot;top&quot; width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td colspan=&quot;5&quot; width=&quot;473&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&quot;top&quot; width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2981/2981&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2888/2889&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2964/2964&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3053/3054&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3016/3016&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3100/3101&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2734/2735&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3054/3054&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2901/2941&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2932/2975&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2938/2942&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2712/2712&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3038/3038&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2771/2772&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2724/2724&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2791/2791&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2551/2552&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2886/2886&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2836/2838&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2887/2887&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;包的接收率&lt;/p&gt;
+&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td valign=&quot;top&quot; width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td colspan=&quot;5&quot; width=&quot;473&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td valign=&quot;top&quot; width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;99.97&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;99.97&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;99.97&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;99.97&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;98.64&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;98.55&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;99.86&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;99.97&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;99.96&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;这些数据远超过我的预期。我原以为从NLD—JPN一线会有明显超出均值的丢包，但是事实并不是这样的。反而是从LA发出、传送到NJ的数据有些异常。原因何在？&lt;/p&gt;
+&lt;p&gt;首先，我将原因锁定在包的大小。我会使包尽量小（16字节的头，0-1000字节的有效数据）：&lt;/p&gt;
+&lt;p&gt;每种大小的包的丢失个数&lt;/p&gt;
+&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td width=&quot;114&quot;&gt;0-115&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;116-215&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;216-315&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;316-515&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;516-715&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;114&quot;&gt;13&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;11&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;12&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;13&lt;/td&gt;
+&lt;td width=&quot;114&quot;&gt;23&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;没有什么异常。那么，这些包丢失的时间如何分布呢？&lt;/p&gt;
+&lt;p&gt;不幸的是，我没有保存时间戳啊（Why？！），但是我统计了每一对服务器间丢包时间分布。从LA到NJ2的丢失的所有的43个包中，其中29个包在第1-2分钟内丢失。NJ1的包也大部分在刚开始很短的时间内丢失。&lt;/p&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h2&gt;排队&lt;b&gt;&lt;/b&gt;
+&lt;/h2&gt;
+&lt;p&gt;我关注的另一个点是排队。&lt;/p&gt;
+&lt;p&gt;为了探讨这个问题，我们首先要讨论下数组的逆序数。逆序数就是数组中位置顺序与大小顺序相反的一对数。假设现有一个数组10,8,3,7,4，那么你必须要调换8次才能达到正确的顺序，这8次分别是：（（10,8），（10,3），（10,7），（10,4），（8,3），（8,7），（8,4），（7,4））。&lt;/p&gt;
+&lt;p&gt;逆序数&lt;/p&gt;
+&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;0&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2994&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2581&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;4658&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;0&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3147&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2459&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;4645&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3980&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3861&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3237&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;4010&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3125&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1826&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3133&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;4189&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3920&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;4417&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;4147&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;4425&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;不知道你觉得怎样，我不确定这组数据是否有价值。这确实看上去很高，当然，使用UDP的一个很重要的原因是你可以丢弃掉某些包。如果你发送了10000个包，最后一个包先来，之前的9999个包之后才依次到来，那么你就不需要做9999次调换了，直接把那第1个包丢掉即可。&lt;/p&gt;
+&lt;p&gt;如果我们把比已经处理过的包的号码小的包丢弃会怎样？比如，现在有5个包来了，1,5,4,3，6,7，由于我们已经处理过了5，所以把3和4给丢弃了。那么还剩下几个“good”的包呢？&lt;/p&gt;
+&lt;p&gt;正常顺序的包的数目&lt;/p&gt;
+&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;52.40&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;55.94&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;36.77&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;52.47&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;54.22&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;38.02&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;41.72&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;42.32&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;50.48&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;39.34&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;46.32&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;59.34&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;44.79&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;39.27&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;980&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1083&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1141&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1087&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;正常顺序的包的比率&lt;/p&gt;
+&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;52.40&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;55.94&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;36.77&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;52.47&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;54.22&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;38.02&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;41.72&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;42.32&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;50.48&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;39.34&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;46.32&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;59.34&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;44.79&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;39.27&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;38.40&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;37.53&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;40.20&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;37.65&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;做一个小小的调整，如果我们将5个包整合到一起，再次使用上面的丢弃算法：&lt;/p&gt;
+&lt;p&gt;正常顺序的包的数目（包整合之后）：&lt;/p&gt;
+&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2981&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2061&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2235&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1807&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;3016&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2214&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2041&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1889&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1868&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1873&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2066&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1720&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2200&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;2273&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1920&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1712&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;60.38&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;62.51&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;61.13&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;59.99&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;正常顺序的包的比率（包整合之后）：&lt;/p&gt;
+&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt; &lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;71.34&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;75.40&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;59.17&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;100&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;71.40&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;74.63&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;61.85&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;63.52&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;62.96&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;70.22&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;63.42&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;72.42&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;82.00&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;70.48&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;61.34&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td width=&quot;95&quot;&gt;
+
+&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1541&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1804&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1735&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;1732&lt;/td&gt;
+&lt;td width=&quot;95&quot;&gt;-&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt; &lt;/p&gt;
+&lt;h2&gt;结论：&lt;/h2&gt;
+&lt;p&gt;没有长时间的、大量的数据做支撑，很难得到任何结论。然而，上面的数据表明UDP的可靠性还是相当不错的。但是距离越远，遇到的跳变就越多，这也意味着发生不可预知错误的概率就越大，但是如果一切都还OK，距离也不成问题了。&lt;/p&gt;
+&lt;p&gt;排队机制是个问题。通过整合包，我们发现性能有了很大的提升。在许多场合，排队都不会产生质的影响，除非你在疯狂发包，否则通过一个简单的时间戳和接收端的重排机制，UDP的性能依旧可观。&lt;/p&gt;
+&lt;p&gt;我会做更多的测试、更长的时间、更多的数据、更多的地点。同时，我还会把UDP和TCP的相关性能做个对比。但是无论如何，我认为，可靠性超出我预期的UDP会成为我工具箱中的一员了。&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Wed, 19 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-19-79528-a529a4bc7.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-19-79528-a529a4bc7.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
+    
+      <item>
+        <title>【翻译】Kibana 4 beta 2 发布</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;原文地址见：&lt;a href=&quot;http://www.elasticsearch.org/blog/kibana-4-beta-2-get-now/&quot;&gt;http://www.elasticsearch.org/blog/kibana-4-beta-2-get-now/&lt;/a&gt;&lt;/p&gt;
+&lt;hr&gt;
+&lt;p&gt;哈哈哈哈哈哈哈哈哈！来啦！Kibana 4 Beta 2 现在正式雪地 360° 裸跪求调戏，包括你家喵星人都行，只要你给反馈。(译者注：ES 的发版日志越来越活泼，我也翻译的更中文化点好了)&lt;/p&gt;
+&lt;p&gt;如果你已经等不及要开动，从&lt;a href=&quot;http://www.elasticsearch.org/overview/kibana/installation/&quot;&gt;这里&lt;/a&gt;下载 Kibana 4 Beta 2，否则继续阅读下面的亮点。&lt;/p&gt;
+&lt;p&gt;除了很多小的修复和改进，这个版本里还有一些非常值得一看的新东西：&lt;/p&gt;
+&lt;h2 id=&quot;section&quot;&gt;地图支持&lt;/h2&gt;
+&lt;p&gt;地图回来啦，而且比过去更强大了！新的瓦片式地图可视化用上了 Elasticsearch 强大的 &lt;code&gt;geohash_grid&lt;/code&gt; 来显示地理数据，比如可视化展示相对响应时间：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/735898972c6873398cbe7c9f670edfaf.jpg&quot; alt=&quot;map&quot;&gt;&lt;/p&gt;
+&lt;h2 id=&quot;section-1&quot;&gt;可视化选项&lt;/h2&gt;
+&lt;p&gt;在 Beta 1 里，柱状图是固定成堆叠式的。在 Kibana 4 Beta 2 里，我们添加了选项让你修改可视化展示数据的方式。比如，分组柱状图：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/d51858af44b66ddeba0b45d60a7b07aa.jpg&quot; alt=&quot;grouped bars&quot;&gt;&lt;/p&gt;
+&lt;p&gt;或者百分比式柱状图：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/f2ac8d60664f2863768fe3934d17034b.jpg&quot; alt=&quot;Percent bars&quot;&gt;&lt;/p&gt;
+&lt;h2 id=&quot;section-2&quot;&gt;区域图&lt;/h2&gt;
+&lt;p&gt;Beta 2 里区域图也回来了，包括堆叠式和非堆叠式：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/25c7c7e8782364026614eeff107e6c5a.jpg&quot; alt=&quot;area&quot;&gt;&lt;/p&gt;
+&lt;h2 id=&quot;section-3&quot;&gt;高级参数&lt;/h2&gt;
+&lt;p&gt;我们目标是支持尽可能多的 Elasticsearch 特性，不过有时候我们确实还没覆盖到某个聚合选项，而你偏偏现在就要用它。这种情况下，我们引入了 JSON 输入，让你可以定义附加的聚合参数到发送的请求里。比如，你可能想在一个 &lt;code&gt;terms&lt;/code&gt; 聚合里传递一个 &lt;code&gt;shard_size&lt;/code&gt;，或者在一个基数聚合里调大 &lt;code&gt;precision_threshold&lt;/code&gt;。在下面示例中，我们传了一个小脚本作为高级参数，计算 &lt;code&gt;bytes&lt;/code&gt; 字段的 &lt;code&gt;_value&lt;/code&gt; 的对数值，然后用它作为 X 轴：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/e87db7c97ebe497098dca2994c2a4515.jpg&quot; alt=&quot;scripts&quot;&gt;&lt;/p&gt;
+&lt;h2 id=&quot;section-4&quot;&gt;数据表格&lt;/h2&gt;
+&lt;p&gt;有时候你想要个动态图，有时候可能只想要数值就够了。数据表格可视化达成你这个愿望：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/eb88433da50ae1293ce6c04b96fac072.jpg&quot; alt=&quot;data table&quot;&gt;&lt;/p&gt;
+&lt;h2 id=&quot;section-5&quot;&gt;喂！我的仪表盘哪去了？&lt;/h2&gt;
+&lt;p&gt;Kibana 内部使用的索引从 &lt;code&gt;kibana-int&lt;/code&gt; 改名叫 &lt;code&gt;.kibana&lt;/code&gt; 了。我们建议你从老索引里把文档(比如：仪表盘，设置，可视化等)都挪到新索引来。不过，你还是可以在 kibana.yml 里直接定义 &lt;code&gt;kibanaIndex: &quot;kibana-int&quot;&lt;/code&gt; 的。&lt;/p&gt;
+&lt;h2 id=&quot;section-6&quot;&gt;我们现在在做什么？&lt;/h2&gt;
+&lt;p&gt;可以从 &lt;a href=&quot;https://github.com/elasticsearch/kibana/labels/roadmap&quot;&gt;roadmap&lt;/a&gt; 上看到我们离 Kibana 4 正式版还有多远。另外，我们永远欢迎你在 &lt;a href=&quot;https://github.com/elasticsearch/kibana/issues&quot;&gt;GitHub&lt;/a&gt; 的反馈、bug 报告、补丁等等。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- JiaThis Button BEGIN --&gt;
+&lt;div class=&quot;jiathis_style&quot;&gt;
+&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
+&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
+&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
+&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
+&lt;/div&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+var jiathis_config={
+	data_track_clickback:true,
+	summary:&quot;&quot;,
+	ralateuid:{
+		&quot;tsina&quot;:&quot;1035836154&quot;
+	},
+	shortUrl:false,
+	hideMore:false
+}
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
+&lt;!-- JiaThis Button END --&gt;
+&lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Tue, 18 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-18-kibana4-beta-2-get-now-2e4418715.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-18-kibana4-beta-2-get-now-2e4418715.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>计算机算法：数据压缩之位图（2）</title>
+        <description>
+
+        &lt;div style=&quot;margin-bottom: 10px;&quot;&gt;
+            &lt;a href=&quot;http://www.luobo360.com&quot; rel=&quot;nofollow&quot; target=&quot;_blank&quot;&gt;&lt;img src=&quot;/images/jobbole.com/12610ea111a41bca1d747d2b055954c2.jpg&quot;&gt;&lt;/a&gt;
+        &lt;/div&gt;
+
+		
+&lt;p&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;&quot;&gt;概述&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;http://blog.jobbole.com/79758/&quot; target=&quot;_blank&quot;&gt;在之前的文章中&lt;/a&gt;，我们知道了如何压缩一段重复元素组成的数据。这种压缩称为“游程编码”，该算法在无损数据压缩传输时非常方便。但问题是数据必须遵循特定格式。比如，字符串&lt;strong&gt;“aaaaaaaabbbbbbbb”&lt;/strong&gt;可以被压缩成&lt;strong&gt;“a8b8”&lt;/strong&gt;。此时，16个字符的字符串被压缩成4个字符，没有丢失任何信息，而长度却只有原始长度的25%。但当字符（元素）以不同方式分散时，问题就会出现。如果字符不变，但是没有连续出现，会是什么情况？如果字符串是&lt;strong&gt;“abababababababab”&lt;/strong&gt;会如何？长度一样，字符一样，但是我们不能使用游程编码！确实，使用游程算法在最优情况下只能得到相同的字符串。&lt;/p&gt;
+&lt;p&gt;然而在这种情况下，我们看到另一个事实。该字符串有太多重复元素组成，尽管不是一个接着另一个。我可以使用位图压缩该字符串。也就是说我们可以使用序列中的位来保存给定元素出现的位置，这个序列可以简单地转换成一个十进制值。上例中的字符串&lt;strong&gt;“abababababababab”&lt;/strong&gt;可以压缩成&lt;strong&gt;“1010101010101010”&lt;/strong&gt;，即十进制数&lt;strong&gt;43690&lt;/strong&gt;，甚至表示成十六进制的&lt;strong&gt;AAAA&lt;/strong&gt;更好。由此这个长字符串就被压缩了。当解压（解码）消息时，我们再从十进制/十六进制转化成二进制，匹配字符的出现次数。当然，上面这个例程非常简单，假设只有一个重复字符，其余组成字符不同，像这样：&lt;strong&gt;“abacadaeafagahai”&lt;/strong&gt;。那么，我们可以使用对字符“a”使用位图-&lt;strong&gt;“1010101010101010”&lt;/strong&gt;，压缩后为&lt;strong&gt;“AAAA bcdefghi”&lt;/strong&gt;。正如你所看到的，所有例子字符串只有16字符，这是一个限制。对变长数据使用位图有些棘手，它的解码不太容易。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5738889a968ad2369a053756711d5075.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;em&gt;从根本上来说，位图压缩保存了消息中频繁出现元素的位置！&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;此外，位图压缩不仅适用于字符串。也能压缩数组，对象以及任何数据。我之前帖子中的例程就很合适。我们需要使用JSON从服务器传输一个很大的数组到客户机（浏览器）。该数据非常适合于“游程编码”。假设数据不一样——不同年份的集合，这些时间以不同方式分散。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;$data = array(
+        0 =&amp;gt; 1991,
+        1 =&amp;gt; 1992,
+        2 =&amp;gt; 1993,
+        3 =&amp;gt; 1994,
+        4 =&amp;gt; 1991,
+        5 =&amp;gt; 1992,
+        6 =&amp;gt; 1993,
+        7 =&amp;gt; 1992,
+        8 =&amp;gt; 1991,
+        9 =&amp;gt; 1991,
+        10 =&amp;gt; 1991,
+        11 =&amp;gt; 1992,
+        12 =&amp;gt; 1992,
+        13 =&amp;gt; 1991,
+        14 =&amp;gt; 1991,
+        15 =&amp;gt; 1992, 
+        ...
+);&lt;/pre&gt;
+&lt;p&gt;JSON将会对消息进行编码，编码后的消息如下（一个简单但很大的javascript数组）。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;[1991,1992,1993,1994,1991,1992,1993,1992,1991,1991,1991,1992,1992,1991,1991,1992, ...]&lt;/pre&gt;
+&lt;p&gt;然而，如果使用位图压缩，我们将得到一个更短的数组。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;$data = array(
+        0 =&amp;gt; array(1991, &#39;1000100011100110&#39;),
+        1 =&amp;gt; array(1992, &#39;0100010100011001&#39;),
+        2 =&amp;gt; array(1993, &#39;0010001000000000&#39;),
+        3 =&amp;gt; array(1994, &#39;0001000000000000&#39;),
+);&lt;/pre&gt;
+&lt;p&gt;此时的JSON如下：&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;[[1991,&quot;1000100011100110&quot;],[1992,&quot;0100010100011001&quot;],[1993,&quot;0010001000000000&quot;],[1994,&quot;0001000000000000&quot;]]&lt;/pre&gt;
+&lt;p&gt;很明显，随着待压缩数据增加，压缩率会变得越来越好。事实上，大部分人都是从图像了解了位图压缩，因为该算法主要用于图像压缩。可想而知，在压缩黑白图像时效果会多么好（因为黑色和白色可以视为0和1）。实际上，它也被用于超过两种颜色（例如256色），压缩的程度就非常高。&lt;/p&gt;
+&lt;h1&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;&quot;&gt;实现&lt;/span&gt;&lt;/h1&gt;
+&lt;p&gt;下面基于PHP的实现仅仅是为了阐明位图压缩算法。这个算法适用于任何数据结构。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;// too many repeating &quot;a&quot; characters
+$msg = &#39;aazahalavaatalawacamaahakafaaaqaaaiauaacaaxaauaxaaaaaapaayatagaaoafaawayazavaaaazaaabararaaaaakakaaqaarazacajaazavanazaaaeanaaoajauaaaaaxalaraaapabataaavaaab&#39;;
+
+function bitmap($message) 
+{
+       $i = 0;
+       $bits = $rest = &#39;&#39;;
+
+       while ($v = $message[$i]) {
+              if ($v == &#39;a&#39;) {
+                      $bits .= &#39;1&#39;;
+              } else {
+                      $bits .= &#39;0&#39;;
+                      $rest .= $v;
+              }
+              $i++;
+       }
+
+       return number_format(bindec($bits), 0, &#39;.&#39;, &#39;&#39;) . $rest;;
+}
+
+echo bitmap($msg);
+
+// uncompressed: 
+acaaaaadaaaabalaaeaaaaganaaxakaavawamaasavajawaaaayaauaaadalanagaeaeamaarafalaazaaaiasaanaahaaazaraxaalaahaaawaaajasamahaajaakarapanaakaoakaanawalaacamauaamaal
+// compressed:
+152299251941730035874325065523548237677352452096zhlvtlwcmhkfqiucxuxpytgofwyzvzbrrkkqrzcjzvnzenojuxlrpbtvb&lt;/pre&gt;
+&lt;h1&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;&quot;&gt;应用&lt;/span&gt;&lt;/h1&gt;
+&lt;p&gt;当数据中有元素频繁出现时，该算法效果很好，所以你需要研究待压缩数据的本质。实际上因为这个原因，该算法通常用于PNG8或GIF图像的压缩。&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Tue, 18 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-18-79760-5efa36910.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-18-79760-5efa36910.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
     
       <item>
         <title>计算机算法：数据压缩之游程编码</title>
@@ -5657,1079 +6686,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-11-03-79252-ea7eb2e7a.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79252-ea7eb2e7a.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>编写最简单的内核：HelloWorld</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;内核是操作系统最核心的内容，主要提供硬件抽象层、磁盘及文件系统控制、多任务等功能，由于其涉及非常广泛的计算机知识，很少被人们所熟悉，因而披上了一层神秘的面纱。&lt;/p&gt;
-&lt;p&gt;本文将从零开始实现一个最简单的内核，其可以通过x86系统的GRUB引导启动，并向屏幕输出“Hello World!“字符串。该内核代码非常简短，并且在本人的Debian 7系统中可以正常运行。&lt;/p&gt;
-&lt;h2&gt;x86机器启动过程&lt;/h2&gt;
-&lt;p&gt;在具体实现这个内核之前，我们先看看机器具体是怎么启动并且把控制权交给内核的。&lt;/p&gt;
-&lt;p&gt;x86的CPU固定地在物理地址为[0xFFFFFFF0]的地方开始运行，这是32位地址空间的最后16个字节。这里只包含了一个跳转指令，跳转到BIOS把它自己拷贝到的内存区域的地址。&lt;/p&gt;
-&lt;p&gt;然后，BIOS开始执行。它首先根据配置的设备启动顺序依次寻找可启动的设备（根据一个特定的魔数可以决定一个设备是否启动）。一旦找到一个可启动的设备，它就把该设备第一个扇区的内容复制到RAM中物理地址从[0x7C00]开始的地方，然后跳转到该地址并且开始执行那里加载的代码。这段代码称为启动引导装载程序(bootloader)。Bootloader然后在物理地址为[0x100000]的地方加载内核，地址[0x100000]就是x86机器上内核的起始地址。&lt;/p&gt;
-&lt;h2&gt;需要的工具&lt;/h2&gt;
-&lt;ul&gt;
-&lt;li&gt;一台x86电脑&lt;/li&gt;
-&lt;li&gt;Linux&lt;/li&gt;
-&lt;li&gt;NASM汇编器&lt;/li&gt;
-&lt;li&gt;gcc&lt;/li&gt;
-&lt;li&gt;ld（GNU链接器）&lt;/li&gt;
-&lt;li&gt;grub&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h2&gt;汇编入口点&lt;/h2&gt;
-&lt;p&gt;我们希望用C来写所有的代码，但免不了要写一点汇编代码。我们会写一个x86汇编语言的小文件来作为内核的起始点，这段汇编所做的事情就是调用一个我们用C写的外部函数，然后停止程序运行。&lt;/p&gt;
-&lt;p&gt;怎么确定这段汇编代码会作为内核的起始点呢？&lt;br&gt;
-我们会使用一个链接脚本来链接所有的目标文件来产生一个最终的内核可执行映像。在这个链接脚本中，我们会显式指明二进制文件要加载在地址为[0x100000]的地方，这就是内核所在的地方。于是，bootloader会负责触发这个内核的入口点。&lt;/p&gt;
-&lt;p&gt;以下是汇编代码：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;;;kernel.asm，内核汇编代码
-bits 32         ;nasm伪指令
-section .text   ;代码段
-
-global start    ;全局变量
-extern kmain    ;kmain定义在C文件中
-
-start:
-    cli         ;禁止中断
-    call kmain  ;调用kmain函数
-    hlt         ;终止CPU运行&lt;/pre&gt;
-&lt;p&gt;第一条指令中的bit 32不是x86汇编指令，而是NASM汇编器的伪指令，表明将会产生一段运行在32位处理器上代码。这句代码不是必须的，但显示加上会是一个好的编程实践。&lt;/p&gt;
-&lt;p&gt;第二行开始就是代码段，即放置代码的地方。&lt;br&gt;
-global也是NASM的伪指令，表示把源代码中的一个符号设置成全局符号。于是链接器知道start符号在哪里，其实这就是我们的入口点。&lt;br&gt;
-kmain是将会在kernel.c中实现的一个函数，extern表明这个函数会在其他地方定义。&lt;/p&gt;
-&lt;p&gt;于是，我们有了start函数，它会调用kmain函数，然后通过hlt指令停止CPU。由于中断会从hlt指令中唤醒CPU，所以我们事先使用cli（意为clear interrupts）指令禁止中断。&lt;/p&gt;
-&lt;h2&gt;C语言内核&lt;/h2&gt;
-&lt;p&gt;我们在kernel.asm中调用kmain()函数，所以C代码会从kmain()开始执行。&lt;/p&gt;
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;//kernel.c文件
-void kmain(void)
-{
-	char *str = &quot;Hello World！&quot;;
-	char *vidptr = (char*)0xb8000; //显存开始地址
-	unsigned int i = 0;
-	unsigned int j = 0;
-	//清空屏幕，共25行，每行80个字符，每个字符2字节
-	while(j &amp;lt; 80 * 25 * 2) {
-		//空白字符
-		vidptr[j] = &#39; &#39;;
-		//属性字节：黑色背景，灰色前景
-		vidptr[j+1] = 0x07; 		
-		j = j + 2;
-	}
-	j = 0;
-	while(str[j] != &#39;&#39;) {
-		vidptr[i] = str[j];
-		vidptr[i+1] = 0x07;
-		++j;
-		i = i + 2;
-	}
-	return;
-}&lt;/pre&gt;
-&lt;p&gt;这里内核所做的事情就是：清空屏幕，打印字符串“Hello World!”。&lt;/p&gt;
-&lt;p&gt;首先是指针vidptr指向地址[0xb8000]，这是保护模式下显存的开始地址。屏幕的文本内存只是地址空间的一连串内存区域，它从[0xb8000]开始映射屏幕的输入输出，支持25行，每行80个ASCII字符，每个字符用16位（2字节）表示，而不是我们熟悉的8位（1字节）。2字节中第1个字节是该字符的ASCII表示，第2个字节是属性字节，描述字符的包括颜色在内的属性。如果要让背景为黑色而字体为绿色，可以在第1个字节保存字符的ASCII值，在第2个字节保存值[0x02]：0代表黑色背景，2代表绿色前景。&lt;/p&gt;
-&lt;p&gt;其它颜色属性定义如下：&lt;/p&gt;
-&lt;table width=&quot;350&quot; border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;0&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;1&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;2&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;3&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;4&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;5&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;6&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;7&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Black&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Blue&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Green&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Cyan&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Red&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Magenta&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Brown&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Light Grey&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;8&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;9&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;10&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;11&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;12&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;13&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;14&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;15&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Dark Grey&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Light Blue&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Light Green&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Light Cyan&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Light Red&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Light Magenta&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;Light Brown&lt;/td&gt;
-&lt;td align=&quot;center&quot; valign=&quot;middle&quot;&gt;White&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;p&gt;我们的内核使用了黑色背景以及灰色字体，所以属性字节为[0x07]。&lt;/p&gt;
-&lt;p&gt;在第一个while循环中，程序在所有的25行80列中写入空字符和[0x07]属性，从而清空了屏幕。&lt;br&gt;
-在第二个while循环中，字符串”Hello World!“被写到了显存的开始区域，每个字符仍是拥有[0x07]属性。这就在屏幕上打印了该字符串。&lt;/p&gt;
-&lt;h2&gt;链接部分&lt;/h2&gt;
-&lt;p&gt;使用NASM把kernel.asm编译成目标文件，再使用GCC把kernel.c编译成另一个目标文件，然后需要把这两个目标文件链接成一个可以启动的内核映像。&lt;br&gt;
-我们使用链接脚本来达到这个目的，链接脚本可以作为参数传递进链接器ld中以控制链接的过程。&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;//link.ld文件
-OUTPUT_FORMAT(elf32-i386)
-ENTRY(start)
-SECTIONS
-{
-    . = 0x100000;
-    .text : { *(.text) }
-    .data : { *(.data) }
-    .bss  : { *(.bss)  }
-}&lt;/pre&gt;
-&lt;p&gt;OUTPUT_FORMAT设置输出的可执行文件为32位的ELF文件，ELF是x86架构上类Unix系统的标准二进制文件格式。&lt;/p&gt;
-&lt;p&gt;ENTRY接受一个参数，指定其为最终可执行文件的入口点。&lt;/p&gt;
-&lt;p&gt;SECTION是这里最关键的部分，它指定不同的段怎么合并以及放在什么地方，从而定义最终可执行文件的布局。&lt;br&gt;
-大括号内就是SECTION的语句，句点(.)为位置计数器，一般被初始化为SECTIONS块开始的地方[0x0]，但可以任意修改。因为内核代码需要在地址[0x100000]处开始，所以设置位置计数器为[0x100000]。&lt;br&gt;
-第二行中的星号是通配符，可以匹配任何文件名，*(.text)即表示匹配所有输入文件的代码段。于是，链接器合并所有目标文件的代码段到可执行文件的代码段中，具体地址由位置计数器决定，这里即为[0x100000]。链接器产生代码段后，位置计数器会变成：0×100000 + 输出代码段的大小。&lt;br&gt;
-同样地，数据段和bss段会被合并，并放置在位置计数器指定的地方。&lt;/p&gt;
-&lt;h2&gt;Grub和多重引导&lt;/h2&gt;
-&lt;p&gt;现在已经准备好了构建内核的所有文件了，但要用GRUB进行引导还需要最后一个步骤。&lt;/p&gt;
-&lt;p&gt;多重引导规范(Multiboot specification)是一个使用bootloader加载不同X86内核的标准，GRUB只会加载满足这个规范的内核。根据这个规范，内核必须在它的前8KB字节中包含头信息（Multiboot header）。这个头信息包含4字节对齐的3个域，分别为：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;魔数域：包含魔数[0x1BADB002]。&lt;/li&gt;
-&lt;li&gt;标志域：这里不关心这个域，置为0。&lt;/li&gt;
-&lt;li&gt;校验和域：检验和域和前面两个域相加之后的结果必须为0。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;于是kernel.asm应该修改为，代码中的dd表示定义一个4字节的双字：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;;;kernel.asm，内核汇编代码
-
-bits 32         ;nasm伪指令
-section .text   ;代码段
-        ;多重引导规范
-        align 4
-        dd 0x1BADB002            ;魔数
-        dd 0x00                  ;标志
-        dd - (0x1BADB002 + 0x00) ;校验和
-
-global start    ;全局变量
-extern kmain    ;kmain定义在C文件中
-
-start:
-    cli         ;禁止中断
-    call kmain  ;调用kmain函数
-    hlt         ;终止CPU运行&lt;/pre&gt;
-&lt;h2&gt;构建内核&lt;/h2&gt;
-&lt;p&gt;现在可以从kernel.asm和kernel.c生成目标文件，然后使用连接脚本进行链接。&lt;/p&gt;
-&lt;p&gt;使用汇编器nasm产生ELF-32格式的目标文件kasm.o：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;nasm -f elf32 kernel.asm -o kasm.o&lt;/pre&gt;
-&lt;p&gt;使用编译器gcc产生目标文件kc.o，”-c”参数保证只编译，不进行链接：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;gcc -m32 -c kernel.c -o kc.o&lt;/pre&gt;
-&lt;p&gt;使用链接器ld根据链接控制脚本产生可执行映像文件kernel：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;ld -m elf_i386 -T link.ld -o kernel kasm.o kc.o&lt;/pre&gt;
-&lt;h2&gt;配置GRUB并运行内核&lt;/h2&gt;
-&lt;p&gt;GRUB需要内核以kernel-&amp;lt;version&amp;gt;形式命名，于是把内核kernel重命名为kernel-701，并利用超级管理员权限放到/boot目录下。&lt;/p&gt;
-&lt;p&gt;对于bootloader为GRUB的发行版，修改配置文件/boot/grub/grub.cfg，添加以下条目：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;title myKernel
-	root (hd0,0)
-	kernel /boot/kernel-701 ro&lt;/pre&gt;
-&lt;p&gt;对于bootloader为GRUB2的发行版，添加的配置应该为：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;menuentry &#39;kernel 701&#39; {
-	set root=&#39;hd0,msdos1&#39;
-	multiboot /boot/kernel-701 ro
-}&lt;/pre&gt;
-&lt;p&gt;重启电脑，选择GRUB列表中新增加的kernel-701内核选项，这时可以看到屏幕上显示”Hello World!“。&lt;br&gt;
-这就是你的内核！&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-11-03-79249-b3546a20d.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79249-b3546a20d.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>Catching Your CPUs Napping</title>
-        <description>
-
-&lt;p&gt;When you see high CPU usage, you may be forgiven for believing that your CPUs must be furiously executing software, like obedient robots that never rest. In reality, you don&#39;t know what&#39;s happening from the CPU utilization alone. Your CPUs might be napping, during an instruction, while they wait for some resource.&lt;/p&gt;
-
-&lt;p&gt;Understanding what the CPUs are really doing helps direct performance tuning. The simplest way is to measure the average cycles-per-instruction (CPI) ratio: higher values mean it takes more cycles to complete instructions (often &quot;stalled cycles&quot; waiting on memory I/O). This is usually studied as a system-wide metric.&lt;/p&gt;
-
-&lt;p&gt;The following new visualization takes a &lt;a href=&quot;/FlameGraphs/cpuflamegraphs.html&quot;&gt;CPU flame graph&lt;/a&gt; and then assigns colors relative to CPI:&lt;/p&gt;
-
-&lt;p&gt;&lt;object data=&quot;/images/brendangregg.com/d037142ed9a1f3c9ad42491b303e4962.svg&quot; type=&quot;image/svg+xml&quot; width=&quot;720&quot; height=&quot;475&quot;&gt;
-&lt;img src=&quot;/images/brendangregg.com/d037142ed9a1f3c9ad42491b303e4962.jpg&quot; width=&quot;720&quot;&gt;
-&lt;/object&gt;&lt;/p&gt;
-
-&lt;p&gt;Wow! For the first time I can &lt;em&gt;see&lt;/em&gt; where the stall cycles are, providing a clear visualization of CPU efficiency by function.&lt;/p&gt;
-
-&lt;p&gt;The width of each frame shows the time a function (or its children) was on-CPU, as with a normal CPU flame graph. The color now shows what that function was doing when it was on-CPU: running or stalled.&lt;/p&gt;
-
-&lt;p&gt;The color range in this example has been scaled to color the highest CPI blue (slowest instructions), and lowest CPI red (fastest instructions). Flame graphs also now do click to zoom (thanks Adrien Mahieux), as well as mouse-overs. (Direct &lt;a href=&quot;/blog/images/2014/cpi-freebsd-kernel.svg&quot;&gt;SVG&lt;/a&gt; link.)&lt;/p&gt;
-
-&lt;p&gt;This example is showing a FreeBSD kernel. The vm_* (virtual memory) functions have the slowest instructions, which is expected as they involve memory I/O to walk page tables, which may not cache as well as other workloads. The fastest instructions were in __mtx_lock_sleep, which is also expected as it is a spin loop.&lt;/p&gt;
-
-&lt;p&gt;The most color saturated frames on the left (vm_page_alloc-&amp;gt;__mtx_lock_sleep) are being worked on by a fellow engineer in our OCA development team. Had that not already been the case, this CPI flame graph should have prompted their study and development.&lt;/p&gt;
-
-&lt;p&gt;There are two parts that make this possible: differential flame graphs, and measuring stacks on instructions and stall cycles. I&#39;ll briefly summarize these, with the latter using pmcstat(8) on FreeBSD (this approach is also possible on Linux, provided you have PMC access, which my current cloud instances don&#39;t!).&lt;/p&gt;
-
-&lt;h2&gt;Differential Flame Graphs&lt;/h2&gt;
-
-&lt;p&gt;This is a new feature which I&#39;ll explain in a separate post (I also want to add some more options first). In summary, flamegraph.pl usually takes input like the following:&lt;/p&gt;
-
-&lt;pre&gt;
-func_a;func_b;func_c 31
-...
-&lt;/pre&gt;
-
-&lt;p&gt;These are single line entries with a semi-colon delimited stack followed by a sample count.&lt;/p&gt;
-
-&lt;p&gt;A differential flame graph will be generated if you provide the following input:&lt;/p&gt;
-
-&lt;pre&gt;
-func_a;func_b;func_c 31 35
-...
-&lt;/pre&gt;
-
-&lt;p&gt;This now has two value columns, which are intended to show before and after counts. The flame graph is sized using the second column (the &quot;after&quot;, or &quot;now&quot;), and then colored using the delta of 2 - 1: positive is red, negative is blue. The difffolded.pl tool takes two folded-style profiles (generated using the stackcollapse scripts) and emits this two-column output.&lt;/p&gt;
-
-&lt;p&gt;For CPI flame graphs, the two value columns are:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;stall cycle count&lt;/li&gt;
-&lt;li&gt;unhalted cycle count&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;The first is scaled so that its average is the same as the second column, and the full blue-red range is used. Otherwise, there&#39;s always more unhalted cycles, and the differential flame graph is just red.&lt;/p&gt;
-
-&lt;h2&gt;FreeBSD pmcstat&lt;/h2&gt;
-
-&lt;p&gt;The data in this example was collected using FreeBSD&#39;s &lt;a href=&quot;https://www.freebsd.org/cgi/man.cgi?query=pmcstat&quot;&gt;pmcstat(8)&lt;/a&gt; using the following (on Intel):&lt;/p&gt;
-
-&lt;pre&gt;
-# &lt;b&gt;pmcstat -n 1000000 -S RESOURCE_STALLS.ANY -S CPU_CLK_UNHALTED.THREAD_P -O out.pmclog_cpi01 sleep 10&lt;/b&gt;
-# &lt;b&gt;pmcstat -R out.pmclog_cpi01 -z 32 -G out.pmcstat_cpi01&lt;/b&gt;
-CONVERSION STATISTICS:
- #exec/elf                                12
- #samples/total                           123464
- #samples/unknown-function                2059
- #callchain/dubious-frames                4723
-# &lt;b&gt;ls -lh *cpi01&lt;/b&gt;
--rw-r--r--  1 root  wheel    14M Oct 29 04:24 out.pmclog_cpi01
--rw-r--r--  1 root  wheel   7.2M Oct 29 04:24 out.pmcstat_cpi01
-&lt;/pre&gt;
-
-&lt;p&gt;Be careful with pmcstat(8): you can generate a lot of output quickly, which in turn can perturb the performance of what you are measuring. I only measured for 10 seconds (sleep 10), and only one event every million (-n 1000000). Despite this, the raw output file is 14 Mbytes.&lt;/p&gt;
-
-&lt;p&gt;In this example I measured kernel stacks (-S), and up to 32 frames deep. Note that I did need to set kern.hwpmc.callchaindepth=32 in /boot/loader.conf and reboot, as my stacks were at first always being truncated to 8 frames.&lt;/p&gt;
-
-&lt;p&gt;pmstat -G was used to create a callchain text file. It looks like this:&lt;/p&gt;
-
-&lt;pre&gt;
-# &lt;b&gt;more out.pmcstat_cpi01&lt;/b&gt;
-@ CPU_CLK_UNHALTED.THREAD_P [10867 samples]
-
-07.86%  [854]      __mtx_lock_sleep @ /boot/kernel/kernel
- 48.95%  [418]       vm_page_alloc
-  99.76%  [417]        vm_page_grab
-   99.04%  [413]         allocbuf
-    100.0%  [413]          getblk
-     95.16%  [393]           cluster_rbuild
-      100.0%  [393]            cluster_read
-       100.0%  [393]             ffs_read
-        100.0%  [393]              VOP_READ_APV
-         100.0%  [393]               vn_read
-          100.0%  [393]                vn_io_fault
-           100.0%  [393]                 aio_daemon
-            100.0%  [393]                  fork_exit
-     04.84%  [20]            cluster_read
-      100.0%  [20]             ffs_read
-[...]
-@ CPU_CLK_UNHALTED.THREAD_P [10856 samples]
-[...]
-@ RESOURCE_STALLS.ANY [3462 samples]
-
-06.15%  [213]      sf_buf_mext @ /boot/kernel/kernel
- 100.0%  [213]       mb_free_ext
-  100.0%  [213]        m_freem
-   54.46%  [116]         reclaim_tx_descs
-    100.0%  [116]          t4_eth_tx
-[...]
-&lt;/pre&gt;
-
-&lt;p&gt;For each counter, and then each CPU, the samples are printed as call chains. &lt;/p&gt;
-
-&lt;h2&gt;CPI Flame Graph&lt;/h2&gt;
-
-&lt;p&gt;To make a CPI flame graph from this call chain output, I needed to separate out the counters into separate files. I did this in about 60 seconds using vi, creating:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;out.pmcstat_cycles: all the sections titled CPU_CLK_UNHALTED.THREAD_P&lt;/li&gt;
-&lt;li&gt;out.pmcstat_stalls: all the sections titled RESOURCE_STALLS.ANY&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Yes, I should just write some Perl/awk to do this. I will next time.&lt;/p&gt;
-
-&lt;p&gt;I then converted these to the folded format, using stackcollapse-pmc.pl (by Ed Maste):&lt;/p&gt;
-
-&lt;pre&gt;
-$ &lt;b&gt;cat out.pmcstat_cycles | ./stackcollapse-pmc.pl &amp;gt; out.pmcstat_cycles.folded&lt;/b&gt;
-$ &lt;b&gt;cat out.pmcstat_stalls | ./stackcollapse-pmc.pl &amp;gt; out.pmcstat_stalls.folded&lt;/b&gt;
-&lt;/pre&gt;
-
-&lt;p&gt;Finally, making the CPI flame graph:&lt;/p&gt;
-
-&lt;pre&gt;
-$ &lt;b&gt;./difffolded.pl -n out.pmcstat_stall.folded out.pmcstat_cycles.folded | \
-    ./flamegraph.pl --title &quot;CPI Flame Graph: blue=stalls, red=instructions&quot; --width=900 &amp;gt; cpi.svg&lt;/b&gt;
-&lt;/pre&gt;
-
-&lt;p&gt;That&#39;s the &lt;a href=&quot;/blog/images/2014/cpi-freebsd-kernel.svg&quot;&gt;SVG&lt;/a&gt; at the top of this page.&lt;/p&gt;
-
-&lt;p&gt;All the flame graph software (flamegraph.pl, stackcollapse-pmc.pl, difffolded.pl) can be found in the &lt;a href=&quot;https://github.com/brendangregg/FlameGraph&quot;&gt;Flame Graph&lt;/a&gt; collection on github.&lt;/p&gt;
-
-&lt;h2&gt;Conclusion&lt;/h2&gt;
-
-&lt;p&gt;There is much you can do as either a software developer or system administrator once you know that CPU is either memory-bound or instruction-bound, resulting in small to large performance improvements. CPU flame graphs are already a great way to visualize how your software is using the CPUs. CPI flame graphs use color to show what the CPUs are really doing: their efficiency by function.&lt;/p&gt;
-
-&lt;p&gt;PS. This weekend I&#39;m speaking at &lt;a href=&quot;https://www.meetbsd.com/&quot;&gt;MeetBSD&lt;/a&gt; on performance analysis. I will be sure to mention pmcstat(8), which can do a lot more than just stalls and cycles.&lt;/p&gt;
-
-
-</description>
-        <pubDate>Fri, 31 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-31-cpi-flame-graphs.html-4930d6376.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-31-cpi-flame-graphs.html-4930d6376.html</guid>
-        
-        
-        <category>brendangregg</category>
-        
-      </item>
-    
-      <item>
-        <title>用 perl6-bench 做 perl6 性能对比</title>
-        <description>
-
-  
-  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
-    &lt;p&gt;Perl6 成员上周在奥地利大会上做了一次大聚集，写了不少博客讲过去几个月的优化以及未来几个月的优化。但是我发现似乎从8月以来就一直没有正式的 perl6-bench 的图表报告了。于是想：干脆自己跑一把吧。&lt;/p&gt;
-&lt;p&gt;perl6-bench 项目地址见：&lt;a href=&quot;https://github.com/japhb/perl6-bench&quot;&gt;https://github.com/japhb/perl6-bench&lt;/a&gt;。&lt;/p&gt;
-&lt;p&gt;项目的主程序 &lt;code&gt;bench&lt;/code&gt; 本身是用 Perl6 写的。所以运行前，得先安装好 Rakudo Star：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;wget http://rakudo.org/downloads/star/rakudo-star-2014.09.tar.gz
-tar zxvf rakudo-star-2014.09.tar.gz
-cd rakudo-star-2014.09
-perl Configure.pl --backend=moar --gen-moar
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;编译完成后，会在 rakudo-star 目录下创建一个 &lt;code&gt;install&lt;/code&gt; 子目录，里面有 &lt;code&gt;bin&lt;/code&gt;，&lt;code&gt;lib&lt;/code&gt; 等编译完成的文件，把这个 bin 加入到你的 $PATH 里去。&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;sed -i &#39;s!\(PATH=.*\)$!\1:~/download/rakudo-star-2014.09/install/bin!&#39; ~/.bash_profile
-source ~/.bash_profile
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;项目的测试程序 &lt;code&gt;timeall&lt;/code&gt; 是用 Perl5 写的。运行前，也得安装几个 CPAN 模块：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;cpanm Capture::Tiny Data::Alias DateTime JSON JSON::XS List::MoreUtils
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;然后就可以开始测试了：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;./bench setup
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;这个命令会在 &lt;code&gt;components&lt;/code&gt; 子目录下逐一 clone 下来各种可以测试的 perl6 实现的源代码 git 库，包括有：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;arane   niecza  nqp-jvm   nqp-parrot  perl5    rakudo-jvm   rakudo-parrot
-moarvm  nqp-js  nqp-moar  parrot      perlito  rakudo-moar
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;下面就开始正式测试了。用时同样会比较长，和上面 git clone 一样，都建议放在 screen 里运行。&lt;/p&gt;
-&lt;p&gt;然后设定本次测试你打算对比哪些：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;export CHECKOUTS=&#39;perl5/v5.20.1 rakudo-jvm/2014.10 rakudo-moar/2014.10 rakudo-moar/2014.09&#39;
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;这个写法规范是：git 库名/git tag名&lt;/p&gt;
-&lt;p&gt;然后运行：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;./bench extract $CHECKOUTS
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;这一步会分别 checkout 具体的 tag 到同级的新目录里，然后开始编译：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;./bench build   $CHECKOUTS
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;然后运行测试程序：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;./bench time    $CHECKOUTS
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;一共有 65 个测试，测试项在 &lt;code&gt;microbenchworks.pl&lt;/code&gt; 文件的大数组里定义了。
-我在测试中发现，第 15/65 测试用例，在 &lt;code&gt;nqp-moar&lt;/code&gt; 时会死循环运行，无法正常完成测试，已回报给作者。&lt;/p&gt;
-&lt;p&gt;最后运行结果对比评分：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;./bench compare $CHECKOUTS
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;结果显示，moar 比 jvm 领先一些，比 perl5 还差着呢：&lt;/p&gt;
-&lt;pre&gt;&lt;code&gt;==&amp;gt; perl6-bench version 997c920 (ignoring startup time and compile time)
---- showing PEAK RATE (/s), TIMES SLOWER THAN FASTEST (x), and SUMMARY SCORES (skipping incomplete data)
-                                - Perl 5 -   -------------- Perl 6 --------------
-                                 v5.20.1      2014.10      2014.09      2014.10  
-                                   perl5       rakudo       rakudo       rakudo  
-TEST                               perl5          jvm       moarvm       moarvm  
-                                -------------------------------------------------
-empty                                --             0/s          4/s          4/s
-                                    FAIL         34.0x         1.0x         1.1x 
-zero                                 --             0/s          4/s          4/s
-                                    FAIL         33.3x         1.0x         1.1x 
-hello                                --             0/s          4/s          4/s
-                                    FAIL         33.2x         1.0x         1.1x 
-while_empty                     26678545/s     223006/s    1730328/s    3403743/s
-                                     1.0x       119.6x        15.4x         7.8x 
-while_empty_native              26800035/s   1291144447/s   27583644/s   168949423/s
-                                    48.2x         1.0x        46.8x         7.6x 
-while_bind                           --        249216/s    1682441/s    3381083/s
-                                    FAIL         13.6x         2.0x         1.0x 
-while_concat                    13404147/s      26589/s     166714/s     206047/s
-                                     1.0x       504.1x        80.4x        65.1x 
-while_concat_native             13400671/s      65891/s    4138382/s    5216637/s
-                                     1.0x       203.4x         3.2x         2.6x 
-while_int2str                    6026835/s      57112/s     364208/s     455797/s
-                                     1.0x       105.5x        16.5x        13.2x 
-while_int2str_native             6283498/s     111754/s     543142/s     671402/s
-                                     1.0x        56.2x        11.6x         9.4x 
-while_int2str_concat             8711901/s       7006/s      89566/s      93480/s
-                                     1.0x      1243.5x        97.3x        93.2x 
-while_int2str_concat_native      8403097/s      13824/s     153347/s     167585/s
-                                     1.0x       607.9x        54.8x        50.1x 
-while_push_join                  3656434/s      15223/s      18917/s     111952/s
-                                     1.0x       240.2x       193.3x        32.7x 
-while_push                       7821809/s      90685/s      21289/s     239678/s
-                                     1.0x        86.3x       367.4x        32.6x 
-while_pushme                    14440088/s    3184098/s    1225845/s    1560029/s
-                                     1.0x         4.5x        11.8x         9.3x 
-while_array_set                  6171761/s     112655/s     276032/s     335751/s
-                                     1.0x        54.8x        22.4x        18.4x 
-while_hash_set                   1525235/s      58647/s     158810/s     171691/s
-                                     1.0x        26.0x         9.6x         8.9x 
-postwhile_nil                   36412794/s     515093/s    2939870/s    4147168/s
-                                     1.0x        70.7x        12.4x         8.8x 
-postwhile_nil_native            36083908/s   1676476937/s   34716639/s   167547820/s
-                                    46.5x         1.0x        48.3x        10.0x 
-loop_empty                      24051967/s     257307/s    1686547/s    3321511/s
-                                     1.0x        93.5x        14.3x         7.2x 
-loop_empty_native               24181034/s   2276716196/s   28050857/s   193967640/s
-                                    94.2x         1.0x        81.2x        11.7x 
-for_empty                       33943008/s     894886/s    2315939/s    2515590/s
-                                     1.0x        37.9x        14.7x        13.5x 
-for_bind                             --       1571035/s    2331450/s    2586230/s
-                                    FAIL          1.6x         1.1x         1.0x 
-for_assign                      17713024/s    1532922/s    2006784/s    2391570/s
-                                     1.0x        11.6x         8.8x         7.4x 
-for_assign_native               17765094/s    1658168/s    1895988/s    2006162/s
-                                     1.0x        10.7x         9.4x         8.9x 
-for_postinc                     16640609/s     386218/s    1398445/s    1802886/s
-                                     1.0x        43.1x        11.9x         9.2x 
-for_postinc_native              16670507/s    1037555/s    1859233/s    1994065/s
-                                     1.0x        16.1x         9.0x         8.4x 
-for_concat                      14998496/s      29144/s     182410/s     205988/s
-                                     1.0x       514.6x        82.2x        72.8x 
-for_concat_native               15053529/s      49506/s    1353377/s    1465293/s
-                                     1.0x       304.1x        11.1x        10.3x 
-for_concat_2                     8646049/s      15854/s     107213/s     117943/s
-                                     1.0x       545.4x        80.6x        73.3x 
-for_concat_2_native              8659225/s      23751/s     791213/s     986208/s
-                                     1.0x       364.6x        10.9x         8.8x 
-for_push                         8496867/s     122034/s      25166/s     333166/s
-                                     1.0x        69.6x       337.6x        25.5x 
-for_array_set                    7810807/s      57463/s     286036/s     388650/s
-                                     1.0x       135.9x        27.3x        20.1x 
-for_hash_set                     1567864/s      32265/s     168643/s     171446/s
-                                     1.0x        48.6x         9.3x         9.1x 
-reduce_range                     4964114/s     181283/s     318258/s     345797/s
-                                     1.0x        27.4x        15.6x        14.4x 
-reduce_int_comb_range             470778/s       1495/s       3355/s       3406/s
-                                     1.0x       314.8x       140.3x       138.2x 
-any_equals                       2646212/s      15684/s      61867/s      81787/s
-                                     1.0x       168.7x        42.8x        32.4x 
-trim_string                     13660958/s   33565139/s    9291330/s   17910365/s
-                                     2.5x         1.0x         3.6x         1.9x 
-split_string_constant            5615519/s     100014/s     133572/s     171231/s
-                                     1.0x        56.1x        42.0x        32.8x 
-split_string_regex               2017912/s       4137/s      12573/s      16553/s
-                                     1.0x       487.8x       160.5x       121.9x 
-charrange                         363103/s       3416/s      19831/s      24667/s
-                                     1.0x       106.3x        18.3x        14.7x 
-charrange_ignorecase              363529/s       3788/s      14433/s      17899/s
-                                     1.0x        96.0x        25.2x        20.3x 
-visit_2d_indices_while           7276084/s     152635/s     746903/s    1484712/s
-                                     1.0x        47.7x         9.7x         4.9x 
-visit_2d_indices_while_native   11180261/s     553619/s    1177498/s    1451682/s
-                                     1.0x        20.2x         9.5x         7.7x 
-visit_2d_indices_loop           10123295/s     177783/s     834515/s    1843586/s
-                                     1.0x        56.9x        12.1x         5.5x 
-visit_2d_indices_loop_native    12457926/s   440172780/s    1227550/s    1431680/s
-                                    35.3x         1.0x       358.6x       307.5x 
-visit_2d_indices_for             8548538/s     255887/s     675743/s     847728/s
-                                     1.0x        33.4x        12.7x        10.1x 
-visit_2d_indices_cross           1367865/s       4685/s      31407/s      40470/s
-                                     1.0x       292.0x        43.6x        33.8x 
-create_and_copy_2d_grid_cross     541914/s       2230/s      11564/s      13778/s
-                                     1.0x       243.0x        46.9x        39.3x 
-create_and_iterate_hash_kv           --          1564/s      12248/s      12651/s
-                                    FAIL          8.1x         1.0x         1.0x 
-rat_mul_div_cancel                  7439/s       4852/s      33910/s      40614/s
-                                     5.5x         8.4x         1.2x         1.0x 
-rat_harmonic                        1080/s       1732/s      11089/s      11678/s
-                                    10.8x         6.7x         1.1x         1.0x 
-rand                            10885068/s     230938/s     183511/s     213786/s
-                                     1.0x        47.1x        59.3x        50.9x 
-array_set_xx                    13585287/s    1533694/s     545243/s     597926/s
-                                     1.0x         8.9x        24.9x        22.7x 
-parse-json                            23/s          1/s          1/s          1/s
-                                     1.0x        29.6x        37.0x        22.8x 
-parse-json-no-obj-creation           --             1/s          1/s          1/s
-                                    SKIP          1.4x         1.9x         1.0x 
-rc-forest-fire                      1374/s          2/s          9/s          9/s
-                                     1.0x       588.4x       155.8x       146.7x 
-rc-man-or-boy-test                187464/s        --         41252/s      39966/s
-                                     1.0x        FAIL          4.5x         4.7x 
-rc-self-describing-numbers        219156/s        571/s        775/s        782/s
-                                     1.0x       383.9x       282.9x       280.1x 
-rc-dragon-curve                   149131/s       1704/s       5937/s       6260/s
-                                     1.0x        87.5x        25.1x        23.8x 
-rc-9-billion-names                  1821/s         93/s        216/s        500/s
-                                     1.0x        19.7x         8.4x         3.6x 
-rc-mandelbrot                       1168/s        702/s       1440/s       1519/s
-                                     1.3x         2.2x         1.1x         1.0x 
-spinner                              971/s          4/s          5/s          5/s
-                                     1.0x       228.7x       193.1x       182.9x 
-rc-forest-fire-stringify           11162/s         25/s         35/s         41/s
-                                     1.0x       438.8x       314.7x       275.2x 
-string-escape                    1448636/s        --           --           --   
-                                     1.0x        FAIL         FAIL         FAIL  
-                                =================================================
-SUMMARY SCORE                     2253.9         40.5        100.0        139.6  
-&lt;/code&gt;&lt;/pre&gt;
-&lt;p&gt;如何把数据用图的形式展示，我还没有找到办法。&lt;/p&gt;
-    &lt;hr&gt;
-    
-    &lt;hr&gt;
-  &lt;!-- JiaThis Button BEGIN --&gt;
-&lt;div class=&quot;jiathis_style&quot;&gt;
-&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
-&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
-&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
-&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
-&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
-&lt;/div&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-var jiathis_config={
-	data_track_clickback:true,
-	summary:&quot;&quot;,
-	ralateuid:{
-		&quot;tsina&quot;:&quot;1035836154&quot;
-	},
-	shortUrl:false,
-	hideMore:false
-}
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
-&lt;!-- JiaThis Button END --&gt;
-&lt;!-- UY BEGIN --&gt;
-
-
-&lt;!-- UY END --&gt;
-  &lt;/div&gt;
-
-</description>
-        <pubDate>Tue, 28 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-28-perl6-bench-4806c8a78.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-28-perl6-bench-4806c8a78.html</guid>
-        
-        
-        <category>chenlinux</category>
-        
-      </item>
-    
-      <item>
-        <title>超酷算法：喷泉码</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;是的，是更新这个十分罕见的超酷算法系列新的一集的时候了。如果你不熟悉这个系列，你可以看看之前的&lt;a title=&quot;超酷算法：基数估计&quot; href=&quot;http://blog.jobbole.com/?s=%E8%B6%85%E9%85%B7%E7%AE%97%E6%B3%95&quot; target=&quot;_blank&quot;&gt;一些文章&lt;/a&gt;。&lt;/p&gt;
-&lt;p&gt;今天的主题是&lt;a title=&quot;Fountain code&quot; href=&quot;http://en.wikipedia.org/wiki/Fountain_code&quot; target=&quot;_blank&quot;&gt;喷泉码&lt;/a&gt;，或者称为“无率码”。喷泉码是将一些数据，例如文件，转化为一个有效的任意数量的编码包的方法，这样只要你接收到稍大于信源数据包数量的编码包的子集，就可以恢复信源数据。换句话说，你创建了一个编码数据的“喷泉”，只要接收端接收到足够的“水滴”，就可以恢复文件，而不管它们接到哪一个遗漏了哪一个。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;让喷泉码如此知名的原因是，它允许你在有损连接（比如说因特网）的情况下传输文件，而且传输过程不依赖于你是否知道丢包率，也不需要接收端反馈哪些数据包丢失了。可以看到在很多场景，从通过广播媒介传送一个静态文件，比如点播电视，到在多源并行下载中传播文件包，像BitTorrent那样，喷泉码都得到了很好的应用。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;虽然从根本上喷泉码惊人地简单。它有许多种类，但是在本文中我们只介绍最简单的——LT码，或者&lt;a title=&quot;Luby transform code&quot; href=&quot;http://en.wikipedia.org/wiki/Luby_transform_code&quot; target=&quot;_blank&quot;&gt;Luby变换码&lt;/a&gt;。LT码生成编码包的步骤如下：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;在 l 和 k 的之间随机选取一个数字 d，d 代表文件中块的数量。我们将会在后面的内容中讨论如何选取最佳的d。&lt;/li&gt;
-&lt;li&gt;从文件中随机选取 d 块，并把它们组合起来。这里我们可以用异或运算来组合这些块。&lt;/li&gt;
-&lt;li&gt;传送合并的块，同时发送它由哪些块构成的信息。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;这些非常简单是不是？主要依赖于我们怎么选取块的数量并组合起来（叫做度分布），在接下来我们会简短的介绍一下。你可以从上面的描述中看到有些编码块最后只由单一源码块组成，而大部分将由多个源码块组成。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;另外一个可能不是立刻显现的事情是，虽然我们确实不得不让接收端知道输出码块由哪些码块合并产生的，我们不需要详细地发送那个列表。如果发送端和接收端使用相同的伪随机数生成器（pseudo-random number generator，PRNG），我们可以用一个随机选择的种子来生成PRNG，并且用这个来选择度和该组源码块。然后我们只需要在发送编码块的同时发送种子，我们的接收端可以用相同的过程来重建我们使用过的源码块列表。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;解码的过程有一点复杂，但是没有很复杂：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;重建用于生成编码块的源码块列表。&lt;/li&gt;
-&lt;li&gt;对于列表中的每一个源码块，如果已经解码了，将它和编码块做异或运算，并且把它从源码块列表中移除。&lt;/li&gt;
-&lt;li&gt;如果在列表剩下至少两个源码块，将编码块加入到一个等候区。&lt;/li&gt;
-&lt;li&gt;如果在列表中只剩下一个源码块，我们已经成功的把另一个源码块解码了，那么把它加入到已解码文件中，迭代等候列表，重复以上过程直到有编码块包含它。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;让我们通过一个译码实例来更清晰说明这个过程。假设我们收到5个编码块，每个长度是一个字节，并且我们知道每个源码块由哪些构成。我们可以用图来表示数据，如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b90295de29726f604d4f040ac1797f99.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;左边的结点代表我们收到的编码块，右边的节点代表源码块。我们收到的第一结点0×48只由一个源码块（第一个源码块）构成，所以已经知道是哪个块。沿着指向第一个源码块箭头的反向，可以看到第二个和第三个编码块都只依赖于第一个源码块和另外一个源码块，由于我们知道第一个源码块，我们可以对它们做异或运算，如下图所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/1684ccccd712f551c06dc59fb6a4c459.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;重复以上过程，我们可以看到我们现在有了足够的信息来解码第四个编码块，它依赖于第二个和第三个源码块，而这两个我们现在都知道了。对它们做异或运算，可以得到第五个也是最后一个源码块，如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b94c8c179a2d5899a2d1fe32bea0d9b7.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;最后，我们可以解码最后剩下的源码块，得到剩余的信息：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/68fe24c85d05f9146f275eb946651a4e.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;应该承认的是这是一个非常特殊的例子，这个例子刚好接收到我们在译码这个信息时需要的块，没有剩余的，并且是一个非常简单的顺序，但是这个例子很好的演示算法的原理。我确定你可以看到这个算法应用到大规模码块和大规模文件中会相当简单。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;在前面我提到选择每个编码块都需要的源码块的数量，即度分布，是很重要的，它确实重要。理想情况下，我们需要生成一些只包含一个源码块的编码块，然后可以开始译码了，大多数编码块依赖很少的其他编码块。这种理想的分布是存在的，叫做&lt;a title=&quot;Soliton distribution&quot; href=&quot;http://en.wikipedia.org/wiki/Soliton_distribution&quot; target=&quot;_blank&quot;&gt;理想孤波分布&lt;/a&gt;。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;不幸的是，理想孤波分布在实际情况中并没有这么理想，正如随机变量使得有些源码块不被任何编码块包含，或者当所有知道的块用完之后译码停止了。理想孤波分布的一个变形，叫做稳健孤波分布，在这方面进行了改进，用非常少的源码块生成更多的码块，也通过合并所有的或几乎所有的源码块生成一些码块，来帮助破译最后一些源码块。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;简而言之，这就是喷泉码的，更确切的说是LT码的，工作原理。LT码是已知的喷泉码中效率最低的，但是最易解释的。如果你想进一步学习，我强烈推荐读这篇&lt;a href=&quot;http://switzernet.com/people/emin-gabrielyan/060112-capillary-references/ref/MacKay05.pdf&quot; target=&quot;_blank&quot;&gt;关于喷泉码的技术论文&lt;/a&gt;，也可以读&lt;a title=&quot;Raptor code&quot; href=&quot;http://en.wikipedia.org/wiki/Raptor_code&quot; target=&quot;_blank&quot;&gt;Raptor码&lt;/a&gt;，Raptor码只比LT码增加了一点复杂度，但是在传输开销和计算上都显著的提高了它们的效率。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;在我们总结之前有一个进一步的思考问题。对于系统来说喷泉码可能看起来很理想，比如说比特流，它允许种子生成和散布几乎无限制数量的码块，或多或少的消除了稀疏种子流“最后一块”的问题，而且确保两个随机选择的并行端几乎总有有用信息相互交换。但是它面临一个重大的问题：验证从并行端接收到的数据将会很难。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;像比特流这样的协议使用安全散列函数，比如说SHA1，和一个可信任中心（最初的上传者），向所有的并行端发送一个权威散列表。每个并行然后可以验证他们下载的散列块的文件包，并且和权威散列进行对比。但是对于喷泉码，这个是很难的。根本没有方法在编码块上计算SHA1散列，更不要说单独块上的散列。我们不能相信我们的并行端计算的结果，因为它们可以对我们撒谎。我们可以等到我们得到全部文件，然后从无效码块列表出发，尝试推断什么样的编码块是无效的，但这是困难的也是不可靠的，而且信息来的时候可能已经为时已晚。一个可供选择的方法是让最初发布者公布一个公共密钥，并且标注所有的生成块。然后我们就可以验证编码块了，但代价是：现在只有最初发布者可以生成有效的编码块了，并且我们失去了最初使用喷泉码的很多好处。似乎我们被困住了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;还有另一种选择，而且已经证明是一个非常聪明的方案，叫做同态哈希，尽管它有自己的注意事项和缺点。我们将会在下一版的超酷算法中讨论。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Tue, 28 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-28-78841-72bab084e.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-28-78841-72bab084e.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>服务器到底用双电源还是单电源？</title>
-        <description>
-
-                &lt;p&gt;&lt;strong&gt;因为电源故障导致服务器掉电所产生的风险有哪些？&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;单点类业务（开发、测试和办公平台等）：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;1、业务中断：业务无法继续向用户提供服务，影响用户体验；&lt;/p&gt;
-&lt;p&gt;2、数据恢复：掉电引发数据丢失，需要数据恢复，产生运维成本；&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;集群类业务（WEB前端、缓存、数据库等）：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;掉电引发数据丢失，根据业务的不同分类可能需要数据恢复（比如缓存型业务就不需要数据恢复），有一定的运维成本发生；&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;分布式存储（hadoop、分布式文件系统等）：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;存储类业务遇到单机断电掉线都将被作为一个节点的故障处理，因此数据恢复可能会占去大量的时间（自动化数据恢复除外）；&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;通过数据评估两种方案的价值：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;假设服务器总数为W万台，单电源服务器年故障率为x%，电源仅占到所有故障总数的y%，那么电源的年故障率应该在xy/10000，一年内电源故障次数为：Wxy。可以根据这个公式去评估一个集群一年内的断电次数：假设一年内允许的断电次数为Z，那么只要让Wxy &amp;lt; Z就可以达到期望目标。&lt;/p&gt;
-&lt;p&gt;当Wxy值远大于Z时，在x、y不变的情况下，通常是因为W基数较大引起的。这个时候要满足Wxy &amp;lt; Z就只能通过双电去实现：&lt;/p&gt;
-&lt;p&gt;双电方案下服务器年断电概率为：xxyy/10^8，断电次数为：Wxxyy/10000，它是单电方案故障次数的xy/10000，足够满足小于Z的条件了。&lt;/p&gt;
-&lt;p&gt;&lt;span style=&quot;color: #ff0000;&quot;&gt;&lt;strong&gt;总结：&lt;/strong&gt;在使用单电方案的前提下，如果要满足Z&amp;gt;Wxy，就要尽量控制整个集群的服务器规模；服务器基数较大时，为了避免基数问题带来过多的服务器断电，建议使用双电方案。&lt;/span&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;如何强化单电方案的可用性：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;1、插头绑线规范化提高电源插头稳固性，防止服务器电源因误碰而掉线。&lt;/p&gt;
-&lt;p&gt;2、保持良好的机房散热条件，防止电源因为过热而导致故障；&lt;/p&gt;
-&lt;p&gt;3、尽量选用标号更高的电源（比如白金电源、黄金电源），提高转换效率减少谐波干扰；&lt;/p&gt;
-            
-
-</description>
-        <pubDate>Mon, 27 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-27--p=1681-18a5f191f.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-27--p=1681-18a5f191f.html</guid>
-        
-        
-        <category>noops</category>
-        
-      </item>
-    
-      <item>
-        <title>推荐！手把手教你使用Git</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;一：Git是什么？&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;       Git是目前世界上最先进的分布式版本控制系统。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;二：SVN与Git的最主要的区别？&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;      SVN是集中式版本控制系统，版本库是集中放在中央服务器的，而干活的时候，用的都是自己的电脑，所以首先要从中央服务器哪里得到最新的版本，然后干活，干完后，需要把自己做完的活推送到中央服务器。集中式版本控制系统是必须联网才能工作，如果在局域网还可以，带宽够大，速度够快，如果在互联网下，如果网速慢的话，就纳闷了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;      Git是分布式版本控制系统，那么它就没有中央服务器的，每个人的电脑就是一个完整的版本库，这样，工作的时候就不需要联网了，因为版本都是在自己的电脑上。既然每个人的电脑都有一个完整的版本库，那多个人如何协作呢？比如说自己在电脑上改了文件A，其他人也在电脑上改了文件A，这时，你们两之间只需把各自的修改推送给对方，就可以互相看到对方的修改了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;三：在windows上如何安装Git？&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;      msysgit是 windows版的Git,如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b4b7dc26364f9d268e4a922da05cca06.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; 需要从网上下载一个，然后进行默认安装即可。安装完成后，在开始菜单里面找到 “Git –&amp;gt; Git Bash”,如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a9b40a83f613fbbc96eb7388d2314440.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;会弹出一个类似的命令窗口的东西，就说明Git安装成功。如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b1a6b09e067e97493c02707edb29a7af.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;安装完成后，还需要最后一步设置，在命令行输入如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0d4a6ee808cb38d320a0ad1323bcaf5b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  因为Git是分布式版本控制系统，所以需要填写用户名和邮箱作为一个标识。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;   注意：&lt;/strong&gt;git config  –global 参数，有了这个参数，表示你这台机器上所有的Git仓库都会使用这个配置，当然你也可以对某个仓库指定的不同的用户名和邮箱。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;四：如何操作？&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     一：创建版本库。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     什么是版本库？版本库又名仓库，英文名repository,你可以简单的理解一个目录，这个目录里面的所有文件都可以被Git管理起来，每个文件的修改，删除，Git都能跟踪，以便任何时刻都可以追踪历史，或者在将来某个时刻还可以将文件”还原”。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;    所以创建一个版本库也非常简单，如下我是D盘 –&amp;gt; www下 目录下新建一个testgit版本库。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/91f76932274924bbc7a4c4e4bb4a656a.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;pwd 命令是用于显示当前的目录。&lt;/p&gt;
-&lt;p&gt;      1. 通过命令 git init 把这个目录变成git可以管理的仓库，如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e4b829c7dd8f4913c6166b581b7771dd.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     这时候你当前testgit目录下会多了一个.git的目录，这个目录是Git来跟踪管理版本的，没事千万不要手动乱改这个目录里面的文件，否则，会把git仓库给破坏了。如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;    &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/22d9fa49f8e7054a9c19a35e88e77f7b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;      2. 把文件添加到版本库中。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;          首先要明确下，所有的版本控制系统，只能跟踪文本文件的改动，比如txt文件，网页，所有程序的代码等，Git也不列外，版本控制系统可以告诉你每次的改动，但是图片，视频这些二进制文件，虽能也能由版本控制系统管理，但没法跟踪文件的变化，只能把二进制文件每次改动串起来，也就是知道图片从1kb变成2kb，但是到底改了啥，版本控制也不知道。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;    下面先看下&lt;/strong&gt;&lt;strong&gt;demo&lt;/strong&gt;&lt;strong&gt;如下演示：&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     我在版本库testgit目录下新建一个记事本文件 readme.txt 内容如下：11111111&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     第一步：使用命令 git add readme.txt添加到暂存区里面去。如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;    &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e5a850579327b85b3a0252eaf0053e29.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   如果和上面一样，没有任何提示，说明已经添加成功了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   第二步：用命令 git commit告诉Git，把文件提交到仓库。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/101da3538fd6189e184fefcef5702d13.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  现在我们已经提交了一个readme.txt文件了，我们下面可以通过命令git status来查看是否还有文件未提交，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/fe21abbb86461ca9a68a53e2305b7f87.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; 说明没有任何文件未提交，但是我现在继续来改下readme.txt内容，比如我在下面添加一行2222222222内容，继续使用git status来查看下结果，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/2ee9058a597f94683e16e41d94573b12.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;上面的命令告诉我们 readme.txt文件已被修改，但是未被提交的修改。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;接下来我想看下readme.txt文件到底改了什么内容，如何查看呢？可以使用如下命令：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git diff readme.txt 如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a37f4665b5b4c5a99ec85252418d0b8c.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;如上可以看到，readme.txt文件内容从一行11111111改成 二行 添加了一行22222222内容。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;知道了对readme.txt文件做了什么修改后，我们可以放心的提交到仓库了，提交修改和提交文件是一样的2步(第一步是git add  第二步是：git commit)。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/740b39285145a27f10bc21ab64b6ea58.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;二：版本回退：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     如上，我们已经学会了修改文件，现在我继续对readme.txt文件进行修改，再增加一行&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;内容为33333333333333.继续执行命令如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/50c7e12acd98d3bd52eb46e46188d0b7.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在我已经对readme.txt文件做了三次修改了，那么我现在想查看下历史记录，如何查呢？我们现在可以使用命令 git log 演示如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/62d0cac09dc09b7621fe829d11b94e5a.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;    git log命令显示从最近到最远的显示日志，我们可以看到最近三次提交，最近的一次是,增加内容为333333.上一次是添加内容222222，第一次默认是 111111.如果嫌上面显示的信息太多的话，我们可以使用命令 git log –pretty=oneline 演示如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d47b71cbaeb91b2a5ceba5f7f8d2b6ae.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;    现在我想使用版本回退操作，我想把当前的版本回退到上一个版本，要使用什么命令呢？可以使用如下2种命令，第一种是：git reset  –hard HEAD^ 那么如果要回退到上上个版本只需把HEAD^ 改成 HEAD^^ 以此类推。那如果要回退到前100个版本的话，使用上面的方法肯定不方便，我们可以使用下面的简便命令操作：git reset  –hard HEAD~100 即可。未回退之前的readme.txt内容如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c2fa3bfecab328d41795d07fcb3a6405.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;如果想回退到上一个版本的命令如下操作：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/329c3df3f0dc9bc02eb0035d754ec286.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;再来查看下 readme.txt内容如下：通过命令cat readme.txt查看&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3b51ff025f4ddfa20a4e8a42f3352313.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;可以看到，内容已经回退到上一个版本了。我们可以继续使用git log 来查看下历史记录信息，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/37a45c570be523c08055538bf106e8ac.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;我们看到 增加333333 内容我们没有看到了，但是现在我想回退到最新的版本，如：有333333的内容要如何恢复呢？我们可以通过版本号回退，使用命令方法如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git reset  –hard 版本号 ，但是现在的问题假如我已经关掉过一次命令行或者333内容的版本号我并不知道呢？要如何知道增加3333内容的版本号呢？可以通过如下命令即可获取到版本号：git reflog  演示如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/356c04fc63e71504e2f0497b5ca4e9b5.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;通过上面的显示我们可以知道，增加内容3333的版本号是 6fcfc89.我们现在可以命令&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git reset  –hard 6fcfc89来恢复了。演示如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cf5af4eb9674d0693db384dcfbb56833.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;可以看到 目前已经是最新的版本了。&lt;/p&gt;
-&lt;p&gt;三：理解工作区与暂存区的区别？&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     &lt;strong&gt;工作区：&lt;/strong&gt;就是你在电脑上看到的目录，比如目录下testgit里的文件(.git隐藏目录版本库除外)。或者以后需要再新建的目录文件等等都属于工作区范畴。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;      版本库&lt;/strong&gt;&lt;strong&gt;(Repository)&lt;/strong&gt;&lt;strong&gt;：&lt;/strong&gt;工作区有一个隐藏目录.git,这个不属于工作区，这是版本库。其中版本库里面存了很多东西，其中最重要的就是stage(暂存区)，还有Git为我们自动创建了第一个分支master,以及指向master的一个指针HEAD。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;我们前面说过使用Git提交文件到版本库有两步：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  第一步：是使用 git add 把文件添加进去，实际上就是把文件添加到暂存区。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  第二步：使用git commit提交更改，实际上就是把暂存区的所有内容提交到当前分支上。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;我们继续使用demo来演示下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;我们在readme.txt再添加一行内容为4444444，接着在目录下新建一个文件为test.txt 内容为test，我们先用命令 git status来查看下状态，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/188b714b022b66805d76cb9f1732a4ee.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在我们先使用git add 命令把2个文件都添加到暂存区中，再使用git status来查看下状态，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/923003241dc50a3207a8248839d0f01b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;接着我们可以使用git commit一次性提交到分支上，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/aa30768351d7a08bf41342a270fb69b8.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;四：Git撤销修改和删除文件操作。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;一：撤销修改：&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;    比如我现在在readme.txt文件里面增加一行 内容为555555555555，我们先通过命令查看如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e777e43af3f3ebdb9b6f5aa0a53627a5.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;在我未提交之前，我发现添加5555555555555内容有误，所以我得马上恢复以前的版本，现在我可以有如下几种方法可以做修改：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;第一：如果我知道要删掉那些内容的话，直接手动更改去掉那些需要的文件，然后add添加到暂存区，最后commit掉。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;第二：我可以按以前的方法直接恢复到上一个版本。使用 git reset  –hard HEAD^&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;但是现在我不想使用上面的2种方法，我想直接想使用撤销命令该如何操作呢？首先在做撤销之前，我们可以先用 git status 查看下当前的状态。如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/16fa574b55c0e189683cfd24a0b41f87.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;可以发现，Git会告诉你，git checkout  — file 可以丢弃工作区的修改，如下命令：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git checkout  –  readme.txt,如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a920d5bc3352e1b39743089b15d91385.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;命令 git checkout –readme.txt 意思就是，把readme.txt文件在工作区做的修改全部撤销，这里有2种情况，如下：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;readme.txt自动修改后，还没有放到暂存区，使用 撤销修改就回到和版本库一模一样的状态。&lt;/li&gt;
-&lt;li&gt;另外一种是readme.txt已经放入暂存区了，接着又作了修改，撤销修改就回到添加暂存区后的状态。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;对于第二种情况，我想我们继续做demo来看下，假如现在我对readme.txt添加一行 内容为6666666666666，我git add 增加到暂存区后，接着添加内容7777777，我想通过撤销命令让其回到暂存区后的状态。如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/17f23c54cc406d27cc5abb763e62b673.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;注意：&lt;/strong&gt;命令git checkout — readme.txt 中的 — 很重要，如果没有 — 的话，那么命令变成创建分支了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;二：删除文件。&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     假如我现在版本库testgit目录添加一个文件b.txt,然后提交。如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9ef66b511ff331b9f19730b666a617e0.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;如上：一般情况下，可以直接在文件目录中把文件删了，或者使用如上rm命令：rm b.txt ，如果我想彻底从版本库中删掉了此文件的话，可以再执行commit命令 提交掉，现在目录是这样的，&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e6d7a93b35da3996f14333282fe43a28.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;只要没有commit之前，如果我想在版本库中恢复此文件如何操作呢？&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;可以使用如下命令 git checkout  — b.txt，如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/47e8103002fcebc5c73d55502cecba7b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;再来看看我们testgit目录，添加了3个文件了。如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e1075f4c6e6e596a517a94a29210aec6.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;五：远程仓库。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     在了解之前，先注册github账号，由于你的本地Git仓库和github仓库之间的传输是通过SSH加密的，所以需要一点设置：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     第一步：创建SSH Key。在用户主目录下，看看有没有.ssh目录，如果有，再看看这个目录下有没有id_rsa和id_rsa.pub这两个文件，如果有的话，直接跳过此如下命令，如果没有的话，打开命令行，输入如下命令：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;ssh-keygen  -t rsa –C “youremail@example.com”, 由于我本地此前运行过一次，所以本地有，如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/340b727b7bc17ef35461dd1cb683e87a.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;id_rsa是私钥，不能泄露出去，id_rsa.pub是公钥，可以放心地告诉任何人。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;第二步：登录github,打开” settings”中的SSH Keys页面，然后点击“Add SSH Key”,填上任意title，在Key文本框里黏贴id_rsa.pub文件的内容。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/2e33983198d14be8c2b0e962a540fbb0.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;点击 Add Key，你就应该可以看到已经添加的key。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/ec4c23f239d32b2ae157951142cb0487.jpg&quot;&gt;&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;如何添加远程库？&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;         现在的情景是：我们已经在本地创建了一个Git仓库后，又想在github创建一个Git仓库，并且希望这两个仓库进行远程同步，这样github的仓库可以作为备份，又可以其他人通过该仓库来协作。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   首先，登录github上，然后在右上角找到“create a new repo”创建一个新的仓库。如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/61500f2a525ec3e00ede1cbf3277d0a3.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;在Repository name填入&lt;code&gt;testgit&lt;/code&gt;，其他保持默认设置，点击“Create repository”按钮，就成功地创建了一个新的Git仓库：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/7364a75f2eaa9e5953fd66df53d55683.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;    目前，在GitHub上的这个&lt;code&gt;testgit&lt;/code&gt;仓库还是空的，GitHub告诉我们，可以从这个仓库克隆出新的仓库，也可以把一个已有的本地仓库与之关联，然后，把本地仓库的内容推送到GitHub仓库。&lt;/p&gt;
-&lt;p&gt;现在，我们根据GitHub的提示，在本地的&lt;code&gt;testgit&lt;/code&gt;仓库下运行命令：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git remote add origin https://github.com/tugenhua0707/testgit.git&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;所有的如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/ceb3437be4fccbdf6ff69a9734865644.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;把本地库的内容推送到远程，使用 git push命令，实际上是把当前分支master推送到远程。&lt;/p&gt;
-&lt;p&gt;由于远程库是空的，我们第一次推送master分支时，加上了 –u参数，Git不但会把本地的master分支内容推送的远程新的master分支，还会把本地的master分支和远程的master分支关联起来，在以后的推送或者拉取时就可以简化命令。推送成功后，可以立刻在github页面中看到远程库的内容已经和本地一模一样了，上面的要输入github的用户名和密码如下所示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a3ae3feebcdfc12a9b638f0bce644339.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;从现在起，只要本地作了提交，就可以通过如下命令：&lt;/p&gt;
-&lt;p&gt;git push origin master&lt;/p&gt;
-&lt;p&gt;把本地master分支的最新修改推送到github上了，现在你就拥有了真正的分布式版本库了。&lt;/p&gt;
-&lt;p&gt;2. 如何从远程库克隆？&lt;/p&gt;
-&lt;p&gt;上面我们了解了先有本地库，后有远程库时候，如何关联远程库。&lt;/p&gt;
-&lt;p&gt;现在我们想，假如远程库有新的内容了，我想克隆到本地来 如何克隆呢？&lt;/p&gt;
-&lt;p&gt;首先，登录github，创建一个新的仓库，名字叫testgit2.如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4cda4a5ce0d671cfd92061dcec124be1.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;如下，我们看到：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/2390cc3840805828315c93976b6e70a6.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;现在，远程库已经准备好了，下一步是使用命令git clone克隆一个本地库了。如下所示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/62fde5d8401f1c0d51d27ebb07182f5b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;接着在我本地目录下 生成testgit2目录了，如下所示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a82b9a1c910e172a3db4036363a21842.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;六：创建与合并分支。&lt;/p&gt;
-&lt;p&gt;在  版本回填退里，你已经知道，每次提交，Git都把它们串成一条时间线，这条时间线就是一个分支。截止到目前，只有一条时间线，在Git里，这个分支叫主分支，即master分支。HEAD严格来说不是指向提交，而是指向master，master才是指向提交的，所以，HEAD指向的就是当前分支。&lt;/p&gt;
-&lt;p&gt;首先，我们来创建dev分支，然后切换到dev分支上。如下操作：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8e45f7e939c20b50e70192c1c819de83.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git checkout 命令加上 –b参数表示创建并切换，相当于如下2条命令&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git branch dev&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git checkout dev&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git branch查看分支，会列出所有的分支，当前分支前面会添加一个星号。然后我们在dev分支上继续做demo，比如我们现在在readme.txt再增加一行 7777777777777&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;首先我们先来查看下readme.txt内容，接着添加内容77777777，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cb06e411072191e7feb74f27bc341a87.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在dev分支工作已完成，现在我们切换到主分支master上，继续查看readme.txt内容如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0265d6035d2362f07a61d296cab66856.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在我们可以把dev分支上的内容合并到分支master上了，可以在master分支上，使用如下命令 git merge dev 如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9851e31bd3c8a945cf1eef4c46c27caf.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;git merge命令用于合并指定分支到当前分支上，合并后，再查看readme.txt内容，可以看到，和dev分支最新提交的是完全一样的。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;注意到上面的&lt;em&gt;Fast-forward&lt;/em&gt;信息，Git告诉我们，这次合并是“快进模式”，也就是直接把master指向dev的当前提交，所以合并速度非常快。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;合并完成后，我们可以接着删除dev分支了，操作如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d5a3f99179880bf7eff503789e8d5dd2.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;总结创建与合并分支命令如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   查看分支：git branch&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   创建分支：git branch name&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   切换分支：git checkout name&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;创建+切换分支：git checkout –b name&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;合并某分支到当前分支：git merge name&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;删除分支：git branch –d name&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;如何解决冲突？&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;下面我们还是一步一步来，先新建一个新分支，比如名字叫fenzhi1，在readme.txt添加一行内容8888888，然后提交，如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/428677f46597ac79855cff95ecd14037.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;同样，我们现在切换到master分支上来，也在最后一行添加内容，内容为99999999，如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/900c3040f9a88d61d21a2cb0ce1e1e2e.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在我们需要在master分支上来合并fenzhi1，如下操作：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e30111c6d51ee62b6271d01059482db8.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;Git用&amp;lt;&amp;lt;&amp;lt;&amp;lt;&amp;lt;&amp;lt;&amp;lt;，=======，&amp;gt;&amp;gt;&amp;gt;&amp;gt;&amp;gt;&amp;gt;&amp;gt;标记出不同分支的内容，其中&amp;lt;&amp;lt;&amp;lt;HEAD是指主分支修改的内容，&amp;gt;&amp;gt;&amp;gt;&amp;gt;&amp;gt;fenzhi1 是指fenzhi1上修改的内容，我们可以修改下如下后保存：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c5af58a505c5ed2ec83770b0f5ee4423.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;如果我想查看分支合并的情况的话，需要使用命令 git log.命令行演示如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/f6abe88499131cfa4f5a53bcd72f30e1.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;    3.分支管理策略。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;      通常合并分支时，git一般使用”Fast forward”模式，在这种模式下，删除分支后，会丢掉分支信息，现在我们来使用带参数 –no-ff来禁用”Fast forward”模式。首先我们来做demo演示下：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;创建一个dev分支。&lt;/li&gt;
-&lt;li&gt;修改readme.txt内容。&lt;/li&gt;
-&lt;li&gt;添加到暂存区。&lt;/li&gt;
-&lt;li&gt;切换回主分支(master)。&lt;/li&gt;
-&lt;li&gt;合并dev分支，使用命令 git merge –no-ff  -m “注释” dev&lt;/li&gt;
-&lt;li&gt;查看历史记录&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;截图如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8d6772c1184221c9cb11c98982a0189e.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;分支策略：&lt;/strong&gt;首先master主分支应该是非常稳定的，也就是用来发布新版本，一般情况下不允许在上面干活，干活一般情况下在新建的dev分支上干活，干完后，比如上要发布，或者说dev分支代码稳定后可以合并到主分支master上来。&lt;/p&gt;
-&lt;p&gt;七：bug分支：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;     在开发中，会经常碰到bug问题，那么有了bug就需要修复，在Git中，分支是很强大的，每个bug都可以通过一个临时分支来修复，修复完成后，合并分支，然后将临时的分支删除掉。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;比如我在开发中接到一个404 bug时候，我们可以创建一个404分支来修复它，但是，当前的dev分支上的工作还没有提交。比如如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/cf374ae693bb4e51ee54d57fcf2b58d4.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   并不是我不想提交，而是工作进行到一半时候，我们还无法提交，比如我这个分支bug要2天完成，但是我issue-404 bug需要5个小时内完成。怎么办呢？还好，Git还提供了一个stash功能，可以把当前工作现场 ”隐藏起来”，等以后恢复现场后继续工作。如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;  &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5f4f5fddaa103ef38976ad3fdf99b3d0.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   所以现在我可以通过创建issue-404分支来修复bug了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;首先我们要确定在那个分支上修复bug，比如我现在是在主分支master上来修复的，现在我要在master分支上创建一个临时分支，演示如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/20a7920ad201f026e7248eba8d3eaf8a.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;修复完成后，切换到master分支上，并完成合并，最后删除issue-404分支。演示如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/24244e9c94a094ffd8ca478e4fbb73e6.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在，我们回到dev分支上干活了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4c2a62f17cf06073fa6eb4e2a4a24316.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;工作区是干净的，那么我们工作现场去哪里呢？我们可以使用命令 git stash list来查看下。如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/00fd582e45ef0013bda4223625648992.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;工作现场还在，Git把stash内容存在某个地方了，但是需要恢复一下，可以使用如下2个方法：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;git stash apply恢复，恢复后，stash内容并不删除，你需要使用命令git stash drop来删除。&lt;/li&gt;
-&lt;li&gt;另一种方式是使用git stash pop,恢复的同时把stash内容也删除了。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;         演示如下&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/241b26f50a58ccd03c37646698f8a6d1.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;八：多人协作。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;当你从远程库克隆时候，实际上Git自动把本地的master分支和远程的master分支对应起来了，并且远程库的默认名称是origin。&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;要查看远程库的信息 使用 git remote&lt;/li&gt;
-&lt;li&gt;要查看远程库的详细信息 使用 git remote –v&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;如下演示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/09e3d8139b0a3328f08e8e73791a26e0.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;一：推送分支：&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;      推送分支就是把该分支上所有本地提交到远程库中，推送时，要指定本地分支，这样，Git就会把该分支推送到远程库对应的远程分支上：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;      使用命令 git push origin master&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;比如我现在的github上的readme.txt代码如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/210dbbc4b381034455c6d1242eff0ee2.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;本地的readme.txt代码如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8ae8e59757569c42a3bc71c7e6b259a6.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在我想把本地更新的readme.txt代码推送到远程库中，使用命令如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3883c4d176657bcc2bd87b87bc54bbe4.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;我们可以看到如上，推送成功，我们可以继续来截图github上的readme.txt内容 如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/072344dd69183379c0b7df0fb1a209cf.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;可以看到 推送成功了，如果我们现在要推送到其他分支，比如dev分支上，我们还是那个命令 git push origin dev&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;那么一般情况下，那些分支要推送呢？&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;master分支是主分支，因此要时刻与远程同步。&lt;/li&gt;
-&lt;li&gt;一些修复bug分支不需要推送到远程去，可以先合并到主分支上，然后把主分支master推送到远程去。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;二：抓取分支：&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;多人协作时，大家都会往master分支上推送各自的修改。现在我们可以模拟另外一个同事，可以在另一台电脑上（注意要把SSH key添加到github上）或者同一台电脑上另外一个目录克隆，新建一个目录名字叫testgit2&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;但是我首先要把dev分支也要推送到远程去，如下&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/03ad741faba9cd49c905c572a672427c.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;接着进入testgit2目录，进行克隆远程的库到本地来，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt; &lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/93cca90da95a4a821b0f095b83b2c71a.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在目录下生成有如下所示：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/baffc93c3f32f5cb783017bd66cfdf94.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在我们的小伙伴要在dev分支上做开发，就必须把远程的origin的dev分支到本地来，于是可以使用命令创建本地dev分支：git checkout  –b dev origin/dev&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在小伙伴们就可以在dev分支上做开发了，开发完成后把dev分支推送到远程库时。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5b3077c250904c39b5e5c65b07bf17c7.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;小伙伴们已经向origin/dev分支上推送了提交，而我在我的目录文件下也对同样的文件同个地方作了修改，也试图推送到远程库时，如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4243c0d67abeb546710482139fabae66.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;由上面可知：推送失败，因为我的小伙伴最新提交的和我试图推送的有冲突，解决的办法也很简单，上面已经提示我们，先用git pull把最新的提交从origin/dev抓下来，然后在本地合并，解决冲突，再推送。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/736337ac8bca926c5559b144fd26db84.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;em&gt;git pull&lt;/em&gt;也失败了，原因是没有指定本地dev分支与远程origin/dev分支的链接，根据提示，设置dev和origin/dev的链接：如下：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/672177b77e06a5fbcf6214de7e32f843.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;这回&lt;em&gt;git pull&lt;/em&gt;成功，但是合并有冲突，需要手动解决，解决的方法和分支管理中的 解决冲突完全一样。解决后，提交，再push：&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;我们可以先来看看readme.txt内容了。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/04a6b016aa35df0fef0d93843f24abfe.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;现在手动已经解决完了，我接在需要再提交，再push到远程库里面去。如下所示：&lt;br&gt;
-&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/fb738de063d3e921ed84ad1f04f2a680.jpg&quot;&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;因此：多人协作工作模式一般是这样的：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;首先，可以试图用git push origin branch-name推送自己的修改.&lt;/li&gt;
-&lt;li&gt;如果推送失败，则因为远程分支比你的本地更新早，需要先用git pull试图合并。&lt;/li&gt;
-&lt;li&gt;如果合并有冲突，则需要解决冲突，并在本地提交。再用git push origin branch-name推送。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p align=&quot;left&quot;&gt;&lt;strong&gt;Git&lt;/strong&gt;&lt;strong&gt;基本常用命令如下：&lt;/strong&gt;&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   mkdir：         XX (创建一个空目录 XX指目录名)&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   pwd：          显示当前目录的路径。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git init          把当前的目录变成可以管理的git仓库，生成隐藏.git文件。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git add XX       把xx文件添加到暂存区去。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git commit –m “XX”  提交文件 –m 后面的是注释。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git status        查看仓库状态&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git diff  XX      查看XX文件修改了那些内容&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git log          查看历史记录&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git reset  –hard HEAD^ 或者 git reset  –hard HEAD~ 回退到上一个版本&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;                        (如果想回退到100个版本，使用git reset –hard HEAD~100 )&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   cat XX         查看XX文件内容&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git reflog       查看历史记录的版本号id&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git checkout — XX  把XX文件在工作区的修改全部撤销。&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git rm XX          删除XX文件&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git remote add origin &lt;a href=&quot;https://github.com/tugenhua0707/testgit&quot;&gt;https://github.com/tugenhua0707/testgit&lt;/a&gt; 关联一个远程库&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git push –u(第一次要用-u 以后不需要) origin master 把当前master分支推送到远程库&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git clone &lt;a href=&quot;https://github.com/tugenhua0707/testgit&quot;&gt;https://github.com/tugenhua0707/testgit&lt;/a&gt;  从远程库中克隆&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git checkout –b dev  创建dev分支 并切换到dev分支上&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git branch  查看当前所有的分支&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git checkout master 切换回master分支&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git merge dev    在当前的分支上合并dev分支&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git branch –d dev 删除dev分支&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git branch name  创建分支&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git stash 把当前的工作隐藏起来 等以后恢复现场后继续工作&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git stash list 查看所有被隐藏的文件列表&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git stash apply 恢复被隐藏的文件，但是内容不删除&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git stash drop 删除文件&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git stash pop 恢复文件的同时 也删除文件&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git remote 查看远程库的信息&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git remote –v 查看远程库的详细信息&lt;/p&gt;
-&lt;p align=&quot;left&quot;&gt;   git push origin master  Git会把master分支推送到远程库对应的远程分支上&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Sun, 26 Oct 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-10-26-78960-8be2a3995.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-10-26-78960-8be2a3995.html</guid>
         
         
         <category>jobbole</category>

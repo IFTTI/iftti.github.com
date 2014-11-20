@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>计算机算法：数据压缩之图编码和模式替换（3）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-11-19-79952-fafd494bc.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>计算机算法：数据压缩之图编码和模式替换（3）</h1>
+    <p class="meta"><span class="time">Nov 19, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/79952/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <div style="margin-bottom: 10px;">
+            <a href="http://www.luobo360.com" rel="nofollow" target="_blank"><img src="/images/jobbole.com/12610ea111a41bca1d747d2b055954c2.jpg"></a>
+        </div>
+
+<p><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">概述</span></p>
+<p align="left"><a href="http://blog.jobbole.com/79758/" target="_blank">游程编码有两种变形</a>，分别是“图编码”和“模式替换算法”。图编码是一种非常简单的算法，它不像游程编码那样必须要求输入字符串中必须含有很多重复的元素，比如<em>“aaaaaa”</em>。这些情况在自然语言中很少出现，但是被称之为“图”的字符串几乎会出现在所有自然语言中。日常英语中就有些图，例如<em>“the”</em>，<em>“and”</em>，<em>“ing”</em>（例如在<em>“waiting”</em>中），<em>“aa”</em>，<em>“tt”</em>，<em>“ee”</em>这些双字母。事实上我们可以通过添加字符串两边的空格来扩展这些图。这样我们可以不编码<em>“the”，</em>而编码<em>“ the ”</em>，就可以编码5个字符了（3个字符，2个空格），从而获得更好的压缩率。另一方面，在日常英语中有很多包含双字母的字符串，而这些情况在游程编码中并不能有效地被压缩，这样导致压缩效率非常低。有时候会有更加糟糕的情况出现，压缩后的长度比原来的长度还要长。我们看一些例子：</p>
+<p>我们谈一谈怎么编码这个包含了四对双字母的字符串“successfully accomplished”。很不幸，如果用游程编码的话，压缩这四对双字母至少需要八个字符，这意味着对压缩数据来说没有任何帮助。</p>
+<pre class="brush: actionscript3; gutter: true">// 八个字母还是被八个字母替换了!?
+压缩编码前："successfully accomplished"
+压缩编码后："su2ce2sfu2ly a2complished"</pre>
+
+<p>这里有个问题，如果原本的输入字符串中含有数字的话，比如<em>“2”</em>，那么我们必须指定一个字符（比如<em>“@”</em>）用来描述我们编码替换开始的位置。那么如果输入的字符串为<em>“2 successfully accomplished tasks”</em>，压缩之后就变为“<em>2 su@2ce@2sfu@2ly a@2complished tasks”</em>，这时候输出的字符串比输入的字符串还要长！</p>
+<pre class="brush: actionscript3; gutter: true">// 压缩后的信息比压缩之前的还要长！！！
+压缩编码前："2 successfully accomplished"
+压缩编码后："2 su@2ce@2sfu@2ly a@2complished tasks"</pre>
+
+<p>如果输入的字符串中包含转义字符，我们必须找到另一个，然后问题就来了：若不进行全局查找，我们就很难找到另外一个出现在输入字符串中的转义字符。</p>
+<p>游程编码在压缩纯文本的时候并不是一个好的解决方案，因为长的重复情况（<em>“aaaaa”</em>）出现频率太小了。当然，在失真压缩的时候是一个特例。很明显，当你要求解压出来的文本需要是完全一致的时候，失真压缩文本并没有很大用处。但是有时候失真压缩可能有用，比如在我们要去除空格的情况中。字符串<em>“<strong>successfully</strong>           <strong>accomplished</strong>”</em>表达的意思和<em>“<strong>successfully accomplished</strong>”</em>确实完全相同。在这种情况下，我们能够很简单地去除那些空格。我们可以像这样用一个标记去代替一长串的空格：<em>“<strong>successfully@6 accomplished</strong>”</em>，这样可以使输入字符串完全没有损失，但是我们也有另一种选择，可以直接把那些空格直接扔掉。这个选择取决于我们的目的是什么，只有当我们很确定删除换行标记符和制表标记符能够完全保证表达出相同的意思时，才能下决定扔掉那些空格。但是话又说回来，现实中出现这种问题的情况也是少数，所以对纯文本压缩选择图压缩方法比游程编码更好。</p>
+<h2>问题</h2>
+<p>在理解了图编码的基本规则之后，让我们看一些例子。在上面的例子中，最好的替代双字母的方法是，用“#”符号替代“cc”，用“@”替代“ss”，用“%”替代“ll”。这样的话输入字符串就可以表示为“su#e@fu%y a#omplished”，这样就可以比输入字符串短了。但是如果输入字符串中包含“# @ %”这些符号怎么办呢？而且我们也不能确定的说在输入字符串中有足够多的双字母让我们有理由去替换它们。一个更好的方式是模式替换。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/191cb637eefd2d38c88b5de67b8ddd80.jpg"></p>
+<p style="text-align: center;"><span style="color: #888888;">游程编码对普通文本压缩并不是一个好的方法，因为长重复很少在自然语言中出现。</span></p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">模式替换</span></h2>
+<p>模式替换算法是图编码的一种变形。我在上面说过，在日常英语中<em>“ the ”</em>这种单词会经常出现。我们现在可以把它替换为类似于<em>“$%”</em>这样的字符。如果输入字符串是<em>“<strong>I send the message</strong>”</em>，那么压缩之后变成了<em>“<strong>I send$%message</strong>”</em>。但是这种方法也有一些缺陷。</p>
+<p>第一个问题是我们需要知道了解将要被压缩的这门语言，而且我们要定义出来哪些模式是经常被使用的。如果一条信息用我们完全不懂的语言写的。比如下面的拉丁文：</p>
+<p style="padding-left: 30px;"><span style="color: #888888;">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras venenatis, sapien eget suscipit placerat, justo quam blandit mauris, quis tempor ante sapien sodales augue. Praesent ut mauris quam. Phasellus scelerisque, ante quis consequat tristique, metus turpis consectetur leo, vitae facilisis sapien mi eu sapien. Praesent vitae ligula elit, et faucibus augue. Sed rhoncus sodales dolor ut gravida. In quis augue ac nulla auctor mattis sed sed libero. Donec eget purus eget enim tempor porta vitae eget diam. Mauris aliquet malesuada ipsum, non pulvinar urna vestibulum ac. Donec feugiat velit vitae nunc cursus imperdiet. Donec accumsan faucibus dictum. Phasellus sed mauris sapien. Maecenas mi metus, tincidunt sed rhoncus nec, sodales non sapien.</span></p>
+<p>很明显，如果我们不懂拉丁文，那么定义出来一个常用模式会十分困难。所以如果我们事先知道一些单词或者字母的话，会让我们更方便运用模式替换。</p>
+<p>第二个问题是关于解压缩。我们需要构造一个用来解压缩的字典。如果我们能够找到比三个字母长的模式会非常好。但是如果找不到，那么压缩率会比较低。而不幸的是，这种长的（3个字符以及3个以上的）模式在自然语言中很少出现。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/e6fb413aabd037fd44f90ce2d812e2dc.jpg"></p>
+<p style="text-align: center;"><span style="color: #888888;">在压缩纯文本的情况下，图编码和模式替换都要优于游程编码。而且，模式替换在压缩编程语言的情况下十分高效。</span></p>
+<h2>应用</h2>
+<p>一个很有趣的问题是，怎么使用图编码和模式替换算法压缩纯文本，特别是当我们不太了解被压缩文本使用的语言时。答案其实就在问题中，我们可以不压缩自然语言，转而压缩编程语言。因为编程语言限制了一个有限的小单词和符号集合。它几乎对任何编程语言都适用。比如PHP，<em>“function”</em>，<em>“while”</em>，<em>“for”</em>，<em>“break”</em>，<em>“switch”</em>，<em>“foreach”</em>都是经常用的，或者在<em>HTML</em>中，有很多常用的标签。也许最好的例子是<em>CSS</em>，在<em>CSS</em>中只有属性值能够变化。<em>CSS</em>文件中也经常有很多为了提高可读性的换行符，制表符以及空格。</p>
+<p>这里就有一个问题，很明显压缩之后的文件对程序员和计算机来说都完全不能发挥作用了，那么为什么我们要压缩这些文件呢。确实是这样，但是如果我们要把不同版本的文件存入数据库作为备份呢。想象一下你正在为一个网站托管公司工作，每天要存储大量托管网站的备份文件。即使只是一个小的网站托管网站上面只有少量的托管网站，那备份文件也是一个惊人的数量。用一个简易压缩工具压缩那些文件显然不是一个好主意。我们每天都必须要备份整个网站，但是我们知道每天网站的版本更新的地方非常少。版本控制系统是一个解决方案，但是你必须去存储那些纯文本文件。</p>
+<p>也许一个好方法是运用相对编码：用模式替换去压缩这些文本，而且只记录变化更新的部分——类似于版本控制。</p>
+<p>运用上面的方法我们能够节省很多磁盘空间，而且我们能够很方便进行压缩和解压缩。另外一个好处是你可以类似于版本控制把所有的更改保存到原始的文件中，而这个文件也可以被压缩。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">实现</span></h2>
+<p>这个算法的实现也是基于<em>PHP</em>，希望能够描述这个压缩算法的主要思想，在这个例子中我试图利用上面的压缩方法压缩一个<em>CSS</em>文件。虽然这个例子非常简单，但是我们仍然能看到很多有趣的地方。首先你只需要一个压缩和解压缩的字典。在实际中这个压缩过程和解压缩过程是相同的，所以你不需要去写两个不同的函数。在这里用了一个原生的PHP函数<em>“str_replace”</em><a title="" href="/%E5%AD%A6%E4%B9%A0%E6%96%87%E4%BB%B6/%E4%BC%AF%E4%B9%90%E5%9C%A8%E7%BA%BF/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%AE%97%E6%B3%95%EF%BC%9A%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9%E5%92%8C%E6%A8%A1%E5%BC%8F%E6%9B%BF%E6%8D%A2.docx#_ftn1">[1]</a>，因为这个算法的目的不是介绍实现模式替换的技术细节，而是描述模式替换的思想。所以我们假定编程语言有操作字符串的特定函数。</p>
+<div>
+<hr align="left" size="1" width="33%">
+<div>
+<p><a title="" href="/%E5%AD%A6%E4%B9%A0%E6%96%87%E4%BB%B6/%E4%BC%AF%E4%B9%90%E5%9C%A8%E7%BA%BF/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%AE%97%E6%B3%95%EF%BC%9A%E6%95%B0%E6%8D%AE%E5%8E%8B%E7%BC%A9%E5%92%8C%E6%A8%A1%E5%BC%8F%E6%9B%BF%E6%8D%A2.docx#_ftnref1">[1]</a> 函数原型：m<em>ixed str_replace(mixed $search, mixed $replace, mixed $subject [, int $count])</em></p>
+<p>功能：所有在<em>subject</em>中出现的<em>search</em>字符串替换成<em>replace</em></p>
+<pre class="brush: php; gutter: true">$str = file_get_contents('large_style_file.css');
+
+$encoding_dict = array(
+	"n" 		=&gt; '$0',
+	'text' 		=&gt; '$1',
+	'color' 	=&gt; '$2',
+	'display' 	=&gt; '$3',
+	'font' 		=&gt; '$4',
+	'width' 	=&gt; '$5',
+	'height'	=&gt; '$6',	
+	' '		=&gt; '',
+);
+
+function replace_patterns($input, $dict) 
+{
+	foreach ($dict as $pattern =&gt; $replace) {
+		$input = str_replace($pattern, $replace, $input);
+	}
+
+	return $input;
+}
+
+$result = replace_patterns($str, $encoding_dict);</pre>
+
+<p>我仅仅替换了少数几个<em>CSS</em>的属性，但是我就已经得到了40%的压缩率（见下图）！初始文件大小为202KB，但是压缩之后只有131KB（当然它主要是依赖了<em>CSS</em>文件的特性）。如果我把所有属性都替换成短字符呢。那样的压缩率将会更高。</p>
+
+</div>
+</div>
+
+<!-- div id="ad1">
+</div -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-11-19-79528-a529a4bc7.html" title="Previous Post: UDP有多不可靠？" data-instant>&laquo; UDP有多不可靠？</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-11-19-uniq-count-kibana-fb4d0c203.html" title="Next Post: 在 kibana 里实现去重计数" data-instant>在 kibana 里实现去重计数 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>20 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-20-79761-28f044a97.html">计算机算法：数据压缩之相对编码（4）</a></li>
+
+      <li><span>17 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-17-73257-503521781.html">BASH的保护性编程技巧</a></li>
+
+      <li><span>16 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-16-79758-4988ff13b.html">计算机算法：数据压缩之游程编码</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
