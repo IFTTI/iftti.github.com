@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Graphite安装笔记</title>
+    <title>计算机算法：数据压缩之前缀编码（5）</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-01-26-2014-01-26-graphite-setup-notes.html-491f93181.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-11-20-79757-c5acf18ef.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,109 +50,134 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>Graphite安装笔记</h1>
-    <p class="meta"><span class="time">Jan 26, 2014</span><span class="source_url"> • 来自 liulantao.com <a name="liulantao.com" href="http://blog.liulantao.com/blog/2014/2014-01-26-graphite-setup-notes.html" target="_blank">[原文链接]</a></span></p>
+    <h1>计算机算法：数据压缩之前缀编码（5）</h1>
+    <p class="meta"><span class="time">Nov 20, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/79757/" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-<p>graphite是个不错的监控系统，不过文档真的很烂。之前 @ARGV 写过一篇<a href="http://chenlinux.com/2013/04/03/install-graphite/">blog</a>介绍了debian系统上的安装过程。</p>
+        <div style="margin-bottom: 10px;">
 
-<p>由于安装过程在最新版有一些变化，所以将我最近手动安装的过程整理出来，希望对你有帮助。</p>
+        </div>
 
-<p>整个过程采用的系统是CentOS 6.4 x86_64。软件仓库配置了EPEL。</p>
+<p><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;">概述</span></p>
+<p>前缀编码，有时也被称为前向编码，是另一个通过移除冗余数据来降低数据量的算法。思想非常简单，但算法实现比较困难。要了解原因，首先我们来看一看它的原理。</p>
+<p>请看下面的字典。</p>
+<pre class="brush: actionscript3; gutter: true">use
+used
+useful
+usefully
+usefulness
+useless
+uselessly
+uselessness</pre>
 
-<h1 id="section">安装过程记录</h1>
+<p>为了不使用纯文本保存这些单词或者在网络上传输，我们可以用前缀编码进行压缩（编码）。</p>
+<p><img alt="" src="/images/jobbole.com/9130b42244a4abbf7fda5aad945efbe9.jpg"></p>
+<p>很明显，每一个单词都以表中的第一个单词“use”为前缀。所以我们很容易将它们压缩成下面的数组。</p>
+<pre class="brush: actionscript3; gutter: true">$data = array(
+0 =&gt; 'use',
+1 =&gt; '0d',
+2 =&gt; '0ful',
+3 =&gt; '0fully',
+4 =&gt; '0less',
+5 =&gt; '0lessly',
+6 =&gt; '0lessness',
+);</pre>
 
-<h2 id="yum">yum安装</h2>
+<p>显然这并不是最佳的压缩结果，在不仅仅使用第一个词作为前缀的情况下，我们可以更进一步压缩。</p>
+<pre class="brush: actionscript3; gutter: true">$data = array(
+0 =&gt; 'use',
+1 =&gt; '0d',
+2 =&gt; '0ful',
+3 =&gt; '2ly',
+4 =&gt; '0less',
+5 =&gt; '4ly',
+6 =&gt; '4ness',
+);</pre>
 
-<p>其实<a href="https://fedoraproject.org/wiki/EPEL">EPEL仓库</a>中已经有graphite的安装包。设置EPEL仓库，用yum直接安装即可。</p>
+<p>此时的压缩更好，好消息是解码是一个相对简单的过程。但棘手的部分在于压缩本身。问题是选择合适的前缀非常困难。第一个例程的前缀选择很简单，但事实上，大多时候数据很混乱。的确，对于随机产生的数据压缩过程将非常困难，算法过程不仅很慢，而且难以实现。</p>
+<p>好的方面是，如果我们事先知道数据的格式，该算法可以用于多种情况。那么，让我们看看下面三个例子，该算法可能会很方便。</p>
+<h1>应用</h1>
+<p>以下是三个前缀编码的例子。前面我说随机数据的压缩过程会很难，如果你事先知道输入数据的格式，这将会是一个很好的练习。</p>
+<h2>日期和时间前缀</h2>
+<p>我们通常会忽略年份的前两个数字，例如我们通常不会写1995或1996，而是使用更短的——‘95’和‘96’。这样年份就被编码成更短的字符串。</p>
+<pre class="brush: actionscript3; gutter: true">input: (1991, 1992, 1993, 1994, 1995, 1996)
+output: (91, 92, 93, 94, 95, 96)</pre>
 
-<pre><code>yum --enablerepo=epel install graphite-web python-carbon -y
-</code></pre>
+<p>问题在于输入流发生很小的变动，解码就会出错。如果我们加上21世纪的年份，我们将失去数据的唯一性。</p>
+<pre class="brush: actionscript3; gutter: true">input: (1998, 1992, 1999, 2011, 2012)
+output: (98, 92, 99, 11, 12)</pre>
 
-<h2 id="section-1">手工安装</h2>
+<p>此时，解码器肯会将最后两个数值解码成(1911, 1912)，因为“19”被认为是前缀。所以，我们事先必须知道前缀与每一个数值绝对平等。如果没有编码格式，必须不同。例如我们可以使用一些特殊标识和前缀一起编码。</p>
+<pre class="brush: actionscript3; gutter: true">input: (1998, 1992, 1932, 1924, 2001, 2012)
+output: (#19, 98, 92, 32, 24, #20, 01, 12)</pre>
 
-<h3 id="section-2">准备工作目录</h3>
+<p>一旦解码器读到#字符，它就知道下面的数为前缀。</p>
+<p>事实上，这种方法可用于日期和时间格式的编码。假设我们有一些日期时间值，而且我们知道所有数据都是在同一天。</p>
+<pre class="brush: actionscript3; gutter: true">2012-01-31 15:33:45
+2012-01-31 16:12:11
+2012-01-31 17:32:35
+2012-01-31 18:54:34</pre>
 
-<pre><code>mkdir -p ~/graphite_setup &amp;&amp; cd ~/graphite_setup
-</code></pre>
+<p>显然，我们可以忽略这些字符串的时间部分，仅发送（保存）时间。当然，我们必须确定所有的这些数值都是在同一天。如果不是，我们可以使用上例中的方法。</p>
+<h2>电话号码</h2>
+<p>电话号码是前缀编码的典型应用。不仅仅是国际代码，移动网络运营商的电话号码也使用前缀编码。如果我们要传输电话号码，假设是英国的，我们可以用一些更短的东西替换开头的“+44”。</p>
+<p>如果你要给移动设备编写电话簿，你可以通过前缀编码压缩数据，节省部分空间，这样用户将拥有更多空间，也可以在手机上存储更多电话号码。</p>
+<p>电话号码前缀也适用于数据库标准化。这样你可以将它们存储在单独的数据库表中，不用电话簿中唯一的号码。</p>
+<h2>地理坐标</h2>
+<p>对于我之前帖子中使用的例子，可以在一定范围内去掉通用前缀来发送地理坐标。的确，在必须传送大量坐标到地图应用时，你可以预期这些标记在一定范围内彼此间相当靠近。</p>
+<p style="text-align: center;"><img id="pic" alt="" src="/images/jobbole.com/cedae08dc44c077d2df50b7782b0b954.jpg"></p>
+<p style="text-align: center;"><em></em><em>在一定范围内，可以预期这些标记都有相同的前缀。</em></p>
+<p>那些点的坐标有共同的前缀，就像下面地铁站的例子一样。</p>
+<pre class="brush: actionscript3; gutter: true">LatLon(40.762959,-73.985989)
+LatLon(40.761886,-73.983629)
+LatLon(40.762861,-73.981612)
+LatLon(40.764616,-73.98056)</pre>
 
-<h3 id="whisper">安装whisper</h3>
+<p>我们可以发现所有的地理坐标点有相同的前缀(40.76x, -73.98x)，所以我们只需要发送一次前缀。</p>
+<pre class="brush: actionscript3; gutter: true">Prefix: (40.76, -73.98)
+Data: 
+LatLon(2959,5989)
+LatLon(1886,3629)
+LatLon(2861,1612)
+LatLon(4616,056)</pre>
 
-<pre><code>git clone https://github.com/graphite-project/whisper.git
-cd whisper &amp;&amp; sudo python setup.py install &amp;&amp; cd -
-</code></pre>
+<p>以上是前缀编码的三个例子，该算法在传输均匀数据是非常有用。</p>
+<h1><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;">后缀编码</span></h1>
+<p>后缀编码和前缀编码几乎相同，区别在于编码重复后缀。如下例，后缀编码替换最后重复的后缀，这非常有用。</p>
+<pre class="brush: actionscript3; gutter: true">Johnson
+Clarkson
+Jackson</pre>
 
-<h3 id="carbon">安装carbon</h3>
+<p>或者公司名称。</p>
+<pre class="brush: actionscript3; gutter: true">Apple Inc.
+Google Inc.
+Yahoo! Inc.</pre>
 
-<pre><code>git clone https://github.com/graphite-project/carbon.git
-cd carbon &amp;&amp; python setup.py install &amp;&amp; cd -
-cd /opt/graphite/conf
-cp carbon.conf.example carbon.conf 
-cp storage-schemas.conf.example storage-schemas.conf 根据需求调整carbon.conf中的配置。
-</code></pre>
+<p>这里我们可以使用一些其他更短的东西来替换“Inc”。</p>
 
-<h3 id="graphite-web">安装graphite-web</h3>
-
-<pre><code>git clone https://github.com/graphite-project/graphite-web.git
-cd graphite-web &amp;&amp; python check-dependencies.py
- 
-#如果报告依赖问题，需要安装对应的软件包
-yum install pycairo django pytz pyparsing django-tagging python-memcached python-ldap twisted txamqp python-rrdtool -y
-
-sudo python setup.py install 
-
-cd /opt/graphite/webapp/graphite/
-cp local_settings.py.example local_settings.py
-</code></pre>
-
-<p>务必重新设置SECRET_KEY，根据需要调整TIME_ZONE和其它参数。</p>
-
-<pre><code>PYTHONPATH=/opt/graphite/webapp/ django-admin syncdb --settings=graphite.settings
-</code></pre>
-
-<h3 id="section-3">制造一些测试数据</h3>
-
-<pre><code>cd /opt/graphite/examples/
-python example-client.py
-</code></pre>
-
-<p>或者用脚本模拟也写随机数据</p>
-
-<pre><code>ruby -e 'puts "test.op.random_seq #{rand(100)} #{Time.now.to_i}"' | nc 127.0.0.1 2003
-</code></pre>
-
-<h3 id="web-">启动web 服务</h3>
-
-<pre><code>cp /opt/graphite/examples/example-graphite-vhost.conf /etc/httpd/conf.d/
-service httpd restart
-</code></pre>
-
-<h2 id="section-4">安装文档参考</h2>
-
-<pre><code># 安装文档的更新 https://github.com/graphite-project/graphite-web/blob/master/INSTALL
-# https://github.com/graphite-project/graphite-web
-</code></pre>
+<!-- div id="ad1">
+</div -->
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-01-18-head-first-with-the-cpp-module-of-node.js.html-7bd50a0b0.html" title="Previous Post: 动手编写Node的C++模块" data-instant>&laquo; 动手编写Node的C++模块</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-11-19-uniq-count-kibana-fb4d0c203.html" title="Previous Post: 在 kibana 里实现去重计数" data-instant>&laquo; 在 kibana 里实现去重计数</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-02-23-chapter-2-variable-object.html-b5e58a600.html" title="Next Post: 「深入ECMA-262-3」第二章、变量对象" data-instant>「深入ECMA-262-3」第二章、变量对象 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-11-20-79761-28f044a97.html" title="Next Post: 计算机算法：数据压缩之相对编码（4）" data-instant>计算机算法：数据压缩之相对编码（4） &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>16 Jun 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-06-16-build-git-server-with-gitosis.html-32806c325.html">使用Gitosis搭建Git服务器</a></li>
+      <li><span>16 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-16-79758-4988ff13b.html">计算机算法：数据压缩之游程编码</a></li>
 
-      <li><span>25 Aug 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-08-25-blog-with-jekyll-on-github.html-d7bd23d67.html">利用Jekyll在Github上写博客</a></li>
+      <li><span>18 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-18-79760-5efa36910.html">计算机算法：数据压缩之位图（2）</a></li>
 
-      <li><span>02 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-02-build-private-npm-registry-with-npmjs-and-kappa.html-671b91147.html">利用kappa搭建私有NPM仓库</a></li>
+      <li><span>20 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-20-79761-28f044a97.html">计算机算法：数据压缩之相对编码（4）</a></li>
 
   </ul>
 </div>

@@ -5,9 +5,222 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Thu, 20 Nov 2014 14:22:50 +0800</pubDate>
-    <lastBuildDate>Thu, 20 Nov 2014 14:22:50 +0800</lastBuildDate>
+    <pubDate>Tue, 25 Nov 2014 09:59:06 +0800</pubDate>
+    <lastBuildDate>Tue, 25 Nov 2014 09:59:06 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>利用动态仪表板实现kibana单图表导出功能</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;昨天和朋友聊天，说监控报表的话题，他们认为 kibana 的仪表板形式，还是偏重技术人员做监控的 screen 思路，对 erp 之类的报表不是很友好。要想跟其他系统结合，或者说嵌入到其他系统中，就必须得有单个图表的导出，或者 URL 引用方式。当时我直觉上的反应，就是这个没问题，可以通过 javascript 动态仪表板这个高级功能完成。回来试了一下，比我想的稍微复杂一点点，还是可以很轻松完成的。&lt;/p&gt;
+&lt;p&gt;读过&lt;a href=&quot;http://kibana.logstash.es/content/dashboard-schema.html&quot;&gt;仪表板纲要&lt;/a&gt;一文，或者自己看过源代码中 &lt;code&gt;src/app/dashboards/logstash.json&lt;/code&gt; 文件的人，应该都知道 kibana 中有些在页面配置界面里看不到的隐藏配置选项。其中很符合我们这次需求的，就有 &lt;code&gt;editable&lt;/code&gt;, &lt;code&gt;collapsable&lt;/code&gt; 等。所以，首先第一步，我们可以在自己的 &lt;code&gt;panel.js&lt;/code&gt;(直接从 logstash.js 复制过来) 中，把这些关掉：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;nx&quot;&gt;dashboard&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;rows&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nx&quot;&gt;editable&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;         &lt;span class=&quot;c1&quot;&gt;//不显示每行的编辑按钮&lt;/span&gt;
+    &lt;span class=&quot;nx&quot;&gt;collapsable&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;      &lt;span class=&quot;c1&quot;&gt;//不显示每行的折叠按钮&lt;/span&gt;
+    &lt;span class=&quot;nx&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Events&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nx&quot;&gt;height&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;400px&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nx&quot;&gt;panels&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[{&lt;/span&gt;
+      &lt;span class=&quot;nx&quot;&gt;editable&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;       &lt;span class=&quot;c1&quot;&gt;//不显示面板的编辑按钮&lt;/span&gt;
+      &lt;span class=&quot;nx&quot;&gt;title&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;events over time&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nx&quot;&gt;type&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;histogram&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nx&quot;&gt;time_field&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;ARGS&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;timefield&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;||&lt;/span&gt;&lt;span class=&quot;s2&quot;&gt;&quot;@timestamp&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nx&quot;&gt;auto_int&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;true&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nx&quot;&gt;span&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;12&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}]&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;];&lt;/span&gt;
+&lt;span class=&quot;nx&quot;&gt;dashboard&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;editable&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;     &lt;span class=&quot;c1&quot;&gt;//不显示仪表板的编辑按钮&lt;/span&gt;
+&lt;span class=&quot;nx&quot;&gt;dashboard&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel_hints&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;  &lt;span class=&quot;c1&quot;&gt;//不显示面板的添加按钮&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;然后要解决面板上方的 query 框和 filtering 框。这个同样在纲要介绍里说了，这两个特殊的面板是放在垂幕(pulldows)里的。所以，直接关掉垂幕就好了：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;nx&quot;&gt;dashboard&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;pulldowns&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[];&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;然后再往上是顶部栏。顶部栏里有时间选择器，这个跟垂幕一样是可以关掉的：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;nx&quot;&gt;dashboard&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;nav&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[];&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;好了，javascript 里可以关掉的，都已经关了。&lt;/p&gt;
+&lt;p&gt;但是运行起来，发现顶部栏里虽然是没有时间选择器和配置编辑按钮了，本身这个黑色条带和 logo 图什么的，却依然存在！这时候我想起来有时候 config.js 没写对，&lt;code&gt;/_nodes&lt;/code&gt; 获取失败的时候，打开的页面就是背景色外加这个顶条 —— 也就是说，这部分代码是写在 &lt;code&gt;index.html&lt;/code&gt; 里的，不受 &lt;code&gt;app/dashboards/panel.js&lt;/code&gt; 控制。&lt;/p&gt;
+&lt;p&gt;所以这里就得去修改一下 &lt;code&gt;index.html&lt;/code&gt; 了。不过为了保持兼容性，我这里没有直接删除顶部栏的代码，而是用了 angularjs 中很常用的 &lt;code&gt;ng-show&lt;/code&gt; 指令：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-html&quot; data-lang=&quot;html&quot;&gt;&lt;span class=&quot;nt&quot;&gt;&amp;lt;div&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;ng-cloak&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;class=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;navbar navbar-static-top&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;ng-show=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;dashboard.current.nav.length&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;因为之前关闭时间选择器的时候，已经把这个 nav 数组定义为空了，所以只要判断一下数组长度即可。&lt;/p&gt;
+&lt;p&gt;效果如下：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/3747fb3af94787b878445fd191c7a181.jpg&quot; alt=&quot;single panel&quot;&gt;&lt;/p&gt;
+&lt;p&gt;因为 &lt;code&gt;dashboard.services&lt;/code&gt; 的定义没有做修改，所以这个其实照样支持你用鼠标拉动选择时间范围，支持你在 URL 后面加上 &lt;code&gt;?query=status:404&amp;amp;from=1h&lt;/code&gt; 这样的参数，效果都是对的。只不过不会再让你看到这些文字显示在页面上了。&lt;/p&gt;
+&lt;p&gt;如果要求再高一点，其实完全可以在 &lt;code&gt;ARGS&lt;/code&gt; 里处理更复杂的参数，比如直接 &lt;code&gt;?type=terms&amp;amp;field=host&amp;amp;value_field=requesttime&lt;/code&gt; 就生成 &lt;code&gt;dashboard.rows[0].panels[0]&lt;/code&gt; 里的对应参数，达到自动控制图表类型和效果的目的。&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- JiaThis Button BEGIN --&gt;
+&lt;div class=&quot;jiathis_style&quot;&gt;
+&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
+&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
+&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
+&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
+&lt;/div&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+var jiathis_config={
+	data_track_clickback:true,
+	summary:&quot;&quot;,
+	ralateuid:{
+		&quot;tsina&quot;:&quot;1035836154&quot;
+	},
+	shortUrl:false,
+	hideMore:false
+}
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
+&lt;!-- JiaThis Button END --&gt;
+&lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Sun, 23 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-23-kibana-panel-only-dashboard-3474bf0cc.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-23-kibana-panel-only-dashboard-3474bf0cc.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>Linux Performance Tools 2014</title>
+        <description>
+
+&lt;p&gt;Last month I gave an updated Linux Performance Tools talk for &lt;a href=&quot;http://events.linuxfoundation.org/events/archive/2014/linuxcon-europe&quot;&gt;LinuxCon Europe 2014&lt;/a&gt; in Düsseldorf. This included static performance tuning, as well as other updates. My performance observability tools diagram now includes rdmsr, after my post on &lt;a href=&quot;/blog/2014-09-15/the-msrs-of-ec2.html&quot;&gt;The MSRs of EC2&lt;/a&gt;, where I discovered that MSRs could be useful:&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+&lt;center&gt;&lt;a href=&quot;/Perf/linux_observability_tools.png&quot;&gt;&lt;img src=&quot;/images/brendangregg.com/386f03345157c7fac26406e42798f874.jpg&quot; width=&quot;500&quot; height=&quot;350&quot;&gt;&lt;/a&gt;&lt;/center&gt;
+
+&lt;p&gt;I keep this diagram updated on &lt;a href=&quot;/linuxperf.html&quot;&gt;linuxperf&lt;/a&gt;. The slides from my talk are on (&lt;a href=&quot;http://www.slideshare.net/brendangregg/linux-performance-tools-2014&quot;&gt;slideshare&lt;/a&gt;):&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+&lt;center&gt;&lt;iframe src=&quot;http://www.slideshare.net/slideshow/embed_code/40240208&quot; width=&quot;427&quot; height=&quot;356&quot; frameborder=&quot;0&quot; marginwidth=&quot;0&quot; marginheight=&quot;0&quot; scrolling=&quot;no&quot; style=&quot;border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;&quot; allowfullscreen&gt; &lt;/iframe&gt;&lt;/center&gt;
+
+&lt;p&gt;As I didn&#39;t see an official video camera in the room, I had my friends at &lt;a href=&quot;http://www.efficios.com/&quot;&gt;EfficOS&lt;/a&gt; film it, who also filmed the &lt;a href=&quot;http://lwn.net/Articles/622033/rss&quot;&gt;Tracing Summit&lt;/a&gt;. This is on (&lt;a href=&quot;https://www.youtube.com/watch?v=SN7Z0eCn0VY&quot;&gt;youtube&lt;/a&gt;):&lt;/p&gt;
+
+&lt;p&gt;&lt;/p&gt;
+&lt;center&gt;&lt;iframe width=&quot;560&quot; height=&quot;315&quot; src=&quot;http://www.youtube.com/embed/SN7Z0eCn0VY&quot; frameborder=&quot;0&quot; allowfullscreen&gt;&lt;/iframe&gt;&lt;/center&gt;
+
+&lt;p&gt;The main objective of my talk was to give you exposure to what exists in the field of Linux performance tools – to turn unknown unknowns into known unknowns. &lt;/p&gt;
+
+&lt;div style=&quot;float:right;padding-left:10px;padding-bottom:5px&quot;&gt;
+&lt;img src=&quot;/images/brendangregg.com/40960fcd9a650b461bf8cd7271ebe119.jpg&quot; width=&quot;250&quot; height=&quot;161&quot;&gt;&lt;br&gt;&lt;center&gt;&lt;font size=&quot;-1&quot;&gt;&lt;i&gt;Photo by &lt;a href=&quot;https://www.flickr.com/photos/linuxfoundation/15348354449/&quot;&gt;Linux Foundation&lt;/a&gt;&lt;/i&gt;&lt;/font&gt;&lt;/center&gt;
+&lt;/div&gt;
+
+&lt;p&gt;In my earlier &lt;a href=&quot;/blog/2014-08-23/linux-perf-tools-linuxcon-na-2014.html&quot;&gt;LinuxCon North America&lt;/a&gt; talk, I had three main collections of performance tools, with a diagram for each: for observability, benchmarking, and tuning tools. For this LinuxCon Europe talk, I introduced a fourth main category: static performance tuning tools.&lt;/p&gt;
+
+&lt;p&gt;I learned about static performance tuning from a paper by Richard Elling in 2000: the idea is to check the static configured state of the system, &lt;em&gt;without load&lt;/em&gt;, to look for a class of issues not found by other tools. This includes things like checking how full the filesystems are, the routing table, and network interface auto-negotiation. I feel the addition of this group of tools makes this talk complete: I&#39;m summarizing all the main tools in one short talk.&lt;/p&gt;
+
+&lt;p&gt;At LinuxCon Europe I also saw a great talk by Ben Maurer on &lt;a href=&quot;http://events.linuxfoundation.org/sites/events/files/slides/lpc.pdf&quot;&gt;Scaling Userspace @ Facebook&lt;/a&gt; (slides), where he discussed some serious systems performance analysis on Linux that they have been doing. It&#39;s impressive, interesting, and deep work. Sadly I didn&#39;t see a video camera to capture it.&lt;/p&gt;
+
+&lt;p&gt;Steven Rostedt from Red Hat gave a stunning talk on &lt;a href=&quot;http://www.linuxplumbersconf.org/2014/ocw//system/presentations/1773/original/ftrace-kernel-hooks-2014.pdf&quot;&gt;Ftrace Kernel Hooks: More than just tracing&lt;/a&gt; (slides). This might be the most technical talk I&#39;ve ever seen! I found it particularly interesting as I&#39;ve been doing a lot with ftrace, an undiscovered gem of Linux, including using it for my &lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt; collection. I heard this talk was videoed, although I haven&#39;t seen the video yet.&lt;/p&gt;
+
+&lt;p&gt;I also saw Rikki Endsley, also now at Red Hat, give a talk on &lt;a href=&quot;http://lccoelce14.sched.org/event/e883537a4136e09a421beb97440ee59b?iframe=no&amp;amp;w=&amp;amp;sidebar=yes&amp;amp;bg=no#.VHD-NmTF9o8&quot;&gt;Confessions of a Reluctant Tweeter: Social Media for Open Source Communities&lt;/a&gt;. Rikki has contributed much to our industry, and it&#39;s interesting to hear her expertise on open source marketing in general. I had spoken about marketing earlier in the week at the Tracing Summit, where Linux technologies like ftrace could really benefit from more exposure.&lt;/p&gt;
+
+&lt;p&gt;Thanks to those who attended my talk, and the Linux Foundation for organizing another great event!&lt;/p&gt;
+
+
+</description>
+        <pubDate>Sat, 22 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-22-linux-perf-tools-2014.html-100c15b15.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-22-linux-perf-tools-2014.html-100c15b15.html</guid>
+        
+        
+        <category>brendangregg</category>
+        
+      </item>
+    
+      <item>
+        <title>用 phantomjs 截图</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;昨儿给 kibana 加上了 table 面板数据导出成 CSV 的功能。朋友们就问了，那其他面板的图表怎么导出保存呢？其实直接截图就好了嘛……&lt;/p&gt;
+&lt;p&gt;FireFox 有插件用来截全网页图。不过如果作为定期的工作，这么搞还是比较麻烦的，需要脚本化下来。这时候就可以用上 phantomjs 软件了。phantomjs 是一个基于 webkit 引擎做的 js 脚本库。可以通过 js 程序操作 webkit 浏览器引擎，实现各种浏览器功能。&lt;/p&gt;
+&lt;p&gt;因为用了 webkit ，所以软件编译起来挺麻烦的，建议是直接从官方下载二进制包用得了。&lt;/p&gt;
+&lt;p&gt;想要给 kibana 页面截图，几行代码就够了：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;kd&quot;&gt;var&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;page&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;require&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;webpage&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;create&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+&lt;span class=&quot;kd&quot;&gt;var&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;address&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;http://kibana.dip.sina.com.cn/#/dashboard/elasticsearch/h5_view&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;kd&quot;&gt;var&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;output&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;kibana.png&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;nx&quot;&gt;page&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;viewportSize&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;width&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1366&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;height&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;600&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
+&lt;span class=&quot;nx&quot;&gt;page&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;open&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;address&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;kd&quot;&gt;function&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;status&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;status&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;!==&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;success&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nx&quot;&gt;console&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;log&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;Unable to load the address!&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+        &lt;span class=&quot;nx&quot;&gt;phantom&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;exit&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nb&quot;&gt;window&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;setTimeout&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;kd&quot;&gt;function&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+            &lt;span class=&quot;nx&quot;&gt;page&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;render&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+            &lt;span class=&quot;nx&quot;&gt;phantom&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;exit&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;20000&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;这里两个要点：&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;要设置 &lt;code&gt;viewportSize&lt;/code&gt; 里的宽度，否则效果会变成单个 panel 依次往下排列。&lt;/li&gt;
+  &lt;li&gt;要设置 &lt;code&gt;setTimeout&lt;/code&gt;，否则在获取完 index.html 后就直接返回了，只能看到一个大白板。用 phantomjs 截取 angularjs 这类单页 MVC 框架应用时一定要设置这个。&lt;/li&gt;
+&lt;/ol&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- JiaThis Button BEGIN --&gt;
+&lt;div class=&quot;jiathis_style&quot;&gt;
+&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
+&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
+&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
+&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
+&lt;/div&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+var jiathis_config={
+	data_track_clickback:true,
+	summary:&quot;&quot;,
+	ralateuid:{
+		&quot;tsina&quot;:&quot;1035836154&quot;
+	},
+	shortUrl:false,
+	hideMore:false
+}
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
+&lt;!-- JiaThis Button END --&gt;
+&lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Thu, 20 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-20-phantomjs-snapshot-63b00217f.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-20-phantomjs-snapshot-63b00217f.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
     
       <item>
         <title>计算机算法：数据压缩之相对编码（4）</title>
@@ -86,6 +299,121 @@ echo json_encode(relative_encoding($years));&lt;/pre&gt;
         <pubDate>Thu, 20 Nov 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-11-20-79761-28f044a97.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-20-79761-28f044a97.html</guid>
+        
+        
+        <category>jobbole</category>
+        
+      </item>
+    
+      <item>
+        <title>计算机算法：数据压缩之前缀编码（5）</title>
+        <description>
+
+        &lt;div style=&quot;margin-bottom: 10px;&quot;&gt;
+            
+        &lt;/div&gt;
+
+		
+&lt;p&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;&quot;&gt;概述&lt;/span&gt;&lt;/p&gt;
+&lt;p&gt;前缀编码，有时也被称为前向编码，是另一个通过移除冗余数据来降低数据量的算法。思想非常简单，但算法实现比较困难。要了解原因，首先我们来看一看它的原理。&lt;/p&gt;
+&lt;p&gt;请看下面的字典。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;use
+used
+useful
+usefully
+usefulness
+useless
+uselessly
+uselessness&lt;/pre&gt;
+&lt;p&gt;为了不使用纯文本保存这些单词或者在网络上传输，我们可以用前缀编码进行压缩（编码）。&lt;/p&gt;
+&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9130b42244a4abbf7fda5aad945efbe9.jpg&quot;&gt;&lt;/p&gt;
+&lt;p&gt;很明显，每一个单词都以表中的第一个单词“use”为前缀。所以我们很容易将它们压缩成下面的数组。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;$data = array(
+0 =&amp;gt; &#39;use&#39;,
+1 =&amp;gt; &#39;0d&#39;,
+2 =&amp;gt; &#39;0ful&#39;,
+3 =&amp;gt; &#39;0fully&#39;,
+4 =&amp;gt; &#39;0less&#39;,
+5 =&amp;gt; &#39;0lessly&#39;,
+6 =&amp;gt; &#39;0lessness&#39;,
+);&lt;/pre&gt;
+&lt;p&gt;显然这并不是最佳的压缩结果，在不仅仅使用第一个词作为前缀的情况下，我们可以更进一步压缩。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;$data = array(
+0 =&amp;gt; &#39;use&#39;,
+1 =&amp;gt; &#39;0d&#39;,
+2 =&amp;gt; &#39;0ful&#39;,
+3 =&amp;gt; &#39;2ly&#39;,
+4 =&amp;gt; &#39;0less&#39;,
+5 =&amp;gt; &#39;4ly&#39;,
+6 =&amp;gt; &#39;4ness&#39;,
+);&lt;/pre&gt;
+&lt;p&gt;此时的压缩更好，好消息是解码是一个相对简单的过程。但棘手的部分在于压缩本身。问题是选择合适的前缀非常困难。第一个例程的前缀选择很简单，但事实上，大多时候数据很混乱。的确，对于随机产生的数据压缩过程将非常困难，算法过程不仅很慢，而且难以实现。&lt;/p&gt;
+&lt;p&gt;好的方面是，如果我们事先知道数据的格式，该算法可以用于多种情况。那么，让我们看看下面三个例子，该算法可能会很方便。&lt;/p&gt;
+&lt;h1&gt;应用&lt;/h1&gt;
+&lt;p&gt;以下是三个前缀编码的例子。前面我说随机数据的压缩过程会很难，如果你事先知道输入数据的格式，这将会是一个很好的练习。&lt;/p&gt;
+&lt;h2&gt;日期和时间前缀&lt;/h2&gt;
+&lt;p&gt;我们通常会忽略年份的前两个数字，例如我们通常不会写1995或1996，而是使用更短的——‘95’和‘96’。这样年份就被编码成更短的字符串。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;input: (1991, 1992, 1993, 1994, 1995, 1996)
+output: (91, 92, 93, 94, 95, 96)&lt;/pre&gt;
+&lt;p&gt;问题在于输入流发生很小的变动，解码就会出错。如果我们加上21世纪的年份，我们将失去数据的唯一性。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;input: (1998, 1992, 1999, 2011, 2012)
+output: (98, 92, 99, 11, 12)&lt;/pre&gt;
+&lt;p&gt;此时，解码器肯会将最后两个数值解码成(1911, 1912)，因为“19”被认为是前缀。所以，我们事先必须知道前缀与每一个数值绝对平等。如果没有编码格式，必须不同。例如我们可以使用一些特殊标识和前缀一起编码。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;input: (1998, 1992, 1932, 1924, 2001, 2012)
+output: (#19, 98, 92, 32, 24, #20, 01, 12)&lt;/pre&gt;
+&lt;p&gt;一旦解码器读到#字符，它就知道下面的数为前缀。&lt;/p&gt;
+&lt;p&gt;事实上，这种方法可用于日期和时间格式的编码。假设我们有一些日期时间值，而且我们知道所有数据都是在同一天。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;2012-01-31 15:33:45
+2012-01-31 16:12:11
+2012-01-31 17:32:35
+2012-01-31 18:54:34&lt;/pre&gt;
+&lt;p&gt;显然，我们可以忽略这些字符串的时间部分，仅发送（保存）时间。当然，我们必须确定所有的这些数值都是在同一天。如果不是，我们可以使用上例中的方法。&lt;/p&gt;
+&lt;h2&gt;电话号码&lt;/h2&gt;
+&lt;p&gt;电话号码是前缀编码的典型应用。不仅仅是国际代码，移动网络运营商的电话号码也使用前缀编码。如果我们要传输电话号码，假设是英国的，我们可以用一些更短的东西替换开头的“+44”。&lt;/p&gt;
+&lt;p&gt;如果你要给移动设备编写电话簿，你可以通过前缀编码压缩数据，节省部分空间，这样用户将拥有更多空间，也可以在手机上存储更多电话号码。&lt;/p&gt;
+&lt;p&gt;电话号码前缀也适用于数据库标准化。这样你可以将它们存储在单独的数据库表中，不用电话簿中唯一的号码。&lt;/p&gt;
+&lt;h2&gt;地理坐标&lt;/h2&gt;
+&lt;p&gt;对于我之前帖子中使用的例子，可以在一定范围内去掉通用前缀来发送地理坐标。的确，在必须传送大量坐标到地图应用时，你可以预期这些标记在一定范围内彼此间相当靠近。&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;img id=&quot;pic&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/cedae08dc44c077d2df50b7782b0b954.jpg&quot;&gt;&lt;/p&gt;
+&lt;p style=&quot;text-align: center;&quot;&gt;&lt;em&gt;&lt;/em&gt;&lt;em&gt;在一定范围内，可以预期这些标记都有相同的前缀。&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;那些点的坐标有共同的前缀，就像下面地铁站的例子一样。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;LatLon(40.762959,-73.985989)
+LatLon(40.761886,-73.983629)
+LatLon(40.762861,-73.981612)
+LatLon(40.764616,-73.98056)&lt;/pre&gt;
+&lt;p&gt;我们可以发现所有的地理坐标点有相同的前缀(40.76x, -73.98x)，所以我们只需要发送一次前缀。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;Prefix: (40.76, -73.98)
+Data: 
+LatLon(2959,5989)
+LatLon(1886,3629)
+LatLon(2861,1612)
+LatLon(4616,056)&lt;/pre&gt;
+&lt;p&gt;以上是前缀编码的三个例子，该算法在传输均匀数据是非常有用。&lt;/p&gt;
+&lt;h1&gt;&lt;span style=&quot;font-family: &#39;Helvetica Neue&#39;, Helvetica, Arial, sans-serif; font-size: 28px; font-style: normal; font-weight: bold; line-height: 42px;&quot;&gt;后缀编码&lt;/span&gt;&lt;/h1&gt;
+&lt;p&gt;后缀编码和前缀编码几乎相同，区别在于编码重复后缀。如下例，后缀编码替换最后重复的后缀，这非常有用。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;Johnson
+Clarkson
+Jackson&lt;/pre&gt;
+&lt;p&gt;或者公司名称。&lt;/p&gt;
+&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;Apple Inc.
+Google Inc.
+Yahoo! Inc.&lt;/pre&gt;
+&lt;p&gt;这里我们可以使用一些其他更短的东西来替换“Inc”。&lt;/p&gt;
+
+
+&lt;!-- div id=&quot;ad1&quot;&gt;
+&lt;/div --&gt;
+
+
+	
+
+
+	
+
+</description>
+        <pubDate>Thu, 20 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-20-79757-c5acf18ef.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-20-79757-c5acf18ef.html</guid>
         
         
         <category>jobbole</category>
@@ -4722,1954 +5050,6 @@ private static void Sort(T[] array, int lo, int hi)
         <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-11-03-79293-2f987b0c8.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79293-2f987b0c8.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>浅谈算法和数据结构（2）：基本排序算法</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;本篇开始学习排序算法。排序与我们日常生活中息息相关，比如，我们要从电话簿中找到某个联系人首先会按照姓氏排序、买火车票会按照出发时间或者时长排序、买东西会按照销量或者好评度排序、查找文件会按照修改时间排序等等。在计算机程序设计中，排序和查找也是最基本的算法，很多其他的算法都是以排序算法为基础，在一般的数据处理或分析中，通常第一步就是进行排序，比如说二分查找，首先要对数据进行排序。在&lt;a href=&quot;http://en.wikipedia.org/wiki/Donald_Knuth&quot; target=&quot;_blank&quot;&gt;Donald Knuth&lt;/a&gt; 的计算机程序设计的艺术这四卷书中，有一卷是专门介绍排序和查找的。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/dfcc0fe327ef69021acb3ff031b376b4.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;排序的算法有很多，在&lt;a href=&quot;http://en.wikipedia.org/wiki/Sorting_algorithm&quot; target=&quot;_blank&quot;&gt;维基百科&lt;/a&gt;上有这么一个分类，另外大家有兴趣也可以直接上维基百科上看相关算法，本文也参考了上面的内容。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e3e02a709bc9d290332dd5e7846f56c0.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;首先来看比较简单的选择排序(Selection sort)，插入排序(Insertion sort)，然后在分析插入排序的特征和缺点的基础上，介绍在插入排序基础上改进的希尔排序(Shell sort)。&lt;/p&gt;
-&lt;h1&gt;一 选择排序&lt;/h1&gt;
-&lt;p&gt;&lt;strong&gt;原理&lt;/strong&gt;：&lt;/p&gt;
-&lt;p&gt;选择排序很简单，他的步骤如下：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;从左至右遍历，找到最小(大)的元素，然后与第一个元素交换。&lt;/li&gt;
-&lt;li&gt;从剩余未排序元素中继续寻找最小（大）元素，然后与第二个元素进行交换。&lt;/li&gt;
-&lt;li&gt;以此类推，直到所有元素均排序完毕。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;之所以称之为选择排序，是因为每一次遍历未排序的序列我们总是从中选择出最小的元素。下面是选择排序的动画演示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/6bf544d3d0c3b54ab88a7b53adf41e8b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;实现：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;算法实现起来也很简单，我们新建一个Sort泛型类，让该类型必须实现IComparable接口，然后我们定义SelectionSort方法，方法传入T数组，代码如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;/// &amp;lt;summary&amp;gt;
-/// 排序算法泛型类，要求类型实现IComparable接口
-/// &amp;lt;/summary&amp;gt;
-/// &amp;lt;typeparam name=&quot;T&quot;&amp;gt;&amp;lt;/typeparam&amp;gt;
-public class Sort&amp;lt;T&amp;gt; where T : IComparable&amp;lt;T&amp;gt;
-{
-    /// &amp;lt;summary&amp;gt;
-    /// 选择排序
-    /// &amp;lt;/summary&amp;gt;
-    /// &amp;lt;param name=&quot;array&quot;&amp;gt;&amp;lt;/param&amp;gt;
-    public static void SelectionSort(T[] array)
-    {
-        int n = array.Length;
-
-        for (int i = 0; i &amp;lt; n; i++)
-        {
-            int min = i;
-            //从第i+1个元素开始，找最小值
-            for (int j = i + 1; j &amp;lt; n; j++)
-            {
-                if (array[min].CompareTo(array[j]) &amp;gt; 0)
-                    min = j;
-            }
-            //找到之后和第i个元素交换
-            Swap(array, i, min);
-        }
-    }
-
-    /// &amp;lt;summary&amp;gt;
-    /// 元素交换
-    /// &amp;lt;/summary&amp;gt;
-    /// &amp;lt;param name=&quot;array&quot;&amp;gt;&amp;lt;/param&amp;gt;
-    /// &amp;lt;param name=&quot;i&quot;&amp;gt;&amp;lt;/param&amp;gt;
-    /// &amp;lt;param name=&quot;min&quot;&amp;gt;&amp;lt;/param&amp;gt;
-    private static void Swap(T[] array, int i, int min)
-    {
-        T temp = array[i];
-        array[i] = array[min];
-        array[min] = temp;
-    }
-}&lt;/pre&gt;
-&lt;p&gt;下图分析了选择排序中每一次排序的过程，您可以对照图中右边的柱状图来看。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c9f438f44f7a41aa5d94b9c3ca45afa1.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;测试如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;static void Main(string[] args)
-{
-    Int32[] array = new Int32[] { 1, 3, 1, 4, 2, 4, 2, 3, 2, 4, 7, 6, 6, 7, 5, 5, 7, 7 };
-    Console.WriteLine(&quot;Before SelectionSort:&quot;);
-    PrintArray(array);
-    Sort&amp;lt;Int32&amp;gt;.SelectionSort(array);
-    Console.WriteLine(&quot;After SelectionSort:&quot;);
-    PrintArray(array);
-    Console.ReadKey();
-}&lt;/pre&gt;
-&lt;p&gt;输出结果：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3896b34497f475f7e1cddd8b789c1ebe.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;分析：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;选择排序的在各种初始条件下的排序效果如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c28e613ff76dfa5bc6c92416043a4aef.jpg&quot;&gt;&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;选择排序需要花费 (N – 1) + (N – 2) + … + 1 + 0 = N(N- 1) / 2 ~ N&lt;sup&gt;2&lt;/sup&gt;/2次比较 和 N-1次交换操作。&lt;/li&gt;
-&lt;li&gt;对初始数据不敏感，不管初始的数据有没有排好序，都需要经历N&lt;sup&gt;2&lt;/sup&gt;/2次比较，这对于一些原本排好序，或者近似排好序的序列来说并不具有优势。在最好的情况下，即所有的排好序，需要0次交换，最差的情况，倒序，需要N-1次交换。&lt;/li&gt;
-&lt;li&gt;数据交换的次数较少，如果某个元素位于正确的最终位置上，则它不会被移动。在最差情况下也只需要进行N-1次数据交换，在所有的完全依靠交换去移动元素的排序方法中，选择排序属于比较好的一种。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;h1&gt;二 插入排序&lt;/h1&gt;
-&lt;p&gt;&lt;strong&gt;原理&lt;/strong&gt;：&lt;/p&gt;
-&lt;p&gt;插入排序也是一种比较直观的排序方式。可以以我们平常打扑克牌为例来说明，假设我们那在手上的牌都是排好序的，那么插入排序可以理解为我们每一次将摸到的牌，和手中的牌从左到右依次进行对比，如果找到合适的位置则直接插入。具体的步骤为：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;从第一个元素开始，该元素可以认为已经被排序&lt;/li&gt;
-&lt;li&gt;取出下一个元素，在已经排序的元素序列中从后向前扫描&lt;/li&gt;
-&lt;li&gt;如果该元素小于前面的元素（已排序），则依次与前面元素进行比较如果小于则交换，直到找到大于该元素的就则停止；&lt;/li&gt;
-&lt;li&gt;如果该元素大于前面的元素（已排序），则重复步骤2&lt;/li&gt;
-&lt;li&gt;重复步骤2~4 直到所有元素都排好序 。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;下面是插入排序的动画演示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c71212ec56390ce57c6d277088748ca6.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;实现：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;在Sort泛型方法中，我们添加如下方法，下面的方法和上面的定义一样&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;/// &amp;lt;summary&amp;gt;
-/// 插入排序
-/// &amp;lt;/summary&amp;gt;
-/// &amp;lt;param name=&quot;array&quot;&amp;gt;&amp;lt;/param&amp;gt;
-public static void InsertionSort(T[] array)
-{
-    int n = array.Length;
-    //从第二个元素开始
-    for (int i = 1; i &amp;lt; n; i++)
-    {
-        //从第i个元素开始，一次和前面已经排好序的i-1个元素比较，如果小于，则交换
-        for (int j = i; j &amp;gt; 0; j--)
-        {
-            if (array[j].CompareTo(array[j - 1]) &amp;lt; 0)
-            {
-                Swap(array, j, j - 1);
-            }
-            else//如果大于，则不用继续往前比较了，因为前面的元素已经排好序，比较大的大就是教大的了。
-                break;
-        }
-    }
-}&lt;/pre&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e8741432bb3553e0f9075e4e19e28740.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;测试如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;Int32[] array1 = new Int32[] { 1, 3, 1, 4, 2, 4, 2, 3, 2, 4, 7, 6, 6, 7, 5, 5, 7, 7 };
-Console.WriteLine(&quot;Before InsertionSort:&quot;);
-PrintArray(array1);
-Sort&amp;lt;Int32&amp;gt;.InsertionSort(array1);
-Console.WriteLine(&quot;After InsertionSort:&quot;);
-PrintArray(array1);
-Console.ReadKey();&lt;/pre&gt;
-&lt;p&gt;输出结果：&lt;br&gt;
-&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9d1d216c620eae27e0fd55e6e624d0ef.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;分析：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;插入排序的在各种初始条件下的排序效果如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c70712254dc5e5d51cc420126fdc35d5.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;p&gt;1. 插入排序平均需要N&lt;sup&gt;2&lt;/sup&gt;/4次比较和N&lt;sup&gt;2&lt;/sup&gt;/4 次交换。在最坏的情况下需要N&lt;sup&gt;2&lt;/sup&gt;/2 次比较和交换；在最好的情况下只需要N-1次比较和0次交换。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0b084a2ab011c31ea5bc30d1876212b6.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;先考虑最坏情况，那就是所有的元素逆序排列，那么第i个元素需要与前面的i-1个元素进行i-1次比较和交换，所有的加起来大概等于N(N- 1) / 2 ~ N&lt;sup&gt;2&lt;/sup&gt; / 2，在数组随机排列的情况下，只需要和前面一半的元素进行比较和交换，所以平均需要N&lt;sup&gt;2&lt;/sup&gt;/4次比较和N&lt;sup&gt;2&lt;/sup&gt;/4 次交换。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/1d234dc81be48ea29e6744fdf5598cab.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;在最好的情况下，所有元素都排好序，只需要从第二个元素开始都和前面的元素比较一次即可，不需要交换，所以为N-1次比较和0次交换。&lt;/p&gt;
-&lt;p&gt;2. 插入排序中，元素交换的次数等于序列中逆序元素的对数。元素比较的次数最少为元素逆序元素的对数，最多为元素逆序的对数 加上数组的个数减1。&lt;/p&gt;
-&lt;p&gt;3.总体来说，插入排序对于部分有序序列以及元素个数比较小的序列是一种比较有效的方式。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/22f4f0bcc670367435e39094a7521b22.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;如上图中，序列AEELMOTRXPS，中逆序的对数为T-R，T-P，T-S，R-P，X-S 6对。典型的部分有序队列的特征有：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;数组中每个元素离最终排好序后的位置不太远&lt;/li&gt;
-&lt;li&gt;小的未排序的数组添加到大的已排好序的数组后面&lt;/li&gt;
-&lt;li&gt;数组中只有个别元素未排好序&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;对于部分有序数组，插入排序是比较有效的。当数组中逆元素的对数越低，插入排序要比其他排序方法要高效的多。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;选择排序和插入排序的比较&lt;/strong&gt;：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/02644f03587d522fa176cbe0a2e4be94.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;上图展示了插入排序和选择排序的动画效果。图中灰色的柱子是不用动的，黑色的是需要参与到比较中的，红色的是参与交换的。图中可以看出：&lt;/p&gt;
-&lt;p&gt;插入排序不会动右边的元素，选择排序不会动左边的元素；由于插入排序涉及到的未触及的元素要比插入的元素要少，涉及到的比较操作平均要比选择排序少一半。&lt;/p&gt;
-&lt;h1&gt;三 希尔排序(Shell Sort)&lt;/h1&gt;
-&lt;p&gt;&lt;strong&gt;原理：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;希尔排序也称之为递减增量排序，他是对插入排序的改进。在第二部插入排序中，我们知道，插入排序对于近似已排好序的序列来说，效率很高，可以达到线性排序的效率。但是插入排序效率也是比较低的，他一次只能将数据向前移一位。比如如果一个长度为N的序列，最小的元素如果恰巧在末尾，那么使用插入排序仍需一步一步的向前移动和比较，要N-1次比较和交换。&lt;/p&gt;
-&lt;p&gt;希尔排序通过将待比较的元素划分为几个区域来提升插入排序的效率。这样可以让元素可以一次性的朝最终位置迈进一大步，然后算法再取越来越小的步长进行排序，最后一步就是步长为1的普通的插入排序的，但是这个时候，整个序列已经是近似排好序的，所以效率高。&lt;/p&gt;
-&lt;p&gt;如下图，我们对下面数组进行排序的时候，首先以4为步长，这是元素分为了LMPT，EHSS，ELOX，AELR几个序列，我们对这几个独立的序列进行插入排序，排序完成之后，我们减小步长继续排序，最后直到步长为1，步长为1即为一般的插入排序，他保证了元素一定会被排序。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/157c6b828e5387aed88ee16e26a80ef7.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;希尔排序的增量递减算法可以随意指定，可以以N/2递减，只要保证最后的步长为1即可。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;实现：&lt;/strong&gt;&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;/// &amp;lt;summary&amp;gt;
-/// 希尔排序
-/// &amp;lt;/summary&amp;gt;
-/// &amp;lt;param name=&quot;array&quot;&amp;gt;&amp;lt;/param&amp;gt;
-public static void ShellSort(T[] array)
-{
-    int n = array.Length;
-    int h = 1;
-    //初始最大步长
-    while (h &amp;lt; n / 3) h = h * 3 + 1;
-    while (h &amp;gt;= 1)
-    {
-        //从第二个元素开始
-        for (int i = 1; i &amp;lt; n; i++)
-        {
-            //从第i个元素开始，依次次和前面已经排好序的i-h个元素比较，如果小于，则交换
-            for (int j = i; j &amp;gt;= h; j = j - h)
-            {
-                if (array[j].CompareTo(array[j - h]) &amp;lt; 0)
-                {
-                    Swap(array, j, j - h);
-                }
-                else//如果大于，则不用继续往前比较了，因为前面的元素已经排好序，比较大的大就是教大的了。
-                    break;
-            }
-        }
-        //步长除3递减
-        h = h / 3;
-    }
-}&lt;/pre&gt;
-&lt;p&gt;可以看到，希尔排序的实现是在插入排序的基础上改进的，插入排序的步长为1，每一次递减1，希尔排序的步长为我们定义的h，然后每一次和前面的-h位置上的元素进行比较。算法中，我们首先获取小于N/3 的最大的步长，然后逐步长递减至步长为1的一般的插入排序。&lt;/p&gt;
-&lt;p&gt;下面是希尔排序在各种情况下的排序动画：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/6e21e9e8a23da4f07b8a62b6fbac7b97.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;分析：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;1. 希尔排序的关键在于步长递减序列的确定，任何递减至1步长的序列都可以，目前已知的&lt;a href=&quot;http://faculty.simpson.edu/lydia.sinapova/www/cmsc250/LN250_Weiss/L12-ShellSort.htm#increments&quot; target=&quot;_blank&quot;&gt;比较好的序列有&lt;/a&gt;：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Shell’s 序列: N/2 , N/4 , …, 1 (重复除以2);&lt;/li&gt;
-&lt;li&gt;Hibbard’s 序列: 1, 3, 7, …, 2&lt;sup&gt;k&lt;/sup&gt; - 1 ;&lt;/li&gt;
-&lt;li&gt;Knuth’s 序列: 1, 4, 13, …, (3&lt;sup&gt;k&lt;/sup&gt; - 1) / 2 ;该序列是本文代码中使用的序列。&lt;/li&gt;
-&lt;li&gt;已知最好的序列是 Sedgewick’s (Knuth的学生，Algorithems的作者)的序列: 1, 5, 19, 41, 109, ….&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;该序列由下面两个表达式交互获得:&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;1, 19, 109, 505, 2161,….., 9(4&lt;sup&gt;k&lt;/sup&gt; – 2&lt;sup&gt;k&lt;/sup&gt;) + 1, k = 0, 1, 2, 3,…&lt;/li&gt;
-&lt;li&gt;5, 41, 209, 929, 3905,…..2&lt;sup&gt;k+2&lt;/sup&gt; (2&lt;sup&gt;k+2&lt;/sup&gt; – 3 ) + 1, k = 0, 1, 2, 3, …&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;“比较在希尔排序中是最主要的操作，而不是交换。”用这样步长的希尔排序比插入排序和堆排序都要快，甚至在小数组中比快速排序还快，但是在涉及大量数据时希尔排序还是比快速排序慢。&lt;/p&gt;
-&lt;p&gt;2. 希尔排序的分析&lt;a href=&quot;http://www.iti.fh-flensburg.de/lang/algorithmen/sortieren/shell/shellen.htm&quot; target=&quot;_blank&quot;&gt;比较复杂&lt;/a&gt;，使用Hibbard’s 递减步长序列的时间复杂度为O(N&lt;sup&gt;3/2&lt;/sup&gt;)，平均时间复杂度大约为O(N&lt;sup&gt;5/4&lt;/sup&gt;) ,具体的复杂度目前仍存在争议。&lt;/p&gt;
-&lt;p&gt;3. 实验表明，对于中型的序列( 万)，希尔排序的时间复杂度接近最快的排序算法的时间复杂度nlogn。&lt;/p&gt;
-&lt;h1&gt;四 总结&lt;/h1&gt;
-&lt;p&gt;最后总结一下本文介绍的三种排序算法的最好最坏和平均时间复杂度。&lt;/p&gt;
-&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;86&quot;&gt;&lt;strong&gt;名称&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;59&quot;&gt;&lt;strong&gt;最好&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;82&quot;&gt;&lt;strong&gt;平均&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;209&quot;&gt;&lt;strong&gt;最坏&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;87&quot;&gt;&lt;strong&gt;内存占用&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;93&quot;&gt;&lt;strong&gt;稳定排序&lt;/strong&gt;&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;86&quot;&gt;插入排序&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;59&quot;&gt;n&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;82&quot;&gt;n&lt;sup&gt;2&lt;/sup&gt;
-&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;209&quot;&gt;n&lt;sup&gt;2&lt;/sup&gt;
-&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;87&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;93&quot;&gt;是&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;86&quot;&gt;选择排序&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;59&quot;&gt;n&lt;sup&gt;2&lt;/sup&gt;
-&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;82&quot;&gt;n&lt;sup&gt;2&lt;/sup&gt;
-&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;209&quot;&gt;n&lt;sup&gt;2&lt;/sup&gt;
-&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;87&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;93&quot;&gt;否&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;86&quot;&gt;希尔排序&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;59&quot;&gt;n&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;82&quot;&gt;nlog&lt;sup&gt;2&lt;/sup&gt;n&lt;br&gt;
-或&lt;br&gt;
-n&lt;sup&gt;3/2&lt;/sup&gt;
-&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;209&quot;&gt;依赖于增量递减序列目前最好的是 nlog&lt;sup&gt;2&lt;/sup&gt;n&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;87&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;93&quot;&gt;否&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;p&gt;希望本文对您了解以上三个基本的排序算法有所帮助，后面将会介绍合并排序和快速排序。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-11-03-79288-60084624e.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79288-60084624e.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>浅谈算法和数据结构（1）：栈和队列</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;最近晚上在家里看&lt;a href=&quot;http://algs4.cs.princeton.edu/home/&quot; target=&quot;_blank&quot;&gt;Algorithems，4th Edition&lt;/a&gt;，我买的&lt;a href=&quot;http://item.jd.com/10944102.html&quot;&gt;英文版&lt;/a&gt;，觉得这本书写的比较浅显易懂，而且“图码并茂”，趁着这次机会打算好好学习做做笔记，这样也会印象深刻，这也是写这一系列文章的原因。另外普林斯顿大学在&lt;a href=&quot;https://www.coursera.org/princeton&quot; target=&quot;_blank&quot;&gt;Coursera&lt;/a&gt; 上也有这本书同步的公开课，还有另外一门&lt;a href=&quot;http://aofa.cs.princeton.edu/home/&quot; target=&quot;_blank&quot;&gt;算法分析&lt;/a&gt;课，这门课程的作者也是这本书的作者，两门课都挺不错的。&lt;/p&gt;
-&lt;p&gt;计算机程序离不开算法和数据结构，本文简单介绍栈(Stack)和队列(Queue)的实现，.NET中与之相关的数据结构，典型应用等，希望能加深自己对这两个简单数据结构的理解。&lt;/p&gt;
-&lt;h1&gt;
-&lt;strong&gt;1. &lt;/strong&gt;&lt;strong&gt;基本概念&lt;/strong&gt;
-&lt;/h1&gt;
-&lt;p&gt;概念很简单，栈 (Stack)是一种后进先出(last in first off，LIFO)的数据结构，而队列(Queue)则是一种先进先出 (fisrt in first out，FIFO)的结构，如下图：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/95672adc43f35eddbb2c60da8731f061.jpg&quot;&gt;&lt;/p&gt;
-&lt;h1&gt;
-&lt;strong&gt;2. &lt;/strong&gt;&lt;strong&gt;实现&lt;/strong&gt;
-&lt;/h1&gt;
-&lt;p&gt;现在来看如何实现以上的两个数据结构。在动手之前，&lt;a href=&quot;http://www.amazon.com/Framework-Design-Guidelines-Conventions-Libraries/dp/0321545613/ref=dp_ob_title_bk&quot; target=&quot;_blank&quot;&gt;Framework Design Guidelines&lt;/a&gt;这本书告诉我们，在设计API或者实体类的时候，应当围绕场景编写API规格说明书。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;1.1 &lt;/strong&gt;&lt;strong&gt;Stack&lt;/strong&gt;&lt;strong&gt;的实现&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;栈是一种后进先出的数据结构，对于Stack 我们希望至少要对外提供以下几个方法：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a4f023dfc8ecf7cf68f59b1352dfe06a.jpg&quot;&gt;&lt;/p&gt;
-&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;251&quot;&gt;&lt;strong&gt;Stack&amp;lt;T&amp;gt;()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;325&quot;&gt;&lt;strong&gt;创建一个空的栈&lt;/strong&gt;&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;251&quot;&gt;&lt;strong&gt;void Push(T s)&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;325&quot;&gt;往栈中添加一个新的元素&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;251&quot;&gt;&lt;strong&gt;T Pop()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;325&quot;&gt;移除并返回最近添加的元素&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;251&quot;&gt;&lt;strong&gt;boolean IsEmpty()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;325&quot;&gt;栈是否为空&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;251&quot;&gt;&lt;strong&gt;int Size()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;325&quot;&gt;栈中元素的个数&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;p&gt;要实现这些功能，我们有两中方法，数组和链表，先看链表实现：&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;栈的链表实现：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;我们首先定义一个内部类来保存每个链表的节点，该节点包括当前的值以及指向下一个的值，然后建立一个节点保存位于栈顶的值以及记录栈的元素个数;&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;class Node
-{
-    public T Item{get;set;}
-    public Node Next { get; set; }
-}&lt;/pre&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;private Node first = null;
-private int number = 0;&lt;/pre&gt;
-&lt;p&gt;现在来实现Push方法，即向栈顶压入一个元素，首先保存原先的位于栈顶的元素，然后新建一个新的栈顶元素，然后将该元素的下一个指向原先的栈顶元素。整个Pop过程如下:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/62251c6475e509dfb8d4790b229b16de.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;实现代码如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;void Push(T node)
-{
-    Node oldFirst = first;
-    first = new Node();
-    first.Item= node;
-    first.Next = oldFirst;
-    number++;
-}&lt;/pre&gt;
-&lt;p&gt;Pop方法也很简单，首先保存栈顶元素的值，然后将栈顶元素设置为下一个元素：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c15c5b486660618914ae3d25494ef642.jpg&quot;&gt;&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;T Pop()
-{
-    T item = first.Item;
-    first = first.Next;
-    number--;
-    return item;
-}&lt;/pre&gt;
-&lt;p&gt;基于链表的Stack实现，在最坏的情况下只需要常量的时间来进行Push和Pop操作。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;栈的数组实现：&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;我们可以使用数组来存储栈中的元素Push的时候，直接添加一个元素S[N]到数组中，Pop的时候直接返回S[N-1].&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0457872639565d4d1d7c730ed7670010.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;首先，我们定义一个数组，然后在构造函数中给定初始化大小，Push方法实现如下，就是集合里添加一个元素：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;T[] item;
-int number = 0;
-
-public StackImplementByArray(int capacity)
-{
-    item = new T[capacity];
-}&lt;/pre&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public void Push(T _item)
-{
-    if (number == item.Length) Resize(2 * item.Length);
-    item[number++] = _item;
-}&lt;/pre&gt;
-&lt;p&gt;Pop方法：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public T Pop()
-{
-    T temp = item[--number];
-    item[number] = default(T);
-    if (number &amp;gt; 0 &amp;amp;&amp;amp; number == item.Length / 4) Resize(item.Length / 2);
-    return temp;
-}&lt;/pre&gt;
-&lt;p&gt;在Push和Pop方法中，为了节省内存空间，我们会对数组进行整理。Push的时候，当元素的个数达到数组的Capacity的时候，我们开辟2倍于当前元素的新数组，然后将原数组中的元素拷贝到新数组中。Pop的时候，当元素的个数小于当前容量的1/4的时候，我们将原数组的大小容量减少1/2。&lt;/p&gt;
-&lt;p&gt;Resize方法基本就是数组复制：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;private void Resize(int capacity)
-{
-    T[] temp = new T[capacity];
-    for (int i = 0; i &amp;lt; item.Length; i++)
-    {
-        temp[i] = item[i];
-    }
-    item = temp;
-}&lt;/pre&gt;
-&lt;p&gt;当我们缩小数组的时候，采用的是判断1/4的情况，这样效率要比1/2要高，因为可以有效避免在1/2附件插入，删除，插入，删除，从而频繁的扩大和缩小数组的情况。下图展示了在插入和删除的情况下数组中的元素以及数组大小的变化情况：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/eba639d8b3b043b96011953e3b79dea0.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;分析：1. Pop和Push操作在最坏的情况下与元素个数成比例的N的时间，时间主要花费在扩大或者缩小数组的个数时，数组拷贝上。&lt;/p&gt;
-&lt;p&gt;2. 元素在内存中分布紧凑，密度高，便于利用内存的时间和空间局部性，便于CPU进行缓存，较LinkList内存占用小，效率高。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;2.2 Queue&lt;/strong&gt;&lt;strong&gt;的实现&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;Queue是一种先进先出的数据结构，和Stack一样，他也有链表和数组两种实现，理解了Stack的实现后，Queue的实现就比较简单了。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/8f6832c36a07960a3192f8954bb7ef1b.jpg&quot;&gt;&lt;/p&gt;
-&lt;table border=&quot;1&quot; cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;216&quot;&gt;&lt;strong&gt;Stack&amp;lt;T&amp;gt;()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;360&quot;&gt;&lt;strong&gt;创建一个空的队列&lt;/strong&gt;&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;216&quot;&gt;&lt;strong&gt;void Enqueue(T s)&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;360&quot;&gt;往队列中添加一个新的元素&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;216&quot;&gt;&lt;strong&gt;T Dequeue()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;360&quot;&gt;移除队列中最早添加的元素&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;216&quot;&gt;&lt;strong&gt;boolean IsEmpty()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;360&quot;&gt;队列是否为空&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot; width=&quot;216&quot;&gt;&lt;strong&gt;int Size()&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot; width=&quot;360&quot;&gt;队列中元素的个数&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;p&gt;首先看链表的实现：&lt;/p&gt;
-&lt;p&gt;Dequeue方法就是返回链表中的第一个元素，这个和Stack中的Pop方法相似：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public T Dequeue()
-{
-    T temp = first.Item;
-    first = first.Next;
-    number--;
-    if (IsEmpety())
-        last = null;
-    return temp;
-}&lt;/pre&gt;
-&lt;p&gt;Enqueue和Stack的Push方法不同，他是在链表的末尾增加新的元素：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public void Enqueue(T item)
-{
-    Node oldLast = last;
-    last = new Node();
-    last.Item = item;
-    if (IsEmpety())
-    {
-        first = last;
-    }
-    else
-    {
-        oldLast.Next = last;
-    }
-    number++;
-}&lt;/pre&gt;
-&lt;p&gt;同样地，现在再来看如何使用数组来实现Queue，首先我们使用数组来保存数据，并定义变量head和tail来记录Queue的首尾元素。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/09d660a87b0bf9822e2812d3118b7ad9.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;和Stack的实现方式不同，在Queue中，我们定义了head和tail来记录头元素和尾元素。当enqueue的时候，tial加1，将元素放在尾部，当dequeue的时候，head减1，并返回。&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public void Enqueue(T _item)
-{
-    if ((head - tail + 1) == item.Length) Resize(2 * item.Length);
-    item[tail++] = _item;
-}
-
-public T Dequeue()
-{
-    T temp = item[--head];
-    item[head] = default(T);
-    if (head &amp;gt; 0 &amp;amp;&amp;amp; (tail - head + 1) == item.Length / 4) Resize(item.Length / 2);
-    return temp;
-}
-
-private void Resize(int capacity)
-{
-    T[] temp = new T[capacity];
-    int index = 0;
-    for (int i = head; i &amp;lt; tail; i++)
-    {
-        temp[++index] = item[i];
-    }
-    item = temp;
-}&lt;/pre&gt;
-&lt;h1&gt;
-&lt;strong&gt;3. &lt;/strong&gt;&lt;strong&gt;.NET&lt;/strong&gt;&lt;strong&gt;中的&lt;/strong&gt;&lt;strong&gt;Stack&lt;/strong&gt;&lt;strong&gt;和&lt;/strong&gt;&lt;strong&gt;Queue&lt;/strong&gt;
-&lt;/h1&gt;
-&lt;p&gt;在.NET中有Stack和Queue泛型类，使用Reflector工具可以查看其具体实现。先看Stack的实现，下面是截取的部分代码，仅列出了Push，Pop方法，其他的方法希望大家自己使用Reflector查看：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/fd1162b4a720ad16ed2190e2afdf3ccc.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;可以看到.NET中的Stack的实现和我们之前写的差不多，也是使用数组来实现的。.NET中Stack的初始容量为4，在Push方法中，可以看到当元素个数达到数组长度时，扩充2倍容量，然后将原数组拷贝到新的数组中。Pop方法和我们之前实现的基本上相同，下面是具体代码，只截取了部分：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;[Serializable, ComVisible(false), DebuggerTypeProxy(typeof(System_StackDebugView&amp;lt;&amp;gt;)), DebuggerDisplay(&quot;Count = {Count}&quot;), __DynamicallyInvokable]
-public class Stack&amp;lt;T&amp;gt; : IEnumerable&amp;lt;T&amp;gt;, ICollection, IEnumerable
-{
-    // Fields
-    private T[] _array;
-    private const int _defaultCapacity = 4;
-    private static T[] _emptyArray;
-    private int _size;
-    private int _version;
-
-    // Methods
-    static Stack()
-    {
-        Stack&amp;lt;T&amp;gt;._emptyArray = new T[0];
-    }
-
-    [__DynamicallyInvokable]
-    public Stack()
-    {
-        this._array = Stack&amp;lt;T&amp;gt;._emptyArray;
-        this._size = 0;
-        this._version = 0;
-    }
-
-    [__DynamicallyInvokable]
-    public Stack(int capacity)
-    {
-        if (capacity &amp;lt; 0)
-        {
-            ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.capacity, ExceptionResource.ArgumentOutOfRange_NeedNonNegNumRequired);
-        }
-        this._array = new T[capacity];
-        this._size = 0;
-        this._version = 0;
-    }
-
-    [__DynamicallyInvokable]
-    public void CopyTo(T[] array, int arrayIndex)
-    {
-        if (array == null)
-        {
-            ThrowHelper.ThrowArgumentNullException(ExceptionArgument.array);
-        }
-        if ((arrayIndex &amp;lt; 0) || (arrayIndex &amp;gt; array.Length))
-        {
-            ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.arrayIndex, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
-        }
-        if ((array.Length - arrayIndex) &amp;lt; this._size)
-        {
-            ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
-        }
-        Array.Copy(this._array, 0, array, arrayIndex, this._size);
-        Array.Reverse(array, arrayIndex, this._size);
-    }
-
-    [__DynamicallyInvokable]
-    public T Pop()
-    {
-        if (this._size == 0)
-        {
-            ThrowHelper.ThrowInvalidOperationException(ExceptionResource.InvalidOperation_EmptyStack);
-        }
-        this._version++;
-        T local = this._array[--this._size];
-        this._array[this._size] = default(T);
-        return local;
-    }
-
-    [__DynamicallyInvokable]
-    public void Push(T item)
-    {
-        if (this._size == this._array.Length)
-        {
-            T[] destinationArray = new T[(this._array.Length == 0) ? 4 : (2 * this._array.Length)];
-            Array.Copy(this._array, 0, destinationArray, 0, this._size);
-            this._array = destinationArray;
-        }
-        this._array[this._size++] = item;
-        this._version++;
-    }
-
-    // Properties
-    [__DynamicallyInvokable]
-    public int Count
-    {
-        [__DynamicallyInvokable, TargetedPatchingOptOut(&quot;Performance critical to inline this type of method across NGen image boundaries&quot;)]
-        get
-        {
-            return this._size;
-        }
-    }
-
-}&lt;/pre&gt;
-&lt;p&gt;下面再看看Queue的实现：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;  [Serializable, DebuggerDisplay(&quot;Count = {Count}&quot;), ComVisible(false), DebuggerTypeProxy(typeof(System_QueueDebugView&amp;lt;&amp;gt;)), __DynamicallyInvokable]
-    public class Queue&amp;lt;T&amp;gt; : IEnumerable&amp;lt;T&amp;gt;, ICollection, IEnumerable
-    {
-        // Fields
-        private T[] _array;
-        private const int _DefaultCapacity = 4;
-        private static T[] _emptyArray;
-        private int _head;
-        private int _size;
-        private int _tail;
-        private int _version;
-        // Methods
-        static Queue()
-        {
-            Queue&amp;lt;T&amp;gt;._emptyArray = new T[0];
-        }
-
-        public Queue()
-        {
-            this._array = Queue&amp;lt;T&amp;gt;._emptyArray;
-        }
-
-        public Queue(int capacity)
-        {
-            if (capacity &amp;lt; 0)
-            {
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.capacity, ExceptionResource.ArgumentOutOfRange_NeedNonNegNumRequired);
-            }
-            this._array = new T[capacity];
-            this._head = 0;
-            this._tail = 0;
-            this._size = 0;
-        }
-
-        public T Dequeue()
-        {
-            if (this._size == 0)
-            {
-                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.InvalidOperation_EmptyQueue);
-            }
-            T local = this._array[this._head];
-            this._array[this._head] = default(T);
-            this._head = (this._head + 1) % this._array.Length;
-            this._size--;
-            this._version++;
-            return local;
-        }
-
-        public void Enqueue(T item)
-        {
-            if (this._size == this._array.Length)
-            {
-                int capacity = (int)((this._array.Length * 200L) / 100L);
-                if (capacity &amp;lt; (this._array.Length + 4))
-                {
-                    capacity = this._array.Length + 4;
-                }
-                this.SetCapacity(capacity);
-            }
-            this._array[this._tail] = item;
-            this._tail = (this._tail + 1) % this._array.Length;
-            this._size++;
-            this._version++;
-        }
-
-        private void SetCapacity(int capacity)
-        {
-            T[] destinationArray = new T[capacity];
-            if (this._size &amp;gt; 0)
-            {
-                if (this._head &amp;lt; this._tail)
-                {
-                    Array.Copy(this._array, this._head, destinationArray, 0, this._size);
-                }
-                else
-                {
-                    Array.Copy(this._array, this._head, destinationArray, 0, this._array.Length - this._head);
-                    Array.Copy(this._array, 0, destinationArray, this._array.Length - this._head, this._tail);
-                }
-            }
-            this._array = destinationArray;
-            this._head = 0;
-            this._tail = (this._size == capacity) ? 0 : this._size;
-            this._version++;
-        }
-
-        public int Count
-        {
-            [__DynamicallyInvokable, TargetedPatchingOptOut(&quot;Performance critical to inline this type of method across NGen image boundaries&quot;)]
-            get
-            {
-                return this._size;
-            }
-        }
-    }&lt;/pre&gt;
-&lt;p&gt;可以看到.NET中Queue的实现也是基于数组的，定义了head和tail，当长度达到数组的容量的时候，使用了SetCapacity方法来进行扩容和拷贝。&lt;/p&gt;
-&lt;h1&gt;
-&lt;strong&gt;4. &lt;/strong&gt;&lt;strong&gt;Stack&lt;/strong&gt;&lt;strong&gt;和&lt;/strong&gt;&lt;strong&gt;Queue&lt;/strong&gt;&lt;strong&gt;的应用&lt;/strong&gt;
-&lt;/h1&gt;
-&lt;p&gt;Stack这种数据结构用途很广泛，比如编译器中的词法分析器、Java虚拟机、软件中的撤销操作、浏览器中的回退操作，编译器中的函数调用实现等等。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;4.1 线程堆 (Thread Stack)&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://stackoverflow.com/questions/79923/what-and-where-are-the-stack-and-heap?rq=1&quot; target=&quot;_blank&quot;&gt;线程堆&lt;/a&gt;是操作系型系统分配的一块内存区域。通常CPU上有一个特殊的称之为堆指针的寄存器 (stack pointer) 。在程序初始化时，该指针指向栈顶，栈顶的地址最大。CPU有特殊的指令可以将值Push到线程堆上，以及将值Pop出堆栈。每一次Push操作都将值存放到堆指针指向的地方，并将堆指针递减。每一次Pop都将堆指针指向的值从堆中移除，然后堆指针递增，堆是向下增长的。Push到线程堆，以及从线程堆中Pop的值都存放到CPU的寄存器中。&lt;/p&gt;
-&lt;p&gt;当发起函数调用的时候，CPU使用特殊的指令将当前的指令指针(instruction pointer)，如当前执行的代码的地址压入到堆上。然后CPU通过设置指令指针到函数调用的地址来跳转到被调用的函数去执行。当函数返回值时，旧的指令指针从堆中Pop出来，然后从该指令地址之后继续执行。&lt;/p&gt;
-&lt;p&gt;当进入到被调用的函数中时，堆指针减小来在堆上为函数中的局部变量分配更多的空间。如果函数中有一个32位的变量分配到了堆中，当函数返回时，堆指针就返回到之前的函数调用处，分配的空间就会被释放。&lt;/p&gt;
-&lt;p&gt;如果函数有参数，这些参数会在函数调用之前就被分配在堆上，函数中的代码可以从当前堆往上访问到这些参数。&lt;/p&gt;
-&lt;p&gt;线程堆是一块有一定限制的内存空间，如果调用了过多的嵌套函数，或者局部变量分配了过多的内存空间，就会产生堆栈溢出的错误。&lt;/p&gt;
-&lt;p&gt;下图简单显示了线程堆的变化情况。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/69e607b82f585a161bae8b77c7d2ef70.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;4.2 算术表达式的求值&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;Stack使用的一个最经典的例子就是算术表达式的求值了，这其中还包括前缀表达式和后缀表达式的求值。&lt;a href=&quot;http://en.wikipedia.org/wiki/Edsger_Dijkstra&quot; target=&quot;_blank&quot;&gt;E. W. Dijkstra&lt;/a&gt;发明了使用&lt;a href=&quot;http://heracleia.uta.edu/~vangelis/CSE2320_FALL13/Lectures/Lecture04-DemoDijkstraTwoStack.pdf&quot; target=&quot;_blank&quot;&gt;两个Stack&lt;/a&gt;，一个保存操作值，一个保存操作符的方法来实现表达式的求值，具体步骤如下：&lt;/p&gt;
-&lt;p&gt;1) 当输入的是值的时候Push到属于值的栈中。&lt;/p&gt;
-&lt;p&gt;2) 当输入的是运算符的时候，Push到运算符的栈中。&lt;/p&gt;
-&lt;p&gt;3) 当遇到左括号的时候，忽略&lt;/p&gt;
-&lt;p&gt;4) 当遇到右括号的时候，Pop一个运算符，Pop两个值，然后将计算结果Push到值的栈中。&lt;/p&gt;
-&lt;p&gt;下面是在C#中的一个简单的括号表达式的求值：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;/// &amp;lt;summary&amp;gt;
-/// 一个简单的表达式运算
-/// &amp;lt;/summary&amp;gt;
-/// &amp;lt;param name=&quot;args&quot;&amp;gt;&amp;lt;/param&amp;gt;
-static void Main(string[] args)
-{
-    Stack&amp;lt;char&amp;gt; operation = new Stack&amp;lt;char&amp;gt;();
-    Stack&amp;lt;Double&amp;gt; values = new Stack&amp;lt;double&amp;gt;();
-    //为方便，直接使用ToChar对于两位数的数组问题
-    Char[] charArray = Console.ReadLine().ToCharArray();
-
-    foreach (char s in charArray)
-    {
-        if (s.Equals(&#39;(&#39;)) { }
-        else if (s.Equals(&#39;+&#39;)) operation.Push(s);
-        else if (s.Equals(&#39;*&#39;)) operation.Push(s);
-        else if (s.Equals(&#39;)&#39;))
-        {
-            char op = operation.Pop();
-            if (op.Equals(&#39;+&#39;))
-                values.Push(values.Pop() + values.Pop());
-            else if (op.Equals(&#39;*&#39;))
-                values.Push(values.Pop() * values.Pop());
-        }
-        else values.Push(Double.Parse(s.ToString()));
-    }
-    Console.WriteLine(values.Pop());
-    Console.ReadKey();
-}&lt;/pre&gt;
-&lt;p&gt;运行结果如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/78789226dbfeb09554169ec8444eb597.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;下图演示了操作栈和数据栈的变化。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/af472fa9cce5029223a07cdb9c14aa99.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;在编译器技术中，前缀表达式，后缀表达式的求值都会用到堆。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;4.3 Object-C中以及OpenGL中的图形绘制&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;在Object-C以及OpenGL中都存在”绘图上下文”，有时候我们对局部对象的绘图不希望影响到全局的设置，所以需要保存上一次的绘图状态。下面是Object-C中绘制一个圆形的典型代码：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;- (void)drawGreenCircle:(CGContextRef)ctxt {
-    UIGraphicsPushContext(ctxt);
-    [[UIColor greenColor] setFill];
-    // draw my circle
-    UIGraphicsPopContext();
-}
-
-- (void)drawRect:(CGRect)aRect {
-    CGContextRef context = UIGraphicsGetCurrentContext();
-    [[UIColor redColor] setFill];
-    // do some stuff
-    [self drawGreenCircle:context];
-    // do more stuff and expect fill color to be red
-}&lt;/pre&gt;
-&lt;p&gt;可以看到，在drawGreenCircle方法中，在设置填充颜色之前，我们Push保存了绘图上下文的信息，然后在设置当前操作的一些环境变量，绘制图形，绘制完成之后，我们Pop出之前保存的绘图上下文信息，从而不影响后面的绘图。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;4.4 一些其他场景&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;有一个场景是利用stack 处理多余无效的请求，比如用户长按键盘，或者在很短的时间内连续按某一个功能键，我们需要过滤到这些无效的请求。一个通常的做法是将所有的请求都压入到堆中，然后要处理的时候Pop出来一个，这个就是最新的一次请求。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;Queue的应用&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;在现实生活中Queue的应用也很广泛，最广泛的就是排队了，”先来后到” First come first service ，以及Queue这个单词就有排队的意思。&lt;/p&gt;
-&lt;p&gt;还有，比如我们的播放器上的播放列表，我们的数据流对象，异步的数据传输结构(文件IO，管道通讯，套接字等)&lt;/p&gt;
-&lt;p&gt;还有一些解决对共享资源的冲突访问，比如打印机的打印队列等。消息队列等。交通状况模拟，呼叫中心用户等待的时间的模拟等等。&lt;/p&gt;
-&lt;h1&gt;
-&lt;strong&gt;5. &lt;/strong&gt;&lt;strong&gt;一点点感悟&lt;/strong&gt;
-&lt;/h1&gt;
-&lt;p&gt;本文简单介绍了Stack和Queue的原理及实现，并介绍了一些应用。&lt;/p&gt;
-&lt;p&gt;最后一点点感悟就是不要为了使用数据结构而使用数据结构。举个例子，之前看到过一个&lt;a href=&quot;http://blog.zhaojie.me/2009/05/1491052.html&quot; target=&quot;_blank&quot;&gt;数组反转&lt;/a&gt;的问题，刚学过Stack可能会想，这个简单啊，直接将字符串挨个的Push进去，然后Pop出来就可以了，完美的解决方案。但是，这是不是最有效地呢，其实有更有效地方法，那就是以中间为对折，然后左右两边替换。&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;public static void Reverse(int[] array, int begin, int end)
-{
-    while (end &amp;gt; begin)
-    {
-        int temp = array[begin];
-        array[begin] = array[end];
-        array[end] = temp;
-
-        begin++;
-        end--;
-    }
-}&lt;/pre&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-11-03-79267-ab4b1396e.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79267-ab4b1396e.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>浅谈算法和数据结构（11）：哈希表</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;在前面的系列文章中，依次介绍了基于无序列表的&lt;a href=&quot;http://blog.jobbole.com/79267/&quot; target=&quot;_blank&quot;&gt;顺序查找&lt;/a&gt;，&lt;a href=&quot;http://blog.jobbole.com/79305/&quot; target=&quot;_blank&quot;&gt;基于有序数组的二分查找&lt;/a&gt;，&lt;a href=&quot;http://blog.jobbole.com/79307/&quot; target=&quot;_blank&quot;&gt;平衡查找树&lt;/a&gt;，以及&lt;a href=&quot;http://blog.jobbole.com/79309/&quot; target=&quot;_blank&quot;&gt;红黑树&lt;/a&gt;，下图是它们在平均以及最差情况下的时间复杂度：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/24490d2d4d28caa6941025f435b2f78b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;可以看到在时间复杂度上，红黑树在平均情况下插入，查找以及删除上都达到了lgN的时间复杂度。&lt;/p&gt;
-&lt;p&gt;那么有没有查找效率更高的数据结构呢，答案就是本文接下来要介绍了散列表，也叫哈希表(Hash Table)&lt;/p&gt;
-&lt;h1&gt;什么是哈希表&lt;/h1&gt;
-&lt;p&gt;哈希表就是一种以 键-值(key-indexed) 存储数据的结构，我们只要输入待查找的值即key，即可查找到其对应的值。&lt;/p&gt;
-&lt;p&gt;哈希的思路很简单，如果所有的键都是整数，那么就可以使用一个简单的无序数组来实现：将键作为索引，值即为其对应的值，这样就可以快速访问任意键的值。这是对于简单的键的情况，我们将其扩展到可以处理更加复杂的类型的键。&lt;/p&gt;
-&lt;p&gt;使用哈希查找有两个步骤:&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;使用哈希函数将被查找的键转换为数组的索引。在理想的情况下，不同的键会被转换为不同的索引值，但是在有些情况下我们需要处理多个键被哈希到同一个索引值的情况。所以哈希查找的第二个步骤就是处理冲突&lt;/li&gt;
-&lt;li&gt;处理哈希碰撞冲突。有很多处理哈希碰撞冲突的方法，本文后面会介绍拉链法和线性探测法。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;哈希表是一个在时间和空间上做出权衡的经典例子。如果没有内存限制，那么可以直接将键作为数组的索引。那么所有的查找时间复杂度为O(1)；如果没有时间限制，那么我们可以使用无序数组并进行顺序查找，这样只需要很少的内存。哈希表使用了适度的时间和空间来在这两个极端之间找到了平衡。只需要调整哈希函数算法即可在时间和空间上做出取舍。&lt;/p&gt;
-&lt;h1&gt;哈希函数&lt;/h1&gt;
-&lt;p&gt;哈希查找第一步就是使用哈希函数将键映射成索引。这种映射函数就是哈希函数。如果我们有一个保存0-M数组，那么我们就需要一个能够将任意键转换为该数组范围内的索引（0~M-1）的哈希函数。哈希函数需要易于计算并且能够均匀分布所有键。比如举个简单的例子，使用手机号码后三位就比前三位作为key更好，因为前三位手机号码的重复率很高。再比如使用身份证号码出生年月位数要比使用前几位数要更好。&lt;/p&gt;
-&lt;p&gt;在实际中，我们的键并不都是数字，有可能是字符串，还有可能是几个值的组合等，所以我们需要实现自己的哈希函数。&lt;/p&gt;
-&lt;h2&gt;1. 正整数&lt;/h2&gt;
-&lt;p&gt;获取正整数哈希值最常用的方法是使用除留余数法。即对于大小为素数M的数组，对于任意正整数k，计算k除以M的余数。M一般取素数。&lt;/p&gt;
-&lt;h2&gt;2. 字符串&lt;/h2&gt;
-&lt;p&gt;将字符串作为键的时候，我们也可以将他作为一个大的整数，采用保留除余法。我们可以将组成字符串的每一个字符取值然后进行哈希，比如&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public int GetHashCode(string str)
-{
-    char[] s = str.ToCharArray();
-    int hash = 0;
-    for (int i = 0; i &amp;lt; s.Length; i++)
-    {
-        hash = s[i] + (31 * hash); 
-    }
-    return hash;
-}&lt;/pre&gt;
-&lt;p&gt;上面的哈希值是Horner计算字符串哈希值的方法，公式为:&lt;/p&gt;
-&lt;p&gt;&lt;em&gt;&lt;strong&gt;   &lt;/strong&gt;h = s[0] · 31&lt;sup&gt;L–1&lt;/sup&gt; + … + s[L – 3] · 31&lt;sup&gt;2&lt;/sup&gt; + s[L – 2] · 31&lt;sup&gt;1&lt;/sup&gt; + s[L – 1] · 31&lt;sup&gt;0&lt;/sup&gt;&lt;/em&gt;&lt;/p&gt;
-&lt;p&gt;举个例子，比如要获取”call”的哈希值，字符串c对应的unicode为99，a对应的unicode为97，L对应的unicode为108，所以字符串”call”的哈希值为 3045982 = 99·31&lt;sup&gt;3&lt;/sup&gt; + 97·31&lt;sup&gt;2&lt;/sup&gt; + 108·31&lt;sup&gt;1&lt;/sup&gt; + 108·31&lt;sup&gt;0 &lt;/sup&gt;= 108 + 31· (108 + 31 · (97 + 31 · (99)))&lt;/p&gt;
-&lt;p&gt;如果对每个字符去哈希值可能会比较耗时，所以可以通过间隔取N个字符来获取哈西值来节省时间，比如，可以 获取每8-9个字符来获取哈希值：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public int GetHashCode(string str)
-{
-    char[] s = str.ToCharArray();
-    int hash = 0;
-    int skip = Math.Max(1, s.Length / 8);
-    for (int i = 0; i &amp;lt; s.Length; i+=skip)
-    {
-        hash = s[i] + (31 * hash);
-    }
-    return hash;
-}&lt;/pre&gt;
-&lt;p&gt;但是，对于某些情况，不同的字符串会产生相同的哈希值，这就是前面说到的哈希冲突（Hash Collisions），比如下面的四个字符串：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/f6a0e00e48270b1bcfcfbc43513b5933.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;如果我们按照每8个字符取哈希的话，就会得到一样的哈希值。所以下面来讲解如何解决哈希碰撞：&lt;/p&gt;
-&lt;h1&gt;避免哈希冲突&lt;/h1&gt;
-&lt;h2&gt;拉链法 (&lt;a href=&quot;http://en.wikipedia.org/wiki/Hash_table#Separate_chaining_with_linked_lists&quot; target=&quot;_blank&quot;&gt;Separate chaining with linked lists&lt;/a&gt;)&lt;/h2&gt;
-&lt;p&gt;通过哈希函数，我们可以将键转换为数组的索引(0-M-1)，但是对于两个或者多个键具有相同索引值的情况，我们需要有一种方法来处理这种冲突。&lt;/p&gt;
-&lt;p&gt;一种比较直接的办法就是，将大小为M 的数组的每一个元素指向一个条链表，链表中的每一个节点都存储散列值为该索引的键值对，这就是拉链法。下图很清楚的描述了什么是&lt;a href=&quot;http://en.wikipedia.org/wiki/Hash_table&quot; target=&quot;_blank&quot;&gt;拉链法&lt;/a&gt;。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/0dda838f10365368624ce5e73e2d104f.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;图中，”John Smith”和”Sandra Dee” 通过哈希函数都指向了152 这个索引，该索引又指向了一个链表， 在链表中依次存储了这两个字符串。&lt;/p&gt;
-&lt;p&gt;该方法的基本思想就是选择足够大的M，使得所有的链表都尽可能的短小，以保证查找的效率。对采用拉链法的哈希实现的查找分为两步，首先是根据散列值找到等一应的链表，然后沿着链表顺序找到相应的键。 我们现在使用我们之前介绍符号表中的使用无序链表实现的查找表&lt;a href=&quot;http://www.cnblogs.com/yangecnu/p/Introduce-Symbol-Table-and-Elementary-Implementations.html&quot; target=&quot;_blank&quot;&gt;SequentSearchSymbolTable&lt;/a&gt; 来实现我们这里的哈希表。当然，您也可以使用.NET里面内置的LinkList。&lt;/p&gt;
-&lt;p&gt;首先我们需要定义一个链表的总数，在内部我们定义一个&lt;a href=&quot;http://www.cnblogs.com/yangecnu/p/Introduce-Symbol-Table-and-Elementary-Implementations.html&quot; target=&quot;_blank&quot;&gt;SequentSearchSymbolTable&lt;/a&gt;的数组。然后每一个映射到索引的地方保存一个这样的数组。&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public class SeperateChainingHashSet&amp;lt;TKey, TValue&amp;gt; : SymbolTables&amp;lt;TKey, TValue&amp;gt; where TKey : IComparable&amp;lt;TKey&amp;gt;, IEquatable&amp;lt;TKey&amp;gt;
-{
-    private int M;//散列表大小
-    private SequentSearchSymbolTable&amp;lt;TKey, TValue&amp;gt;[] st;//
-
-    public SeperateChainingHashSet()
-        : this(997)
-    {
-
-    }
-
-    public SeperateChainingHashSet(int m)
-    {
-        this.M = m;
-        st = new SequentSearchSymbolTable&amp;lt;TKey, TValue&amp;gt;[m];
-        for (int i = 0; i &amp;lt; m; i++)
-        {
-            st[i] = new SequentSearchSymbolTable&amp;lt;TKey, TValue&amp;gt;();
-        }
-    }
-
-    private int hash(TKey key)
-    {
-        return (key.GetHashCode() &amp;amp; 0x7fffffff) % M;
-    }
-
-    public override TValue Get(TKey key)
-    {
-        return st[hash(key)].Get(key);
-    }
-
-    public override void Put(TKey key, TValue value)
-    {
-        st[hash(key)].Put(key, value);
-    }
-
-}&lt;/pre&gt;
-&lt;p&gt;可以看到，该实现中使用&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Get方法来获取指定key的Value值，我们首先通过hash方法来找到key对应的索引值，即找到SequentSearchSymbolTable数组中存储该元素的查找表，然后调用查找表的Get方法，根据key找到对应的Value。&lt;/li&gt;
-&lt;li&gt;Put方法用来存储键值对，首先通过hash方法找到改key对应的哈希值，然后找到SequentSearchSymbolTable数组中存储该元素的查找表，然后调用查找表的Put方法，将键值对存储起来。&lt;/li&gt;
-&lt;li&gt;hash方法来计算key的哈希值， 这里首先通过取与&amp;amp;操作，将符号位去除，然后采用除留余数法将key应到到0-M-1的范围，这也是我们的查找表数组索引的范围。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;实现基于拉链表的散列表，目标是选择适当的数组大小M，使得既不会因为空链表而浪费内存空间，也不会因为链表太而在查找上浪费太多时间。拉链表的优点在于，这种数组大小M的选择不是关键性的，如果存入的键多于预期，那么查找的时间只会比选择更大的数组稍长，另外，我们也可以使用更高效的结构来代替链表存储。如果存入的键少于预期，索然有些浪费空间，但是查找速度就会很快。所以当内存不紧张时，我们可以选择足够大的M，可以使得查找时间变为常数，如果内存紧张时，选择尽量大的M仍能够将性能提高M倍。&lt;/p&gt;
-&lt;h2&gt;线性探测法&lt;/h2&gt;
-&lt;p&gt;线性探测法是&lt;a href=&quot;http://en.wikipedia.org/wiki/Hash_table&quot; target=&quot;_blank&quot;&gt;开放寻址法&lt;/a&gt;解决哈希冲突的一种方法，基本原理为，使用大小为M的数组来保存N个键值对，其中M&amp;gt;N，我们需要使用数组中的空位解决碰撞冲突。如下图所示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/32f8a55df0c8da31dd0b980ed2353664.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;对照前面的拉链法，在该图中，”Ted Baker” 是有唯一的哈希值153的，但是由于153被”Sandra Dee”占用了。而原先”Snadra Dee”和”John Smith”的哈希值都是152的，但是在对”Sandra Dee”进行哈希的时候发现152已经被占用了，所以往下找发现153没有被占用，所以存放在153上，然后”Ted Baker”哈希到153上，发现已经被占用了，所以往下找，发现154没有被占用，所以值存到了154上。&lt;/p&gt;
-&lt;p&gt;开放寻址法中最简单的是线性探测法：当碰撞发生时即一个键的散列值被另外一个键占用时，直接检查散列表中的下一个位置即将索引值加1，这样的线性探测会出现三种结果：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;命中，该位置的键和被查找的键相同&lt;/li&gt;
-&lt;li&gt;未命中，键为空&lt;/li&gt;
-&lt;li&gt;继续查找，该位置和键被查找的键不同。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;实现线性探测法也很简单，我们只需要两个大小相同的数组分别记录key和value。&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public class LinearProbingHashSet&amp;lt;TKey, TValue&amp;gt; : SymbolTables&amp;lt;TKey, TValue&amp;gt; where TKey : IComparable&amp;lt;TKey&amp;gt;, IEquatable&amp;lt;TKey&amp;gt;
-{
-    private int N;//符号表中键值对的总数
-    private int M = 16;//线性探测表的大小
-    private TKey[] keys;
-    private TValue[] values;
-
-    public LinearProbingHashSet()
-    {
-        keys = new TKey[M];
-        values = new TValue[M];
-    }
-
-    private int hash(TKey key)
-    {
-        return (key.GetHashCode() &amp;amp; 0xFFFFFFF) % M;
-    }
-
-    public override TValue Get(TKey key)
-    {
-        for (int i = hash(key); keys[i] != null; i = (i + 1) % M)
-        {
-            if (key.Equals(keys[i])) { return values[i]; }
-        }
-        return default(TValue);
-    }
-
-    public override void Put(TKey key, TValue value)
-    {
-        int hashCode = hash(key);
-        for (int i = hashCode; keys[i] != null; i = (i + 1) % M)
-        {
-            if (keys[i].Equals(key))//如果和已有的key相等，则用新值覆盖
-            {
-                values[i] = value;
-                return;
-            }
-            //插入
-            keys[i] = key;
-            values[i] = value;
-        }
-    }
-}&lt;/pre&gt;
-&lt;p&gt;线性探查（Linear Probing）方式虽然简单，但是有一些问题，它会导致同类哈希的聚集。在存入的时候存在冲突，在查找的时候冲突依然存在。&lt;/p&gt;
-&lt;h2&gt;性能分析&lt;/h2&gt;
-&lt;p&gt;我们可以看到，哈希表存储和查找数据的时候分为两步，第一步为将键通过哈希函数映射为数组中的索引， 这个过程可以认为是只需要常数时间的。第二步是，如果出现哈希值冲突，如何解决，前面介绍了拉链法和线性探测法下面就这两种方法进行讨论：&lt;/p&gt;
-&lt;p&gt;对于拉链法，查找的效率在于链表的长度，一般的我们应该保证长度在M/8~M/2之间，如果链表的长度大于M/2，我们可以扩充链表长度。如果长度在0~M/8时，我们可以缩小链表。&lt;/p&gt;
-&lt;p&gt;对于线性探测法，也是如此，但是动态调整数组的大小需要对所有的值从新进行重新散列并插入新的表中。&lt;/p&gt;
-&lt;p&gt;不管是拉链法还是散列法，这种动态调整链表或者数组的大小以提高查询效率的同时，还应该考虑动态改变链表或者数组大小的成本。散列表长度加倍的插入需要进行大量的探测， 这种均摊成本在很多时候需要考虑。&lt;/p&gt;
-&lt;h1&gt;哈希碰撞攻击&lt;/h1&gt;
-&lt;p&gt;我们知道如果哈希函数选择不当会使得大量的键都会映射到相同的索引上，不管是采用拉链法还是开放寻址法解决冲突，在后面查找的时候都需要进行多次探测或者查找， 在很多时候会使得哈希表的查找效率退化，而不再是常数时间。下图清楚的描述了退化后的哈希表：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/f23d41ad908b9319573c80affd0ab31e.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;哈希表攻击就是通过精心构造哈希函数，使得所有的键经过哈希函数后都映射到同一个或者几个索引上，将哈希表退化为了一个单链表，这样哈希表的各种操作，比如插入，查找都从O(1)退化到了链表的查找操作，这样就会消耗大量的CPU资源，导致系统无法响应，从而达到拒绝服务供给(Denial of Service, Dos)的目的。之前由于多种编程语言的哈希算法的“非随机”而出现了&lt;a href=&quot;http://coolshell.cn/articles/6424.html#comment-122061&quot; target=&quot;_blank&quot;&gt;Hash碰撞的DoS安全漏洞&lt;/a&gt;，在&lt;a href=&quot;http://www.securityweek.com/hash-table-collision-attacks-could-trigger-ddos-massive-scale&quot; target=&quot;_blank&quot;&gt;ASP.NET&lt;/a&gt;中也曾出现过&lt;a href=&quot;https://technet.microsoft.com/library/security/ms11-100&quot; target=&quot;_blank&quot;&gt;这一问题&lt;/a&gt;。&lt;/p&gt;
-&lt;p&gt;在.NET中String的哈希值内部实现中，通过使用哈希值随机化来对这种问题进行了限制，通过对碰撞次数设置阈值，超过该阈值就对哈希函数进行随机化，这也是防止哈希表退化的一种做法。下面是BCL中string类型的GetHashCode方法的实现，可以看到，当碰撞超过一定次数的时候，就会开启条件编译，对哈希函数进行随机化。&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;[ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail), SecuritySafeCritical, __DynamicallyInvokable]
-public override unsafe int GetHashCode()
-{
-    if (HashHelpers.s_UseRandomizedStringHashing)
-    {
-        return InternalMarvin32HashString(this, this.Length, 0L);
-    }
-    fixed (char* str = ((char*) this))
-    {
-        char* chPtr = str;
-        int num = 0x15051505;
-        int num2 = num;
-        int* numPtr = (int*) chPtr;
-        int length = this.Length;
-        while (length &amp;gt; 2)
-        {
-            num = (((num &amp;lt;&amp;lt; 5) + num) + (num &amp;gt;&amp;gt; 0x1b)) ^ numPtr[0];
-            num2 = (((num2 &amp;lt;&amp;lt; 5) + num2) + (num2 &amp;gt;&amp;gt; 0x1b)) ^ numPtr[1];
-            numPtr += 2;
-            length -= 4;
-        }
-        if (length &amp;gt; 0)
-        {
-            num = (((num &amp;lt;&amp;lt; 5) + num) + (num &amp;gt;&amp;gt; 0x1b)) ^ numPtr[0];
-        }
-        return (num + (num2 * 0x5d588b65));
-    }
-}&lt;/pre&gt;
-&lt;h1&gt;.NET中哈希的实现&lt;/h1&gt;
-&lt;p&gt;我们可以通过在线源码查看.NET 中&lt;a href=&quot;http://referencesource.microsoft.com/#mscorlib/system/collections/generic/dictionary.cs&quot; target=&quot;_blank&quot;&gt;Dictionary&lt;/a&gt;，类型的实现，我们知道任何作为key的值添加到Dictionary中时，首先会获取key的hashcode，然后将其映射到不同的bucket中去：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;public Dictionary(int capacity, IEqualityComparer&amp;lt;TKey&amp;gt; comparer) {
-    if (capacity &amp;lt; 0) ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.capacity);
-    if (capacity &amp;gt; 0) Initialize(capacity);
-    this.comparer = comparer ?? EqualityComparer&amp;lt;TKey&amp;gt;.Default;
-}&lt;/pre&gt;
-&lt;p&gt;在Dictionary初始化的时候，会如果传入了大小，会初始化bucket 就是调用Initialize方法：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;private void Initialize(int capacity) {
-    int size = HashHelpers.GetPrime(capacity);
-    buckets = new int[size];
-    for (int i = 0; i &amp;lt; buckets.Length; i++) buckets[i] = -1;
-    entries = new Entry[size];
-    freeList = -1;
-}&lt;/pre&gt;
-&lt;p&gt;我们可以看看Dictonary的Add方法，Add方法在内部调用了Insert方法：&lt;/p&gt;
-&lt;pre class=&quot;brush: java; gutter: true&quot;&gt;private void Insert(TKey key, TValue value, bool add) 
-{
-        if( key == null ) {
-            ThrowHelper.ThrowArgumentNullException(ExceptionArgument.key);
-        }
-
-        if (buckets == null) Initialize(0);
-        int hashCode = comparer.GetHashCode(key) &amp;amp; 0x7FFFFFFF;
-        int targetBucket = hashCode % buckets.Length;
-
-#if FEATURE_RANDOMIZED_STRING_HASHING
-        int collisionCount = 0;
-#endif
-
-        for (int i = buckets[targetBucket]; i &amp;gt;= 0; i = entries[i].next) {
-            if (entries[i].hashCode == hashCode &amp;amp;&amp;amp; comparer.Equals(entries[i].key, key)) {
-                if (add) { 
-                    ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_AddingDuplicate);
-                }
-                entries[i].value = value;
-                version++;
-                return;
-            } 
-
-#if FEATURE_RANDOMIZED_STRING_HASHING
-            collisionCount++;
-#endif
-        }
-        int index;
-        if (freeCount &amp;gt; 0) {
-            index = freeList;
-            freeList = entries[index].next;
-            freeCount--;
-        }
-        else {
-            if (count == entries.Length)
-            {
-                Resize();
-                targetBucket = hashCode % buckets.Length;
-            }
-            index = count;
-            count++;
-        }
-
-        entries[index].hashCode = hashCode;
-        entries[index].next = buckets[targetBucket];
-        entries[index].key = key;
-        entries[index].value = value;
-        buckets[targetBucket] = index;
-        version++;
-
-#if FEATURE_RANDOMIZED_STRING_HASHING
-        if(collisionCount &amp;gt; HashHelpers.HashCollisionThreshold &amp;amp;&amp;amp; HashHelpers.IsWellKnownEqualityComparer(comparer)) 
-        {
-            comparer = (IEqualityComparer&amp;lt;TKey&amp;gt;) HashHelpers.GetRandomizedEqualityComparer(comparer);
-            Resize(entries.Length, true);
-        }
-#endif
-
-    }&lt;/pre&gt;
-&lt;p&gt;首先，根据key获取其hashcode，然后将hashcode除以backet的大小取余映射到目标backet中，然后遍历该bucket存储的链表，如果找到和key相同的值，如果不允许后添加的键与存在的键相同替换值(add)，则抛出异常，如果允许，则替换之前的值，然后返回。&lt;/p&gt;
-&lt;p&gt;如果没有找到，则将新添加的值放到新的bucket中，当空余空间不足的时候，会进行扩容操作(Resize)，然后重新hash到目标bucket。这里面需要注意的是Resize操作比较消耗资源。&lt;/p&gt;
-&lt;h1&gt;总结&lt;/h1&gt;
-&lt;p&gt;前面几篇文章先后介绍了基于无序列表的&lt;a href=&quot;http://www.cnblogs.com/yangecnu/p/Introduction-Stack-and-Queue.html&quot; target=&quot;_blank&quot;&gt;顺序查找&lt;/a&gt;，&lt;a href=&quot;http://www.cnblogs.com/yangecnu/p/Introduce-Binary-Search-Tree.html&quot; target=&quot;_blank&quot;&gt;基于有序数组的二分查找&lt;/a&gt;，&lt;a href=&quot;http://www.cnblogs.com/yangecnu/p/Introduce-2-3-Search-Tree.html&quot; target=&quot;_blank&quot;&gt;平衡查找树&lt;/a&gt;，以及&lt;a href=&quot;http://www.cnblogs.com/yangecnu/p/Introduce-Red-Black-Tree.html&quot; target=&quot;_blank&quot;&gt;红黑树&lt;/a&gt;，本篇文章最后介绍了查找算法中的最后一类即符号表又称哈希表,并介绍了哈希函数以及处理哈希冲突的两种方法：拉链法和线性探测法。各种查找算法的最坏和平均条件下各种操作的时间复杂度如下图:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/1f267cfbb17b19127ada80a9542e7820.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;在实际编写代码中，如何选择合适的数据结构需要根据具体的数据规模，查找效率要求，时间和空间局限来做出合适的选择。希望本文以及前面的几篇文章对您有所帮助。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;参考资料&lt;/strong&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&quot;http://blog.codinglabs.org/articles/hash-collisions-attack-on-php.html&quot; target=&quot;_blank&quot;&gt;PHP哈希表碰撞攻击原理&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://blog.zhaojie.me/2013/01/think-in-detail-why-its-o-1.html&quot; target=&quot;_blank&quot;&gt;真是O(1)吗？想清楚了没？&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://msdn.microsoft.com/en-us/library/system.string.gethashcode.aspx&quot; target=&quot;_blank&quot;&gt;String.GetHashCode Method&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://referencesource.microsoft.com/#mscorlib/system/collections/generic/dictionary.cs&quot; target=&quot;_blank&quot;&gt;.NET Dictionary Source Code&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-11-03-79261-99f62516d.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79261-99f62516d.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>10分钟掌握XML、JSON及其解析</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;h1&gt;引言&lt;/h1&gt;
-&lt;p&gt;NOKIA 有句著名的广告语：“&lt;strong&gt;&lt;em&gt;科技以人为本&lt;/em&gt;&lt;/strong&gt;”。任何技术都是为了满足人的生产生活需要而产生的。具体到小小的一个手机，里面蕴含的技术也是浩如烟海，是几千年来人类科技的结晶，单个人穷其一生也未必能掌握其一角。不过个人一直认为基本的技术和思想是放之四海而皆准的，许多技术未必需要我们从头到尾再研究一遍，我们要做的就是站在巨人的肩膀上，利用其成果来为人们的需求服务。&lt;/p&gt;
-&lt;p&gt;随着移动互联网时代的大潮，越来越多的App&lt;strong&gt;不光是需要和网络服务器进行数据传输和交互，也需要和其他 App 进行数据传递&lt;/strong&gt;。承担App与网络来进行传输和存储数据的一般是XML或者JSON。在移动互联网时代，XML和JSON很重要。&lt;/p&gt;
-&lt;p&gt;最近一段时间，个人综合了之前对XML、JSON的一些了解，参考了相关资料，再结合视频的代码，把自己的一些思考融入了这篇总结文档中，同时尝试用通俗诙谐的语言风格来阐述，期望能给感兴趣的读者带来帮助。&lt;/p&gt;
-&lt;p&gt;为了不和时代落伍，我们必须要学习 XML 和 JSON，但同时它们也很容易学习，Let’s start:–)&lt;/p&gt;
-&lt;h1&gt;一、XML&lt;/h1&gt;
-&lt;p&gt;XML即&lt;strong&gt;可扩展标记语言&lt;/strong&gt;(&lt;strong&gt;&lt;em&gt;eXtensible Markup Language&lt;/em&gt;&lt;/strong&gt;)。标记是指计算机所能理解的信息符号，通过此种标记，计算机之间可以处理包含各种信息的文章等。如何定义这些标记，既可以选择国际通用的标记语言，比如HTML，也可以使用象XML这样由相关人士自由决定的标记语言，这就是语言的可扩展性。XML是从SGML中简化修改出来的。它主要用到的有XML、XSL和XPath等。&lt;/p&gt;
-&lt;p&gt;上面这段是对XML的一个基本定义，一个被广泛接受的说明。简单说，XML就是一种数据的描述语言，虽然它是语言，但是通常情况下，它并不具备常见语言的基本功能——被计算机识别并运行。只有依靠另一种语言，来解释它，使它达到你想要的效果或被计算机所接受。&lt;/p&gt;
-&lt;p&gt;记住以下几点就行了：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;XML是一种标记语言，很类似HTML&lt;/li&gt;
-&lt;li&gt;XML的设计宗旨是传输数据，而非显示数据&lt;/li&gt;
-&lt;li&gt;XML标签没有被预定义。您需要自行定义标签。&lt;/li&gt;
-&lt;li&gt;XML被设计为具有自我描述性。&lt;/li&gt;
-&lt;li&gt;XML是W3C的推荐标准&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;总结：&lt;/p&gt;
-&lt;p&gt;XML是独立于软件和硬件的信息传输工具。 目前，XML在Web中起到的作用不会亚于一直作为 Web 基石的 HTML。 &lt;strong&gt;XML无所不在&lt;/strong&gt;。XML是各种应用程序之间进行&lt;strong&gt;数据传输的最常用的工具&lt;/strong&gt;，并且在信息存储和描述领域变得越来越流行。&lt;/p&gt;
-&lt;h2&gt;1.1 XML属性&lt;/h2&gt;
-&lt;h3&gt;1.1.1 XML与HTML的主要差异&lt;/h3&gt;
-&lt;ul&gt;
-&lt;li&gt;XML不是HTML的替代。&lt;/li&gt;
-&lt;li&gt;XML和HTML为不同的目的而设计。&lt;/li&gt;
-&lt;li&gt;XML被设计为传输和存储数据，其焦点是数据的内容。&lt;/li&gt;
-&lt;li&gt;HTML被设计用来显示数据，其焦点是数据的外观。&lt;/li&gt;
-&lt;li&gt;HTML旨在显示信息，而 XML 旨在传输信息&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h3&gt;1.1.2 XML是不作为的。&lt;/h3&gt;
-&lt;p&gt;也许这有点难以理解，但是XML不会做任何事情。XML被设计用来&lt;strong&gt;结构化、存储以及传输信息&lt;/strong&gt;。&lt;/p&gt;
-&lt;p&gt;下面是John写给George的便签，存储为XML：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;note&amp;gt;
-&amp;lt;to&amp;gt;George&amp;lt;/to&amp;gt;
-&amp;lt;from&amp;gt;John&amp;lt;/from&amp;gt;
-&amp;lt;heading&amp;gt;Reminder&amp;lt;/heading&amp;gt;
-&amp;lt;body&amp;gt;Don&#39;t forget the meeting!&amp;lt;/body&amp;gt;
-&amp;lt;/note&amp;gt;&lt;/pre&gt;
-&lt;p&gt;上面的这条便签具有自我描述性。它拥有标题以及留言，同时包含了发送者和接受者的信息。但是，这个 XML 文档仍然没有做任何事情。它仅仅是包装在XML标签中的纯粹的信息。我们需要编写软件或者程序，才能传送、接收和显示出这个文档。&lt;/p&gt;
-&lt;h3&gt;1.1.3 XML仅仅是纯文本&lt;/h3&gt;
-&lt;p&gt;XML没什么特别的。它仅仅是纯文本而已。有能力处理纯文本的软件都可以处理XML。 不过，能够读懂 XML 的应用程序可以有针对性地处理 XML 的标签。标签的功能性意义依赖于应用程序的特性。&lt;/p&gt;
-&lt;h3&gt;1.1.4 XML允许自定义标签&lt;/h3&gt;
-&lt;p&gt;上例中的标签没有在任何XML标准中定义过（比如和）。这些标签是由文档的创作者发明的。这是因为XML没有预定义的标签。&lt;/p&gt;
-&lt;p&gt;在HTML中使用的标签（以及HTML的结构）是预定义的。HTML文档只使用在HTML标准中定义过的标签（比如&lt;code&gt;&amp;lt;p&amp;gt;&lt;/code&gt;，&lt;code&gt;&amp;lt;h1&amp;gt;&lt;/code&gt; 等等）。&lt;/p&gt;
-&lt;p&gt;XML允许创作者定义自己的标签和自己的文档结构。&lt;/p&gt;
-&lt;h3&gt;1.1.5 XML不是对HTML的替代&lt;/h3&gt;
-&lt;p&gt;XML是对HTML的补充。&lt;/p&gt;
-&lt;p&gt;XML不会替代HTML，理解这一点很重要。在大多数 web 应用程序中，XML用于传输数据，而HTML用于格式化并显示数据。&lt;/p&gt;
-&lt;h2&gt;1.2 XML的语法&lt;/h2&gt;
-&lt;p&gt;XML的语法规则很简单，且很有逻辑。这些规则很容易学习，也很容易使用。&lt;/p&gt;
-&lt;h4&gt;1.2.1 所有元素都必须有关闭标签&lt;/h4&gt;
-&lt;p&gt;在XML中，省略关闭标签是非法的。所有元素都&lt;strong&gt;必须有关闭标签&lt;/strong&gt;。 在HTML，经常会看到没有关闭标签的元素：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;p&amp;gt;This is a paragraph
-&amp;lt;p&amp;gt;This is another paragraph&lt;/pre&gt;
-&lt;p&gt;在XML中，省略关闭标签是非法的。所有元素都必须有关闭标签：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;&amp;lt;p&amp;gt;This is a paragraph&amp;lt;/p&amp;gt;
-&amp;lt;p&amp;gt;This is another paragraph&amp;lt;/p&amp;gt;&lt;/pre&gt;
-&lt;p&gt;注释：您也许已经注意到XML声明没有关闭标签。这不是错误。声明不属于XML本身的组成部分。它不是XML元素，也不需要关闭标签。&lt;/p&gt;
-&lt;h4&gt;1.2.2 XML标签对大小写敏感&lt;/h4&gt;
-&lt;p&gt;XML元素使用XML标签进行定义。&lt;/p&gt;
-&lt;p&gt;XML标签对大小写敏感。在XML中，标签与标签是不同的。&lt;/p&gt;
-&lt;p&gt;必须使用相同的大小写来编写打开标签和关闭标签：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;Message&amp;gt;这是错误的。&amp;lt;/message&amp;gt;
-&amp;lt;message&amp;gt;这是正确的。&amp;lt;/message&amp;gt;&lt;/pre&gt;
-&lt;h4&gt;1.2.3 XML标签对大小写敏感&lt;/h4&gt;
-&lt;p&gt;在 HTML 中，常会看到没有正确嵌套的元素：&lt;/p&gt;
-&lt;pre class=&quot;brush: html; gutter: true&quot;&gt;&amp;lt;b&amp;gt;&amp;lt;i&amp;gt;This text is bold and italic&amp;lt;/b&amp;gt;&amp;lt;/i&amp;gt;&lt;/pre&gt;
-&lt;p&gt;在 XML中，所有元素都必须彼此正确地嵌套：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;b&amp;gt;&amp;lt;i&amp;gt;This text is bold and italic&amp;lt;/i&amp;gt;&amp;lt;/b&amp;gt;&lt;/pre&gt;
-&lt;p&gt;在上例中，正确嵌套的意思是：由于&lt;code&gt;&amp;lt;i&amp;gt;&lt;/code&gt;元素是在&lt;code&gt;&amp;lt;b&amp;gt;&lt;/code&gt;元素内打开的，那么它必须在&lt;code&gt;&amp;lt;b&amp;gt;&lt;/code&gt;元素内关闭。&lt;/p&gt;
-&lt;h4&gt;1.2.4 XML文档必须有根元素&lt;/h4&gt;
-&lt;p&gt;XML文档必须有一个元素是所有其他元素的父元素。该元素称为根元素。&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;root&amp;gt;
-  &amp;lt;child&amp;gt;
-    &amp;lt;subchild&amp;gt;.....&amp;lt;/subchild&amp;gt;
-  &amp;lt;/child&amp;gt;
-&amp;lt;/root&amp;gt;&lt;/pre&gt;
-&lt;h4&gt;1.2.5 XML的属性值须加引号&lt;/h4&gt;
-&lt;p&gt;与 HTML 类似，XML 也可拥有属性（名称/值的对）。 在 XML 中，XML 的属性值须加引号。请研究下面的两个 XML 文档。第一个是错误的，第二个是正确的：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;note date=08/08/2008&amp;gt;
-&amp;lt;to&amp;gt;George&amp;lt;/to&amp;gt;
-&amp;lt;from&amp;gt;John&amp;lt;/from&amp;gt;
-&amp;lt;/note&amp;gt; 
-
-&amp;lt;note date=&quot;08/08/2008&quot;&amp;gt;
-&amp;lt;to&amp;gt;George&amp;lt;/to&amp;gt;
-&amp;lt;from&amp;gt;John&amp;lt;/from&amp;gt;
-&amp;lt;/note&amp;gt;&lt;/pre&gt;
-&lt;h4&gt;1.2.6 实体引用&lt;/h4&gt;
-&lt;p&gt;在 XML 中，一些字符拥有特殊的意义。 如果你把字符 “&amp;lt;” 放在 XML 元素中，会发生错误，这是因为解析器会把它当作新元素的开始。 这样会产生 XML 错误：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;message&amp;gt;if salary &amp;lt; 1000 then&amp;lt;/message&amp;gt;&lt;/pre&gt;
-&lt;p&gt;为了避免这个错误，请用实体引用来代替 “&amp;lt;” 字符：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;message&amp;gt;if salary &amp;amp;lt; 1000 then&amp;lt;/message&amp;gt;&lt;/pre&gt;
-&lt;p&gt;在 XML 中，有 5 个预定义的实体引用：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;amp;lt;    &amp;lt;   小于
-&amp;amp;gt;    &amp;gt;   大于
-&amp;amp;amp;   &amp;amp;   和号
-&#39;  &#39;   单引号
-&amp;amp;quot;  &quot;   引号&lt;/pre&gt;
-&lt;p&gt;注释：在 XML 中，只有字符 “&amp;lt;” 和 “&amp;amp;” 确实是非法的。大于号是合法的，但是用实体引用来代替它是一个好习惯。&lt;/p&gt;
-&lt;h4&gt;1.2.7 XML中的注释&lt;/h4&gt;
-&lt;p&gt;在 XML 中编写注释的语法与 HTML 的语法很相似：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;!-- This is a comment --&amp;gt;&lt;/pre&gt;
-&lt;p&gt;在 XML 中，空格会被保留 HTML 会把多个连续的空格字符裁减（合并）为一个：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;HTML:   Hello           my name is David.&lt;/pre&gt;
-&lt;p&gt;输出: Hello my name is David. 在 XML 中，文档中的空格不会被删节。&lt;/p&gt;
-&lt;h4&gt;1.2.8 以 LF 存储换行&lt;/h4&gt;
-&lt;p&gt;在 Windows 应用程序中，换行通常以一对字符来存储：回车符 (CR) 和换行符 (LF)。这对字符与打字机设置新行的动作有相似之处。在 Unix 应用程序中，新行以 LF 字符存储。而 Macintosh 应用程序使用CR来存储新行。&lt;/p&gt;
-&lt;h3&gt;1.3 XML CDATA&lt;/h3&gt;
-&lt;p&gt;所有XML文档中的文本均会被解析器解析。&lt;/p&gt;
-&lt;p&gt;只有CDATA区段（CDATA section）中的文本会被解析器忽略。&lt;/p&gt;
-&lt;h4&gt;1.3.1 PCDATA&lt;/h4&gt;
-&lt;p&gt;PCDATA指的是被解析的字符数据（Parsed Character Data）。&lt;/p&gt;
-&lt;p&gt;XML解析器通常会解析XML文档中所有的文本。 当某个XML元素被解析时，其标签之间的文本也会被解析：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;message&amp;gt;此文本也会被解析&amp;lt;/message&amp;gt;&lt;/pre&gt;
-&lt;p&gt;解析器之所以这么做是因为 XML 元素可包含其他元素，就像这个例子中，其中的元素包含着另外的两个元素(first和last)：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;&amp;lt;name&amp;gt;&amp;lt;first&amp;gt;Bill&amp;lt;/first&amp;gt;&amp;lt;last&amp;gt;Gates&amp;lt;/last&amp;gt;&amp;lt;/name&amp;gt;&lt;/pre&gt;
-&lt;p&gt;而解析器会把它分解为像这样的子元素：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;&amp;lt;name&amp;gt;
-   &amp;lt;first&amp;gt;Bill&amp;lt;/first&amp;gt;
-   &amp;lt;last&amp;gt;Gates&amp;lt;/last&amp;gt;
-&amp;lt;/name&amp;gt;&lt;/pre&gt;
-&lt;h4&gt;1.3.2 转义字符&lt;/h4&gt;
-&lt;p&gt;非法的XML字符必须被替换为实体引用（entity reference）。&lt;/p&gt;
-&lt;p&gt;假如您在XML文档中放置了一个类似 “&amp;lt;” 字符，那么这个文档会产生一个错误，这是因为解析器会把它解释为新元素的开始。因此你不能这样写：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;message&amp;gt;if salary &amp;lt; 1000 then&amp;lt;/message&amp;gt;&lt;/pre&gt;
-&lt;p&gt;为了避免此类错误，需要把字符 “&amp;lt;” 替换为实体引用，就像这样：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;message&amp;gt;if salary &amp;amp;lt; 1000 then&amp;lt;/message&amp;gt;&lt;/pre&gt;
-&lt;p&gt;在 XML 中有 5 个预定义的实体引用：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;amp;lt;    &amp;lt;   小于
-&amp;amp;gt;    &amp;gt;   大于
-&amp;amp;amp;   &amp;amp;   和号
-&#39;  &#39;   省略号
-&amp;amp;quot;  &quot;   引号&lt;/pre&gt;
-&lt;p&gt;注释：严格地讲，在XML中仅有字符”&amp;lt;“和”&amp;amp;“是非法的。省略号、引号和大于号是合法的，但是把它们替换为实体引用是个好的习惯。&lt;/p&gt;
-&lt;h4&gt;1.3.3 CDATA&lt;/h4&gt;
-&lt;p&gt;术语CDATA指的是不应由XML解析器进行解析的文本数据（Unparsed Character Data）。&lt;/p&gt;
-&lt;p&gt;在 XML 元素中，”&amp;lt;“ 和 ”&amp;amp;“ 是非法的。&lt;/p&gt;
-&lt;p&gt;“&amp;lt;” 会产生错误，因为解析器会把该字符解释为新元素的开始。 “&amp;amp;” 也会产生错误，因为解析器会把该字符解释为字符实体的开始。&lt;/p&gt;
-&lt;p&gt;某些文本，比如 JavaScript 代码，包含大量 “&amp;lt;” 或 “&amp;amp;” 字符。为了避免错误，可以将脚本代码定义为 CDATA。 CDATA 部分中的所有内容都会被解析器忽略。 CDATA 部分由 “&amp;lt;![CDATA[” 开始，由 “]]&amp;gt;” 结束：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&amp;gt;
-&amp;lt;response&amp;gt; 
-  &amp;lt;header&amp;gt; 
-    &amp;lt;respcode&amp;gt;0&amp;lt;/respcode&amp;gt;  
-    &amp;lt;total&amp;gt;1736&amp;lt;/total&amp;gt; 
-  &amp;lt;/header&amp;gt;  
-  &amp;lt;result&amp;gt; 
-    &amp;lt;album&amp;gt; 
-      &amp;lt;album_id&amp;gt;320305900&amp;lt;/album_id&amp;gt;  
-      &amp;lt;title&amp;gt; &amp;lt;![CDATA[ 电影侃侃之初恋永不早 ]]&amp;gt; &amp;lt;/title&amp;gt;  
-      &amp;lt;tag&amp;gt; &amp;lt;![CDATA[ 18岁以上 当代 暧昧 华语 ]]&amp;gt; &amp;lt;/tag&amp;gt;  
-      &amp;lt;img&amp;gt;http://pic9.qiyipic.com/image/20141016/ec/e0/v_108639906_m_601_120_160.jpg&amp;lt;/img&amp;gt;  
-      &amp;lt;img180236&amp;gt;http://pic9.qiyipic.com/image/20141016/ec/e0/v_108639906_m_601_180_236.jpg&amp;lt;/img180236&amp;gt;  
-      &amp;lt;img11577&amp;gt;http://pic9.qiyipic.com/image/20141016/ec/e0/v_108639906_m_601_115_77.jpg&amp;lt;/img11577&amp;gt;  
-      &amp;lt;img220124&amp;gt;http://pic9.qiyipic.com/image/20141016/ec/e0/v_108639906_m_601_284_160.jpg&amp;lt;/img220124&amp;gt;  
-      &amp;lt;category_id&amp;gt;1&amp;lt;/category_id&amp;gt;  
-      &amp;lt;score&amp;gt;0.0&amp;lt;/score&amp;gt;  
-      &amp;lt;voters&amp;gt;0&amp;lt;/voters&amp;gt;  
-      &amp;lt;tv_sets&amp;gt;0&amp;lt;/tv_sets&amp;gt;  
-      &amp;lt;duration&amp;gt;00:38:57&amp;lt;/duration&amp;gt;  
-      &amp;lt;year&amp;gt; &amp;lt;![CDATA[ 2014 ]]&amp;gt; &amp;lt;/year&amp;gt;  
-      &amp;lt;tv_focus&amp;gt;跟爱情片学把妹心经&amp;lt;/tv_focus&amp;gt;  
-      &amp;lt;episode_count&amp;gt;1&amp;lt;/episode_count&amp;gt;  
-      &amp;lt;directors&amp;gt; &amp;lt;![CDATA[ 关雅荻 ]]&amp;gt; &amp;lt;/directors&amp;gt;  
-      &amp;lt;mainactors&amp;gt; &amp;lt;![CDATA[ 关雅荻 ]]&amp;gt; &amp;lt;/mainactors&amp;gt;  
-      &amp;lt;actors&amp;gt; &amp;lt;![CDATA[ ]]&amp;gt; &amp;lt;/actors&amp;gt;  
-      &amp;lt;vv2&amp;gt; &amp;lt;![CDATA[ 15 ]]&amp;gt; &amp;lt;/vv2&amp;gt;  
-      &amp;lt;timeText&amp;gt; &amp;lt;![CDATA[ 今天 ]]&amp;gt; &amp;lt;/timeText&amp;gt;  
-      &amp;lt;first_issue_time&amp;gt; &amp;lt;![CDATA[ 2014-10-16 ]]&amp;gt; &amp;lt;/first_issue_time&amp;gt;  
-      &amp;lt;up&amp;gt;0&amp;lt;/up&amp;gt;  
-      &amp;lt;down&amp;gt;0&amp;lt;/down&amp;gt;  
-      &amp;lt;download&amp;gt;1&amp;lt;/download&amp;gt;  
-      &amp;lt;purchase_type&amp;gt;0&amp;lt;/purchase_type&amp;gt;  
-      &amp;lt;hot_or_new&amp;gt;0&amp;lt;/hot_or_new&amp;gt;  
-      &amp;lt;createtime&amp;gt;2014-10-16 12:25:08&amp;lt;/createtime&amp;gt;  
-      &amp;lt;purchase&amp;gt;0&amp;lt;/purchase&amp;gt;  
-      &amp;lt;desc&amp;gt; &amp;lt;![CDATA[
-本期节目主持人介绍新近上映的口碑爱情片，。主持人轻松幽默的罗列出胡鳄鱼导演拍摄的爱情片越来越接地气，博得观众的认同和追捧，更提出“初恋永远不嫌早”的口号。观众可以跟着爱情片学习把妹心经。
-]]&amp;gt; &amp;lt;/desc&amp;gt;  
-      &amp;lt;ip_limit&amp;gt;1&amp;lt;/ip_limit&amp;gt;  
-      &amp;lt;episodes/&amp;gt; 
-    &amp;lt;/album&amp;gt; 
-  &amp;lt;/result&amp;gt; 
-&amp;lt;/response&amp;gt;&lt;/pre&gt;
-&lt;h6&gt;这是展示一部电影的具体数据，包括标题、介绍、内容、导演、演员、时长、上映年份等很多内容。&lt;/h6&gt;
-&lt;h2&gt;1.5 XML树结构&lt;/h2&gt;
-&lt;p&gt;&lt;strong&gt;XML文档形成了一种树结构，它从“根部”开始，然后扩展到“枝叶”。&lt;/strong&gt;&lt;/p&gt;
-&lt;h3&gt;1.5.1 一个XML文档实例&lt;/h3&gt;
-&lt;p&gt;XML使用简单的具有自我描述性的语法：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;?xml version=&quot;1.0&quot; encoding=&quot;ISO-8859-1&quot;?&amp;gt;
-&amp;lt;note&amp;gt;
-&amp;lt;to&amp;gt;George&amp;lt;/to&amp;gt;
-&amp;lt;from&amp;gt;John&amp;lt;/from&amp;gt;
-&amp;lt;heading&amp;gt;Reminder&amp;lt;/heading&amp;gt;
-&amp;lt;body&amp;gt;Don&#39;t forget the meeting!&amp;lt;/body&amp;gt;
-&amp;lt;/note&amp;gt;&lt;/pre&gt;
-&lt;p&gt;第一行是XML声明。它定义XML的版本(1.0)和所使用的编码(ISO-8859-1=Latin-1/西欧字符集)。&lt;/p&gt;
-&lt;p&gt;下一行描述文档的根元素（像在说：“本文档是一个便签”）：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;note&amp;gt;&lt;/pre&gt;
-&lt;p&gt;接下来 4 行描述根的 4 个子元素（to, from, heading 以及 body）：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;to&amp;gt;George&amp;lt;/to&amp;gt;
-&amp;lt;from&amp;gt;John&amp;lt;/from&amp;gt;
-&amp;lt;heading&amp;gt;Reminder&amp;lt;/heading&amp;gt;
-&amp;lt;body&amp;gt;Don&#39;t forget the meeting!&amp;lt;/body&amp;gt;&lt;/pre&gt;
-&lt;p&gt;最后一行定义根元素的结尾：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;/note&amp;gt;&lt;/pre&gt;
-&lt;p&gt;从本例可以设想，该XML文档包含了John给George的一张便签。&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;XML具有出色的自我描述性，你同意吗？&lt;/li&gt;
-&lt;li&gt;XML文档形成一种树结构&lt;/li&gt;
-&lt;li&gt;XML文档必须包含根元素。该元素是所有其他元素的父元素。&lt;/li&gt;
-&lt;li&gt;XML文档中的元素形成了一棵文档树。这棵树从根部开始，并扩展到树的最底端。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;所有元素均可拥有子元素：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;&amp;lt;root&amp;gt;
-  &amp;lt;child&amp;gt;
-    &amp;lt;subchild&amp;gt;.....&amp;lt;/subchild&amp;gt;
-  &amp;lt;/child&amp;gt;
-&amp;lt;/root&amp;gt;&lt;/pre&gt;
-&lt;p&gt;父、子以及同胞等术语用于描述元素之间的关系。父元素拥有子元素。相同层级上的子元素成为同胞（兄弟或姐妹）。&lt;/p&gt;
-&lt;p&gt;所有元素均可拥有文本内容和属性（类似HTML中）。&lt;/p&gt;
-&lt;h2&gt;1.6 XML DOM&lt;/h2&gt;
-&lt;p&gt;想到这里，大家都有点迫不及待了，XML 文件到底如何解析呢？&lt;/p&gt;
-&lt;p&gt;但是，别急，让子弹先飞会儿:–)&lt;/p&gt;
-&lt;p&gt;在XML解析之前，我们必须系统性的学习一下 XML DOM 知识：&lt;/p&gt;
-&lt;h3&gt;1.6.1 定义&lt;/h3&gt;
-&lt;p&gt;XML DOM(&lt;strong&gt;XML Document Object Model&lt;/strong&gt;) 定义了访问和操作XML文档的标准方法。&lt;/p&gt;
-&lt;p&gt;DOM把XML文档作为树结构来查看。能够通过DOM树来访问所有元素。可以修改或删除它们的内容，并创建新的元素。元素，它们的文本，以及它们的属性，都被认为是节点。&lt;/p&gt;
-&lt;p&gt;XML DOM是：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;用于XML的标准对象模型&lt;/li&gt;
-&lt;li&gt;用于XML的标准编程接口&lt;/li&gt;
-&lt;li&gt;中立于平台和语言&lt;/li&gt;
-&lt;li&gt;W3C的标准&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;XML DOM定义了所有XML元素的对象和属性，以及访问它们的方法（接口）。&lt;/p&gt;
-&lt;p&gt;换句话说：&lt;/p&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;XML DOM是用于获取、更改、添加或删除XML元素的标准&lt;/pre&gt;
-&lt;h5&gt;DOM将XML文档作为一个树形结构，而树叶被定义为节点。&lt;/h5&gt;
-&lt;h3&gt;1.6.2 总结&lt;/h3&gt;
-&lt;p&gt;XML DOM其实比较复杂，在这么短的篇幅里也无法一一进行讲解。想详细了解XML DOM可以好好去学习下&lt;/p&gt;
-&lt;h2&gt;1.7 XML如何解析？&lt;/h2&gt;
-&lt;p&gt;上面讲了这么多关于XML的东西，那么XML文件应该如何解析呢？&lt;/p&gt;
-&lt;p&gt;终于到了我们的重头戏了&lt;/p&gt;
-&lt;p&gt;下面以视频项目为例，展示如何解析XML文件：&lt;/p&gt;
-&lt;h3&gt;1.7.1 Step 1&lt;/h3&gt;
-&lt;h5&gt;XML文件是一棵树，首先需要找到对应的节点，然后从节点开始解析，比如搜索找到的就是result/weights/weight 和result/weights/weight 2个节点，分别从这个开始解析：&lt;/h5&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;public ResultInfo onParser(Element rootElement) {
-    int resp = -1;
-    try {
-        String elName = &quot;header/respcode&quot;;
-        resp = Integer.parseInt(selectNodeString(rootElement, elName));
-    } catch (NumberFormatException e) {
-        e.printStackTrace();
-    }
-
-    Log.d(TAG, &quot;resp= &quot; + resp);
-
-    if (resp != 0) {
-        return null;
-    }
-
-    ResultInfo searchResultInfo = new ResultInfo();
-
-    // Parse Search Weight
-    @SuppressWarnings(&quot;rawtypes&quot;)
-    final List weights = rootElement.selectNodes(rootElement.getPath() + &quot;/&quot;
-            + &quot;result/weights/weight&quot;);
-
-    ResultInfo[] resultFilterInfos = parseVideos(weights);
-    if (resultFilterInfos != null) {
-        ResultInfo weight = new ResultInfo();
-        weight.putResultInfoArray(ResultInfo.KEY_VIDEOS, resultFilterInfos);
-        searchResultInfo.putResultInfo(ResultInfo.KEY_WEIGHT, weight);
-    }
-
-    // Parse Albums
-    @SuppressWarnings(&quot;rawtypes&quot;)
-    final List albums = rootElement.selectNodes(rootElement.getPath() + &quot;/&quot;
-            + &quot;result/albums/album&quot;);
-
-    ResultInfo[] resultInfos = parseVideos(albums);
-    if (resultInfos != null) {
-        ResultInfo album = new ResultInfo();
-        album.putResultInfoArray(ResultInfo.KEY_VIDEOS, resultInfos);
-        searchResultInfo.putResultInfo(ResultInfo.KEY_SEARCH, album);
-    }
-
-    return searchResultInfo;
-}&lt;/pre&gt;
-&lt;h3&gt;1.7.2 Step 2&lt;/h3&gt;
-&lt;h5&gt;　找到了对应的Node，即从对应的Node开始递归的查找，直到找到最小的节点，也就是最基本的单元Element。再对每一个Element进行解析：&lt;/h5&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;private ResultInfo[] parseVideos(final List nodes) {
-    if (nodes != null &amp;amp;&amp;amp; nodes.size() &amp;gt; 0) {
-        final int size = nodes.size();
-        final ResultInfo[] vis = new ResultInfo[size];
-        int i = 0;
-        for (Object o : nodes) {
-            if (o instanceof Element) {
-                final Element videoElement = (Element) o;
-                ResultInfo vi = parseVideo(videoElement);
-                vis[i] = vi;
-            }
-            i++;
-        }
-        return vis;
-    }
-    return null;
-}&lt;/pre&gt;
-&lt;h3&gt;1.7.3 Step 3&lt;/h3&gt;
-&lt;h5&gt;　针对获取到的Element，解析出对应的String将数据传递给VideoInfo这个类：&lt;/h5&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;private ResultInfo parseVideo(final Element videoElement) {
-    final String id = videoElement.elementText(&quot;album_id&quot;);
-    final String title = videoElement.elementText(&quot;title&quot;);
-    final String categoryId = videoElement.elementText(&quot;category_id&quot;);
-    final String categoryName = videoElement.elementText(&quot;category_name&quot;);
-    final String count = videoElement.elementText(&quot;count&quot;);
-    final String imgUrl = videoElement.elementText(&quot;img180236&quot;);
-    final String duration = videoElement.elementText(&quot;duration&quot;);
-    final String mainactors = videoElement.elementText(&quot;mainactors&quot;);
-    final String sitename = videoElement.elementText(&quot;site_name&quot;);
-    final String videourl = videoElement.elementText(&quot;vedio_url&quot;);
-    final String sort = videoElement.elementText(&quot;sort&quot;);
-    final String tv_id = videoElement.elementText(&quot;tv_id&quot;);
-    ResultInfo vi = new ResultInfo();
-    vi.putString(VideoInfo.ID, id);
-    vi.putString(VideoInfo.TITLE, title);
-    vi.putString(VideoInfo.CATEGORY_ID, categoryId);
-    vi.putString(VideoInfo.CATEGORY_NAME, categoryName);
-    vi.putString(VideoInfo.COUNT, count);
-    vi.putString(VideoInfo.IMG_URL, imgUrl);
-    vi.putString(VideoInfo.DURATION, duration);
-    vi.putString(VideoInfo.MAINACTORS, mainactors);
-    vi.putString(VideoInfo.SITENAME, sitename);
-    vi.putString(VideoInfo.VIDEOURL, videourl);
-    vi.putString(VideoInfo.SORT, sort);
-    vi.putString(VideoInfo.TV_ID, tv_id);
-    return vi;
-}&lt;/pre&gt;
-&lt;h3&gt;1.7.4 Step 4&lt;/h3&gt;
-&lt;h5&gt;　当使用XML解析器将XML数据解析出来之后。需要将这些数据提取出来，也是通过连续2层提取，将数据定位到每个video， 将每个video里的数据传递给SearchVideoInfo这个ArrayList，然后将ArrayList中的数据和对应的Adapter数据关联起来：&lt;/h5&gt;
-&lt;pre class=&quot;brush: xml; gutter: true&quot;&gt;public static ArrayList&amp;lt;SearchVideoInfo&amp;gt; getSearchVideoInfo(ResultInfo searchResultInfo) {
-
-    ResultInfo resultInfo = null;
-    ResultInfo[] videos = null;
-    ArrayList&amp;lt;SearchVideoInfo&amp;gt; searchVideoInfos = null;
-
-    if (searchResultInfo != null) {
-        resultInfo = searchResultInfo.getResultInfo(ResultInfo.KEY_SEARCH);
-    }
-
-    if (resultInfo != null) {
-        videos = resultInfo.getResultInfoArray(ResultInfo.KEY_VIDEOS);
-    }
-
-    if (videos != null &amp;amp;&amp;amp; videos.length &amp;gt; 0) {
-
-        searchVideoInfos = new ArrayList&amp;lt;SearchVideoInfo&amp;gt;(videos.length);
-
-        for (ResultInfo video : videos) {
-            SearchVideoInfo searchInfo = new SearchVideoInfo();
-
-            searchInfo.setAlbum_id(video.getString(VideoInfo.ID));
-            searchInfo.setTitle(video.getString(VideoInfo.TITLE));
-            searchInfo.setChannel_id(video.getString(VideoInfo.CATEGORY_ID));
-            searchInfo.setImgUrl(video.getString(VideoInfo.IMG_URL));
-            searchInfo.setDuration(video.getString(VideoInfo.DURATION));
-            searchInfo.setMainActors(video.getString(VideoInfo.MAINACTORS));
-            searchInfo.setSiteName(video.getString(VideoInfo.SITENAME));
-            searchInfo.setVideo_url(video.getString(VideoInfo.VIDEOURL));
-            searchInfo.setOrder(video.getString(VideoInfo.SORT));
-            searchInfo.setTv_id(video.getString(VideoInfo.TV_ID));
-            // searchInfo.setContinueType(video.getString(VideoInfo.CONTINUETYPE));
-
-            searchVideoInfos.add(searchInfo);
-        }
-    }
-
-    if (searchVideoInfos == null) {
-        MyLog.e(TAG, &quot;error, getSearchVideoInfo, can not get info&quot;);
-    }
-
-    return searchVideoInfos;
-}&lt;/pre&gt;
-&lt;h5&gt;以上就是搜索数据的XML的解析和数据展示过程。&lt;/h5&gt;
-&lt;h1&gt;二、JSON&lt;/h1&gt;
-&lt;p&gt;XML很好很强大，但是最近有另外一个时代弄潮儿，这就是JSON。现在JSON的光环已经逐渐超越了XML，各大网站提供的数据接口一般都是JSON。下面我们就来学习下JSON。&lt;/p&gt;
-&lt;h2&gt;2.1 JSON是什么？&lt;/h2&gt;
-&lt;p&gt;JSON：JavaScript对象表示法(&lt;strong&gt;&lt;em&gt;JavaScript Object Notation&lt;/em&gt;&lt;/strong&gt;）, 是一种轻量级的数据交换格式, 易于人阅读和编写, 同时也易于机器解析和生成。&lt;/p&gt;
-&lt;p&gt;JSON是存储和交换文本信息的语法，类似XML。&lt;/p&gt;
-&lt;p&gt;JSON采用完全独立于语言的文本格式，但是也使用了类似于C语言家族的习惯（包括C, C++, C#, Java, JavaScript, Perl, Python等）。 这些特性使JSON成为理想的数据交换语言&lt;/p&gt;
-&lt;h2&gt;2.2 JSON格式&lt;/h2&gt;
-&lt;h4&gt;
-&lt;strong&gt;&lt;em&gt;JSON&lt;/em&gt;&lt;/strong&gt;构建于两种结构：&lt;/h4&gt;
-&lt;ol&gt;
-&lt;li&gt;
-&lt;strong&gt;“名称/值”对的集合&lt;/strong&gt;(A collection of name/value pairs)。不同的语言中，它被理解为对象（object），纪录（record），结构(struct)，字典(dictionary)，哈希表（hash table），有键列表(keyed list)，或者关联数组(associative array)。&lt;/li&gt;
-&lt;li&gt;
-&lt;strong&gt;值的有序列表&lt;/strong&gt;(An ordered list of values)。在大多数语言中，它被理解为数组(array)、矢量(vector), 列表(list)或者是序列(sequence)。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;h4&gt;
-&lt;strong&gt;&lt;em&gt;JSON&lt;/em&gt;&lt;/strong&gt;具有以下这些形式：&lt;/h4&gt;
-&lt;ul&gt;
-&lt;li&gt;对象是一个无序的“’名称/值’对”集合。一个对象以“{”（左括号）开始，“}”（右括号）结束。每个“名称”后跟一个“:”（冒号）；“‘名称/值’ 对”之间使用“,”（逗号）分隔。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;img alt=&quot;JSON Object&quot; src=&quot;/images/jobbole.com/c9ad1666ec7757894267a425571a1fb7.jpg&quot;&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;数组是值(value)的有序集合。一个数组以“[”（左中括号）开始，“]”（右中括号）结束。值之间使用“,”（逗号）分隔。&lt;/li&gt;
-&lt;li&gt;
-&lt;img alt=&quot;JSON Array&quot; src=&quot;/images/jobbole.com/c70c6ca644c516f658b7af3b4b4b8c62.jpg&quot;&gt;
-&lt;ul&gt;
-&lt;li&gt;值(value)可以是双引号括起来的字符串（string）、数值(number)、true、false、 null、对象（object）或者数组（array）。这些结构可以嵌套。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;img alt=&quot;JSON Value&quot; src=&quot;/images/jobbole.com/a2f95101e87c1b73dd03f51a0ee652d1.jpg&quot;&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;字符串（string）是由0到多个Unicode字符组成的序列，封装在双引号（”“）中, 可以使用反斜杠（‘\’）来进行转义。一个字符可以表示为一个单一字符的字符串。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;img alt=&quot;JSON String&quot; src=&quot;/images/jobbole.com/96ef2fbd5fc54ed48b78fbb50d0dcab0.jpg&quot;&gt;&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;数字(number)类似C或者Java里面的数，没有用到的8进制和16进制数除外。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;&lt;img alt=&quot;JSON Number&quot; src=&quot;/images/jobbole.com/8cecf451dcc2bf3bb7bb9d901f0402ce.jpg&quot;&gt;&lt;/p&gt;
-&lt;h2&gt;2.3 举个栗子&lt;/h2&gt;
-&lt;p&gt;上面关于JSON讲了这么多，大家都表示一头雾水了吧？&lt;/p&gt;
-&lt;p&gt;没关系，我们来举个栗子，让大家有个直观的感受:–)&lt;/p&gt;
-&lt;p&gt;以目前视频使用的iQiyi提供的频道接口为例：&lt;/p&gt;
-&lt;h5&gt;iQiyi提供的电影频道的JSON电影数据如下：&lt;/h5&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;&quot;code&quot;: 1, 
-    &quot;data&quot;: 0, 
-    &quot;albumIdList&quot;: [
-            {
-                    &quot;totalidnum&quot;: 2000, 
-                    &quot;idlist&quot;: [
-                            &quot;319281600&quot;
-                    ]
-            }
-    ], 
-    &quot;albumArray&quot;: {
-            &quot;319281600&quot;: {
-                    &quot;_as&quot;: &quot;&quot;, 
-                    &quot;_blk&quot;: 0, 
-                    &quot;_cid&quot;: 1, 
-                    &quot;_ct&quot;: &quot;2014-10-10 17:55:06&quot;, 
-                    &quot;_da&quot;: &quot;&quot;, 
-                    &quot;_dl&quot;: 0, 
-                    &quot;_dn&quot;: &quot;7296&quot;, 
-                    &quot;_id&quot;: 319281600, 
-                    &quot;_img&quot;: &quot;http://pic2.qiyipic.com/image/20141016/19/ca/v_108628048_m_601_m1_120_160.jpg&quot;, 
-                    &quot;_ip&quot;: 1, 
-                    &quot;_ma&quot;: &quot;&quot;, 
-                    &quot;_pc&quot;: 2, 
-                    &quot;_pid&quot;: 0, 
-                    &quot;_reseftv&quot;: 959, 
-                    &quot;_t&quot;: &quot;末代独裁&quot;, 
-                    &quot;_tvct&quot;: 1, 
-                    &quot;_tvs&quot;: 1, 
-                    &quot;_vt&quot;: 0, 
-                    &quot;a_av&quot;: 1, 
-                    &quot;a_pro&quot;: &quot;&quot;, 
-                    &quot;bpt&quot;: &quot;0&quot;, 
-                    &quot;clm&quot;: &quot;&quot;, 
-                    &quot;cn_year&quot;: &quot;0&quot;, 
-                    &quot;co_album_id&quot;: &quot;0&quot;, 
-                    &quot;ctype&quot;: 0, 
-                    &quot;desc&quot;: &quot;&quot;, 
-                    &quot;down&quot;: 0, 
-                    &quot;down2&quot;: &quot;0&quot;, 
-                    &quot;drm&quot;: 0, 
-                    &quot;fst_time&quot;: &quot;2014-10-16&quot;, 
-                    &quot;h1_img&quot;: &quot;http://pic2.qiyipic.com/image/20141016/19/ca/v_108628048_m_601_m1_180_236.jpg&quot;, 
-                    &quot;h2_img&quot;: &quot;http://pic2.qiyipic.com/image/20141016/19/ca/v_108628048_m_601_m1_195_260.jpg&quot;, 
-                    &quot;is_h&quot;: 0, 
-                    &quot;is_n&quot;: 0, 
-                    &quot;is_zb&quot;: 0, 
-                    &quot;k_word&quot;: &quot;&quot;, 
-                    &quot;language&quot;: 0, 
-                    &quot;live_center&quot;: 0, 
-                    &quot;live_start_time&quot;: 0, 
-                    &quot;live_stop_time&quot;: 0, 
-                    &quot;logo&quot;: 1, 
-                    &quot;m_av&quot;: 1, 
-                    &quot;p_av&quot;: 1, 
-                    &quot;p_s&quot;: 0, 
-                    &quot;p_s_1&quot;: 0, 
-                    &quot;p_s_4&quot;: 0, 
-                    &quot;p_s_8&quot;: 0, 
-                    &quot;qiyi_pro&quot;: 0, 
-                    &quot;qiyi_year&quot;: &quot;0&quot;, 
-                    &quot;qt_id&quot;: &quot;1005722&quot;, 
-                    &quot;s_TT&quot;: &quot;&quot;, 
-                    &quot;songname&quot;: &quot;&quot;, 
-                    &quot;t_pc&quot;: 1, 
-                    &quot;tag&quot;: &quot;当代 美国 乡村 大片&quot;, 
-                    &quot;tv_eftv&quot;: 1, 
-                    &quot;tv_pha&quot;: &quot;&quot;, 
-                    &quot;tv_pro&quot;: &quot;&quot;, 
-                    &quot;tv_ss&quot;: &quot;&quot;, 
-                    &quot;tvfcs&quot;: &quot;雄心壮志背后的真相&quot;, 
-                    &quot;up&quot;: 0, 
-                    &quot;up2&quot;: &quot;0&quot;, 
-                    &quot;upcl&quot;: &quot;&quot;, 
-                    &quot;v2_img&quot;: &quot;http://pic2.qiyipic.com/image/20141016/19/ca/v_108628048_m_601_m1_284_160.jpg&quot;, 
-                    &quot;v3_img&quot;: &quot;http://pic2.qiyipic.com/image/20141016/19/ca/v_108628048_m_601_m1_480_270.jpg&quot;, 
-                    &quot;vv&quot;: &quot;1&quot;, 
-                    &quot;year&quot;: &quot;2007&quot;, 
-                    &quot;tv_id&quot;: &quot;0&quot;, 
-                    &quot;vv_p&quot;: 0, 
-                    &quot;vv_f&quot;: 2, 
-                    &quot;vv_m&quot;: 0, 
-                    &quot;_sc&quot;: 8
-            }
-    }, 
-    &quot;changeAlbum&quot;: null, 
-    &quot;category&quot;: null, 
-    &quot;before&quot;: &quot;2~4~1~7~3&quot;, 
-    &quot;latest_push_id&quot;: &quot;655&quot;, 
-    &quot;up_tm&quot;: &quot;1413441370874&quot;, 
-    &quot;recommend_attach&quot;: &quot;&quot;, 
-    &quot;preset_keys&quot;: null, 
-    &quot;category_group&quot;: null, 
-    &quot;exp_ts&quot;: 120, 
-    &quot;stfile_path&quot;: &quot;/data/view/online5/0/1/2.1.8.5.1.txt&quot;
-}&lt;/pre&gt;
-&lt;p&gt; &lt;/p&gt;
-&lt;h6&gt;从上面的例子可以很清晰的看出JSON是如何展示一个电影的数据的，当然这是JSON格式化之后的数据。JSON的元数据是不便于阅读的。&lt;/h6&gt;
-&lt;h2&gt;2.4 如何解析JSON？&lt;/h2&gt;
-&lt;p&gt;Android JSON所有相关类，都在org.json包下。&lt;/p&gt;
-&lt;p&gt;包括JSONObject、JSONArray、JSONStringer、JSONTokener、JSONWriter、JSONException。&lt;/p&gt;
-&lt;h3&gt;&amp;lt;1&amp;gt;. 常见方法&lt;/h3&gt;
-&lt;p&gt;目前JSON解析有2种方法，分别是get和opt方法，可以使用JSON&lt;/p&gt;
-&lt;p&gt;那么使用get方法与使用opt方法的区别是？&lt;/p&gt;
-&lt;p&gt;JsonObject方法，opt与get建议使用opt方法，因为&lt;strong&gt;get方法如果其内容为空会直接抛出异常&lt;/strong&gt;。不过JsonArray.opt(index)会有越界问题需要特别注意。&lt;/p&gt;
-&lt;p&gt;opt、optBoolean、optDouble、optInt、optLong、optString、optJSONArray、optJSONObject get、getBoolean、getDouble、getInt、getLong、getString、getJSONArray、getJSONObject&lt;/p&gt;
-&lt;h3&gt;&amp;lt;2&amp;gt;. Android中如何创建JSON？&lt;/h3&gt;
-&lt;p&gt;在Android中应该如何创建JSON呢？&lt;/p&gt;
-&lt;p&gt;下面展示了一个如何创建JSON的例子：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;private String createJson() throws JSONException {
-    JSONObject jsonObject = new JSONObject();
-    jsonObject.put(&quot;intKey&quot;, 123);
-    jsonObject.put(&quot;doubleKey&quot;, 10.1);
-    jsonObject.put(&quot;longKey&quot;, 666666666);
-    jsonObject.put(&quot;stringKey&quot;, &quot;lalala&quot;);
-    jsonObject.put(&quot;booleanKey&quot;, true);
-
-    JSONArray jsonArray = new JSONArray();
-    jsonArray.put(0, 111);
-    jsonArray.put(&quot;second&quot;);
-    jsonObject.put(&quot;arrayKey&quot;, jsonArray);
-
-    JSONObject innerJsonObject = new JSONObject();
-    innerJsonObject.put(&quot;innerStr&quot;, &quot;inner&quot;);
-    jsonObject.put(&quot;innerObjectKey&quot;, innerJsonObject);
-
-    Log.e(&quot;Json&quot;, jsonObject.toString());
-
-    return jsonObject.toString();
-}&lt;/pre&gt;
-&lt;p&gt;其输出结果如下所示：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;{&quot;intKey&quot;:123, &quot;doubleKey&quot;:10.1, &quot;longKey&quot;:666666666, &quot;stringKey&quot;:&quot;lalala&quot;, &quot;booleanKey&quot;:true, &quot;arrayKey&quot;:[111,&quot;second&quot;], &quot;innerObjectKey&quot;:{&quot;innerStr&quot;:&quot;inner&quot;}}&lt;/pre&gt;
-&lt;h3&gt;&amp;lt;3&amp;gt;. 如何解析JSON？&lt;/h3&gt;
-&lt;p&gt;下面以视频中解析iQiyi的每个视频album数据为例来说明如何解析JSON：&lt;/p&gt;
-&lt;p&gt;第一步，需要从网络服务器上发起请求，获取到JSON数据：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;JsonObjectRequest jsonObjRequest = new JsonObjectRequest(Request.Method.GET, url, null,
-        new Response.Listener&amp;lt;JSONObject&amp;gt;() {
-            @Override
-            public void onResponse(JSONObject response) {
-                try {
-                    MyLog.d(TAG, &quot;response=&quot; + response);
-                    parseiQiyiInterfaceResponse(response);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }, new Response.ErrorListener() {
-            @Override
-            public void onErrorResponse(VolleyError error) {
-                /*
-                 * if (error instanceof NetworkError) { } else if (error
-                 * instanceof ClientError) { } else if (error instanceof
-                 * ServerError) { } else if (error instanceof
-                 * AuthFailureError) { } else if (error instanceof
-                 * ParseError) { } else if (error instanceof
-                 * NoConnectionError) { } else if (error instanceof
-                 * TimeoutError) { }
-                 */
-                MyLog.e(TAG, &quot;onErrorResponse, error=&quot; + error);
-            }
-        }) {
-    @Override
-    public Map&amp;lt;String, String&amp;gt; getHeaders() throws AuthFailureError {
-        HashMap&amp;lt;String, String&amp;gt; headers = new HashMap&amp;lt;String, String&amp;gt;();
-        headers.put(&quot;t&quot;, iQiyiInterface.getEncryptTimestamp());
-        headers.put(&quot;sign&quot;, iQiyiInterface.getSign());
-
-        return headers;
-    }
-};&lt;/pre&gt;
-&lt;p&gt;第二步，获取到对应的对应的JSONObject数据：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;public void getJsonObjectString(String url) {
-    mQueue = VideoApplication.getInstance().getRequestQueue();
-
-    JsonObjectRequest jsObjRequest = new JsonObjectRequest(Request.Method.GET, url, null,
-
-    new Response.Listener&amp;lt;JSONObject&amp;gt;() {
-
-        @Override
-        public void onResponse(JSONObject response) {
-            MyLog.e(TAG, &quot;response = &quot; + response.toString());
-
-            JSONArray jsonArray = null;
-            JSONObject jsonObject = null;
-            try {
-                jsonObject = response.getJSONObject(&quot;response&quot;);
-                jsonArray = jsonObject.getJSONObject(&quot;result&quot;).getJSONArray(&quot;album&quot;);
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-
-            if (jsonArray == null) {
-                return;
-            }
-
-            mChannelList = VideoUtils.parseVideoJsonArray(jsonArray);
-
-            if (isLoading) {
-                isLoading = false;
-                if (mIsGrid) {
-                    mChannelGridAdapter.appendChannelVideoInfo(mChannelList);
-                } else {
-                    mChannelListAdapter.appendChannelVideoInfo(mChannelList);
-                }
-
-            } else {
-                if (mIsGrid) {
-                    mChannelGridAdapter.setChannelVideoInfo(mChannelList);
-                    showOppoGrid();
-                } else {
-                    mChannelListAdapter.setChannelVideoInfo(mChannelList);
-                    showOppoList();
-                }
-            }
-        }
-    }, new Response.ErrorListener() {
-
-        @Override
-        public void onErrorResponse(VolleyError error) {
-            MyLog.e(TAG, &quot;error = &quot; + error);
-        }
-    });
-
-    jsObjRequest.setTag(TAG);
-    jsObjRequest.setShouldCache(true);
-    mQueue.add(jsObjRequest);
-    mQueue.start();
-}&lt;/pre&gt;
-&lt;p&gt;获取到JSON Object之后，就对这个JSONObject进行解析：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;private ArrayList&amp;lt;VideoConstant&amp;gt; parseVideoAlbumJsonObject(JSONObject albumJSONObject,  ArrayList&amp;lt;Integer&amp;gt; albumIdJSONArrayList) {
-    MyLog.d(TAG, &quot;parseVideoAlbumJsonObject, length=&quot; + albumJSONObject.length());
-    if (albumJSONObject.length() &amp;lt; 1) {
-        return null;
-    }
-
-    ArrayList&amp;lt;VideoConstant&amp;gt; videos = new ArrayList&amp;lt;VideoConstant&amp;gt;();
-
-    try {
-        for (int index = 0; index &amp;lt; albumJSONObject.length(); index++) {
-            VideoConstant video = new VideoConstant();
-
-            JSONObject itemJsonObject;
-
-            itemJsonObject = albumJSONObject.getJSONObject(albumIdJSONArrayList.get(index)
-                    .toString());
-
-            MyLog.d(TAG, &quot;string=&quot; + albumIdJSONArrayList.get(index).toString());
-
-            video.mAlbumId = itemJsonObject.optString(InterfaceParameterName.ID);
-            video.mAtitle = itemJsonObject.optString(InterfaceParameterName.TITLE);
-            video.mEpisodeCount = itemJsonObject.optString(InterfaceParameterName.UPDATE_SET);
-            video.mTvSets = itemJsonObject.optString(InterfaceParameterName.TV_SETS);
-            video.mDesc = itemJsonObject.optString(InterfaceParameterName.DESCRIPTION);
-            video.mCid = itemJsonObject.optString(InterfaceParameterName.CATEGORY_ID);
-
-            video.mImg = itemJsonObject.optString(InterfaceParameterName.IMG);
-            video.mHighimg = itemJsonObject
-                    .optString(InterfaceParameterName.HIGH_RESO_PORT_IMG);
-            video.mHoriImg = itemJsonObject
-                    .optString(InterfaceParameterName.HIGH_RESO_HORI_IMG);
-
-            video.mScore = itemJsonObject.optString(InterfaceParameterName.SCORE);
-            video.mMainActors = itemJsonObject.optString(InterfaceParameterName.MAIN_ACTOR);
-
-            video.mCreateTime = itemJsonObject.optString(InterfaceParameterName.CREATE_TIME);
-
-            video.mDuration = itemJsonObject.optString(InterfaceParameterName.DURATION);
-
-            video.mTag = itemJsonObject.optString(InterfaceParameterName.TAG);
-
-            MyLog.d(TAG, &quot;id=&quot; + video.mAlbumId + &quot;,title=&quot; + video.mAlbumTitle + &quot;,img=&quot;
-                    + video.mHighimg + &quot;,tvsets=&quot; + video.mTvSets);
-
-            videos.add(video);
-        }
-    } catch (JSONException e) {
-        e.printStackTrace();
-    }
-
-    return videos;
-}&lt;/pre&gt;
-&lt;h3&gt;&amp;lt;4&amp;gt;. Android JSON解析库&lt;/h3&gt;
-&lt;p&gt;上面介绍都是使用Android提供的原生类解析JSON，最大的好处是项目不需要引入第三方库，但是如果比较注重开发效率而且不在意应用大小增加几百K的话，有以下JSON可供选择：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;&lt;a href=&quot;http://jackson.codehaus.org/&quot; target=&quot;_blank&quot;&gt;Jackson&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;https://code.google.com/p/google-gson/&quot; target=&quot;_blank&quot;&gt;google-gson&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&quot;http://sourceforge.net/projects/json-lib/&quot; target=&quot;_blank&quot;&gt;Json-lib&lt;/a&gt;&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;大家可以去对应的官网下载并学习:)&lt;/p&gt;
-&lt;h1&gt;三、 JSON vs. XML&lt;/h1&gt;
-&lt;p&gt;JSON和XML就像武林界的屠龙刀和倚天剑，那么他们孰强孰弱？&lt;/p&gt;
-&lt;p&gt;XML长期执数据传输界之牛耳，而JSON作为后起之秀，已经盟主发起了挑战。&lt;/p&gt;
-&lt;p&gt;那就让他们来进行PK一下：&lt;/p&gt;
-&lt;h3&gt;&amp;lt;1&amp;gt;. JSON相比XML的不同之处&lt;/h3&gt;
-&lt;ul&gt;
-&lt;li&gt;没有结束标签&lt;/li&gt;
-&lt;li&gt;更短&lt;/li&gt;
-&lt;li&gt;读写的速度更快&lt;/li&gt;
-&lt;li&gt;能够使用内建的 JavaScript eval() 方法进行解析&lt;/li&gt;
-&lt;li&gt;使用数组&lt;/li&gt;
-&lt;li&gt;不使用保留字&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;总之： JSON 比 XML 更小、更快，更易解析。&lt;/p&gt;
-&lt;h3&gt;&amp;lt;2&amp;gt;. XML和JSON的区别：&lt;/h3&gt;
-&lt;p&gt;XML的主要组成成分：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;XML是element、attribute和element content。&lt;/pre&gt;
-&lt;p&gt;JSON的主要组成成分：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;JSON是object、array、string、number、boolean(true/false)和null。&lt;/pre&gt;
-&lt;p&gt;XML要表示一个object(指name-value pair的集合)，最初可能会使用element作为object，每个key-value pair 用 attribute 表示：&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;&amp;lt;student name=&quot;John&quot; age=&quot;10&quot;/&amp;gt;&lt;/pre&gt;
-&lt;p&gt;但如个某个 value 也是 object，那么就不可以当作attribute:&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;&amp;lt;student name=&quot;John&quot; age=&quot;10&quot;&amp;gt;
-    &amp;lt;address&amp;gt;
-        &amp;lt;country&amp;gt;China&amp;lt;/country&amp;gt;
-        &amp;lt;province&amp;gt;Guang Dong&amp;lt;/province&amp;gt;
-        &amp;lt;city&amp;gt;...&amp;lt;/city&amp;gt;
-        &amp;lt;district&amp;gt;...&amp;lt;/district&amp;gt;
-        ...
-    &amp;lt;/address&amp;gt;
-&amp;lt;/student&amp;gt;&lt;/pre&gt;
-&lt;p&gt;那么，什么时候用element，什么时候用attribute，就已经是一个问题了。&lt;/p&gt;
-&lt;p&gt;而JSON因为有object这种类型，可以自然地映射，不需考虑上述的问题，自然地得到以下的格式。&lt;/p&gt;
-&lt;pre class=&quot;brush: text; gutter: true&quot;&gt;{
-    &quot;name&quot;: &quot;John&quot;,
-    &quot;age&quot; : 10,
-    &quot;address&quot; : {
-        &quot;country&quot; : &quot;China&quot;,
-        &quot;province&quot; : &quot;Guang Dong&quot;,
-        &quot;city&quot; : &quot;..&quot;,
-        &quot;district&quot; : &quot;..&quot;,
-        ...
-    }
-}&lt;/pre&gt;
-&lt;h5&gt;One More Thing…&lt;/h5&gt;
-&lt;p&gt;XML需要选择怎么处理element content的换行，而JSON string则不须作这个选择。&lt;/p&gt;
-&lt;p&gt;XML只有文字，没有预设的数字格式，而JSON则有明确的number格式，这样在locale上也安全。&lt;/p&gt;
-&lt;p&gt;XML映射数组没大问题，就是数组元素tag比较重复冗余。JSON 比较易读。&lt;/p&gt;
-&lt;p&gt;JSON的true/false/null也能容易统一至一般编程语言的对应语义。&lt;/p&gt;
-&lt;p&gt;XML文档可以附上DTD、Schema，还有一堆的诸如XPath之类规范，使用自定义XML元素或属性，能很方便地给数据附加各种约束条件和关联额外信息，从数据表达能力上看，XML强于Json，但是很多场景并不需要这么复杂的重量级的东西，轻便灵活的Json就显得很受欢迎了。&lt;/p&gt;
-&lt;p&gt;打个比方，如果完成某件事有两种方式：一种简单的，一个复杂的。你选哪个？&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;我只想杀只鸡罢了，用得着牛刀？&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;JSON与XML相比就是这样的。&lt;/p&gt;
-&lt;h1&gt;四、总结&lt;/h1&gt;
-&lt;p&gt;这篇文章只是对XML和JSON这2种目前主流使用的数据格式进行了解释，并系统的学习了其中的语法及如何进行解析，同时在最好针对XML和JSON做了对比，了解其不同点和各自的优势。&lt;/p&gt;
-&lt;p&gt;期望有需要的朋友有所帮助:–)&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-11-03-79252-ea7eb2e7a.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79252-ea7eb2e7a.html</guid>
         
         
         <category>jobbole</category>

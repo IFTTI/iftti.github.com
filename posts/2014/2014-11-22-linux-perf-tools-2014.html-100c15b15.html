@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Graphite安装笔记</title>
+    <title>Linux Performance Tools 2014</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-01-26-2014-01-26-graphite-setup-notes.html-491f93181.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-11-22-linux-perf-tools-2014.html-100c15b15.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,109 +50,63 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>Graphite安装笔记</h1>
-    <p class="meta"><span class="time">Jan 26, 2014</span><span class="source_url"> • 来自 liulantao.com <a name="liulantao.com" href="http://blog.liulantao.com/blog/2014/2014-01-26-graphite-setup-notes.html" target="_blank">[原文链接]</a></span></p>
+    <h1>Linux Performance Tools 2014</h1>
+    <p class="meta"><span class="time">Nov 22, 2014</span><span class="source_url"> • 来自 brendangregg.com <a name="brendangregg.com" href="http://www.brendangregg.com/blog/2014-11-22/linux-perf-tools-2014.html" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-<p>graphite是个不错的监控系统，不过文档真的很烂。之前 @ARGV 写过一篇<a href="http://chenlinux.com/2013/04/03/install-graphite/">blog</a>介绍了debian系统上的安装过程。</p>
+<p>Last month I gave an updated Linux Performance Tools talk for <a href="http://events.linuxfoundation.org/events/archive/2014/linuxcon-europe">LinuxCon Europe 2014</a> in Düsseldorf. This included static performance tuning, as well as other updates. My performance observability tools diagram now includes rdmsr, after my post on <a href="/blog/2014-09-15/the-msrs-of-ec2.html">The MSRs of EC2</a>, where I discovered that MSRs could be useful:</p>
 
-<p>由于安装过程在最新版有一些变化，所以将我最近手动安装的过程整理出来，希望对你有帮助。</p>
+<p></p>
+<center><a href="/Perf/linux_observability_tools.png"><img src="/images/brendangregg.com/386f03345157c7fac26406e42798f874.jpg" width="500" height="350"></a></center>
 
-<p>整个过程采用的系统是CentOS 6.4 x86_64。软件仓库配置了EPEL。</p>
+<p>I keep this diagram updated on <a href="/linuxperf.html">linuxperf</a>. The slides from my talk are on (<a href="http://www.slideshare.net/brendangregg/linux-performance-tools-2014">slideshare</a>):</p>
 
-<h1 id="section">安装过程记录</h1>
+<p></p>
+<center><iframe src="http://www.slideshare.net/slideshow/embed_code/40240208" width="427" height="356" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" style="border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;" allowfullscreen> </iframe></center>
 
-<h2 id="yum">yum安装</h2>
+<p>As I didn't see an official video camera in the room, I had my friends at <a href="http://www.efficios.com/">EfficOS</a> film it, who also filmed the <a href="http://lwn.net/Articles/622033/rss">Tracing Summit</a>. This is on (<a href="https://www.youtube.com/watch?v=SN7Z0eCn0VY">youtube</a>):</p>
 
-<p>其实<a href="https://fedoraproject.org/wiki/EPEL">EPEL仓库</a>中已经有graphite的安装包。设置EPEL仓库，用yum直接安装即可。</p>
+<p></p>
+<center><iframe width="560" height="315" src="http://www.youtube.com/embed/SN7Z0eCn0VY" frameborder="0" allowfullscreen></iframe></center>
 
-<pre><code>yum --enablerepo=epel install graphite-web python-carbon -y
-</code></pre>
+<p>The main objective of my talk was to give you exposure to what exists in the field of Linux performance tools – to turn unknown unknowns into known unknowns. </p>
 
-<h2 id="section-1">手工安装</h2>
+<div style="float:right;padding-left:10px;padding-bottom:5px">
+<img src="/images/brendangregg.com/40960fcd9a650b461bf8cd7271ebe119.jpg" width="250" height="161"><br><center><font size="-1"><i>Photo by <a href="https://www.flickr.com/photos/linuxfoundation/15348354449/">Linux Foundation</a></i></font></center>
+</div>
 
-<h3 id="section-2">准备工作目录</h3>
+<p>In my earlier <a href="/blog/2014-08-23/linux-perf-tools-linuxcon-na-2014.html">LinuxCon North America</a> talk, I had three main collections of performance tools, with a diagram for each: for observability, benchmarking, and tuning tools. For this LinuxCon Europe talk, I introduced a fourth main category: static performance tuning tools.</p>
 
-<pre><code>mkdir -p ~/graphite_setup &amp;&amp; cd ~/graphite_setup
-</code></pre>
+<p>I learned about static performance tuning from a paper by Richard Elling in 2000: the idea is to check the static configured state of the system, <em>without load</em>, to look for a class of issues not found by other tools. This includes things like checking how full the filesystems are, the routing table, and network interface auto-negotiation. I feel the addition of this group of tools makes this talk complete: I'm summarizing all the main tools in one short talk.</p>
 
-<h3 id="whisper">安装whisper</h3>
+<p>At LinuxCon Europe I also saw a great talk by Ben Maurer on <a href="http://events.linuxfoundation.org/sites/events/files/slides/lpc.pdf">Scaling Userspace @ Facebook</a> (slides), where he discussed some serious systems performance analysis on Linux that they have been doing. It's impressive, interesting, and deep work. Sadly I didn't see a video camera to capture it.</p>
 
-<pre><code>git clone https://github.com/graphite-project/whisper.git
-cd whisper &amp;&amp; sudo python setup.py install &amp;&amp; cd -
-</code></pre>
+<p>Steven Rostedt from Red Hat gave a stunning talk on <a href="http://www.linuxplumbersconf.org/2014/ocw//system/presentations/1773/original/ftrace-kernel-hooks-2014.pdf">Ftrace Kernel Hooks: More than just tracing</a> (slides). This might be the most technical talk I've ever seen! I found it particularly interesting as I've been doing a lot with ftrace, an undiscovered gem of Linux, including using it for my <a href="https://github.com/brendangregg/perf-tools">perf-tools</a> collection. I heard this talk was videoed, although I haven't seen the video yet.</p>
 
-<h3 id="carbon">安装carbon</h3>
+<p>I also saw Rikki Endsley, also now at Red Hat, give a talk on <a href="http://lccoelce14.sched.org/event/e883537a4136e09a421beb97440ee59b?iframe=no&amp;w=&amp;sidebar=yes&amp;bg=no#.VHD-NmTF9o8">Confessions of a Reluctant Tweeter: Social Media for Open Source Communities</a>. Rikki has contributed much to our industry, and it's interesting to hear her expertise on open source marketing in general. I had spoken about marketing earlier in the week at the Tracing Summit, where Linux technologies like ftrace could really benefit from more exposure.</p>
 
-<pre><code>git clone https://github.com/graphite-project/carbon.git
-cd carbon &amp;&amp; python setup.py install &amp;&amp; cd -
-cd /opt/graphite/conf
-cp carbon.conf.example carbon.conf 
-cp storage-schemas.conf.example storage-schemas.conf 根据需求调整carbon.conf中的配置。
-</code></pre>
-
-<h3 id="graphite-web">安装graphite-web</h3>
-
-<pre><code>git clone https://github.com/graphite-project/graphite-web.git
-cd graphite-web &amp;&amp; python check-dependencies.py
- 
-#如果报告依赖问题，需要安装对应的软件包
-yum install pycairo django pytz pyparsing django-tagging python-memcached python-ldap twisted txamqp python-rrdtool -y
-
-sudo python setup.py install 
-
-cd /opt/graphite/webapp/graphite/
-cp local_settings.py.example local_settings.py
-</code></pre>
-
-<p>务必重新设置SECRET_KEY，根据需要调整TIME_ZONE和其它参数。</p>
-
-<pre><code>PYTHONPATH=/opt/graphite/webapp/ django-admin syncdb --settings=graphite.settings
-</code></pre>
-
-<h3 id="section-3">制造一些测试数据</h3>
-
-<pre><code>cd /opt/graphite/examples/
-python example-client.py
-</code></pre>
-
-<p>或者用脚本模拟也写随机数据</p>
-
-<pre><code>ruby -e 'puts "test.op.random_seq #{rand(100)} #{Time.now.to_i}"' | nc 127.0.0.1 2003
-</code></pre>
-
-<h3 id="web-">启动web 服务</h3>
-
-<pre><code>cp /opt/graphite/examples/example-graphite-vhost.conf /etc/httpd/conf.d/
-service httpd restart
-</code></pre>
-
-<h2 id="section-4">安装文档参考</h2>
-
-<pre><code># 安装文档的更新 https://github.com/graphite-project/graphite-web/blob/master/INSTALL
-# https://github.com/graphite-project/graphite-web
-</code></pre>
+<p>Thanks to those who attended my talk, and the Linux Foundation for organizing another great event!</p>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-01-18-head-first-with-the-cpp-module-of-node.js.html-7bd50a0b0.html" title="Previous Post: 动手编写Node的C++模块" data-instant>&laquo; 动手编写Node的C++模块</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-11-20-phantomjs-snapshot-63b00217f.html" title="Previous Post: 用 phantomjs 截图" data-instant>&laquo; 用 phantomjs 截图</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-02-23-chapter-2-variable-object.html-b5e58a600.html" title="Next Post: 「深入ECMA-262-3」第二章、变量对象" data-instant>「深入ECMA-262-3」第二章、变量对象 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-11-23-kibana-panel-only-dashboard-3474bf0cc.html" title="Next Post: 利用动态仪表板实现kibana单图表导出功能" data-instant>利用动态仪表板实现kibana单图表导出功能 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>16 Jun 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-06-16-build-git-server-with-gitosis.html-32806c325.html">使用Gitosis搭建Git服务器</a></li>
+      <li><span>23 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-23-linux-perf-tools-linuxcon-na-2014.html-9762d47cf.html">Linux Performance Tools at LinuxCon North America 2014</a></li>
 
-      <li><span>25 Aug 2012</span> &raquo; <a href="http://iftti.com/posts/2012/2012-08-25-blog-with-jekyll-on-github.html-d7bd23d67.html">利用Jekyll在Github上写博客</a></li>
+      <li><span>11 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-11-strace-wow-much-syscall.html-998ad76a5.html">strace Wow Much Syscall</a></li>
 
-      <li><span>02 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-02-build-private-npm-registry-with-npmjs-and-kappa.html-671b91147.html">利用kappa搭建私有NPM仓库</a></li>
+      <li><span>09 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-09-java-cpu-sampling-using-hprof.html-6086da145.html">Java CPU Sampling Using hprof</a></li>
 
   </ul>
 </div>
