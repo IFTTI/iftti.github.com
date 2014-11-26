@@ -1,0 +1,121 @@
+---
+layout: post
+title: '一致性哈希算法原理设计'
+time: 2014-11-26 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/80334/
+images:
+  4d3b8c16ea17c275abcfb5e1a820ebb1: http://ww2.sinaimg.cn/large/7cc829d3gw1emo6h0d017j20hj06b0t8.jpg
+  fb21aa9e4634d16b2729d713ed5e431d: http://ww3.sinaimg.cn/mw690/7cc829d3gw1emo6h0sm7ej20hh055q3g.jpg
+  77df1326e4f9b97aab8488ae9a64bfe0: http://ww4.sinaimg.cn/mw690/7cc829d3gw1emo6h18gv7j20hh053wex.jpg
+---
+{% raw %}
+
+        <div style="margin-bottom: 10px;">
+            
+        </div>
+
+		
+<h2>
+<strong>一</strong><strong>.</strong><strong>前言</strong>
+</h2>
+<p>一致性哈希(Consistent Hashing)，最早由MIT的Karger于1997年提出，主要用于解决易变的分布式Web系统中，由于宕机和扩容导致的服务震荡。现在这个算法思路被大量应用，并且在实践中得到了很大的发展。</p>
+<h2>
+<strong>二</strong><strong>.</strong><strong>算法设计</strong>
+</h2>
+<h3>
+<strong>1.</strong><strong>问题来源</strong>
+</h3>
+<p>一个由6台服务器组成的服务，每台Server负责存储1/6的数据，当Server1出现宕机之后，服务重新恢复可用时的场景。</p>
+<p>如下表格可以很清楚的看到，当Server1宕机时，Hash1的服务完全不可用了，所以需要ReHash由剩余5台机器提供所有的数据服务，但由于每台机器负责的数据段大小不相同，那么需要在不同的服务器之间大量迁移数据，并且数据迁移完成之前服务会不可用。</p>
+<p><img id="pic" alt="" src="/images/jobbole.com/4d3b8c16ea17c275abcfb5e1a820ebb1.jpg"></p>
+<h3>
+<strong>2.</strong><strong>经典一致性哈希算法</strong>
+</h3>
+<p>针对ReHash的弊端，Karger提出了一种算法，算法的核心是”虚拟节点”。</p>
+<p>将所有的数据映射成一组大于服务器数量的虚拟节点，虚拟节点再映射到真实的服务器。所以当服务器宕机时，由于虚拟节点的数量固定不变，所有不需要ReHash，而只需要将服务不可用的虚拟节点重新迁移，这样只需要迁移宕机节点的数据。</p>
+<p>经典的算法中，宕机服务器的下一个真实节点将提供服务。</p>
+<p><img alt="" src="/images/jobbole.com/fb21aa9e4634d16b2729d713ed5e431d.jpg"></p>
+<h2>
+<strong>三</strong><strong>.</strong><strong>算法改进</strong>
+</h2>
+<h3>
+<strong>1.</strong><strong>经典一致性哈希算法的问题</strong>
+</h3>
+<p>经典的算法只是解决了ReHash算法的缺陷，当本身并不完美。主要存在以下几个问题：</p>
+<p>(1)Server1宕机会导致Server2的服务承受一倍的数据服务，且如果Server1就此退役，那么整个系统的负载完全不均衡了。</p>
+<p>(2)如果所有的Server都能承受一倍的数据读写，那么如果在正常情况下所有的数据写两份到不同的服务器，主备或者负载均衡，宕机时直接读备份节点的数据，根本不需要出现经典算法中的数据迁移。</p>
+<p><img alt="" src="/images/jobbole.com/77df1326e4f9b97aab8488ae9a64bfe0.jpg"></p>
+<p><strong style="font-style: normal;">2.Dynamo</strong><strong style="font-style: normal;">改进实践</strong></p>
+<p>Amazon的大数据存储平台”Dynamo”使用了一致性哈希，但它并没有使用经典算法，而是使用了故障节点ReHash的思路。</p>
+<p>系统将所有的虚拟节点和真实服务器的对应关系保存到一个配置系统，当某些虚拟节点的服务不可用时，重新配置这些虚拟节点的服务到其他真实服务器，这样既不用大量迁移数据，也保证了所有服务器的负载相对均衡。</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td valign="top" width="92">虚拟节点</td>
+<td valign="top" width="92">0-4/5</td>
+<td valign="top" width="92">10-14/6</td>
+<td valign="top" width="92">15-19/7</td>
+<td valign="top" width="92">20-24/8</td>
+<td valign="top" width="92">24-29/9</td>
+</tr>
+<tr>
+<td valign="top" width="92">恢复</td>
+<td valign="top" width="92">Server0</td>
+<td valign="top" width="92">Server2</td>
+<td valign="top" width="92">Server3</td>
+<td valign="top" width="92">Server4</td>
+<td valign="top" width="92">Server5</td>
+</tr>
+</tbody>
+</table>
+<h3>
+<strong>四</strong><strong>.</strong><strong>算法扩展</strong>
+</h3>
+<p>一致性哈希算法本身是用于解决服务器宕机与扩容的问题，但”虚拟节点”的算法思想有所发展，一些分布式的系统用于实现系统的负载均衡和最优访问策略。</p>
+<p>在真实的系统情况下，相同部署的两套系统可能不能提供相同的服务，主要原因：</p>
+<p>(1)硬件个体差异导致服务器性能不同。</p>
+<p>(2)机房交换机和网络带宽导致IDC服务器之间的网络通信效率不同。</p>
+<p>(3)用户使用不同的网络运营商导致电信IDC和联通IDC提供的服务性能不同。</p>
+<p>(4)服务器所在网络或机房遭遇攻击。</p>
+<p>所以完全相同的两套系统可能也需要提供差异化的服务，通过使用虚拟节点可以灵活的动态调整，达到系统服务的最优化。</p>
+<p>对于由2个节点，每个节点3台服务器组成的分布式系统，S0-1为分布式系统1的Server0，系统配置管理员可以根据系统真实的服务效率动态的调整虚拟节点与真实服务器的映射关系，也可以由客户系统自身根据响应率或响应时间等情况调整自身的访问策略。</p>
+<table border="1" cellspacing="0" cellpadding="0">
+<tbody>
+<tr>
+<td valign="top" width="79">虚拟节点</td>
+<td valign="top" width="79">0-2</td>
+<td valign="top" width="79">3-4</td>
+<td valign="top" width="79">5-7</td>
+<td valign="top" width="79">8-9</td>
+<td valign="top" width="79">10-12</td>
+<td valign="top" width="79">13-14</td>
+</tr>
+<tr>
+<td valign="top" width="79">服务器</td>
+<td valign="top" width="79">S0-1</td>
+<td valign="top" width="79">S0-2</td>
+<td valign="top" width="79">S1-1</td>
+<td valign="top" width="79">S1-2</td>
+<td valign="top" width="79">S2-1</td>
+<td valign="top" width="79">S2-2</td>
+</tr>
+</tbody>
+</table>
+<h3>
+<strong>五</strong><strong>.Reference</strong>
+</h3>
+<p>(1)<a href="http://zh.wikipedia.org/wiki/%E4%B8%80%E8%87%B4%E5%93%88%E5%B8%8C">一致哈希(wiki)</a><br>
+(2)<a href="http://en.wikipedia.org/wiki/Consistent_hashing">Consistent hashing</a><br>
+(3)<a href="http://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf">Dynamo: Amazon’s Highly Available Key-value Store</a></p>
+
+
+<!-- div id="ad1">
+</div -->
+
+
+	
+
+
+	
+{% endraw %}
