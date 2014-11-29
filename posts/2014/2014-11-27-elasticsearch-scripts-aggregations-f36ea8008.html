@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>一致性哈希算法原理设计</title>
+    <title>利用脚本灵活定制 Elasticsearch 中的聚合效果</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-11-26-80334-4aea8dc6b.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-11-27-elasticsearch-scripts-aggregations-f36ea8008.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,130 +50,152 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>一致性哈希算法原理设计</h1>
-    <p class="meta"><span class="time">Nov 26, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/80334/" target="_blank">[原文链接]</a></span></p>
+    <h1>利用脚本灵活定制 Elasticsearch 中的聚合效果</h1>
+    <p class="meta"><span class="time">Nov 27, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/11/27/elasticsearch-scripts-aggregations" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-        <div style="margin-bottom: 10px;">
+  <div style="background-color: #FFF;">
+    <p>这几天阅读 Splunk 书，发现 Splunk 作为一个不需要提前结构化数据的处理工具，在自动发现的 “interesting fields” 以外，也提供了在页面通过正则临时产生新字段的能力。类似下面这样：</p>
+<pre><code>sourcetype="impl_splunk_gen"
+  | rex "ip=(?P&lt;subnet&gt;\d+\.\d+\.\d+)\.\d+"
+  | chart values(subnet) by user network
+</code></pre>
 
-        </div>
+<p>这就蛮让人流口水的了。毕竟谁也不可能保证自己在结构化的时候做到了万事俱备。不过，ELK 虽然建议大家在 logstash 里通过 grok 来预处理，其实本身也是有这个能力的。今天稍微测试了一下，通过 ES 的 <strong>scripting</strong> 模块，完全可以实现这个效果。</p>
+<p><em>测试在 Elasticsearch 1.4.1 上进行。较低的版本可能在支持的语言方面稍有差异。</em></p>
+<p>因为 scripting 在早先 1.2 的时候出过安全问题，所以后来就都不再允许直接通过 POST 的内容里提交 scripting 代码了。现在有两种方式，一种是在 elasticsearch-1.4.1/config/ 目录下新建一个 scripts 目录，然后把准备要用的脚本都放在这个目录里，ES 会自动探测并加载编译；另一种是开启动态 scripting 功能，再通过 <code>/_script</code> 接口上传脚本。</p>
+<p>下面示例两种实现获取 client_ip 字段的 C 段的统计的方式：</p>
+<ol>
+  <li>通过简单的切割合并</li>
+</ol>
+<p>创建 <code>config/scripts/split.groovy</code> 文件，内容如下：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">doc</span><span class="o">[</span><span class="n">fieldname</span><span class="o">].</span><span class="na">value</span><span class="o">.</span><span class="na">split</span><span class="o">(</span><span class="sc">'.'</span><span class="o">)[</span><span class="mi">0</span><span class="o">..-</span><span class="mi">2</span><span class="o">].</span><span class="na">join</span><span class="o">(</span><span class="sc">'.'</span><span class="o">)</span></code></pre>
+</div>
+<p>稍等一下，看到 ES 的日志显示探测到并且编译成功后。就可以发送请求了：</p>
+<pre><code>curl '127.0.0.1:9200/logstash-2014.11.27/_search?pretty&amp;size=0' -d '{
+    "aggs" : {
+        "ipaddr" : {
+            "terms" : {
+                "script" : "split",
+                "params" : {
+                    "fieldname": "client_ip.raw"
+                }
+            }
+        }
+    }
+}'
+</code></pre>
 
-<h2>
-<strong>一</strong><strong>.</strong><strong>前言</strong>
-</h2>
-<p>一致性哈希(Consistent Hashing)，最早由MIT的Karger于1997年提出，主要用于解决易变的分布式Web系统中，由于宕机和扩容导致的服务震荡。现在这个算法思路被大量应用，并且在实践中得到了很大的发展。</p>
-<h2>
-<strong>二</strong><strong>.</strong><strong>算法设计</strong>
-</h2>
-<h3>
-<strong>1.</strong><strong>问题来源</strong>
-</h3>
-<p>一个由6台服务器组成的服务，每台Server负责存储1/6的数据，当Server1出现宕机之后，服务重新恢复可用时的场景。</p>
-<p>如下表格可以很清楚的看到，当Server1宕机时，Hash1的服务完全不可用了，所以需要ReHash由剩余5台机器提供所有的数据服务，但由于每台机器负责的数据段大小不相同，那么需要在不同的服务器之间大量迁移数据，并且数据迁移完成之前服务会不可用。</p>
-<p><img id="pic" alt="" src="/images/jobbole.com/4d3b8c16ea17c275abcfb5e1a820ebb1.jpg"></p>
-<h3>
-<strong>2.</strong><strong>经典一致性哈希算法</strong>
-</h3>
-<p>针对ReHash的弊端，Karger提出了一种算法，算法的核心是”虚拟节点”。</p>
-<p>将所有的数据映射成一组大于服务器数量的虚拟节点，虚拟节点再映射到真实的服务器。所以当服务器宕机时，由于虚拟节点的数量固定不变，所有不需要ReHash，而只需要将服务不可用的虚拟节点重新迁移，这样只需要迁移宕机节点的数据。</p>
-<p>经典的算法中，宕机服务器的下一个真实节点将提供服务。</p>
-<p><img alt="" src="/images/jobbole.com/fb21aa9e4634d16b2729d713ed5e431d.jpg"></p>
-<h2>
-<strong>三</strong><strong>.</strong><strong>算法改进</strong>
-</h2>
-<h3>
-<strong>1.</strong><strong>经典一致性哈希算法的问题</strong>
-</h3>
-<p>经典的算法只是解决了ReHash算法的缺陷，当本身并不完美。主要存在以下几个问题：</p>
-<p>(1)Server1宕机会导致Server2的服务承受一倍的数据服务，且如果Server1就此退役，那么整个系统的负载完全不均衡了。</p>
-<p>(2)如果所有的Server都能承受一倍的数据读写，那么如果在正常情况下所有的数据写两份到不同的服务器，主备或者负载均衡，宕机时直接读备份节点的数据，根本不需要出现经典算法中的数据迁移。</p>
-<p><img alt="" src="/images/jobbole.com/77df1326e4f9b97aab8488ae9a64bfe0.jpg"></p>
-<p><strong style="font-style: normal;">2.Dynamo</strong><strong style="font-style: normal;">改进实践</strong></p>
-<p>Amazon的大数据存储平台”Dynamo”使用了一致性哈希，但它并没有使用经典算法，而是使用了故障节点ReHash的思路。</p>
-<p>系统将所有的虚拟节点和真实服务器的对应关系保存到一个配置系统，当某些虚拟节点的服务不可用时，重新配置这些虚拟节点的服务到其他真实服务器，这样既不用大量迁移数据，也保证了所有服务器的负载相对均衡。</p>
-<table border="1" cellspacing="0" cellpadding="0">
-<tbody>
-<tr>
-<td valign="top" width="92">虚拟节点</td>
-<td valign="top" width="92">0-4/5</td>
-<td valign="top" width="92">10-14/6</td>
-<td valign="top" width="92">15-19/7</td>
-<td valign="top" width="92">20-24/8</td>
-<td valign="top" width="92">24-29/9</td>
-</tr>
-<tr>
-<td valign="top" width="92">恢复</td>
-<td valign="top" width="92">Server0</td>
-<td valign="top" width="92">Server2</td>
-<td valign="top" width="92">Server3</td>
-<td valign="top" width="92">Server4</td>
-<td valign="top" width="92">Server5</td>
-</tr>
-</tbody>
-</table>
-<h3>
-<strong>四</strong><strong>.</strong><strong>算法扩展</strong>
-</h3>
-<p>一致性哈希算法本身是用于解决服务器宕机与扩容的问题，但”虚拟节点”的算法思想有所发展，一些分布式的系统用于实现系统的负载均衡和最优访问策略。</p>
-<p>在真实的系统情况下，相同部署的两套系统可能不能提供相同的服务，主要原因：</p>
-<p>(1)硬件个体差异导致服务器性能不同。</p>
-<p>(2)机房交换机和网络带宽导致IDC服务器之间的网络通信效率不同。</p>
-<p>(3)用户使用不同的网络运营商导致电信IDC和联通IDC提供的服务性能不同。</p>
-<p>(4)服务器所在网络或机房遭遇攻击。</p>
-<p>所以完全相同的两套系统可能也需要提供差异化的服务，通过使用虚拟节点可以灵活的动态调整，达到系统服务的最优化。</p>
-<p>对于由2个节点，每个节点3台服务器组成的分布式系统，S0-1为分布式系统1的Server0，系统配置管理员可以根据系统真实的服务效率动态的调整虚拟节点与真实服务器的映射关系，也可以由客户系统自身根据响应率或响应时间等情况调整自身的访问策略。</p>
-<table border="1" cellspacing="0" cellpadding="0">
-<tbody>
-<tr>
-<td valign="top" width="79">虚拟节点</td>
-<td valign="top" width="79">0-2</td>
-<td valign="top" width="79">3-4</td>
-<td valign="top" width="79">5-7</td>
-<td valign="top" width="79">8-9</td>
-<td valign="top" width="79">10-12</td>
-<td valign="top" width="79">13-14</td>
-</tr>
-<tr>
-<td valign="top" width="79">服务器</td>
-<td valign="top" width="79">S0-1</td>
-<td valign="top" width="79">S0-2</td>
-<td valign="top" width="79">S1-1</td>
-<td valign="top" width="79">S1-2</td>
-<td valign="top" width="79">S2-1</td>
-<td valign="top" width="79">S2-2</td>
-</tr>
-</tbody>
-</table>
-<h3>
-<strong>五</strong><strong>.Reference</strong>
-</h3>
-<p>(1)<a href="http://zh.wikipedia.org/wiki/%E4%B8%80%E8%87%B4%E5%93%88%E5%B8%8C">一致哈希(wiki)</a><br>
-(2)<a href="http://en.wikipedia.org/wiki/Consistent_hashing">Consistent hashing</a><br>
-(3)<a href="http://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf">Dynamo: Amazon’s Highly Available Key-value Store</a></p>
+<p><strong>注意这里一定要传递是 “not_analyzed” 的 字段过去！</strong> ES 流程上是先过分词器再到 scripting 模块的，这里要是切一下，到你脚本里就不知道长啥样了……</p>
+<p>结果如下：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="p">{</span>
+  <span class="nt">"took"</span> <span class="p">:</span> <span class="mi">30</span><span class="p">,</span>
+  <span class="nt">"timed_out"</span> <span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+  <span class="nt">"_shards"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="nt">"successful"</span> <span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="nt">"failed"</span> <span class="p">:</span> <span class="mi">0</span>
+  <span class="p">},</span>
+  <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">786</span><span class="p">,</span>
+    <span class="nt">"max_score"</span> <span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">[</span> <span class="p">]</span>
+  <span class="p">},</span>
+  <span class="nt">"aggregations"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"ipaddr"</span> <span class="p">:</span> <span class="p">{</span>
+      <span class="nt">"doc_count_error_upper_bound"</span> <span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+      <span class="nt">"sum_other_doc_count"</span> <span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+      <span class="nt">"buckets"</span> <span class="p">:</span> <span class="p">[</span> <span class="p">{</span>
+        <span class="nt">"key"</span> <span class="p">:</span> <span class="s2">"127.0.0"</span><span class="p">,</span>
+        <span class="nt">"doc_count"</span> <span class="p">:</span> <span class="mi">786</span>
+      <span class="p">}</span> <span class="p">]</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre>
+</div>
+<ol>
+  <li>通过正则捕获</li>
+</ol>
+<p>前面的方式虽然达到目的，但是不像 splunk 的做法那么通用，所以更高级的是这样：</p>
+<p>创建 <code>config/scripts/regex.groovy</code> 文件，内容如下：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">matcher</span> <span class="o">=</span> <span class="o">(</span> <span class="n">doc</span><span class="o">[</span><span class="n">fieldname</span><span class="o">].</span><span class="na">value</span> <span class="o">=~</span> <span class="o">/</span><span class="n">$</span><span class="o">{</span><span class="n">pattern</span><span class="o">}/</span> <span class="o">)</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">matcher</span><span class="o">.</span><span class="na">matches</span><span class="o">())</span> <span class="o">{</span>
+    <span class="n">matcher</span><span class="o">[</span><span class="mi">0</span><span class="o">][</span><span class="mi">1</span><span class="o">]</span>
+<span class="o">}</span></code></pre>
+</div>
+<p>同样等识别编译，然后发送这样的请求：</p>
+<pre><code>curl '127.0.0.1:9200/logstash-2014.11.27/_search?pretty&amp;size=0' -d '{
+    "aggs" : {
+        "ipaddr" : {
+            "terms" : {
+                "script" : "regex",
+                "params" : {
+                    "fieldname": "client_ip.raw",
+                    "pattern": "^((?:\d{1,3}\.?){3})\.\d{1,3}$"
+                }
+            }
+        }
+    }
+}'
+</code></pre>
 
-<!-- div id="ad1">
-</div -->
+<p>得到一模一样的结果。</p>
+<p>下一次试验一下在脚本中尝试加载其他库做更复杂处理的话，会如何呢？</p>
+    <hr>
+
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-11-23-kibana-panel-only-dashboard-3474bf0cc.html" title="Previous Post: 利用动态仪表板实现kibana单图表导出功能" data-instant>&laquo; 利用动态仪表板实现kibana单图表导出功能</a>
-
-    <a class="basic-alignment right" href="/posts/2014/2014-11-27-elasticsearch-scripts-aggregations-f36ea8008.html" title="Next Post: 利用脚本灵活定制 Elasticsearch 中的聚合效果" data-instant>利用脚本灵活定制 Elasticsearch 中的聚合效果 &raquo;</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-11-26-80334-4aea8dc6b.html" title="Previous Post: 一致性哈希算法原理设计" data-instant>&laquo; 一致性哈希算法原理设计</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>19 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-19-79528-a529a4bc7.html">UDP有多不可靠？</a></li>
+      <li><span>29 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html">山寨一个 Splunk 的 source 上下文查看功能</a></li>
 
-      <li><span>03 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-03-79288-60084624e.html">浅谈算法和数据结构（2）：基本排序算法</a></li>
+      <li><span>13 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-13-anyevent-redis-for-dns-check-37591b507.html">用 Redis 做分布式 DNS/HTTP 检测汇总系统</a></li>
 
-      <li><span>03 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-03-79267-ab4b1396e.html">浅谈算法和数据结构（1）：栈和队列</a></li>
+      <li><span>20 May 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-05-20-my-first-experience-of-perlxs-f76729254.html">XS 初体验</a></li>
 
   </ul>
 </div>

@@ -5,9 +5,143 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Wed, 26 Nov 2014 20:37:11 +0800</pubDate>
-    <lastBuildDate>Wed, 26 Nov 2014 20:37:11 +0800</lastBuildDate>
+    <pubDate>Sat, 29 Nov 2014 18:30:43 +0800</pubDate>
+    <lastBuildDate>Sat, 29 Nov 2014 18:30:43 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>利用脚本灵活定制 Elasticsearch 中的聚合效果</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;这几天阅读 Splunk 书，发现 Splunk 作为一个不需要提前结构化数据的处理工具，在自动发现的 “interesting fields” 以外，也提供了在页面通过正则临时产生新字段的能力。类似下面这样：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;sourcetype=&quot;impl_splunk_gen&quot;
+  | rex &quot;ip=(?P&amp;lt;subnet&amp;gt;\d+\.\d+\.\d+)\.\d+&quot;
+  | chart values(subnet) by user network
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;这就蛮让人流口水的了。毕竟谁也不可能保证自己在结构化的时候做到了万事俱备。不过，ELK 虽然建议大家在 logstash 里通过 grok 来预处理，其实本身也是有这个能力的。今天稍微测试了一下，通过 ES 的 &lt;strong&gt;scripting&lt;/strong&gt; 模块，完全可以实现这个效果。&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;测试在 Elasticsearch 1.4.1 上进行。较低的版本可能在支持的语言方面稍有差异。&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;因为 scripting 在早先 1.2 的时候出过安全问题，所以后来就都不再允许直接通过 POST 的内容里提交 scripting 代码了。现在有两种方式，一种是在 elasticsearch-1.4.1/config/ 目录下新建一个 scripts 目录，然后把准备要用的脚本都放在这个目录里，ES 会自动探测并加载编译；另一种是开启动态 scripting 功能，再通过 &lt;code&gt;/_script&lt;/code&gt; 接口上传脚本。&lt;/p&gt;
+&lt;p&gt;下面示例两种实现获取 client_ip 字段的 C 段的统计的方式：&lt;/p&gt;
+&lt;ol&gt;
+  &lt;li&gt;通过简单的切割合并&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;创建 &lt;code&gt;config/scripts/split.groovy&lt;/code&gt; 文件，内容如下：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-java&quot; data-lang=&quot;java&quot;&gt;&lt;span class=&quot;n&quot;&gt;doc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fieldname&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;split&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;sc&quot;&gt;&#39;.&#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..-&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;join&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;sc&quot;&gt;&#39;.&#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;稍等一下，看到 ES 的日志显示探测到并且编译成功后。就可以发送请求了：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;curl &#39;127.0.0.1:9200/logstash-2014.11.27/_search?pretty&amp;amp;size=0&#39; -d &#39;{
+    &quot;aggs&quot; : {
+        &quot;ipaddr&quot; : {
+            &quot;terms&quot; : {
+                &quot;script&quot; : &quot;split&quot;,
+                &quot;params&quot; : {
+                    &quot;fieldname&quot;: &quot;client_ip.raw&quot;
+                }
+            }
+        }
+    }
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;&lt;strong&gt;注意这里一定要传递是 “not_analyzed” 的 字段过去！&lt;/strong&gt; ES 流程上是先过分词器再到 scripting 模块的，这里要是切一下，到你脚本里就不知道长啥样了……&lt;/p&gt;
+&lt;p&gt;结果如下：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;took&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;30&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;timed_out&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;_shards&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;total&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;successful&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;failed&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;hits&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;total&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;786&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;max_score&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;hits&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;
+  &lt;span class=&quot;nt&quot;&gt;&quot;aggregations&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nt&quot;&gt;&quot;ipaddr&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;doc_count_error_upper_bound&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;sum_other_doc_count&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&quot;buckets&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;key&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;127.0.0&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&quot;doc_count&quot;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;786&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;ol&gt;
+  &lt;li&gt;通过正则捕获&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;前面的方式虽然达到目的，但是不像 splunk 的做法那么通用，所以更高级的是这样：&lt;/p&gt;
+&lt;p&gt;创建 &lt;code&gt;config/scripts/regex.groovy&lt;/code&gt; 文件，内容如下：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-java&quot; data-lang=&quot;java&quot;&gt;&lt;span class=&quot;n&quot;&gt;matcher&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;doc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;fieldname&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;].&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;value&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=~&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;/&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;$&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;pattern&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;}/&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;matcher&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;na&quot;&gt;matches&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;())&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;matcher&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;][&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;]&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;同样等识别编译，然后发送这样的请求：&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;curl &#39;127.0.0.1:9200/logstash-2014.11.27/_search?pretty&amp;amp;size=0&#39; -d &#39;{
+    &quot;aggs&quot; : {
+        &quot;ipaddr&quot; : {
+            &quot;terms&quot; : {
+                &quot;script&quot; : &quot;regex&quot;,
+                &quot;params&quot; : {
+                    &quot;fieldname&quot;: &quot;client_ip.raw&quot;,
+                    &quot;pattern&quot;: &quot;^((?:\d{1,3}\.?){3})\.\d{1,3}$&quot;
+                }
+            }
+        }
+    }
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;得到一模一样的结果。&lt;/p&gt;
+&lt;p&gt;下一次试验一下在脚本中尝试加载其他库做更复杂处理的话，会如何呢？&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- JiaThis Button BEGIN --&gt;
+&lt;div class=&quot;jiathis_style&quot;&gt;
+&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
+&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
+&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
+&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
+&lt;/div&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+var jiathis_config={
+	data_track_clickback:true,
+	summary:&quot;&quot;,
+	ralateuid:{
+		&quot;tsina&quot;:&quot;1035836154&quot;
+	},
+	shortUrl:false,
+	hideMore:false
+}
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
+&lt;!-- JiaThis Button END --&gt;
+&lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Thu, 27 Nov 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-11-27-elasticsearch-scripts-aggregations-f36ea8008.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-27-elasticsearch-scripts-aggregations-f36ea8008.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
     
       <item>
         <title>一致性哈希算法原理设计</title>
@@ -4645,355 +4779,6 @@ src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
         <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
         <link>http://iftti.com/posts/2014/2014-11-03-79300-fdfad903b.html</link>
         <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79300-fdfad903b.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>浅谈算法和数据结构（4）：快速排序</title>
-        <description>
-
-					
-		
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;script type=&quot;text/javascript&quot;&gt;
-google_ad_client = &quot;ca-pub-7056282119617872&quot;;
-google_ad_slot = &quot;6645040531&quot;;
-google_ad_width = 300;
-google_ad_height = 250;
-&lt;/script&gt;
-&lt;script type=&quot;text/javascript&quot;
-src=&quot;http://pagead2.googlesyndication.com/pagead/show_ads.js&quot;&gt;
-&lt;/script&gt;
-&lt;/div&gt;
-&lt;br/ --&gt;
-
-&lt;p&gt;上篇文章介绍了时间复杂度为O(nlgn)的合并排序，本篇文章介绍时间复杂度同样为O(nlgn)但是排序速度比合并排序更快的快速排序(Quick Sort)。&lt;/p&gt;
-&lt;p&gt;快速排序是&lt;a href=&quot;http://www.siam.org/pdf/news/637.pdf&quot; target=&quot;_blank&quot;&gt;20世纪科技领域的十大算法之一&lt;/a&gt; ，他由&lt;a href=&quot;http://en.wikipedia.org/wiki/Tony_Hoare&quot; target=&quot;_blank&quot;&gt;C. A. R. Hoare&lt;/a&gt;于1960年提出的一种划分交换排序。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d935cb65339153442501ddbf340c0a08.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;快速排序也是一种采用分治法解决问题的一个典型应用。在很多编程语言中，对数组，列表进行的非稳定排序在内部实现中都使用的是快速排序。而且快速排序在面试中经常会遇到。&lt;/p&gt;
-&lt;p&gt;本文首先介绍快速排序的思路，算法的实现、分析、优化及改进，最后分析了.NET 中列表排序的内部实现。&lt;/p&gt;
-&lt;h1&gt;一 原理&lt;/h1&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/35c7307cbbc2497295a8f5830583ceff.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;快速排序的基本思想如下：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;对数组进行随机化。&lt;/li&gt;
-&lt;li&gt;从数列中取出一个数作为中轴数(pivot)。&lt;/li&gt;
-&lt;li&gt;将比这个数大的数放到它的右边，小于或等于它的数放到它的左边。&lt;/li&gt;
-&lt;li&gt;再对左右区间重复第三步，直到各区间只有一个数。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3cc32516c98cefe540b70cd7573dd297.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;如上图所示快速排序的一个重要步骤是对序列进行以中轴数进行划分，左边都小于这个中轴数，右边都大于该中轴数，然后对左右的子序列继续这一步骤直到子序列长度为1。&lt;/p&gt;
-&lt;p&gt;下面来看某一次划分的步骤，如下图：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/6c6d8af6e8c29e81d14dcbc2b57170ef.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;上图中的划分操作可以分为以下5个步骤：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;获取中轴元素&lt;/li&gt;
-&lt;li&gt;i从左至右扫描，如果小于基准元素，则i自增，否则记下a[i]&lt;/li&gt;
-&lt;li&gt;j从右至左扫描，如果大于基准元素，则i自减，否则记下a[j]&lt;/li&gt;
-&lt;li&gt;交换a[i]和a[j]&lt;/li&gt;
-&lt;li&gt;重复这一步骤直至i和j交错，然后和基准元素比较，然后交换。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;划分过程的代码实现如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;/// &amp;lt;summary&amp;gt;
-/// 快速排序中的划分过程
-/// &amp;lt;/summary&amp;gt;
-/// &amp;lt;param name=&quot;array&quot;&amp;gt;待划分的数组&amp;lt;/param&amp;gt;
-/// &amp;lt;param name=&quot;lo&quot;&amp;gt;最左侧位置&amp;lt;/param&amp;gt;
-/// &amp;lt;param name=&quot;hi&quot;&amp;gt;最右侧位置&amp;lt;/param&amp;gt;
-/// &amp;lt;returns&amp;gt;中间元素位置&amp;lt;/returns&amp;gt;
-private static int Partition(T[] array, int lo, int hi)
-{
-    int i = lo, j = hi + 1;
-    while (true)
-    {
-        //从左至右扫描，如果碰到比基准元素array[lo]小，则该元素已经位于正确的分区，i自增，继续比较i+1；
-        //否则，退出循环，准备交换
-        while (array[++i].CompareTo(array[lo]) &amp;lt; 0)
-        {
-            //如果扫描到了最右端，退出循环
-            if (i == hi) break;
-        }
-
-        //从右自左扫描，如果碰到比基准元素array[lo]大，则该元素已经位于正确的分区，j自减，继续比较j-1
-        //否则，退出循环，准备交换
-        while (array[--j].CompareTo(array[lo]) &amp;gt; 0)
-        {
-            //如果扫描到了最左端，退出循环
-            if (j == lo) break;
-        }
-
-        //如果相遇，退出循环
-        if (i &amp;gt;= j) break;
-
-        //交换左a[i],a[j]右两个元素，交换完后他们都位于正确的分区
-        Swap(array, i, j);
-    }
-    //经过相遇后，最后一次a[i]和a[j]的交换
-    //a[j]比a[lo]小，a[i]比a[lo]大，所以将基准元素与a[j]交换
-    Swap(array, lo, j);
-    //返回扫描相遇的位置点
-    return j;
-}&lt;/pre&gt;
-&lt;p&gt;划分前后，元素在序列中的分布如下图：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/00014a047728a750923a530152e28117.jpg&quot;&gt;&lt;/p&gt;
-&lt;h1&gt;二 实现&lt;/h1&gt;
-&lt;p&gt;与合并算法基于合并这一过程一样，快速排序基于分割(Partition)这一过程。只需要递归调用Partition这一操作，每一次以Partition返回的元素位置来划分为左右两个子序列，然后继续这一过程直到子序列长度为1，代码的实现如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;public class QuickSort&amp;lt;T&amp;gt; where T : IComparable&amp;lt;T&amp;gt;
-{
-    public static void Sort(T[] array)
-    {
-        Sort(array, 0, array.Length - 1);
-    }
-
-    private static void Sort(T[] array, int lo, int hi)
-    {
-        //如果子序列为1，则直接返回
-        if (lo &amp;gt;= hi) return;
-        //划分，划分完成之后，分为左右序列，左边所有元素小于array[index]，右边所有元素大于array[index]
-        int index = Partition(array, lo, hi);
-
-       //对左右子序列进行排序完成之后，整个序列就有序了
-        //对左边序列进行递归排序
-        Sort(array, lo, index - 1);
-        //对右边序列进行递归排序
-        Sort(array, index + 1, hi);
-    }
-}&lt;/pre&gt;
-&lt;p&gt;下图说明了快速排序中，每一次划分之后的结果：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3d72ba13c788fdd4241ed0809ed5cf73.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;一般快速排序的动画如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/321b865ecac4ef38c4ac3d39d7ed7161.jpg&quot;&gt;&lt;/p&gt;
-&lt;h1&gt;三 分析&lt;/h1&gt;
-&lt;ol&gt;
-&lt;li&gt;在最好的情况下，快速排序只需要大约nlgn次比较操作，在最坏的情况下需要大约1/2 n&lt;sup&gt;2 &lt;/sup&gt;次比较操作。在最好的情况下，每次的划分都会恰好从中间将序列划分开来，那么只需要lgn次划分即可划分完成，是一个标准的分治算法Cn=2Cn/2+N，每一次划分都需要比较N次，大家可以回想下我们是如何证明合并排序的时间复杂度的。
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/6ee4f64ac2f8f98d9b0cde65acc6d307.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;在最坏的情况下，即序列已经排好序的情况下，每次划分都恰好把数组划分成了0，n两部分，那么需要n次划分，但是比较的次数则变成了n, n-1, n-2,….1, 所以整个比较次数约为n(n-1)/2~n&lt;sup&gt;2&lt;/sup&gt;/2.&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;快速排序平均需要大约2NlnN次比较，来对长度为n的排序关键字唯一的序列进行排序。 证明也比较简单：假设C&lt;sub&gt;N&lt;/sub&gt;为快速排序平均花在比较上的时间，初始C&lt;sub&gt;0&lt;/sub&gt;=C&lt;sub&gt;1&lt;/sub&gt;=0，对于N&amp;gt;1的情况，有：&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/74da1f49a1d53ce5741f1df4548567e2.jpg&quot;&gt;
-&lt;p&gt;其中N+1是分割时的比较次数，&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5b161b304ade8da0f2b0118f913e0d33.jpg&quot;&gt; 表示将序列分割为0，和N-1左右两部分的概率为1/N, 划分为1，N-2左右两部分的概率也为1/N，都是等概率的。&lt;/p&gt;
-&lt;p&gt;然后对上式左右两边同时乘以N，整理得到：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/df2c192117e078b3e2485a1f2cb000b0.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;然后，对于N为N-1的情况：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c10fd6c8b225ac2955fd8bc8d619dc14.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;两式相减，然后整理得到：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/460257636e7efafdb1b852131e3b61a5.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;然后左右两边同时除以N(N+1)，得到:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/4b1987b05a0b2298259d4179b889795e.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;可以看到，这是一个递归式，我们将&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/e660704b5b32193bef39a2a6fb36b583.jpg&quot;&gt; 递归展开得到：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3c170538abf537886904603a86ae2826.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;然后处理一下得到：&lt;/p&gt;
-&lt;/li&gt;
-&lt;li&gt;平均情况下，快速排序需要大约1.39NlgN次比较，这比合并排序多了39%的比较，但是由于涉及了较少的数据交换和移动操作，他要比合并排序更快。&lt;/li&gt;
-&lt;li&gt;为了避免出现最坏的情况，导致序列划分不均，我们可以首先对序列进行随机化排列然后再进行排序就可以避免这一情况的出现。&lt;/li&gt;
-&lt;li&gt;快速排序是一种就地(in-place)排序算法。在分割操作中只需要常数个额外的空间。在递归中，也只需要对数个额外空间。&lt;/li&gt;
-&lt;li&gt;另外，快速排序是非稳定性排序。&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/342d3315291ed3f2432d7a22437830f3.jpg&quot;&gt;&lt;/p&gt;
-&lt;h1&gt;四 改进&lt;/h1&gt;
-&lt;p&gt;对一般快速排序进行一些改进可以提高其效率。&lt;/p&gt;
-&lt;p&gt;1. 当划分到较小的子序列时，通常可以使用插入排序替代快速排序&lt;/p&gt;
-&lt;p&gt;对于较小的子序列（通常序列元素个数为10个左右），我们就可以采用插入排序直接进行排序而不用继续递归，算法改造如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;private const int CUTTOFF = 10;
-private static void Sort(T[] array, int lo, int hi)
-{
-    //如果子序列为1，则直接返回
-    if (lo &amp;gt;= hi) return;
-    //对于小序列，直接采用插入排序替代
-    if (hi - lo &amp;lt;= CUTTOFF - 1) 
-    {
-        Sort&amp;lt;int&amp;gt;.InsertionSort(array, lo, hi);
-        return;
-    }
-    //划分，划分完成之后，分为左右序列，左边所有元素小于array[index]，右边所有元素大于array[index]
-    int index = Partition(array, lo, hi);
-
-    //对左右子序列进行排序完成之后，整个序列就有序了
-
-    //对左边序列进行递归排序
-    Sort(array, lo, index - 1);
-    //对右边序列进行递归排序
-    Sort(array, index + 1, hi);
-}&lt;/pre&gt;
-&lt;p&gt;2. 三平均分区法(Median of three partitioning)&lt;/p&gt;
-&lt;p&gt;在一般的的快速排序中，选择的是第一个元素作为中轴(pivot),这会出现某些分区严重不均的极端情况，比如划分为了1和n-1两个序列，从而导致出现最坏的情况。三平均分区法与一般的快速排序方法不同，它并不是选择待排数组的第一个数作为中轴，而是选用待排数组最左边、最右边和最中间的三个元素的中间值作为中轴。这一改进对于原来的快速排序算法来说，主要有两点优势：&lt;/p&gt;
-&lt;p&gt;（1） 首先，它使得最坏情况发生的几率减小了。&lt;/p&gt;
-&lt;p&gt;（2） 其次，未改进的快速排序算法为了防止比较时数组越界，在最后要设置一个哨点。如果在分区排序时，中间的这个元素（也即中轴）是与最右边数过来第二个元素进行交换的话，那么就可以省略与这一哨点值的比较。&lt;/p&gt;
-&lt;p&gt;对于三平均分区法还可以进一步扩展，在选取中轴值时，可以从由左中右三个中选取扩大到五个元素中或者更多元素中选取，一般的，会有（2t＋1）平均分区法（median-of-(2t+1)。常用的一个改进是，当序列元素小于某个阈值N时，采用三平均分区，当大于时采用5平均分区。&lt;/p&gt;
-&lt;p&gt;采用三平均分区法对快速排序的改进如下：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;private static void Sort(T[] array, int lo, int hi)
-{
-    //对于小序列，直接采用插入排序替代
-    if (hi - lo &amp;lt;= CUTTOFF - 1) 
-    {
-        //Sort&amp;lt;int&amp;gt;.InsertionSort(array, lo, hi);
-        return;
-    }
-    //采用三平均分区法查找中轴
-    int m = MedianOf3(array, lo, lo + (hi - lo) / 2, hi);
-    Swap(array, lo, m);
-    //划分，划分完成之后，分为左右序列，左边所有元素小于array[index]，右边所有元素大于array[index]
-    int index = Partition(array, lo, hi);
-
-    //对左右子序列进行排序完成之后，整个序列就有序了
-
-    //对左边序列进行递归排序
-    Sort(array, lo, index - 1);
-    //对右边序列进行递归排序
-    Sort(array, index + 1, hi);
-}
-
-/// &amp;lt;summary&amp;gt;
-/// 查找三个元素中位于中间的那个元素
-/// &amp;lt;/summary&amp;gt;
-/// &amp;lt;param name=&quot;array&quot;&amp;gt;&amp;lt;/param&amp;gt;
-/// &amp;lt;param name=&quot;lo&quot;&amp;gt;&amp;lt;/param&amp;gt;
-/// &amp;lt;param name=&quot;center&quot;&amp;gt;&amp;lt;/param&amp;gt;
-/// &amp;lt;param name=&quot;hi&quot;&amp;gt;&amp;lt;/param&amp;gt;
-/// &amp;lt;returns&amp;gt;&amp;lt;/returns&amp;gt;
-private static int MedianOf3(T[] array, int lo, int center, int hi)
-{
-    return (Less(array[lo], array[center]) ?
-           (Less(array[center], array[hi]) ? center : Less(array[lo], array[hi]) ? hi : lo) :
-           (Less(array[hi], array[center]) ? center : Less(array[hi], array[lo]) ? hi : lo));
-}
-
-private static bool Less(T t1, T t2)
-{
-    return t1.CompareTo(t2) &amp;lt; 0;
-}&lt;/pre&gt;
-&lt;p&gt;使用插入排序对小序列进行排序以及使用三平均分区法对一般快速排序进行改进后运行结果示意图如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/bea7a3ee1344088671686ee8caf747a5.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;3. 三分区(3-way partitioning) 快速排序&lt;/p&gt;
-&lt;p&gt;通常，我们的待排序的序列关键字中会有很多重复的值，比如我们想对所有的学生按照年龄进行排序，按照性别进行排序等，这样每一类别中会有很多的重复的值。理论上，这些重复的值只需要处理一次就行了。但是一般的快速排序会递归进行划分，因为一般的快速排序只是将序列划分为了两部分，小于或者大于等于这两部分。&lt;/p&gt;
-&lt;p&gt;既然要利用连续、相等的元素不需要再参与排序这个事实，一个直接的想法就是通过划分让相等的元素连续地摆放：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/01eecd8a247b351703c03b642ed483cf.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;然后只对左侧小于V的序列和右侧大于V对的序列进行排序。这种三路划分与计算机科学中无处不在，它与Dijkstra提出的“荷兰国旗问题”(&lt;a href=&quot;http://www.iis.sinica.edu.tw/~scm/ncs/2010/10/dutch-national-flag-problem/&quot;&gt;The Dutch National Flag Problem&lt;/a&gt;)非常相似。&lt;/p&gt;
-&lt;p&gt;Dijkstra的方法如上图：&lt;/p&gt;
-&lt;p&gt;从左至右扫描数组，维护一个指针lt使得[lo…lt-1]中的元素都比v小，一个指针gt使得所有[gt+1….hi]的元素都大于v，以及一个指针i，使得所有[lt…i-1]的元素都和v相等。元素[i…gt]之间是还没有处理到的元素，i从lo开始，从左至右开始扫描：&lt;/p&gt;
-&lt;p&gt;· 如果a[i]&amp;lt;v: 交换a[lt]和a[i],lt和i自增&lt;/p&gt;
-&lt;p&gt;· 如果a[i]&amp;gt;v:交换a[i]和a[gt], gt自减&lt;/p&gt;
-&lt;p&gt;· 如果a[i]=v: i自增&lt;/p&gt;
-&lt;p&gt;下面是使用Dijkstra的三分区快速排序代码：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;private static void Sort(T[] array, int lo, int hi)
-{
-    //对于小序列，直接采用插入排序替代
-    if (hi - lo &amp;lt;= CUTTOFF - 1)
-    {
-        Sort&amp;lt;int&amp;gt;.InsertionSort(array, lo, hi);
-        return;
-    }
-    //三分区
-    int lt = lo, i = lo + 1, gt = hi;
-    T v = array[lo];
-    while (i&amp;lt;=gt)
-    {
-        int cmp = array[i].CompareTo(v);
-        if (cmp &amp;lt; 0) Swap(array, lt++, i++);
-        else if (cmp &amp;gt; 0) Swap(array, i, gt--);
-        else i++;
-    }
-
-    //对左边序列进行递归排序
-    Sort(array, lo, lt - 1);
-    //对右边序列进行递归排序
-    Sort(array, gt + 1, hi);
-}&lt;/pre&gt;
-&lt;p&gt;三分区快速排序的每一步如下图所示：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d299a5969c55fa3358cf40dade233218.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;三分区快速排序的示意图如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/14e24fbcac1855e930f401ffb3a4b878.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;Dijkstra的三分区快速排序虽然在快速排序发现不久后就提出来了，但是对于序列中重复值不多的情况下，它比传统的2分区快速排序需要更多的交换次数。&lt;/p&gt;
-&lt;p&gt;Bentley 和D. McIlroy在普通的三分区快速排序的基础上，对一般的快速排序进行了改进。在划分过程中，i遇到的与v相等的元素交换到最左边，j遇到的与v相等的元素交换到最右边，i与j相遇后再把数组两端与v相等的元素交换到中间&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d7b1bbbd5645aa59f93215949850239f.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;这个方法不能完全满足只扫描一次的要求，但它有两个好处：首先，如果数据中没有重复的值，那么该方法几乎没有额外的开销；其次，如果有重复值，那么这些重复的值不会参与下一趟排序，减少了无用的划分。&lt;/p&gt;
-&lt;p&gt;下面是采用 Bentley&amp;amp;D. McIlroy 三分区快速排序的算法改进：&lt;/p&gt;
-&lt;pre class=&quot;brush: actionscript3; gutter: true&quot;&gt;private static void Sort(T[] array, int lo, int hi)
-{
-    //对于小序列，直接采用插入排序替代
-    if (hi - lo &amp;lt;= CUTTOFF - 1)
-    {
-        Sort&amp;lt;int&amp;gt;.InsertionSort(array, lo, hi);
-        return;
-    }
-    // Bentley-McIlroy 3-way partitioning
-    int i = lo, j = hi + 1;
-    int p = lo, q = hi + 1;
-    T v = array[lo];
-    while (true)
-    {
-        while (Less(array[++i], v))
-            if (i == hi) break;
-        while (Less(v, array[--j]))
-            if (j == lo) break;
-
-        // pointers cross
-        if (i == j &amp;amp;&amp;amp; Equal(array[i], v))
-            Swap(array, ++p, i);
-        if (i &amp;gt;= j) break;
-
-        Swap(array, i, j);
-        if (Equal(array[i], v)) Swap(array, ++p, i);
-        if (Equal(array[j], v)) Swap(array, --q, j);
-    }
-
-    //将相等的元素交换到中间
-    i = j + 1;
-    for (int k = lo; k &amp;lt;= p; k++) Swap(array, k, j--);
-    for (int k = hi; k &amp;gt;= q; k--) Swap(array, k, i++);
-
-    Sort(array, lo, j);
-    Sort(array, i, hi);
-}&lt;/pre&gt;
-&lt;p&gt;三分区快速排序的动画如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/dff16aa526ebc2a2cd259152f15f35f4.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;4.并行化&lt;/p&gt;
-&lt;p&gt;和前面讨论对合并排序的改进一样，对所有使用分治法解决问题的算法其实都可以进行并行化，快速排序的并行化改进我在之前的&lt;a href=&quot;http://www.cnblogs.com/yangecnu/p/Something-about-Concurrent-and-Parallel-Programming.html&quot; target=&quot;_blank&quot;&gt;浅谈并发与并行&lt;/a&gt;这篇文章中已经有过介绍，这里不再赘述。&lt;/p&gt;
-&lt;h1&gt;五 .NET 中元素排序的内部实现&lt;/h1&gt;
-&lt;p&gt;快速排序作为一种优秀的排序算法，在很多编程语言的元素内部排序中均有实现，比如Java中对基本数据类型(primitive type)的排序,C++，Matlab，Python，FireFox Javascript等语言中均将快速排序作为其内部元素排序的算法。同样.NET中亦是如此。&lt;/p&gt;
-&lt;p&gt;.NET这种对List&amp;lt;T&amp;gt;数组元素进行排序是通过调用Sort方法实现的，其内部则又是通过Array.Sort实现，MSDN上说在&lt;a href=&quot;http://msdn.microsoft.com/en-us/library/b0zbh7b6(v=vs.100).aspx&quot; target=&quot;_blank&quot;&gt;.NET 4.0及之前的版本&lt;/a&gt;，Array.Sort采用的是快速排序，然而在&lt;a href=&quot;http://msdn.microsoft.com/en-us/library/b0zbh7b6(v=vs.110).aspx&quot; target=&quot;_blank&quot;&gt;.NET 4.5&lt;/a&gt;中，则对这一算法进行了改进，采用了名为&lt;a href=&quot;http://en.wikipedia.org/wiki/Introsort&quot; target=&quot;_blank&quot;&gt;Introspective sort&lt;/a&gt; 的算法，即保证在一般情况下达到最快排序速度，又能保证能够在出现最差情况是进行优化。他其实是一种混合算法：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;当待分区的元素个数小于16个时，采用插入排序&lt;/li&gt;
-&lt;li&gt;当分区次数超过2*logN，N是输入数组的区间大小，则使用堆排序(Heapsort)&lt;/li&gt;
-&lt;li&gt;否则，使用快速排序。&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;有了Reflector这一神器，我们可以查看.NET中的ArraySort的具体实现:&lt;/p&gt;
-&lt;p&gt;Array.Sort这一方法在mscorlib这一程序集中，具体的实现方法有分别针对泛型和普通类型的SortedGenericArray和SortedObjectArray，里面的实现大同小异，我们以SortedGenericArray这个类来作为例子看:&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3e0e104b96e27175301547c8616fcc88.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;首先要看的是Sort方法，其实现如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/ab589de170f1ef1fde592fddba686b3a.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;该方法中，首先判断运行的.NET对的版本，如果是4.5及以上版本，则用IntrospectiveSort算法，否则采用限定深度的快速排序算法DepthLimitedQuickSort。先看IntrospectiveSort：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/529a6e89c21c0c842a1777bd92b5c93d.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;该方法第一个元素为数组的最左边元素位置，第二个参数为最右边元素位置，第三个参数为2*log&lt;sub&gt;2&lt;/sub&gt;N，继续看方法内部：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d76d814acd660d0f83baaa92cd7cd48f.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;可以看到，当num&amp;lt;=16时，如果元素个数为1,2,3，则直接调用SwapIfGreaterWithItem进行排序了。否则直接调用InsertSort进行插入排序。&lt;/p&gt;
-&lt;p&gt;这里面也是一个循环，每循环一下depthLimit就减小1个，如果为0表示划分的次数超过了2logN，则直接调用基排序(HeapSort)，这里面的划分方法PickPivortAndPartitin的实现如下：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/990eb3ac466db2e76cd6c1e76db1b3a5.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;它其实是一个标准的三平均快速排序。可以看到在.NET 4.5中对Quick进行优化的部分主要是在元素个数比较少的时候采用选择插入，并且在递归深度超过2logN的时候，采用基排序。&lt;/p&gt;
-&lt;p&gt;下面再来看下在.NET 4.0及以下平台下排序DepthLimitedQuickSort方法的实现：&lt;/p&gt;
-&lt;p&gt;从名称中可以看出这是限定深度的快速排序，在第三个参数传进去的是0×20，也就是32。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a12cc44e5cde66e8db48d5c418c836aa.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;可以看到，当划分的次数大于固定的32次的时候，采用了基排序，其他的部分是普通的快速排序。&lt;/p&gt;
-&lt;h1&gt;六 总结&lt;/h1&gt;
-&lt;p&gt;由于快速排序在排序算法中具有排序速度快，而且是就地排序等优点，使得在许多编程语言的内部元素排序实现中采用的就是快速排序，本问首先介绍了一般的快速排序，分析了快速排序的时间复杂度，然后就分析了对快速排序的几点改进，包括对小序列采用插入排序替代，三平均划分，三分区划分等改进方法。最后介绍了.NET不同版本下的对元素内部排序的实现。&lt;/p&gt;
-&lt;p&gt;快速排序很重要，希望本文对您了解快速排序有所帮助。&lt;/p&gt;
-
-
-&lt;!-- div id=&quot;ad1&quot;&gt;
-&lt;/div --&gt;
-
-
-	
-
-
-	
-
-</description>
-        <pubDate>Mon, 03 Nov 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-11-03-79298-f84dd203d.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-11-03-79298-f84dd203d.html</guid>
         
         
         <category>jobbole</category>
