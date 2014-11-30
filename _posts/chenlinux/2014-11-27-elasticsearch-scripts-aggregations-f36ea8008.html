@@ -1,0 +1,129 @@
+---
+layout: post
+title: '利用脚本灵活定制 Elasticsearch 中的聚合效果'
+time: 2014-11-27 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2014/11/27/elasticsearch-scripts-aggregations
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>这几天阅读 Splunk 书，发现 Splunk 作为一个不需要提前结构化数据的处理工具，在自动发现的 “interesting fields” 以外，也提供了在页面通过正则临时产生新字段的能力。类似下面这样：</p>
+<pre><code>sourcetype="impl_splunk_gen"
+  | rex "ip=(?P&lt;subnet&gt;\d+\.\d+\.\d+)\.\d+"
+  | chart values(subnet) by user network
+</code></pre>
+<p>这就蛮让人流口水的了。毕竟谁也不可能保证自己在结构化的时候做到了万事俱备。不过，ELK 虽然建议大家在 logstash 里通过 grok 来预处理，其实本身也是有这个能力的。今天稍微测试了一下，通过 ES 的 <strong>scripting</strong> 模块，完全可以实现这个效果。</p>
+<p><em>测试在 Elasticsearch 1.4.1 上进行。较低的版本可能在支持的语言方面稍有差异。</em></p>
+<p>因为 scripting 在早先 1.2 的时候出过安全问题，所以后来就都不再允许直接通过 POST 的内容里提交 scripting 代码了。现在有两种方式，一种是在 elasticsearch-1.4.1/config/ 目录下新建一个 scripts 目录，然后把准备要用的脚本都放在这个目录里，ES 会自动探测并加载编译；另一种是开启动态 scripting 功能，再通过 <code>/_script</code> 接口上传脚本。</p>
+<p>下面示例两种实现获取 client_ip 字段的 C 段的统计的方式：</p>
+<ol>
+  <li>通过简单的切割合并</li>
+</ol>
+<p>创建 <code>config/scripts/split.groovy</code> 文件，内容如下：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">doc</span><span class="o">[</span><span class="n">fieldname</span><span class="o">].</span><span class="na">value</span><span class="o">.</span><span class="na">split</span><span class="o">(</span><span class="sc">'.'</span><span class="o">)[</span><span class="mi">0</span><span class="o">..-</span><span class="mi">2</span><span class="o">].</span><span class="na">join</span><span class="o">(</span><span class="sc">'.'</span><span class="o">)</span></code></pre></div>
+<p>稍等一下，看到 ES 的日志显示探测到并且编译成功后。就可以发送请求了：</p>
+<pre><code>curl '127.0.0.1:9200/logstash-2014.11.27/_search?pretty&amp;size=0' -d '{
+    "aggs" : {
+        "ipaddr" : {
+            "terms" : {
+                "script" : "split",
+                "params" : {
+                    "fieldname": "client_ip.raw"
+                }
+            }
+        }
+    }
+}'
+</code></pre>
+<p><strong>注意这里一定要传递是 “not_analyzed” 的 字段过去！</strong> ES 流程上是先过分词器再到 scripting 模块的，这里要是切一下，到你脚本里就不知道长啥样了……</p>
+<p>结果如下：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="p">{</span>
+  <span class="nt">"took"</span> <span class="p">:</span> <span class="mi">30</span><span class="p">,</span>
+  <span class="nt">"timed_out"</span> <span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+  <span class="nt">"_shards"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="nt">"successful"</span> <span class="p">:</span> <span class="mi">5</span><span class="p">,</span>
+    <span class="nt">"failed"</span> <span class="p">:</span> <span class="mi">0</span>
+  <span class="p">},</span>
+  <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">786</span><span class="p">,</span>
+    <span class="nt">"max_score"</span> <span class="p">:</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">[</span> <span class="p">]</span>
+  <span class="p">},</span>
+  <span class="nt">"aggregations"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"ipaddr"</span> <span class="p">:</span> <span class="p">{</span>
+      <span class="nt">"doc_count_error_upper_bound"</span> <span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+      <span class="nt">"sum_other_doc_count"</span> <span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+      <span class="nt">"buckets"</span> <span class="p">:</span> <span class="p">[</span> <span class="p">{</span>
+        <span class="nt">"key"</span> <span class="p">:</span> <span class="s2">"127.0.0"</span><span class="p">,</span>
+        <span class="nt">"doc_count"</span> <span class="p">:</span> <span class="mi">786</span>
+      <span class="p">}</span> <span class="p">]</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre></div>
+<ol>
+  <li>通过正则捕获</li>
+</ol>
+<p>前面的方式虽然达到目的，但是不像 splunk 的做法那么通用，所以更高级的是这样：</p>
+<p>创建 <code>config/scripts/regex.groovy</code> 文件，内容如下：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">matcher</span> <span class="o">=</span> <span class="o">(</span> <span class="n">doc</span><span class="o">[</span><span class="n">fieldname</span><span class="o">].</span><span class="na">value</span> <span class="o">=~</span> <span class="o">/</span><span class="n">$</span><span class="o">{</span><span class="n">pattern</span><span class="o">}/</span> <span class="o">)</span>
+<span class="k">if</span> <span class="o">(</span><span class="n">matcher</span><span class="o">.</span><span class="na">matches</span><span class="o">())</span> <span class="o">{</span>
+    <span class="n">matcher</span><span class="o">[</span><span class="mi">0</span><span class="o">][</span><span class="mi">1</span><span class="o">]</span>
+<span class="o">}</span></code></pre></div>
+<p>同样等识别编译，然后发送这样的请求：</p>
+<pre><code>curl '127.0.0.1:9200/logstash-2014.11.27/_search?pretty&amp;size=0' -d '{
+    "aggs" : {
+        "ipaddr" : {
+            "terms" : {
+                "script" : "regex",
+                "params" : {
+                    "fieldname": "client_ip.raw",
+                    "pattern": "^((?:\d{1,3}\.?){3})\.\d{1,3}$"
+                }
+            }
+        }
+    }
+}'
+</code></pre>
+<p>得到一模一样的结果。</p>
+<p>下一次试验一下在脚本中尝试加载其他库做更复杂处理的话，会如何呢？</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
