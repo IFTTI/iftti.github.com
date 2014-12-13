@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>服务器BIOS主要设置项目解说</title>
+    <title>Kibana 中几个不同的 filtering</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-10-22--p=1664-75b5b8695.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-08-difference-filterings-kibana-a2d6b87c1.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,43 +50,125 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>服务器BIOS主要设置项目解说</h1>
-    <p class="meta"><span class="time">Oct 22, 2014</span><span class="source_url"> • 来自 noops.me <a name="noops.me" href="http://noops.me/?p=1664" target="_blank">[原文链接]</a></span></p>
+    <h1>Kibana 中几个不同的 filtering</h1>
+    <p class="meta"><span class="time">Dec 8, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/12/08/difference-filterings-kibana" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
 
-                <p>每次操作BIOS的时候是否都有一种抓狂的感觉：面对玲琅满目的设置页和设置项几近崩溃？</p>
-<p>何从下手设置BIOS项目呢？本文围绕和处理器、内存性能相关的设置项目进行解说，将关键设置项目进行细化和解释，同时给出设置建议。</p>
-<p> </p>
-<p><strong>有关BIOS主要设置项的说明：</strong></p>
-<p>1、处理器节电相关：C1E、C-State、电源模式、EIST等；</p>
-<p>2、内存NUMA模式和访问速率等；</p>
-<p>3、处理器超线程、虚拟化和直接IO访问等；</p>
-<p>4、处理器指令优化：MLC、DCU等；</p>
-<p> </p>
-<p><strong>下表给出了详细设置项目的解说（以超微服务器BIOS设置项目为例）：</strong></p>
-<p><a href="http://noops.me/wp-content/uploads/2014/10/bios.png"><img class="alignnone  wp-image-1665" alt="BIOS设置项目说明" src="/images/noops.me/d2a90582490211803ce4fc4c4df8e2d6.jpg" width="894" height="1530"></a></p>
-<p> </p>
+  <div style="background-color: #FFF;">
+    <p>用过 kibana 的都知道，kibana 的图表上，可以直接点击某个值，就能自动添加这个过滤条件到 filtering 里，然后整个 dashboard 上所有的图表都会刷新成在这个过滤条件下的新状态。但是如果你要想自己手动添加 filtering 的时候，就会发现，自己添加的，写法好像跟自动生成的长得不太一样。</p>
+<p>而今天，我在同事的提醒下，发现更进一步的情况，即使都是通过点击图表添加上的 filtering，其实长得也不一样，如下图：</p>
+<p><img src="/images/chenlinux.com/14899b570407acac411b3be94628b0a4.jpg" alt=""></p>
+<ul>
+  <li>在 histogram 面板上拖拽鼠标，生成的是 range filtering</li>
+  <li>在 terms 面板上点击某个值，生成的是 term filtering</li>
+  <li>在 table 面板左侧列表上点击某个字段，浮出的小面板里点击某个值，生成的是 query filtering</li>
+  <li>在 filtering 手工添加，生成的是 query_string filtering</li>
+</ul>
+<p>这几个页面上的不同，反应在实际的请求 JSON 里又有什么区别呢？</p>
+<p>我们可以点开面板右上角的 inspect 按钮看生成的 curl 命令。其中 filtering 部分如下：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="s2">"filter"</span><span class="err">:</span> <span class="p">{</span>
+      <span class="nt">"bool"</span><span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"must"</span><span class="p">:</span> <span class="p">[</span>
+          <span class="p">{</span>
+            <span class="nt">"range"</span><span class="p">:</span> <span class="p">{</span>
+              <span class="nt">"@timestamp"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="nt">"from"</span><span class="p">:</span> <span class="mi">1418009781101</span><span class="p">,</span>
+                <span class="nt">"to"</span><span class="p">:</span> <span class="s2">"now"</span>
+              <span class="p">}</span>
+            <span class="p">}</span>
+          <span class="p">},</span>
+          <span class="p">{</span>
+            <span class="nt">"terms"</span><span class="p">:</span> <span class="p">{</span>
+              <span class="nt">"_type"</span><span class="p">:</span> <span class="p">[</span>
+                <span class="s2">"mweibo_webinf"</span>
+              <span class="p">]</span>
+            <span class="p">}</span>
+          <span class="p">},</span>
+          <span class="p">{</span>
+            <span class="nt">"fquery"</span><span class="p">:</span> <span class="p">{</span>
+              <span class="nt">"query"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="nt">"query_string"</span><span class="p">:</span> <span class="p">{</span>
+                  <span class="nt">"query"</span><span class="p">:</span> <span class="s2">"host:(\"web093.mweibo.tc.sinanode.com\")"</span>
+                <span class="p">}</span>
+              <span class="p">},</span>
+              <span class="nt">"_cache"</span><span class="p">:</span> <span class="kc">true</span>
+            <span class="p">}</span>
+          <span class="p">},</span>
+          <span class="p">{</span>
+            <span class="nt">"fquery"</span><span class="p">:</span> <span class="p">{</span>
+              <span class="nt">"query"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="nt">"query_string"</span><span class="p">:</span> <span class="p">{</span>
+                  <span class="nt">"query"</span><span class="p">:</span> <span class="s2">"host:\"web093.mweibo.tc.sinanode.com\""</span>
+                <span class="p">}</span>
+              <span class="p">},</span>
+              <span class="nt">"_cache"</span><span class="p">:</span> <span class="kc">true</span>
+            <span class="p">}</span>
+          <span class="p">}</span>
+        <span class="p">]</span>
+      <span class="p">}</span>
+    <span class="p">}</span></code></pre>
+</div>
+<p>前面两个不出意外，都是很标准的 api 示例的样子。比较特殊的是后面两个：</p>
+<p>第三个其实就是通过 table 左侧字段菜单点出来的，虽然通过鼠标点击操作，只可能生成一个单一的键值查询，但这里却给加上了一对小括号！这是完全没有必要的，简直可以怀疑是不是当初开发人员手抖了……</p>
+<p>当然，并不是说这种生成完全没有用。比方说，其实你本来是打算查询来自两台机器的日志。如果没想到用括号，可能直接在 query_string 里就写 <code>host:"web001" OR host:"web002"</code> 了。但是在这个 query filtering 里，因为页面上已经有单独填字段的地方了。那就只用在 query 那栏写 <code>"web001" OR "web002"</code> 好了。</p>
+<p>以上。不过我依然怀疑是开发人员手抖。</p>
+    <hr>
+
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-10-20--p=1647-39c76fe0d.html" title="Previous Post: 阵列卡缓存电池充放电问题详解" data-instant>&laquo; 阵列卡缓存电池充放电问题详解</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-11-27-elasticsearch-scripts-aggregations-f36ea8008.html" title="Previous Post: 利用脚本灵活定制 Elasticsearch 中的聚合效果" data-instant>&laquo; 利用脚本灵活定制 Elasticsearch 中的聚合效果</a>
 
-    <a class="basic-alignment right" href="/posts/2014/2014-10-22-github-operation.html-abcae1810.html" title="Next Post: github 上 Fork 别人的项目后的常用的操作指南" data-instant>github 上 Fork 别人的项目后的常用的操作指南 &raquo;</a>
+    <a class="basic-alignment right" href="/posts/2014/2014-12-10--p=1778-c0a873ab4.html" title="Next Post: HBase SSD优化案例：读策略优化和中断多核绑定" data-instant>HBase SSD优化案例：读策略优化和中断多核绑定 &raquo;</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>18 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-18--id=4-6372976f7.html">Building assert() in Swift, Part 1: Lazy Evaluation</a></li>
+      <li><span>29 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-29-implement-source-context-function-for-elk-3c2a6509b.html">山寨一个 Splunk 的 source 上下文查看功能</a></li>
 
-      <li><span>10 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-10--p=1778-c0a873ab4.html">HBase SSD优化案例：读策略优化和中断多核绑定</a></li>
+      <li><span>27 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-27-elasticsearch-scripts-aggregations-f36ea8008.html">利用脚本灵活定制 Elasticsearch 中的聚合效果</a></li>
 
-      <li><span>23 Sep 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-09-23-77531-61f37eb4a.html">深度学习之浅见</a></li>
+      <li><span>20 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-20-phantomjs-snapshot-63b00217f.html">用 phantomjs 截图</a></li>
 
   </ul>
 </div>
