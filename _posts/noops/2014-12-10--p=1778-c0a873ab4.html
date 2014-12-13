@@ -1,0 +1,62 @@
+---
+layout: post
+title: 'HBase SSD优化案例：读策略优化和中断多核绑定'
+time: 2014-12-10 09:28:00 +0800
+site_name: noops.me
+source_url: http://noops.me/?p=1778
+images:
+  94d5b0edaa24c4a356c857a423e1cc35: http://noops.me/wp-content/uploads/2014/12/preopt_iostat.png
+  36ecc992eed341f504b30a09820bd099: http://noops.me/wp-content/uploads/2014/12/preopt_iostat_rak0.png
+  d11439c036071bcc7447fb7e60f60450: http://noops.me/wp-content/uploads/2014/12/preopt_iostat_rak16.png
+  08dfaec1aaee7dfe5f109e5532aaf575: http://noops.me/wp-content/uploads/2014/12/mpstat_preopt.png
+  93111b8ebcfd0fda1f13ded5f2cecfc3: http://noops.me/wp-content/uploads/2014/12/i7z_preopt.png
+  9b55ac6011fd50bd15aca0dcb063514d: http://noops.me/wp-content/uploads/2014/12/inter.png
+  adc68b30e71a0d71bc8ccb2d04475615: http://noops.me/wp-content/uploads/2014/12/smp.png
+  3cb3e08b38a142113205e283e2f428de: http://noops.me/wp-content/uploads/2014/12/mpstat_after.png
+---
+{% raw %}
+
+                <p>没有开场白，直接切主题！各位把这篇当成是报告来阅读吧：</p>
+<p><strong>应用IO模型：</strong>大量读线程同时访问多块SSD，请求均为4KB随机读，并且被请求的数据有一定间隔连续性；</p>
+<p><strong>服务器硬件配置：</strong>LSI SAS 2308直连卡 + 8块SSD</p>
+<p><strong><span style="color: #ff0000;">优化前应用QPS：27K</span></strong></p>
+<p><strong>第一轮优化：读策略优化</strong></p>
+<p>通过 /sys/block/sdx/queue/read_ahead_kb 观察到预读大小为128KB，进一步观察iostat情况：</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/preopt_iostat.png"><img class="alignnone size-full wp-image-1781" alt="preopt_iostat" src="/images/noops.me/94d5b0edaa24c4a356c857a423e1cc35.jpg" width="850" height="523"></a></p>
+<p>观察到每块SSD的rMB/s十分高，平均已经达到了250MB/s+，初步判断是由于read_ahead_kb的设置影响了应用的读效率（即预先读取了过多不必要的数据）。遂将read_ahead_kb设置为0，观察iostat情况如下：</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/preopt_iostat_rak0.png"><img class="alignnone size-full wp-image-1782" alt="preopt_iostat_rak0" src="/images/noops.me/36ecc992eed341f504b30a09820bd099.jpg" width="858" height="646"></a></p>
+<p><span style="color: #ff0000;">而应用QPS却下降至25K！</span></p>
+<p>分析原因：由于之前有预读功能存在，因此部分数据已经被预先读取而减轻了SSD的访问压力。将read_ahead_kb设置为0后，所有的读访问均通过随机读实现，一定程度上加重了SSD的访问压力（可以观察到之前%util大约在60~80%之间波动，而预读改成0之后%util则在80~90%之间波动）</p>
+<p> </p>
+<p><strong>尝试16K预读</strong></p>
+<p>通过IO模型了解到每次请求的数据大小为4KB，因此将read_ahead_kb设置为16KB进行尝试，<span style="color: #ff0000;">结果QPS由25K猛增到34K！</span></p>
+<p>观察iostat情况如下：</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/preopt_iostat_rak16.png"><img class="alignnone size-full wp-image-1783" alt="preopt_iostat_rak16" src="/images/noops.me/d11439c036071bcc7447fb7e60f60450.jpg" width="858" height="647"></a></p>
+<p>%util降了不少，而且通过rrqm/s可以发现出现了一部分读合并的请求，这说明优化确有成效。</p>
+<p><span style="color: #ff0000;">此时</span><span style="color: #ff0000;">CPU_WA也由原来的平均30%下降到20%，这说明处理器等待IO的时间减少了，进一步验证了IO优化的有效性。</span></p>
+<p> </p>
+<p><strong>第二轮优化：直连卡中断多核绑定</strong></p>
+<p>考虑到SSD的随机读写能力较强（通过上面的iostat可以发现），在多盘环境下每秒产生的IO请求数也已接近100K，了解到LSI SAS 2308芯片的IOPs处理极限大约在250K左右，因此判断直连卡控制芯片本身并不存在瓶颈。</p>
+<p>其实我们担心更多的是如此大量的IO请求数必定会产生庞大数量的中断请求，如果中断请求全部落在处理器的一个核心上，可能会对单核造成较高的压力，甚至将单核压力打死。因此单核的中断请求的处理能力就有可能成为整个IO系统的瓶颈所在，于是我们通过mpstat观察每个核心上的中断数：</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/mpstat_preopt.png"><img alt="mpstat_preopt" src="/images/noops.me/08dfaec1aaee7dfe5f109e5532aaf575.jpg" width="219" height="349"></a></p>
+<p>可以发现第二个核心中断数已经达到了十分恐怖的80K！再来观察实际的处理器核心压力情况，为了能够更加直观地了解，我们用了比较准确的i7z工具来观察：</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/i7z_preopt.png"><img class="alignnone size-full wp-image-1785" alt="i7z_preopt" src="/images/noops.me/93111b8ebcfd0fda1f13ded5f2cecfc3.jpg" width="698" height="180"></a></p>
+<p>果然不出所料，Core 1的Halt（idle）已经到了1，充分说明第二个核心确实已经满载。</p>
+<p>那么通过观察/proc/interrupt的情况再来进一步验证我们的假设，：</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/inter.png"><img class="alignnone size-full wp-image-1786" alt="inter" src="/images/noops.me/9b55ac6011fd50bd15aca0dcb063514d.jpg" width="756" height="775"></a></p>
+<p>我们截取了片段，可以发现mpt2sas0-misx的大部分压力都集中在了CPU 1上，并且我们发现直连卡模式是支持多队列的（注意观察irq号从107至122，mpt2sas驱动总共有16个中断号），因此我们将实际在处理中断的irq号107至118分别绑定至不同的核心上（这里就不再赘述有关多核绑定的原理，有兴趣的同学可以百度搜索以上命令的含义）：</p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/smp.png"><img class="alignnone size-full wp-image-1787" alt="smp" src="/images/noops.me/adc68b30e71a0d71bc8ccb2d04475615.jpg" width="313" height="158"></a></p>
+<p>随后我们惊奇地观察到应用的<span style="color: #ff0000;">QPS由34K再次猛增至39K！</span></p>
+<p><span style="color: #ff0000;"><span style="color: #000000;">通过观察mpstat发现大量的中断被平均分散到了不同的处理器核心上：</span></span></p>
+<p><a href="http://noops.me/wp-content/uploads/2014/12/mpstat_after.png"><img alt="mpstat_after" src="/images/noops.me/3cb3e08b38a142113205e283e2f428de.jpg" width="213" height="344"></a></p>
+<p><span style="color: #ff0000;">并且CPU_WA也由平均20%下降到15%，io wait被进一步优化！</span></p>
+<p> </p>
+<p><strong>优化总结：</strong></p>
+<ul>
+<li>通过以上两个优化方法将应用的QPS由27K优化至39K，并且处理器的iowait由30%下降至15%，优化收效显著；</li>
+<li>SSD的优化要根据实际的应用IO模型和设备的理论极限值进行综合考虑，同时还要考虑到各个层面的瓶颈（包括内核、IO策略、磁盘接口速率、连接控制芯片等）。</li>
+</ul>
+<p> </p>
+<p> </p>
+            
+{% endraw %}
