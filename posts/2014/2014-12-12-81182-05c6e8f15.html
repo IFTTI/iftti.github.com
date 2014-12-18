@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL Server调优系列基础篇（常用运算符总结）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL Server调优系列基础篇（常用运算符总结）</h1>
+    <p class="meta"><span class="time">Dec 12, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/81182/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
+</div>
+</div>
+
+<p><strong>前言</strong></p>
+<p><a href="http://blog.jobbole.com/81176/" target="_blank">上一篇我们介绍了如何查看查询计划</a>，本篇将介绍在我们查看的查询计划时的分析技巧，以及几种我们常用的运算符优化技巧，同样侧重基础知识的掌握。</p>
+<p>通过本篇可以了解我们平常所写的T-SQL语句，在SQL Server数据库系统中是如何分解执行的，数据结果如何通过各个运算符组织形成的。</p>
+<p><strong>技术准备</strong></p>
+<p>基于SQL Server2008R2版本，利用微软的一个更简洁的案例库（Northwind）进行解析。</p>
+<p><strong>一、数据连接</strong></p>
+<p>数据连接是我们在写T-SQL语句的时候最常用的，通过两个表之间关联获取想要的数据。</p>
+<p>SQL Server默认支持三种物理连接运算符：嵌套循环连接、合并连接以及哈希连接。三种连接各有用途，各有特点，不同的场景会数据库会为我们选择最优的连接方式。</p>
+<p> </p>
+<p>a、嵌套循环连接（nested loops join)</p>
+<p>嵌套循环连接是最简单也是最基础的连接方式。两张表通过关键字进行关联，然后通过双层循环依次进行两张表的行进行关联，然后通过关键字进行筛选。</p>
+<p>可以参照下图进行理解分析</p>
+<p><img alt="" src="/images/jobbole.com/0874fd611a6f3672c0d2c599d6a28a44.jpg"></p>
+<p>其实嵌套扫描是很简单的获取数据的方式，简单点就是两层循环过滤出结果值。</p>
+<p>我们可以通过如下代码加深理解</p>
+<pre class="brush: actionscript3; gutter: true">for each row R1 in the outer table
+   for each row R2 int the inner table
+       if R1 join with R2
+       return (R1,R2)</pre>
+
+<p>举个列子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT o.OrderID
+FROM Customers C JOIN Orders O
+ON C.CustomerID=O.CustomerID
+WHERE C.City=N'London'</pre>
+
+<p><img alt="" src="/images/jobbole.com/05f41e19adbfb416d6bcaa2e85419ab9.jpg"></p>
+<p>以上这个图标就是嵌套循环连接的图标了。而且解释的很明确。</p>
+<p><img alt="" src="/images/jobbole.com/70a0b415fcc526028e8e67b7c8d5d546.jpg"></p>
+<p>这种方法的消耗就是外表和内表的乘积，其实就是我们所称呼的笛卡尔积。所以消耗的大小是随着两张表的数据量增大而增加的，尤其是内部表，因为它是多次重复扫描的，所以我们在实践中的采取的措施就是减少每个外表或者内表的行数来减少消耗。</p>
+<p>对于这种算法还有一种提高性能的方式，因为两张表是通过关键字进行关联的，所以在查询的时候对于底层的数据获取速度直接关乎着此算法的性能，这里优化的方式尽量使用两个表关键字为索引查询，提高查询速度。</p>
+<p>还有一点就是在嵌套循环连接中，在两张表关联的时候，对外表都是有筛选条件的，比如上面例子中【WHERE C.City=N’London’】就是对外表（Customers）的筛选，并且这里的City列在该表中存在索引，所以该语句的两个子查询都为索引查找（Index Seek）。</p>
+<p>但是，有些情况我们的查询条件不是索引所覆盖的，这时候，在嵌套循环连接下的子运算符就变成了索引扫描（Index scan）或者RID查找。</p>
+<p>举个例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT E1.EmployeeID,COUNT(*)
+FROM Employees E1 JOIN Employees E2
+ON E1.HireDate&lt;E2.HireDate
+GROUP BY E1.EmployeeID</pre>
+
+<p>以上代码是从职工表中获取出每位职工入职前的人员数。我们看一下该查询的执行计划</p>
+<p><img alt="" src="/images/jobbole.com/10c3ce0032fbfdc625752099b274c37e.jpg"></p>
+<p>这里很显然两个表的关联通过的是HireDate列进行，而此列又不为索引项所覆盖，所以两张表的获取只能通过全表的聚集索引扫描进行，如果这两张表数据量特别大的话，无疑又是一个非常耗性能的查询。</p>
+<p><img alt="" src="/images/jobbole.com/a56b0b56208dc3a14aac1d54014994c7.jpg"></p>
+<p>通过文本可以看出，该T-SQL的查询结果的获取是通过在嵌套循环运算符中，对两个表经过全表扫描之后形成的笛卡儿积进行过滤筛选的。这种方式其实不是一个最优的方式，因为我们获取的结果其实是可以先通过两个表过滤之后，再通过嵌套循环运算符获取结果，这样的话性能会好很多。</p>
+<p>我们尝试改一下这个语句</p>
+<pre class="brush: actionscript3; gutter: true">SELECT E1.EmployeeID,ECNT.CNT 
+FROM Employees E1 CROSS APPLY
+(
+   SELECT COUNT(*) CNT
+   FROM Employees E2
+   WHERE E1.HireDate&lt;E2.HireDate
+)ECNT</pre>
+
+<p>通过上述代码查询的结果项，和上面的是一样的，只是我们根据外部表的结果对内部表进行了过滤，这样执行的时候就不需要获取全部数据项了。<br>
+<img alt="" src="/images/jobbole.com/5b4fb491c63a22c116564037f41026c2.jpg"></p>
+<p>我们查看下文本执行计划</p>
+<p><img alt="" src="/images/jobbole.com/b96a531bed7d3f704aef2cbfb74e461a.jpg"></p>
+<p>我们比较一下，前后两条语句的执行消耗，对比一下执行效率</p>
+<p><img alt="" src="/images/jobbole.com/e02f0191c46caa4f50b9b36dbd090fdd.jpg"><img alt="" src="/images/jobbole.com/4eb668c160b958ecee8f2ebdea64bebc.jpg"></p>
+<p>执行时间从1秒179毫秒减少至93毫秒。效果明显。</p>
+<p><img alt="" src="/images/jobbole.com/ff23cb3cc99abd5b5621a602e8bab060.jpg"><img alt="" src="/images/jobbole.com/555314ae6b3a71130a35352aec28c4e0.jpg"></p>
+<p>对比CPU消耗、内存、编译时间等总体消耗都有所降低，参考上图。</p>
+<p>所以对嵌套循环连接连接的优化方式就是集中在这几点：对两张表数据量的减少、连接关键字上建立索引、谓词查询条件上覆盖索引最好能减少符合谓词条件的记录数。</p>
+<p> </p>
+<p>b、合并连接(merge join)</p>
+<p>上面提到的嵌套循环连接方式存在着诸多的问题，尤其不适合两张表都是大表的情况下，因为它会产生N多次的全表扫描，很显然这种方式会严重的消耗资源。</p>
+<p>鉴于上述原因，在数据库里又提供了另外一种连接方式：合并连接。记住这里没有说SQL Server所提供的，是因为此连接算法是市面所有的RDBMS所共同使用的一种连接算法。</p>
+<p>合并连接是依次读取两张表的一行进行对比。如果两个行是相同的，则输出一个连接后的行并继续下一行的读取。如果行是不相同的，则舍弃两个输入中较少的那个并继续读取，一直到两个表中某一个表的行扫描结束，则执行完毕，所以该算法执行只会产生每张表一次扫描，并且不需要整张表扫描完就可以停止。</p>
+<p><img alt="" src="/images/jobbole.com/f3b087e8bd1d85315898e22614365d2a.jpg"></p>
+<p>该算法要求按照两张表进行依次扫描对比，但是有两个前提条件：1、必须预先将两张表的对应列进行排序；2、对两张表进行合并连接的条件必须存在等值连接。</p>
+<p>我们可以通过以下代码进行理解</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">get first row R1 from input1
+get first row R2 from input2
+while not at the end of either input
+begin
+     if R1 joins with R2
+         begin
+              output(R1,R2)
+              get next row R2 from input2
+         end
+     else if R1&lt;R2   
+             get next row R1 from input1
+          else
+             get next row R2 from input2
+end</pre>
+
+</div>
+</div>
+<p>合并连接运算符总的消耗是和输入表中的行数成正比的，而且对表最多读取一次，这个和嵌套循环连接不一样。因此，合并连接对于大表的连接操作是一个比较好的选择项。</p>
+<p>对于合并连接可以从如下几点提高性能：</p>
+<ol>
+<li>两张表间的连接值内容列类型，如果两张表中的关联列都为唯一列，也就说都不存在重复值，这种关联性能是最好的，或者有一张表存在唯一列也可以，这种方式关联为一对多关联方式，这种方式也是我们最常用的，比我们经常使用的主从表关联查询；如果两张表中的关联列存在重复值，这样在两表进行关联的时候还需要借助第三张表来暂存重复的值，这第三张表叫做”worktable “是存放在Tempdb或者内存中，而这样性能就会有所影响。所以鉴于此，我们常做的优化方式有：关联连尽量采用聚集索引（唯一性）</li>
+<li>我们知道采用该种算法的前提是，两张表都经过排序，所以我们在应用的时候，最好优先使用排序后的表关联。如果没有排序，也要选择的关联项为索引覆盖项，因为大表的排序是一个很耗资源的过程，我们选择索引覆盖列进行排序性能要远远好于普通列的排序。</li>
+</ol>
+<p>我们来举个例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT O.CustomerID,C.CustomerID,C.ContactName 
+FROM Orders O JOIN Customers C
+ON O.CustomerID=C.CustomerID</pre>
+
+<p><img alt="" src="/images/jobbole.com/eaf6913315c1808e552750fa6d57385f.jpg"></p>
+<p>我们知道这段T-SQL语句中关联项用的是CustomerID，而此列为主键聚集索引，都是唯一的并且经过排序的，所以这里面没有显示的排序操作。</p>
+<p><img alt="" src="/images/jobbole.com/46062d4dfd905b3a1b6e82b0def2e6f2.jpg"><img alt="" src="/images/jobbole.com/9fc238c29a50d57a0e0e7f76b37bc011.jpg"></p>
+<p>而且凡是采用合并连接的所有输出结果项，都是已经经过排序的。</p>
+<p><img alt="" src="/images/jobbole.com/5d237a0209b5507fa45229ee3118b05a.jpg"></p>
+<p>我们找一个稍复杂的情况，没有提前排序的利用合并查询的T-SQL</p>
+<pre class="brush: actionscript3; gutter: true">SELECT O.OrderID,C.CustomerID,C.ContactName
+FROM Orders O JOIN Customers C
+ON O.CustomerID=C.CustomerID AND O.ShipCity&lt;&gt;C.City
+ORDER BY C.CustomerID</pre>
+
+<p>上述代码返回那些客户的发货订单不在客户本地的。<br>
+<img alt="" src="/images/jobbole.com/a09453991d584a4363eeed7a7b545b39.jpg"></p>
+<p>上面的查询计划可以看出，排序的消耗总是巨大的，其实我们上面的语句按照逻辑应该是在合并连接获取数据后，才采用显示的按照CustomerID进行排序。</p>
+<p>但是因为合并连接运算符之前本身就需要排序，所以此处SQL Server采取了优先排序的策略，把排序操作提前到了合并连接之前进行，并且在合并连接之后，就不需要在做额外的排序了。</p>
+<p>这其实这里我们要求对查询结果排序，正好也利用了合并连接的特点。</p>
+<p> </p>
+<p>c、哈希连接(hash join)</p>
+<p>我们分析了上面的两种连接算法，两种算法各有特点，也各有自己的应用场景：嵌套循环连接适合于相对小的数据集连接，合并连接则应对与中型的数据集，但是又有它自己的缺点，比如要求必须有等值连接，并且需要预先排序等。</p>
+<p>那对于大型的数据集合的连接数据库是怎么应对的呢？那就是哈希连接算法的应用场景了。</p>
+<p>哈希连接对于大型数据集合的并行操作上都比其它方式要好很多，尤其适用于OLAP数据仓库的应用场景中。</p>
+<p>哈希连接很多地方和合并连接类似，比如都需要至少一个等值连接，同样支持所有的外连接操作。但不同于合并连接的是，哈希连接不需要预先对输入数据集合排序，我们知道对于大表的排序操作是一个很大的消耗，所以去除排序操作，哈希操作性能无疑会提升很多。</p>
+<p>哈希连接在执行的时候分为两个阶段：</p>
+<ul>
+<li>构建阶段</li>
+</ul>
+<p>在构建阶段，哈希连接从一个表中读入所有的行，将等值连接键的行机型哈希话处理，然后创建形成一个内存哈希表，而将原来列中行数据依次放入不同的哈希桶中。</p>
+<p><img alt="" src="/images/jobbole.com/78c0754b74ad0935ebb38511da47ee40.jpg"></p>
+<ul>
+<li>探索阶段</li>
+</ul>
+<p>在第一个阶段完成之后，开始进入第二个阶段探索阶段，该阶段哈希连接从第二个数据表中读入所有的行，同样也是在相同的等值连接键上进行哈希。哈希过程桶上一阶段，然后再从哈希表中探索匹配的行。</p>
+<p>上述的过程中，在第一个阶段的构建阶段是阻塞的，也就是说在，哈希连接必须读入和处理所有的构建输入，之后才能返回行。而且这一过程是需要一块内存存储提供支持，并且利用的是哈希函数，所以相应的也会消耗CPU等。</p>
+<p>并且上述流程过程中一般采用的是并发处理，充分利用资源，当然系统会对哈希的数量有所限制，如果数据量超大，也会发生内存溢出等问题，而对于这些问题的解决，SQL Server有它自身的处理方式。</p>
+<p>我们可通过以下代码进行理解</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">--构建阶段
+for each row R1 in the build table
+begin
+   calculate hash value on R1 join key(s)
+   insert R1 into the appropriate hash bucket
+end
+--探索阶段
+for each row R2 in the probe table
+begin
+   calculate hash value on R2 join key(s)   
+   for each row R1 in the corresponding hash bucket
+       if R1 joins with R2
+          output(R1,R2)
+end</pre>
+
+</div>
+</div>
+<p>在哈希连接执行之前，SQL Server会估算需要多少内存来构建哈希表。基本估算的方式就是通过表的统计信息来估算，所以有时候统计信息不准确，会直接影响其运算性能。</p>
+<p>SQL Server默认会尽力预留足够的内存来保证哈希连接成功的构建，但是有时候内存不足的情况下，就必须采取将一小部分的哈希表分配到硬盘中，这里就存入到了tempdb库中，而这一过程会反复多次循环执行。</p>
+<p>举个列子来看看</p>
+<pre class="brush: actionscript3; gutter: true">SELECT O.OrderID,O.OrderDate,C.CustomerID,C.ContactName
+FROM Orders O JOIN Customers C
+ON O.CustomerID=C.CustomerID&lt;img alt="" src="http://ww1.sinaimg.cn/mw690/69ab9b51gw1en6z7bth1nj20hj05swf5.jpg" /&gt;</pre>
+
+<p>我们来分析上面的执行语句，上面的执行结果通过CustomerID列进行关联，理论将最合适的应该是采用合并连接操作，但是合并连接需要排序，但是我们在语句中没有指定Order by 选项，所以经过评估，此语句采用了哈希连接的方式进行了连接。</p>
+<p>我们给它加上一个显示的排序，它就选用合并连接作为最优的连接方式</p>
+<p><img alt="" src="/images/jobbole.com/aa672a5702c447f7a014cba691f6297b.jpg"></p>
+<p>我们来总结一下这个算法的特点</p>
+<ul>
+<li>和合并连接一样算法复杂度基本就是分别遍历两边的数据集各一遍</li>
+<li>它不需要对数据集事先排序，也不要求上面有什么索引，通过的是哈希算法进行处理</li>
+<li>基本采取并行的执行计划的方式</li>
+</ul>
+<p>但是，该算法也有它自身的缺点，因为其利用的是哈希函数，所以运行时对CPU消耗高，同样对内存也比较大，但是它可以采用并行处理的方式，所以该算法用于超大数据表的连接查询上显示出自己独有的优势。</p>
+<p>关于哈希算法在哈希处理过程的时候对内存的占用和分配方式，是有它自己独有哈希方法，比如：左深度树、右深度树、浓密哈希连接树等，这里不做详细介绍了，只需要知道其使用方式就可以了。</p>
+<p>Hash Join并不是一种最优的连接算法，只是它对输入不优化，因为输入数据集特别大，并且对连接符上有没有索引也没要求。其实这也是一种不得已的选择，但是该算法又有它适应的场景，尤其在OLAP的数据仓库中，在一个系统资源相对充足的环境下，该算法就得到了它发挥的场景。</p>
+<p>当然前面所介绍的两种算法也并不是一无是处，在业务的OLTP系统库中，这两种轻量级的连接算法，以其自身的优越性也获得了认可。</p>
+<p>所以这三种算法，没有谁好谁坏，只有合适的场景应用合适的连接算法，这样才能发挥它自身的长处，而恰巧这些就是我们要掌握的技能。</p>
+<p> </p>
+<p>这三种连接算法我们也可以显示的指定，但是一般不建议这么做，因为默认SQL Server会为我们评估最优的连接方式进行操作，当然有时候它评估不对的时候就需要我们自己指定了，方法如下：</p>
+<p><img alt="" src="/images/jobbole.com/b1a5c562b85195a87687311a2eae36f2.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/bda08be3a2a943778bea86fd4323102b.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/ccd05be9a08c5fed7b8cc0820bb8e42a.jpg"></p>
+<p> </p>
+<p><strong>二、聚合操作</strong></p>
+<p>聚合也是我们在写T-SQL语句的时候经常遇到的，我们来分析一下一些常用的聚合操作运算符的特性和可优化项。</p>
+<p>a、标量聚合</p>
+<p>标量聚合是一种常用的数据聚合方式，比如我们写的语句中利用的以下聚合函数：MAX()、MIN()、AVG()、COUNT()、SUM()</p>
+<p>以上的这些数据结果项的输出基本都是通过流聚合的方式产生，并且这个运算符也被称为：标量聚合</p>
+<p>先来看一个列子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT COUNT(*) FROM Orders</pre>
+
+<p><img alt="" src="/images/jobbole.com/0f4963b4042b2c62b7a6ad061f51a6b6.jpg"></p>
+<p>上面的图表就是流聚合的运算符了。</p>
+<p><img alt="" src="/images/jobbole.com/dce72423a51e37772c4c6be82f43ba92.jpg"></p>
+<p>上图还有一个计算标量的运算符，这是因为在流聚合产生的结果项数据类型为Bigint类型，而默认输出为int类型，所以增加了一个类型转换的运算符。</p>
+<p>我们来看一个不需要转换的</p>
+<pre class="brush: actionscript3; gutter: true">SELECT MIN(OrderDate),MAX(OrderDate) FROM Orders</pre>
+
+<p><img alt="" src="/images/jobbole.com/1c6a46e576d11b887f98de044df2ed32.jpg"></p>
+<p>看一下求平均数的运算符</p>
+<pre class="brush: actionscript3; gutter: true">SELECT AVG(Freight) FROM Orders</pre>
+
+<p><img alt="" src="/images/jobbole.com/040d82d11f03f5b39ac529a78438f85b.jpg"></p>
+<p>求平均数的时候，在SQL Server执行的时候也给我们添加了一个case when分类，防止分母为0的情况发生。</p>
+<p>我们来看DISTINCT下的情况下，执行计划</p>
+<pre class="brush: actionscript3; gutter: true">SELECT COUNT(DISTINCT ShipCity) FROM Orders
+SELECT COUNT(DISTINCT OrderID) FROM Orders</pre>
+
+<p><img alt="" src="/images/jobbole.com/94e9167165195a5173aafce85fe84d13.jpg"><img alt="" src="/images/jobbole.com/a1fb0e6e0b53a85cd8552c515c548578.jpg"></p>
+<p>上面相同的语句，但是产生了不同的执行计划，只是因为发生在不同列的数量汇总上，因为OrderID不存在重复列，所以SQL Server不需要排序直接流聚合就可以产生汇总值，而ShipCity不同它会有重复的值，所以只能经过排序后再流聚合依次获取汇总值。</p>
+<p> </p>
+<p>其实，流聚合这种算法最常用的方式是分组（GROUP BY）计算，上面的标量计算也是利用这个特性，只不过把整体形成了一个大组进行聚合。</p>
+<p>我么通过如下代码理解</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">clear the current aggredate results
+clear the current group by columns
+for each input row
+begin
+    if the input row does not match the current group by columns
+    begin
+       output the current aggreagate results(if any)
+       clear the current aggreagate results
+       set the current group by columns to the input row
+    end
+   update the aggregate results with the input row
+end</pre>
+
+</div>
+<div></div>
+</div>
+<p>流聚合运算符其实过程很简单，维护一个聚合组和聚合值，依次扫描表中的数据，如果能匹配聚合组则忽略，如果不匹配，则加入到聚合组中并且更新聚合值结果项。</p>
+<p>举个例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT ShipAddress,ShipCity,COUNT(*)
+FROM Orders
+GROUP BY ShipAddress,ShipCity</pre>
+
+<p><img alt="" src="/images/jobbole.com/b2d5176fd70d3bd98facb16af6d93bde.jpg"></p>
+<p>这里使用了流聚合，并且之前先对两列进行排序，排序的消耗总是很大。</p>
+<p>如下代码就不会产生排序</p>
+<pre class="brush: actionscript3; gutter: true">SELECT CustomerID,COUNT(*)
+FROM Orders
+GROUP BY CustomerID</pre>
+
+<p><img alt="" src="/images/jobbole.com/b9b6b10d4b05788e11294b1808770069.jpg"></p>
+<p>所以这里我们已经总结出对于流聚合的一种优化方式：尽量避免排序产生，而要避免排序就需要将分组（Group by）字段在索引覆盖范围内。</p>
+<p> </p>
+<p>b、哈希聚合</p>
+<p>上述的流聚合的方式需要提前排序，我们知道排序是一个非常大的消耗过程，所以不适合大表的分组聚合操作，为了解决这个问题，又引入了另外一种聚合运算：哈希聚合</p>
+<p>所谓的哈希聚合内部的方法和本篇前面提到的哈希连接机制一样。</p>
+<p>哈希聚合不需要排序和过大的内存消耗，并且很容易并行执行计划，利用多CPU同步进行，但是有一个缺点就是：这一过程是阻塞的，也就说哈希聚合不会产生任何结果直到完整的输入。</p>
+<p>所以在大数据表中采用哈希聚合是一个很好的应用场景。</p>
+<p>通过如下代码加深理解</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">for each input row
+begin
+   calculate hash value on group by columns
+   check for a matching row in the hash table
+   if maching row not found
+      insert a new row into the hash table
+   else
+      update the matching row with the input row
+end
+--最后输出结果
+ouput all rows in the hash table</pre>
+
+</div>
+</div>
+<p>简单点将就是在进行运算匹配前，先将分组列进行哈希处理，分配至不同的哈希桶中，然后再依次匹配，最后才输出结果。</p>
+<p>举个例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT ShipCountry,COUNT(*)
+FROM Orders
+GROUP BY ShipCountry</pre>
+
+<p><img alt="" src="/images/jobbole.com/0479f31e25076cbc44ef65acc4e08465.jpg"></p>
+<p> </p>
+<p>这个语句很有意思，我们利用了ShipCountry进行了分组，我们知道该列没有被索引覆盖，按照道理，其实选择流聚合应该也是不错的方式，跟上面我们列举的列子一样，先对这个字段进行排序，然后利用流聚合形成结果项输出。</p>
+<p>但是，为什么这个语句SQL Server为我们选择了哈希匹配作为了最优的算法呢！！！</p>
+<p>我么来比较两个分组字段：ShipCountry和前面的ShipAddress</p>
+<p>前面是国家，后面是地址，国家是很多重复的，并且只有少数的唯一值。而地址就不一样了，离散型的分布，我们知道排序是很耗资源的一件事情，但是利用哈希匹配只需要将不同的列值进行提取就可以，所以相比性能而言，无疑哈希匹配算法在这里是略胜一筹的算法。</p>
+<p>而上面关于这两列内容分布类型SQL Server是怎样知道的？这就是SQL Server的强大的统计信息在支撑了。</p>
+<p>在SQL Server中并不是固定的语句就会形成特定的计划，并且生成的特定计划也不是总是最优的，这和数据库现有数据表中的内容分布、数据量、数据类型等诸多因素有关，而记录这些详细信息的就是统计信息。</p>
+<p>所有的最优计划的选择都是基于现有统计信息来评估，如果我们的统计信息未及时更新，那么所评估出来最优的执行计划将不是最好的，有时候反而是最烂的。</p>
+<p> </p>
+<p><strong>参考文献</strong></p>
+<ul>
+<li>微软联机丛书<a href="http://msdn.microsoft.com/zh-cn/library/ms191158(SQL.90).aspx" target="_blank">逻辑运算符和物理运算符引用</a>
+</li>
+<li>参照书籍《SQL.Server.2005.技术内幕》系列</li>
+</ul>
+<p><strong>结语</strong></p>
+<p>此篇文章先到此吧，本篇主要介绍了关于T-SQL语句调优从执行计划下手，并介绍了三个常见的连接运算符和聚合操作符，下一篇将着重介绍我们其它最常用的一些运算符和调优技巧，包括：CURD等运算符、联合运算符、索引运算、并行运算等吧，关于SQL Server性能调优的内容涉及面很广，后续文章中依次展开分析。</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-12-81176-ff22b67f4.html" title="Previous Post: SQL Server调优系列基础篇" data-instant>&laquo; SQL Server调优系列基础篇</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-12-81184-b98707bf0.html" title="Next Post: SQL Server调优系列基础篇（联合运算符总结）" data-instant>SQL Server调优系列基础篇（联合运算符总结） &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81186-49d084331.html">SQL Server调优系列基础篇（并行运算总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81189-e246d0739.html">SQL Server调优系列基础篇（并行运算总结篇二）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81193-13e555725.html">SQL Server调优系列基础篇（索引运算总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

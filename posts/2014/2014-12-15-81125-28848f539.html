@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Worktile中百万级实时消息推送服务的实现</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-15-81125-28848f539.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>Worktile中百万级实时消息推送服务的实现</h1>
+    <p class="meta"><span class="time">Dec 15, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/81125/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">为开发者打造的Linux视频教程</a></li>
+</div>
+</div>
+
+<p>本文由 <a href="https://worktile.com?hmsr=http%3A%2F%2Fblog.jobbole.com%2F&amp;hmmd=%E6%96%87%E5%AD%97&amp;hmpl=&amp;hmkw=&amp;hmci=" target="_blank">Worktile</a> – 研发团队 分享</p>
+<p>在团队协同工具<a href="https://worktile.com?hmsr=http%3A%2F%2Fblog.jobbole.com%2F&amp;hmmd=%E6%96%87%E5%AD%97&amp;hmpl=&amp;hmkw=&amp;hmci=" target="_blank">Worktile</a>的使用过程中，你会发现无论是右上角的消息通知，还是在任务面板中拖动任务，还有用户的在线状态，都是实时刷新。Worktile中的推送服务是采用的是基于xmpp协议、erlang语言实现的ejabberd，并在其源码基础上，结合我们的业务，对源码作了修改以适配我们自身的需求。另外，基于amqp协议也可以作为实时消息推送的一种选择，踢踢网就是采用 rabbitmq+stomp 协议实现的消息推送服务。本文将结合我在Worktile和踢踢网的项目实践，介绍下消息推送服务的具体实现。</p>
+<h2>实时推送的几种实现方式</h2>
+<p>相较于手机端的消息推送（一般都是以socket方式实现），web端是基于http协议，很难像tcp一样保持长连接。但随着技术的发展，出现了websocket, comet等新的技术可以达到类似长连接的效果，这些技术大体可分为以下几类：</p>
+<p><strong>1）短轮询</strong>。页面端通过js定时异步刷新，这种方式实时效果较差。</p>
+<p><strong>2）长轮询</strong>。页面端通过js异步请求服务端，服务端在接收到请求后，如果该次请求没有数据，则挂起这次请求，直到有数据到达或时间片（服务端设定）到，则返回本次请求，客户端接着下一次请求。示例如下：</p>
+<p><img class="aligncenter size-full wp-image-81129" alt="1" src="/images/jobbole.com/ace2e1f25f23fad6337356424e566791.jpg"></p>
+<p><strong>3）Websocket</strong>。浏览器通过websocket协议连接服务端，实现了浏览器和服务器端的全双工通信。需要服务端和浏览器都支持websocket协议。</p>
+<p>以上几种方式中，方式1实现较简单，但效率和实时效果较差。方式2对服务端实现的要求比较高，尤其是并发量大的情况下，对服务端的压力很大。方式3效率较高，但对较低版本的浏览器不支持，另外服务端也需要有支持websocket的实现。Worktile的web端实时消息推送，采用的是xmpp扩展协议xep-0124 BOSH(<a href="http://xmpp.org/extensions/xep-0124.html" target="_blank">http://xmpp.org/extensions/xep-0124.html</a>)，本质是采用方式2长轮询的方式。踢踢网则采用了websocket连接rabbitmq的方式实现，下面我会具体介绍如何用这两种方式实现Server Push。</p>
+<h2>运行时环境准备</h2>
+<p>服务端的实现中，无论采用ejabberd还是rabbitmq，都是基于erlang语言开发的，所以必须安装erlang运行时环境。Erlang是一种函数式语言，具有容错、高并发的特点，借助OTP的函数库，很容易构建一个健壮的分布式系统。目前，基于erlang开发的产品有，数据库方面：Riak（Dynamo实现）、CouchDB， Webserver方面：Cowboy、Mochiweb， 消息中间件有rabbitmq等。对于服务端程序员来说，erlang提供的高并发、容错、热部署等特性是其他语言无法达到的。无论在实时通信还是在游戏程序中，用erlang可以很容易为每一个上线用户创建一个对应的process，对一台4核8个G的服务器来说，承载上百万个这样的process是非常轻松的事。下图是erlang程序发起process的一般性示意图：</p>
+<p><img class="aligncenter size-full wp-image-81131" alt="2" src="/images/jobbole.com/302f7ea0b47b013067f6b3d7e7a6d3fd.jpg"></p>
+<p>如图所示，Session manager(or gateway)负责为每个用户（uid）创建相对应的process， 并把这个对应关系（map）存放到数据表中。每个process则对应用户数据，并且他们之间可以相互发送消息。Erlang的优势就是在内存足够的情况下创建上百万个这样的process，而且它的创建和销毁比java的thread要轻量的多，两者不是一个数量级的。</p>
+<p>好了，我们现在开始着手erlang环境的搭建（实验的系统为ubuntu12.04, 4核8个G内存）：</p>
+<p>1、依赖库安装</p>
+<pre class="brush: bash; gutter: true"> sudo apt-get install build-essential
+ sudo apt-get install libncurses5-dev
+ sudo apt-get install libssl-dev libyaml-dev
+ sudo apt-get install m4
+ sudo apt-get install unixodbc unixodbc-dev
+ sudo apt-get install freeglut3-dev libwxgtk2.8-dev
+ sudo apt-get install xsltproc
+ sudo apt-get install fop tk8.5 libxml2-utils</pre>
+
+<p>2、官网下载otp源码包(<a href="http://www.erlang.org/download.html" target="_blank">http://www.erlang.org/download.html</a>), 解压并安装：</p>
+<pre class="brush: bash; gutter: true">tar zxvf otpsrcR16B01.tar.gz
+cd otpsrcR16B01
+configure
+make &amp; make install</pre>
+
+<p>至此，erlang运行环境就完成了。下面将分别介绍rabbitmq和ejabberd构建实时消息服务。</p>
+<h2>基于RabbitMQ的实时消息服务</h2>
+<p>RabbitMQ是在业界广泛应用的消息中间件，也是对AMQP协议实现最好的一种中间件。AMQP协议中定义了Producer、 Consumer、MessageQueue、Exchange、Binding、Virtual Host等实体，他们的关系如下图所示：</p>
+<p><img alt="3" src="/images/jobbole.com/8e24adab99b47ccfd977fb75da6c031c.jpg"></p>
+<p>消息发布者(Producer)连接交换器（Exchange）, 交换器和消息队列（Message Queue）通过key进行Binding，Binding是根据Exchange的类型（分为fanout、direct、topic、header）分别对消息作不同形式的派发。Message Queue又分为durable、temporary、auto-delete三种类型，durable queue是持久化队列，不会因为服务shutdown而消失，temporary queue则服务重启后会消失，auto-delete则是在没有consumer连接时自动删除。另外RabbitMQ有很多第三方插件，可以基于AMQP协议基础之上做出很多扩展的应用。下面我们将介绍web stomp插件构建基于AMQP之上的stomp文本协议，通过浏览器websocket达到实时的消息传输。系统的结构如图：</p>
+<p><img class="aligncenter size-full wp-image-81137" alt="4" src="/images/jobbole.com/f67cff5a22bae9cde1ec6054fd986e5b.jpg"></p>
+<p>如图所示，web端我们使用stomp.js和sockjs.js与rabbitmq的web stomp plugin通信，手机端可以用stompj, gozirra(Android)或者objc-stomp(IOS)通过stomp协议与rabbitmq收发消息。因为我们是实时消息系统通常都是要与已有的用户系统结合，rabbitmq可以通过第三方插件rabbitmq-auth-backend-http来适配已有的用户系统，这个插件可以通过http接口完成用户连接时的认证过程。当然，认证方式还有ldap等其他方式。下面介绍具体步骤：</p>
+<p>从官网（<a href="http://rabbitmq.com/download.html" target="_blank">http://rabbitmq.com/download.html</a>）下载最新版本的源码包，解压并安装：</p>
+<pre class="brush: bash; gutter: true">tar zxf rabbitmq-server-x.x.x.tar.gz
+cd rabbitmq-server-x.x.x
+make &amp; make install</pre>
+
+<p>为rabbitmq安装web-stomp插件</p>
+<pre class="brush: bash; gutter: true">cd /path/to/your/rabbitmq
+./sbin/rabbitmq-plugins enable rabbitmq_web_stomp
+./sbin/rabbitmq-plugins enable rabbitmq_web_stomp_examples
+./sbin/rabbitmqctl stop
+./sbin/rabbitmqctl start
+./sbin/rabbitmqctl status</pre>
+
+<p>将会显示下图所示的运行的插件列表</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/4e44f1ac85cd60e3caa56bfd4afb675e.jpeg" rel="lightbox[81125]" title="Worktile中百万级实时消息推送服务的实现"><img class="aligncenter size-full wp-image-81140" alt="4.2" src="/images/jobbole.com/9ea26bd914523b80adb866b5fcd1cf50.jpg"></a></p>
+<p>安装用户授权插件</p>
+<pre class="brush: bash; gutter: true">cd /path/to/your/rabbitmq/plugins
+wget http://www.rabbitmq.com/community-plugins/v3.3.x/rabbitmq_auth_backend_http-3.3.x-e7ac6289.ez
+cd ..
+./sbin/rabbitmq-plugins enable rabbitmq_auth_backend_http</pre>
+
+<p>编辑rabbitmq.config文件（默认存放于/etc/rabbitmq/下），添加：</p>
+<pre class="brush: xml; gutter: true">[
+ ...
+ {rabbit, [{auth_backends, [rabbit_auth_backend_http]}]},
+ ...
+ {rabbitmq_auth_backend_http,
+ [{user_path, “http://your-server/auth/user”},
+ {vhost_path, “http://your-server/auth/vhost”},
+ {resource_path, “http://your-server/auth/resource”}
+ ]}
+ ...
+].</pre>
+
+<p>其中，user_path是根据用户名密码进行校验，vhost_path是校验是否有权限访问vhost， resource_path是校验用户对传入的exchange、queue是否有权限。我下面的代码是用nodejs实现的这三个接口的示例：</p>
+<pre class="brush: javascript; gutter: true">var express = require('express');
+ var app = express();
+ app.get('/auth/user', function(req, res){
+ var name = req.query.username;
+ var pass = req.query.password;
+ console.log("name : " + name + ", pass : " + pass);
+ if(name === 'guest' &amp;&amp; pass === "guest"){
+ console.log("allow");
+ res.send("allow");
+ }else{
+ res.send('deny');
+ }
+ });
+ app.get('/auth/vhost', function(req, res){
+ console.log("/auth/vhost");
+ res.send("allow");
+ });
+ app.get('/auth/resource', function(req, res){
+ console.log("/auth/resource");
+ res.send("allow");
+ });
+ app.listen(3000);</pre>
+
+<p>浏览器端js实现，示例代码如下：</p>
+<pre class="brush: javascript; gutter: true">......
+ var ws = new SockJS('http://' + window.location.hostname + ':15674/stomp');
+ var client = Stomp.over(ws);
+ // SockJS does not support heart-beat: disable heart-beats
+ client.heartbeat.outgoing = 0;
+ client.heartbeat.incoming = 0;
+ client.debug = pipe('#second');
+ var print_first = pipe('#first', function(data) {
+ client.send('/exchange/feed/user_x', {"content-type":"text/plain"}, data);
+ });
+ var on_connect = function(x) {
+ id = client.subscribe("/exchange/feed/user_x", function(d) {
+ print_first(d.body);
+ });
+ };
+ var on_error = function() {
+ console.log('error');
+ };
+ client.connect('guest1', 'guest1', on_connect, on_error, '/');
+ ......</pre>
+
+<p>需要说明的时，在这里我们首先要在rabbitmq实例中创建feed这个exchange，我们用stomp.js连接成功后，根据当前登陆用户的id（user_x）绑定到这个exchange，即 subscribe(“/exchange/feed/user_x”, …) 这个操作的行为，这样在向rabbitmq中feed exchange发送消息并指定用户id(user_x)为key，页面端就会通过websocket实时接收到这条消息。</p>
+<p>到目前为止，基于rabbitmq+stomp实现web端消息推送就已经完成，其中很多的细节需要小伙伴们亲自去实践了，这里就不多说了。实践过程中可以参照官方文档：</p>
+<p><a href="http://rabbitmq.com/stomp.html" target="_blank">http://rabbitmq.com/stomp.html</a><br>
+<a href="http://rabbitmq.com/web-stomp.html" target="_blank">http://rabbitmq.com/web-stomp.html</a><br>
+<a href="https://github.com/simonmacmullen/rabbitmq-auth-backend-http" target="_blank">https://github.com/simonmacmullen/rabbitmq-auth-backend-http</a></p>
+<p>以上的实现是我本人在踢踢网时采用的方式，下面接着介绍一下现在在Worktile中如何通过ejabberd实现消息推送。</p>
+<h2>基于ejabberd的实时消息推送</h2>
+<p>与rabbitmq不同，ejabberd是xmpp协议的一种实现，与amqp相比，xmpp广泛应用于即时通信领域。Xmpp协议的实现有很多种，比如java的openfire，但相较其他实现，ejabberd的并发性能无疑使最优秀的。Xmpp协议的前身是jabber协议，早期的jabber协议主要包括在线状态（presence）、好友花名册（roster）、IQ（Info/Query）几个部分。现在jabber已经成为rfc的官方标准，如rfc2799, rfc4622, rfc6121，以及xmpp的扩展协议（xep）。Worktile Web端的消息提醒功能就是基于XEP-0124、XEP-0206定义的BOSH扩展协议。</p>
+<p>由于自身业务的需要，我们对ejabberd的用户认证和好友列表模块的源码进行修改，通过redis保存用户的在线状态，而不是mnesia和mysql。另外好友这块我们是从已有的数据库中（mongodb）中获取项目或团队的成员。Web端通过strophe.js来连接（http-bind），strophe.js可以以长轮询和websocket两种方式来连接，由于ejabberd还没有好的websocket的实现，就采用了BOSH的方式模拟长连接。整个系统的结构如下：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/4e44f1ac85cd60e3caa56bfd4afb675e.jpeg" rel="lightbox[81125]" title="Worktile中百万级实时消息推送服务的实现"><img alt="5" src="/images/jobbole.com/2c970cd29b1e2a84a68dc717926f2264.jpg"></a></p>
+<p>Web端用strophe.js通过http-bind进行连接nginx代理，nginx反向代理ejabberd cluster。iOS用xmpp-framwork连接, Android可以用smack直接连ejabberd服务器集群。这些都是现有的库，无需对client进行开发。在线状态根据用户uid作为key定义了在线、离线、忙等状态存放于redis中。好友列表从mongodb的project表中获取。用户认证直接修改了ejabberd_auth_internal.erl文件，通过mongodb驱动连接用户库，在线状态等功能是新加了模块，其部分代码如下:</p>
+<pre class="brush: erlang; gutter: true">-module(wt_mod_proj).
+ -behaviour(gen_mod).
+ -behaviour(gen_server).
+ -include("ejabberd.hrl").
+ -include("logger.hrl").
+ -include("jlib.hrl").
+ -define(SUPERVISOR, ejabberd_sup).
+ ...
+ -define(ONLINE, 1).
+ -define(OFFLINE, 0).
+ -define(BUSY, 2).
+ -define(LEAVE, 3).
+ ...
+ %% API
+ -export([start_link/2, get_proj_online_users/2]).
+ %% gen_mod callbacks
+ -export([start/2, stop/1]).
+ %% gen_server callbacks
+ -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
+ %% Hook callbacks
+ -export([user_available/1, unset_presence/3, set_presence/4]).
+ -export([get_redis/1, remove_online_user/3, append_online_user/3]).
+ ...
+ -record(state,{host = &amp;lt;&amp;lt;""&amp;gt;&amp;gt;, server_host, rconn, mconn}).
+start_link(Host, Opts) -&amp;gt;
+ Proc = gen_mod:get_module_proc(Host, ?MODULE),
+ gen_server:start_link({local, Proc}, ?MODULE, [Host, Opts], []).
+ user_available(New) -&amp;gt;
+ LUser = New#jid.luser, LServer = New#jid.lserver,
+ Proc = gen_mod:get_module_proc(LServer, ?MODULE),
+ gen_server:cast(Proc, {user_available, LUser, LServer}).
+append_online_user(Uid, Proj, Host) -&amp;gt;
+ Proc = gen_mod:get_module_proc(Host, ?MODULE),
+ gen_server:call(Proc, {append_online_user, Uid, Proj}).
+ remove_online_user(Uid, Proj, Host) -&amp;gt;
+ Proc = gen_mod:get_module_proc(Host, ?MODULE),
+ gen_server:call(Proc, {remove_online_user, Uid, Proj}).
+ ...
+ set_presence(User, Server, Resource, Packet) -&amp;gt;
+ Proc = gen_mod:get_module_proc(Server, ?MODULE),
+ gen_server:cast(Proc, {set_presence, User, Server, Resource, Packet}).
+ ...
+start(Host, Opts) -&amp;gt;
+ Proc = gen_mod:get_module_proc(Host, ?MODULE),
+ ChildSpec = {Proc, {?MODULE, start_link, [Host, Opts]},
+ transient, 2000, worker, [?MODULE]},
+ supervisor:start_child(?SUPERVISOR, ChildSpec).
+stop(Host) -&amp;gt;
+ Proc = gen_mod:get_module_proc(Host, ?MODULE),
+ gen_server:call(Proc, stop),
+ supervisor:delete_child(?SUPERVISOR, Proc).
+init([Host, Opts]) -&amp;gt;
+ MyHost = gen_mod:get_opt_host(Host, Opts, &amp;lt;&amp;lt;"wtmuc.@HOST@"&amp;gt;&amp;gt;),
+ RedisHost = gen_mod:get_opt(redis_host, Opts, fun(B) -&amp;gt; B end,?REDIS_HOST),
+ RedisPort = gen_mod:get_opt(redis_port, Opts, fun(I) when is_integer(I), I&amp;gt;0 -&amp;gt; I end, ?REDIS_PORT),
+ ejabberd_hooks:add(set_presence_hook, Host, ?MODULE, set_presence, 100),
+ ejabberd_hooks:add(user_available_hook, Host, ?MODULE, user_available, 50),
+ ejabberd_hooks:add(sm_remove_connection_hook, Host, ?MODULE, unset_presence, 50),
+ MongoHost = gen_mod:get_opt(mongo_host, Opts, fun(B) -&amp;gt; binary_to_list(B) end, ?MONGO_HOST),
+ MongoPort = gen_mod:get_opt(mongo_port, Opts, fun(I) when is_integer(I), I&amp;gt;0 -&amp;gt; I end, ?MONGO_PORT),
+ {ok, Mongo} = mongo_connection:start_link({MongoHost, MongoPort}),
+ C = c(RedisHost, RedisPort),
+ ejabberd_router:register_route(MyHost), {ok, #state{host = Host, server_host = MyHost, rconn = C, mconn = Mongo}}.
+ terminate(_Reason, #state{host = Host, rconn = C, mconn = Mongo}) -&amp;gt;
+ ejabberd_hooks:delete(set_presence_hook, Host, ?MODULE, set_presence, 100),
+ ejabberd_hooks:delete(user_available_hook, Host, ?MODULE, user_available, 50),
+ ejabberd_hooks:delete(unset_presence_hook, Host, ?MODULE, unset_presence, 50),
+ eredis:stop(C),
+ ok.
+ ...
+ handle_call({append_online_user, Uid, ProjId}, _From, State) -&amp;gt;
+ C = State#state.rconn,
+ Key = &amp;lt;&lt;!--?PRE_RPOJ_ONLINE_USERS /binary, ProjId/binary--&gt;&amp;gt;,
+ Resp = eredis:q(C, ["SADD", Key, Uid]),
+ {reply, Resp, State};
+ handle_call({remove_online_user, Uid, ProjId}, _From, State) -&amp;gt;
+ ...
+ handle_call({get_proj_online_users, ProjId}, _From, State) -&amp;gt;
+ ...
+ handle_cast({set_presence, User, Server, Resource, Packet}, #state{mconn = Mongo} = State) -&amp;gt;
+ C = State#state.rconn,
+ Key = &amp;lt;&lt;!--?USER_PRESENCE /binary, User/binary--&gt;&amp;gt;,
+ Pids = get_user_projs(User, Mongo),
+ Cmd = get_proj_key(Pids, ["SUNION"]),
+ case xml:get_subtag_cdata(Packet, &amp;lt;&amp;lt;"show"&amp;gt;&amp;gt;) of
+ &amp;lt;&amp;lt;"away"&amp;gt;&amp;gt; -&amp;gt;
+ eredis:q(C, ["SET", Key, ?LEAVE]);
+ &amp;lt;&amp;lt;"offline"&amp;gt;&amp;gt; -&amp;gt;
+ ...
+ handle_cast(_Msg, State) -&amp;gt; {noreply, State}.
+handle_info({route, From, To, Packet}, #state{host = Host, server_host = MyHost, rconn = RedisConn, mconn = Mongo} = State) -&amp;gt;
+ case catch do_route(Host, MyHost, From, To, Packet, RedisConn, Mongo) of
+ {'EXIT', Reason} -&amp;gt;
+ ?ERROR_MSG("~p", [Reason]);
+ _ -&amp;gt;
+ ok
+ end,
+ {noreply, State};
+handle_info(_Info, State) -&amp;gt; {noreply, State}.
+code_change(_OldVsn, State, _Extra) -&amp;gt; {ok, State}.
+ ...</pre>
+
+<p>其中，user\_available\_hook和sm\_remove\_connection\_hook 就是用户上线和用户断开连接触发的事件，ejabberd 中正是由于这些hook，才能很容易扩展功能。</p>
+<p>在用tsung对ejabberd进行压力测试，测试机器为4核心8G内存的普通PC，以3台客户机模拟用户登录、设置在线状态、发送一条文本消息、关闭连接操作，在同时在线达到30w时，CPU占用不到3%，内存大概到3个G左右，随着用户数增多，主要内存的损耗较大。由于压力测试比较耗时，再等到有时间的时候，会在做一些更深入的测试。</p>
+<p>对于ejabberd的安装与集群的搭建，大家可以参照官方文档，这里不再赘述。如果在使用过程中有什么问题，可以加入<a href="https://worktile.com?hmsr=http%3A%2F%2Fblog.jobbole.com%2F&amp;hmmd=%E6%96%87%E5%AD%97&amp;hmpl=&amp;hmkw=&amp;hmci=" target="_blank">Worktile</a>官方群(110257147)，进行讨论。</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-12-81196-6bf51109d.html" title="Previous Post: 一个成功的 Git 分支模型" data-instant>&laquo; 一个成功的 Git 分支模型</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-15-81268-fba7bccf7.html" title="Next Post: 为什么社交网络中数据翻页技术复杂" data-instant>为什么社交网络中数据翻页技术复杂 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81186-49d084331.html">SQL Server调优系列基础篇（并行运算总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81196-6bf51109d.html">一个成功的 Git 分支模型</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

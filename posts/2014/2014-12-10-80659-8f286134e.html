@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>超酷算法：Levenshtein自动机</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-10-80659-8f286134e.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>超酷算法：Levenshtein自动机</h1>
+    <p class="meta"><span class="time">Dec 10, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/80659/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
+</div>
+</div>
+
+<p align="left">在上一期的超酷算法中，我们聊到了BK树，这是一种非常聪明的索引结构，能够在搜索过程中进行模糊匹配，它基于编辑距离（Levenshtein distance），或者任何其它服从三角不等式的度量标准。今天，我将继续介绍另一种方法，它能够在常规索引中进行模糊匹配搜索，我们将它称之为Levenshtein自动机。</p>
+<h1>简介</h1>
+<p>Levenshtein自动机背后的基本理念是：能够构建一个有限状态自动机，准确识别出和某个目标单词相距在给定编辑距离内的所有字符串集合。之后就好办了，我们可以输入任意单词，自动机能够判断这个单词到目标单词的距离是否大于我们在构建时指定的距离，并选择接收或拒绝。更进一步说，根据FSA的自然特性，这项工作可以在O(n)时间内完成，取决于测试字符串的长度。与此相比，标准动态编程距离向量算法需要消耗O(mn)时间，m和n分别是两个输入单词的长度。因此很显然，起码Levenshtein向量机提供了一种更快的方式，供我们针对一个目标单词和最大距离，检查所有的单词，这是一个不错的改进的开端。<br>
+当然，如果Levenshtein向量机只有优点，那这篇文章将会很短。我们将会谈到很多，不过我们先来看一下Levenshtein向量机究竟是何物，以及我们如何建立一个Levenshtein自动机。</p>
+<h1>构建与评价</h1>
+<p align="left"><span style="color: #ff0000;"><a href="http://jbcdn2.b0.upaiyun.com/2014/12/979c4cce37819656ccc8e8f203276919.png" rel="lightbox[80659]" title="超酷算法：Levenshtein自动机"><img class="alignnone size-full wp-image-80663" alt="levenstein-nfa-food" src="/images/jobbole.com/2e670a18ce556bc41d7a6af4143c225d.jpg"></a></span></p>
+<p align="left">上图展示了针对单词food的Levenshtein自动机的NFA（译者注：非确定性有限自动机），其最大编辑距离为2。你可以看到，它很普通，构建过程也非常直观。初始状态在左下部分，我们使用n<sup>e</sup>记法对状态进行命名，n是指到目前为止被处理过的特性的数量，e是指错误的个数。水平线表示没有被修改的特性，垂直线表示插入的值，而两条对角线则分别表示交换（标记a*）和删除。</p>
+<p align="left">我们来看一下如何通过一个给定的输入单词和最大编辑距离构建一个NFA，由于整个NFA类是非常标准化的，因此我就不赘述其源码了，如果你需要更多细节，请看<a href="http://gist.github.com/491973">Gist</a>。以下是基于Python的相关方法：</p>
+<pre class="brush: python; gutter: true">def levenshtein_automata(term, k):
+  nfa = NFA((0, 0))
+  for i, c in enumerate(term):
+    for e in range(k + 1):
+      # Correct character
+      nfa.add_transition((i, e), c, (i + 1, e))
+      if e &lt; k:
+        # Deletion
+        nfa.add_transition((i, e), NFA.ANY, (i, e + 1))
+        # Insertion
+        nfa.add_transition((i, e), NFA.EPSILON, (i + 1, e + 1))
+        # Substitution
+        nfa.add_transition((i, e), NFA.ANY, (i + 1, e + 1))
+  for e in range(k + 1):
+    if e &lt; k:
+      nfa.add_transition((len(term), e), NFA.ANY, (len(term), e + 1))
+    nfa.add_final_state((len(term), e))
+  return nfa</pre>
+
+<p align="left">这应该很容易实现，基本上我们用了一种最直接了当的方式构建前图中表示的变换，同时也指出了最终正确的状态集。状态标签是元组，而不是字符串，这与我们前面的描述是一致的。</p>
+<p align="left">由于这是一个NFA，可以有多个活跃状态，它们表示目前被处理过的字符串的可能解释。举个例子，考虑一下，在处理字符f和x之后的活跃状态：<br>
+<a href="http://jbcdn2.b0.upaiyun.com/2014/12/3682a608e5f46e40f44bbfd6a42c5f1b.png" rel="lightbox[80659]" title="超酷算法：Levenshtein自动机"><img class="alignnone size-full wp-image-80664" alt="levenstein-nfa-food-fx" src="/images/jobbole.com/19167bafc87acf89bff84640194770ff.jpg"></a></p>
+<p align="left">这表明，在前两个字符f和x一致的情况下，会存在若干可能的变化：一次替换，如fxod；一次插入，如fxood；两次插入，如fxfood；或者一次交换和一次删除，如fxd。同时，这也会引入了一些冗余的情况，如一次删除和一次插入，结果也是fxod。随着越来越多的字符被处理，其中一些可能性会慢慢消失，而另一些可能性会逐渐产生。如果，在处理完整个单词的所有字符后，在当前状态集中存在一个接收状态（bolded state），那么就表明存在一种方式，能够将通过两次或更少次的变换，将输入单词转化为目标单词，那么我们就可以将该单词视为是有效的。</p>
+<p align="left">实际上，要直接评价一个NFA，从计算的角度来讲是极其昂贵的，因为会存在多个活跃状态和epsilon变换（不需要输入符号的变换），所以通常的做法是首先使用powerset构建法将NFA转换为DFA（译者注：确定性有限自动机）。使用这个算法能够构建出一个DFA，使每一个状态都对应原来NFA中的一个活跃状态集。在这里我们不会涉及powerset的细节，因为这有点扯远了。以下是一个例子，展示了在一个容差下，单词food的NFA所对应的DFA：<br>
+<a href="http://jbcdn2.b0.upaiyun.com/2014/12/243afd6875cd002f29536238499132c2.png" rel="lightbox[80659]" title="超酷算法：Levenshtein自动机"><img class="alignnone size-full wp-image-80665" alt="levenstein-dfa-food" src="/images/jobbole.com/d89c2910c066835ba29c6c6d1c8ac55e.jpg"></a></p>
+<p align="left">记住，我们是在一个容差下描述DFA的，因为要找出完全匹配我们提到的NFA所对应的DFA实在是太复杂了！以上DFA能准确接收与单词food相距一个或更少编辑距离的单词集。试试看，选择任意一个单词，通过DFA跟踪它的路径，如果你最终能到达一个接收状态，则这个单词是有效的。</p>
+<p align="left">我不会把power构建的源码贴在这里，同样的，如果你感兴趣，可以在<a href="http://gist.github.com/491973">GIST</a>里找到。</p>
+<p align="left">我们暂时回到执行效率的问题上来，你可能想知道Levenshtein DFA构建的效率怎么样。我们可以在O(kn)时间内构建NFA，k是指编辑距离，n是指目标单词的长度。将其变换为DFA的最坏情况需要O(2^n)时间，所以极端情况下会需要O(2^kn)运行时间！不过情况并没有那么糟糕，有两个原因：首先，Levenshtein自动机并不会充斥着2^n这种最坏情况的DFA构建；其次，一些智慧的计算机科学家已经提出了一些算法，能够在O(n)时间内直接构建出DFA，甚至还有人[<a href="http://blog.notdot.net/2010/07/Damn-Cool-Algorithms-Levenshtein-Automata#schulz2002fast">SCHULZ2002FAST</a>]完全避开了DFA构建，使用了一种基于表格的评价方法！</p>
+<h1>索引</h1>
+<p align="left">既然我们已经证实可以构建一个Levenshtein自动机，并演示了其工作原理，下面我们来看一看如何使用这项技术高效地模糊匹配搜索索引。第一个观点，同时也是很多论文[<a href="http://blog.notdot.net/2010/07/Damn-Cool-Algorithms-Levenshtein-Automata#schulz2002fast">SCHULZ2002FAST</a>] [<a href="http://blog.notdot.net/2010/07/Damn-Cool-Algorithms-Levenshtein-Automata#mihov2004fast">MIHOV2004FAST</a>]所采用的方法，就是去观测一本字典，即你所要搜索的记录集，它自身可以被视为是一个DFA。事实上，他们经常被存储为一种字典树或有向非循环字图，这两种结构都可以被视为是DFA的特例。假设字典和标准（Levenshtein自动机）都表示为DFA，之后我们就可以高效地通过这两个DFA，准确地在字典中找到符合标准的单词集，过程非常简单，如下：</p>
+<pre class="brush: python; gutter: true">def intersect(dfa1, dfa2):
+  stack = [("", dfa1.start_state, dfa2.start_state)]
+  while stack:
+    s, state1, state2 = stack.pop()
+    for edge in set(dfa1.edges(state1)).intersect(dfa2.edges(state2)):
+      state1 = dfa1.next(state1, edge)
+      state2 = dfa2.next(state2, edge)
+      if state1 and state2:
+        s = s + edge
+        stack.append((s, state1, state2))
+        if dfa1.is_final(state1) and dfa2.is_final(state2):
+          yield s</pre>
+
+<p align="left">好了，我们按照两个DFA共有的边界同时进行遍历，并记录遍历的路径轨迹。只要两个DFA处于最终状态，单词在输出集内，我们就将其输出。</p>
+<p align="left">如果你的索引是以DFA（或字典树，或有向非循环字图）的形式存储的话，这非常完美，但遗憾的是许多索引并不是：如果在内存中，它们很可能位于一个排序列表中；如果在磁盘上，它们很可能位于BTree或类似结构中。有没有办法可以让我们修改方案适应这些排序索引，继而继续提供一种速度极快的方法？事实证明是有的。</p>
+<p align="left">这里的关键点在于，根据我们目前以DFA表示的标准，我们可以，对于一个不匹配的输入字符串，找到下一个（按字母排序）匹配的字符串。凭直觉来说，这相当容易：我们基于DFA去评估输入字符串，直到我们无法进一步处理为止，比如说没有针对下一个字符的有效变换，之后，我们可以反复遵照字母排序的最小标签的边界，直到到达终态。在这里我们应用了两个特殊事件：首先，在第一次变换中，我们需要遵照按字母排序的最小标签，同时这些标签要大于在准备步骤中没有有效变换的特性。第二，如果我们达到了一个状态而其没有有效的外边界，那么我们要回溯到之前的状态，并重试。这差不多是解决迷宫问题的一种“循墙”算法，应用在DFA上。</p>
+<p align="left">以此举例，参照food(1)的DFA，我们来思考一下输入单词foogle。我们可以有效处理前4个单词，留下状态3<sup>1</sup>4<sup>1</sup>，这里唯一的外边界是d，下一个字符是l，因此我们可以向前回溯一步，到2<sup>1</sup>3<sup>0</sup>3<sup>1</sup>4<sup>1</sup>，现在下一个字符是g，有一个外边界f，所以我们接收这个边界，留下接收状态（事实上，和之前的状态是一样的，只不过路径不同），输出单词为fooh，这是在DFA中按字母排序在foogle之后的单词。</p>
+<p align="left">以下是python代码，展示了在DFA类上的一个方法。和前面一样，我不会写出整个DFA的样板代码，它们都在<a href="http://blog.notdot.net/2010/07/">这里</a>。</p>
+<pre class="brush: python; gutter: true">def next_valid_string(self, input):
+    state = self.start_state
+    stack = []
+
+    # Evaluate the DFA as far as possible
+    for i, x in enumerate(input):
+      stack.append((input[:i], state, x))
+      state = self.next_state(state, x)
+      if not state: break
+    else:
+      stack.append((input[:i+1], state, None))
+
+    if self.is_final(state):
+      # Input word is already valid
+      return input
+
+    # Perform a 'wall following' search for the lexicographically smallest
+    # accepting state.
+    while stack:
+      path, state, x = stack.pop()
+      x = self.find_next_edge(state, x)
+      if x:
+        path += x
+        state = self.next_state(state, x)
+        if self.is_final(state):
+          return path
+        stack.append((path, state, None))
+    return None</pre>
+
+<p align="left">在这个方法的第一部分，我们以常见的方式评价DFA，记录下访问过的状态，这些状态包括它们的路径以及我们尝试寻找遵循它们的边界。之后，假设没有找到一个准确的匹配项，那么就进行一次回溯，尝试去寻找一个可以到达接收状态的最小变换集。关于这个方法的一般性说明，请继续阅读……</p>
+<p align="left">同时我们还需要一个工具函数find_next_edge，找出一个状态中按字母排序比指定输入大的最小外边界：</p>
+<pre class="brush: python; gutter: true">def find_next_edge(self, s, x):
+    if x is None:
+      x = u''
+    else:
+      x = unichr(ord(x) + 1)
+    state_transitions = self.transitions.get(s, {})
+    if x in state_transitions or s in self.defaults:
+      return x
+    labels = sorted(state_transitions.keys())
+    pos = bisect.bisect_left(labels, x)
+    if pos &lt; len(labels):
+      return labels[pos]
+    return None</pre>
+
+<p align="left">经过一些预处理，这可以更高效，打个比方，我们可以对每个字符和第一个大于它的外边界建立一个映射关系，而不是在茫茫大海中进行二进制检索。再强调一次，我会把这些优化工作作为练习题留给读者。</p>
+<p align="left">既然我们已经找到了这一过程，那么我们就可以最终描述如何使用这一过程进行索引搜索，算法出人意料的简单：</p>
+<p align="left">1. 取得索引中的第一个元素，或者，比索引任意有效字符串更小的一个字符串，将其称之为“当前”字符串。</p>
+<p align="left">2. 将“当前”字符串传入我们之前谈到的DFA算法，得到“下一个”字符串。</p>
+<p align="left">3. 如果“下一个”字符串和“当前”字符串相等，那么你已经找到了一个匹配，将其输出，再从索引中获取下一个元素作为“当前”元素，重复步骤2。</p>
+<p align="left">4. 如果“下一个”字符串和“当前”字符串不相等，那么在你的索引中搜索大于等于“下一个”字符串的第一个字符串，将其作为“当前”元素，重复步骤2。</p>
+<p align="left">以下是用Python实现这一过程的代码：</p>
+<pre class="brush: python; gutter: true">def find_all_matches(word, k, lookup_func):
+  """Uses lookup_func to find all words within levenshtein distance k of word.
+
+  Args:
+    word: The word to look up
+    k: Maximum edit distance
+    lookup_func: A single argument function that returns the first word in the
+      database that is greater than or equal to the input argument.
+  Yields:
+    Every matching word within levenshtein distance k from the database.
+  """
+  lev = levenshtein_automata(word, k).to_dfa()
+  match = lev.next_valid_string(u'')
+  while match:
+    next = lookup_func(match)
+    if not next:
+      return
+    if match == next:
+      yield match
+      next = next + u''
+    match = lev.next_valid_string(next)</pre>
+
+<p align="left">理解这一算法的一种方式是将Levenshtein DFA和索引都视为排序列表，那么以上过程就类似于App引擎中的“拉链合并连接”策略。我们重复地在一侧查找字符串，再跳转到另一侧的合适位置，等等。结果是，我们省去了大量不匹配的索引实体，以及大量不匹配的Levenshtein字符串，节省了枚举它们的工作量。这些描述表明，这一过程有潜力避免去评估所有的索引实体，或所有的候选Levenshtein字符串。</p>
+<p align="left">补充说明一下，所有的DFA针对任意字符串都可以找到按字母排序的最小后继，这句话是错误的。比如说，考虑一下DFA中字符串a的后继，识别模式为a+b，答案是没有这样的后继，它必须由无限多的a字符跟随单个b字符构成！不过我们可以基于以上过程做一些简单的修改，比如返回一个字符串，确保它是DFA可以识别的下一个字符串的一个前缀，这能满足我们的需求。由于Levenshtein DFA总是有限的，因此我们总是会得到一个有限长度的后继（当然，除了最后一个字符串），我们把这样的扩展留给读者作为练习题。使用这种方法，会产生一些很有意思的应用程序，比如索引化正则表达式搜索。</p>
+<h1>测试</h1>
+<p align="left">首先，我们理论联系实际，定义一个简单的Matcher类，其中实现了一个lookup_func方法，它会被find_all_matches方法调用：</p>
+<pre class="brush: python; gutter: true">class Matcher(object):
+  def __init__(self, l):
+    self.l = l
+    self.probes = 0
+
+  def __call__(self, w):
+    self.probes += 1
+    pos = bisect.bisect_left(self.l, w)
+    if pos &lt; len(self.l):
+      return self.l[pos]
+    else:
+      return None</pre>
+
+<p align="left">记住，在此我们实现一个可调用的类的唯一理由是：我们想要从程序中提取一些信息，比如探针的个数。通常来说，一个常规或嵌套函数已经足够完美，现在，我们需要一个简单的数据集，让我们加载web2字典：</p>
+<pre class="brush: text; gutter: true">&gt;&gt;&gt; words = [x.strip().lower().decode('utf-8') for x in open('/usr/share/dict/web2')]
+&gt;&gt;&gt; words.sort()
+&gt;&gt;&gt; len(words)
+234936</pre>
+
+<p align="left">我们也可以使用几个子集测试随着数据规模的变化，会发生什么：</p>
+<pre class="brush: text; gutter: true">&gt;&gt;&gt; words10 = [x for x in words if random.random() &lt;= 0.1]
+&gt;&gt;&gt; words100 = [x for x in words if random.random() &lt;= 0.01]</pre>
+
+<p align="left">这里，我们看到了实践结果：</p>
+<pre class="brush: text; gutter: true">&gt;&gt;&gt; m = Matcher(words)
+&gt;&gt;&gt; list(automata.find_all_matches('nice', 1, m))
+[u'anice', u'bice', u'dice', u'fice', u'ice', u'mice', u'nace', u'nice', u'niche', u'nick', u'nide', u'niece', u'nife', u'nile', u'nine', u'niue', u'pice', u'rice', u'sice', u'tice', u'unice', u'vice', u'wice']
+&gt;&gt;&gt; len(_)
+23
+&gt;&gt;&gt; m.probes
+142</pre>
+
+<p align="left">大赞啊！在拥有235000个单词的字典中找到了针对nice的23个模拟匹配，需要142个探针。注意，如果我们假设一个字母表包含26个字母，那么会有4+26*4+26*5=238个字符串在一个Levenshtein距离内是有效的，因此与详尽的测试相比，我们做出了合理的节省。考虑到有更大的字母表，更长的字符串，或更大的编辑距离，这种节省的效果应该会更明显。如果我们使用不同种类的输入去测试，看一下探针的个数随着单词长度和字典大小的变化情况，可能会更受启发：</p>
+<table border="1" cellpadding="0">
+<thead>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+</tbody>
+</table>
+<p align="left">在这个表中，”max strings”表示与输入字符串在编辑距离内的字符串总数；small，med，full dict表示所有三种字典（包含web2字典的1%，10%和100%）所需要的探针个数。所有对应的行，至少在10个字符以内，都需要与第五行差不多的探针个数。我们采用的输入字符串的例子是由单词’abracadabra’的前缀构成的。</p>
+<p align="left">我们可以立即看出一些端倪：</p>
+<p align="left">1. 对于很短的字符串和很大的字典，探针的个数并没有低很多，即使低一些，和有效字符串的最大个数相比也是小巫见大巫，所以这并没有节省什么。</p>
+<p align="left">2. 随着字符串越来越长，探针的个数的增长出人意料的比预期结果慢，结果就是对于10个字符，我们仅仅需要探测821中的161个（大约20%）可能结果。对于一般的单词长度（在web2字典中，97%的单词至少有5个字符长），与朴素的检查每个字符串变化相比，我们已经节省了可观的代价。</p>
+<p align="left">3. 虽然样本字典的大小以不同的数量级区分，但是探针的个数增长却不太明显，这是一项令人鼓舞的证据，它表明该方法可以很好的扩展到非常大的索引数量级上。</p>
+<p align="left">我们再来看一下根据不同的编辑距离阈值，情况会有何变化，你同样能得到一些启发。下面是相同的表格，最大编辑距离为2：</p>
+<table border="1" cellpadding="0">
+<thead>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+<tr>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+<td>
+
+</td>
+</tr>
+</tbody>
+</table>
+<p align="left">前途一片光明：在编辑距离为2的情况下，虽然我们被迫需要加入很多探针，但是与候选字符串的数量相比，仍然是很小的代价。对于一个长度为5、编辑距离为2的单词，需要使用3377个探针，但是比起做69258次（对每一个匹配字符串）或做234936次（对字典里的每个单词），这显然少得多了！</p>
+<p align="left">我们来做一个快速比较，对于一个长度为5的字符串，编辑距离为1（与上面的例子一样），一个标准的BK树实现，基于相同的字典，需要检查5858个节点，同时，相同的情况下，我们把编辑距离改为2，则需要检查58928个节点！应当承认，如果结构合理的话，这些节点中很多都应处于相同的磁盘页，但是依然存在惊人的查找数量级的差异。</p>
+<p align="left">最后一点：我们在这篇文章中参考的第二篇论文，[<a href="http://blog.notdot.net/2010/07/Damn-Cool-Algorithms-Levenshtein-Automata#mihov2004fast">MIHOV2004FAST</a>]描述了一个非常棒的结构：一个广义的Levenshtein自动机。这是一种DFA，它能在线性时间内判断，任意一组单词对互相之间的距离是否小于给定的编辑距离。改造一下我们前面的方案，使其能适应这种自动机，这也是我们留给读者的练习。</p>
+<p align="left">这篇文章是涉及的完整的源代码都可以在<a href="http://gist.github.com/491973">这里</a>找到。</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-10--p=1778-c0a873ab4.html" title="Previous Post: HBase SSD优化案例：读策略优化和中断多核绑定" data-instant>&laquo; HBase SSD优化案例：读策略优化和中断多核绑定</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-12--id=19-96752c478.html" title="Next Post: What Happened to NSMethodSignature?" data-instant>What Happened to NSMethodSignature? &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>18 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-18-81106-2aba1c5c3.html">超酷算法：用四叉树和希尔伯特曲线做空间索引</a></li>
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

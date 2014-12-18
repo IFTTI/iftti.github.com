@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL Server调优系列基础篇（并行运算总结篇二）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-12-81189-e246d0739.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL Server调优系列基础篇（并行运算总结篇二）</h1>
+    <p class="meta"><span class="time">Dec 12, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/81189/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
+</div>
+</div>
+
+<p><strong>前言</strong></p>
+<p><a href="http://blog.jobbole.com/81186/" target="_blank">上一篇文章我们介绍了查看查询计划的并行运行方式</a>。</p>
+<p>本篇我们接着分析SQL Server的并行运算。</p>
+<p>闲言少叙，直接进入本篇的正题。</p>
+<p><strong>技术准备</strong></p>
+<p>同前几篇一样，基于SQL Server2008R2版本，利用微软的一个更简洁的案例库（Northwind）进行解析。</p>
+<p><strong>内容</strong></p>
+<p>文章开始前，我们先来回顾上一篇中介绍的并行运算，来看文章最后介绍的并行运算语句：</p>
+<pre class="brush: actionscript3; gutter: true">SELECT B1.[KEY],B1.DATA,B2.DATA 
+FROM BigTable B1 JOIN BigTable2 B2
+ON B1.[KEY]=B2.[KEY]
+WHERE B1.DATA&lt;100</pre>
+
+<p><img alt="" src="/images/jobbole.com/1626f90d3b4dabe350f056ff7212e1ad.jpg"></p>
+<p>上面是详细的执行计划，从右边依次向左执行，上图中有一个地方很有意思，就是在聚集索引扫描后获取的数据，又重新了使用了一次重新分配任务的过程</p>
+<p>（Repartition Streams），就是上图的将获取的100行数据重新分配到并行的各个线程中。</p>
+<p>其实这里本可以直接将索引扫描出来的100行数据直接扔到嵌套循环中执行。它这里又重新分配任务的目的就是为了后面嵌套循环的并行执行，最大限度的利用硬件资源！</p>
+<p>但这样做又带了另一个弊端就是执行完嵌套循环之后，需要将结果重新汇总，就是下面的（Gather Sreams）运算符。</p>
+<p>我们来看看该语句如果不并行的执行计划</p>
+<pre class="brush: actionscript3; gutter: true">SELECT B1.[KEY],B1.DATA,B2.DATA 
+FROM BigTable B1 JOIN BigTable2 B2
+ON B1.[KEY]=B2.[KEY]
+WHERE B1.DATA&lt;100
+option(maxdop 1)</pre>
+
+<p><img alt="" src="/images/jobbole.com/2979eea75768313c334555ad258aa585.jpg"></p>
+<p>这才是正宗的串行执行计划。</p>
+<p>和上面的并行执行计划相比较，你会发现SQL Server充分利用硬件资源而形成的并行计划，是不是很帅！</p>
+<p>如果还没感觉到SQL Server并行执行计划的魅力，我们再来举个例子，看如下语句</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">SELECT BIG_TOP.[KEY],BIG_TOP.DATA,B2.DATA
+FROM 
+(
+   SELECT TOP 100 B.[KEY],B.DATA
+   FROM BigTable B
+   ORDER BY DATA
+) BIG_TOP,
+BigTable2 B2
+WHERE BIG_TOP.[KEY]=B2.[KEY]</pre>
+
+</div>
+</div>
+<p>先来分析下上面的语句，这个语句我们在外表中加入了TOP 100…..ORDER BY DATA关键字，这个关键字是很有意思….</p>
+<p>因为我们知道这个语句是获取根据DATA关键字排序，然后获取出前100行的意思…</p>
+<p>1、根据DATA排序…..丫的多线程我看你怎么排序？每个线程排列自己的？那你排列完了在汇聚在一起…那岂不是还得重新排序！！</p>
+<p>2、获取前100行数据，丫多线程怎么获取？假如我4个线程扫描每个线程获取25条数据？这样出来的结果对嘛？</p>
+<p>3、我们的目标是让外表和上面的100行数据还要并行嵌套循环连接，因为这样才能充分利用资源，这个怎么实现呢？</p>
+<p> </p>
+<p>上面的这些问题，我们来看强大的SQL Server将为我们怎样生成强悍的执行计划</p>
+<p><img alt="" src="/images/jobbole.com/1e79b272b6e8f5452bcc8fac03e5b1b2.jpg"></p>
+<p>上面的执行计划已经解决了我们以上所述的三个问题，我们依次来分析下，这几个问题的解决方法</p>
+<p>第一个问题，关于并列排序问题</p>
+<p>首选根据聚集索引扫描的方式采用并列的方式从表中获取出数据</p>
+<p><img alt="" src="/images/jobbole.com/487dc679d9ad8caa187844b2dc0115d1.jpg"></p>
+<p>然后，在并行的根据各个线程中的数据进行排序，获取前几列值，我们知道，我们的目标获取的是前100行，它这里获取的方式是冗余获取，也就是说每个线程各自排序自己的数据</p>
+<p>然后获取出前面的数据，通过循环赛的方式进行交换，获取出一部分数据</p>
+<p><img alt="" src="/images/jobbole.com/6ca7f892d188fd3cce023fa3163eee0f.jpg"></p>
+<p> </p>
+<p>第二个问题，关于并列获取前100行数据问题</p>
+<p>我们知道要想获取前100行数据，就必须将各个线程的数据汇总到一起，然后通过比较获取前100行数据，这是必须的，于是在这一步里SQL Server又的重新将数据汇总到一起</p>
+<p><img alt="" src="/images/jobbole.com/6fe31a22e4c6fcf8d318f445f31486c1.jpg"></p>
+<p>第三个问题，下一步需要将这100行数据和外表进行连接，获取出结果，这里面采用的嵌套循环连接的方式，为了充分利用资源，提升性能，SQL Server又不得不将这100行数据均分到各个线程中去执行，所以这里又采用了一个拆分任务的运算符分发流（Distribute Sreams）任务</p>
+<p><img alt="" src="/images/jobbole.com/20cc1cb7827ae5132d5df187b6dfbe95.jpg"></p>
+<p>所以经过此步骤又将系统的硬件资源充分利用起来了，然后下一步同样就是讲过嵌套循环进行关联获取结果，然后再重新将结果汇总，然后输出</p>
+<p><img alt="" src="/images/jobbole.com/1036eb78eb39f30ec963d5eee2a9403d.jpg"></p>
+<p>我们可以看到上面的一个流程，SQLServer经过了：先拆分（并行扫描）——》再并行（获取TOP 100….）——》再拆分(为了并行嵌套循环)——》再并行（为了合并结果）</p>
+<p>总之，SQL Server在运行语句的时候，经过各种评估之后，利用各种拆分、各种汇总，目的就是充分的利用硬件资源，达到一个性能最优化的方式！这就是SQL Server并行运算的精髓。</p>
+<p>当然凡事有利就有弊，我们通过这条语句来对比一下串行和并行在SQL Server中的优劣项</p>
+<p>一下是串行执行计划：</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">SELECT BIG_TOP.[KEY],BIG_TOP.DATA,B2.DATA
+FROM 
+(
+   SELECT TOP 100 B.[KEY],B.DATA
+   FROM BigTable B
+   ORDER BY DATA
+) BIG_TOP,
+BigTable2 B2
+WHERE BIG_TOP.[KEY]=B2.[KEY]
+option(maxdop 1)</pre>
+
+</div>
+</div>
+<p><img alt="" src="/images/jobbole.com/bfbca3d3053c9945a90891abf2dcaf2a.jpg"></p>
+<p>串行执行的执行计划：简单、大气、没有复杂的各种拆分、各种汇总及并行。</p>
+<p>我们来比较下两者的不同项，先比较一个T-SQL语句的各个参数值：</p>
+<p><img alt="" src="/images/jobbole.com/1abd65bdb45130ef3a1e60a5667897e0.jpg"><img alt="" src="/images/jobbole.com/244b04328ef4be0ca04e591295a715f7.jpg"></p>
+<p>前者是串行、后者是并行</p>
+<p>串行编译耗费CPU：2、并行编译耗费CPU:10</p>
+<p>串行编译耗费内存：184、并行编译耗费内存：208</p>
+<p>串行编译耗时：2、并行编译耗时：81</p>
+<p>上面是采取并行的缺点：1、更消耗CPU、2、编译更消耗内存、3、编译时间更久</p>
+<p>我们来看一下并行的优点：</p>
+<p>上图中串行内存使用（1024），并行内存（448）</p>
+<p>优点就是：并行执行消耗内存更小</p>
+<p>当然还有一个更重要的优点：执行速度更快！</p>
+<p><img alt="" src="/images/jobbole.com/585e2d4fa48d56d564661000ab8475e0.jpg"><img alt="" src="/images/jobbole.com/9ab8bc0581a6de1ba794097455ec9ab3.jpg"></p>
+<p>采用并行的执行方式，执行时间从218毫秒提升到187毫秒！数据量少，我机器性能差所以提升不明显！</p>
+<p> </p>
+<p>在并行运算执行过程中，还有一种运算符经常遇到：位图运算符，这里我们顺带也介绍一下</p>
+<p>举个例子：</p>
+<pre class="brush: actionscript3; gutter: true">SELECT B1.[KEY],B1.DATA,B2.[KEY] 
+FROM BigTable B1 JOIN BigTable2 B2
+ON B1.DATA=B2.DATA
+WHERE B1.[KEY]&lt;10000</pre>
+
+<p>这里我们获取大表中Key列小于10000行的数据。</p>
+<p><img alt="" src="/images/jobbole.com/536ba709ea5f347994d2ff0bbcb80035.jpg"></p>
+<p>上述的执行语句，就引入了位图计算。</p>
+<p>其实位图计算的目标很简单：<strong>提前过滤</strong>，因为我们的语句中要求获取的结果项比较多10000行数据，在我们后面的线程中采用的并行扫描的方式获取出数据。由于数据量比较多的原因，各个线程在执行的过程中获取完数据的时间不同，为了避免因某个线程执行速度缓慢，导致整体堵塞，索引引入了位图运算，先将获取出来的部分结果过滤输出到前面的哈希匹配，完整执行。</p>
+<p>关于位图运算符更多详细可参照：<a href="http://msdn.microsoft.com/zh-cn/library/bb510541">http://msdn.microsoft.com/zh-cn/library/bb510541</a></p>
+<p><strong>结语</strong></p>
+<p>此篇文章先到此吧，本篇主要是上一篇并行运算的一个延续，两篇文章介绍了SQL Server中关于并行运算的原理和使用方式，关于并行运算这块就到这吧，下一篇我们补充SQL Server中关于索引的利用方式和动态索引的内容，关于索引我相信很多了解数据库产品的人都熟悉，但是SQL Server中一些语句利用索引的方式可能还不清楚，我们下一篇分析这块，借此了解索引的建立方式和优化技巧，有兴趣可提前关注，关于SQL Server性能调优的内容涉及面很广，后续文章中依次展开分析。</p>
+<p>有问题可以留言或者私信，随时恭候有兴趣的童鞋加入SQL SERVER的深入研究。共同学习，一起进步。</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-12-81186-49d084331.html" title="Previous Post: SQL Server调优系列基础篇（并行运算总结）" data-instant>&laquo; SQL Server调优系列基础篇（并行运算总结）</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-12-81193-13e555725.html" title="Next Post: SQL Server调优系列基础篇（索引运算总结）" data-instant>SQL Server调优系列基础篇（索引运算总结） &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81186-49d084331.html">SQL Server调优系列基础篇（并行运算总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81176-ff22b67f4.html">SQL Server调优系列基础篇</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

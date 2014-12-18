@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL Server调优系列基础篇（索引运算总结）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-12-81193-13e555725.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL Server调优系列基础篇（索引运算总结）</h1>
+    <p class="meta"><span class="time">Dec 12, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/81193/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
+</div>
+</div>
+
+<p><strong>前言</strong></p>
+<p>上几篇文章我们介绍了如何<a href="http://blog.jobbole.com/81176/" target="_blank">查看查询计划的方式</a>、常用运算符（<a href="http://blog.jobbole.com/81182/" target="_blank">连接运算符</a>、<a href="http://blog.jobbole.com/81184/" target="_blank">联合运算符</a>）的介绍、并行运算的方式（<a href="http://blog.jobbole.com/81186/" target="_blank">1</a>、<a href="http://blog.jobbole.com/81189/" target="_blank">2</a>），有兴趣的可以点击查看。 本篇将分析在SQL Server中，如何利用先有索引项进行查询性能优化，通过了解这些索引项的应用方式可以指导我们如何建立索引、调整我们的查询语句，达到性能优化的目的。 闲言少叙，进入本篇的正题。</p>
+<p><strong>技术准备</strong> 基于SQL Server2008R2版本，利用微软的一个更简洁的案例库（Northwind）进行解析。</p>
+<p><strong>简介</strong> 所谓的索引应用就是在我们日常写的T-SQL语句中，如何利用现有的索引项，再分析的话就是我们所写的查询条件，其实大部分情况也无非以下几种：</p>
+<p>1、等于谓词：select …where…column=@parameter</p>
+<p>2、比较谓词：select …where…column&gt; or &lt; or  &lt;&gt; or &lt;= or &gt;= @parameter</p>
+<p>3、范围谓词：select …where…column in or not in  or between and @parameter</p>
+<p>4、逻辑谓词：select …where…一个谓词 or、and 其它谓词 or、and 更多谓词…. 我们就依次分析上面几种情况下，如何利用索引进行查询优化的</p>
+<p><strong>一、动态索引查找</strong></p>
+<p>所谓的动态索引查找就是SQL Server在执行语句的时候，才格式化查询条件，然后根据查询条件的不同自动的去匹配索引项，达到性能提升的目的。 来举个例子</p>
+<pre class="brush: actionscript3; gutter: true">SET SHOWPLAN_TEXT ON
+GO
+SELECT OrderID
+FROM Orders
+WHERE ShipPostalCode IN (N'05022',N'99362')</pre>
+
+<p><img alt="" src="/images/jobbole.com/959475861d0ef7ebba7b411da09ea32b.jpg"></p>
+<p>因为我们在表Orders的列ShipPostalCode列中建立了非聚集索引列，所以这里查询的计划利用了索引查找的方式。这也是需要建立索引的地方。 我们来利用文本的方式来查看该语句的详细的执行计划脚本，语句比较长，我用记事本换行，格式化查看 <img alt="" src="/images/jobbole.com/f83962f492e6673824acebcc8893c34a.jpg">我们知道这张表的该列里存在一个非聚集索引，所以在查询的时候要尽量使用，如果通过索引扫描的方式消耗就比价大了，所以SQL Server尽量想采取索引查找的方式，其实IN关键字和OR关键字逻辑是一样的。</p>
+<p>于是上面的查询条件就转换成了：</p>
+<p>[Northwind].[dbo].[Orders].[ShipPostalCode]=N’05022′</p>
+<p>OR</p>
+<p>[Northwind].[dbo].[Orders].[ShipPostalCode]=N’99362′</p>
+<p>这样就可以采用索引查找了，先查找第一个结果，然后再查找第二个，而这个过程在SQL Server中就被称为：动态索引查找。</p>
+<p>是不是有点智能的感觉了….</p>
+<p>所以有时候我们写语句的时候，尽量要使用SQL Server的这点智能了，让其能自动的查找到索引，提升性能。</p>
+<p>有时候偏偏我们写的语句让SQL Server的智能消失，举个例子：</p>
+<pre class="brush: actionscript3; gutter: true">--参数化查询条件
+DECLARE @Parameter1 NVARCHAR(20),@Parameter2 NVARCHAR(20)
+SELECT @Parameter1=N'05022',@Parameter2=N'99362'
+SELECT OrderID
+FROM Orders
+WHERE ShipPostalCode IN (@Parameter1,@Parameter2)</pre>
+
+<p>我们将这两个静态的筛序值改成参数，有时候我们写的存储过程灰常喜欢这么做！我们来看这种方式的生成的查询计划 <img alt="" src="/images/jobbole.com/fbc7f2e2425189ed01a993aa2b8cf8f1.jpg">本来很简单的一个非聚集索引查找搞定的执行计划，我们只是将这两个数值没有直接写入IN关键字中，而是利用了两个变量来代替。</p>
+<p>看看上面SQL Server生成的查询计划！尼玛…这都是些啥？？？还用起来嵌套循环，我就查询了一个Orders表…你嵌套循环个啥….上面动态索引查找的能力去哪了？？？ 好吧，我们用文本查询计划来查看下，这个简单的语句到底在干些啥…</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true"> |--Nested Loops(Inner Join, OUTER REFERENCES:([Expr1009], [Expr1010], [Expr1011]))
+       |--Merge Interval
+       |    |--Sort(TOP 2, ORDER BY:([Expr1012] DESC, [Expr1013] ASC, [Expr1009] ASC, [Expr1014] DESC))
+       |         |--Compute Scalar(DEFINE:([Expr1012]=((4)&amp;[Expr1011]) = (4) AND NULL = [Expr1009], [Expr1013]=(4)&amp;[Expr1011], [Expr1014]=(16)&amp;[Expr1011]))
+       |              |--Concatenation
+       |                   |--Compute Scalar(DEFINE:([Expr1004]=[@Parameter2], [Expr1005]=[@Parameter2], [Expr1003]=(62)))
+       |                   |    |--Constant Scan
+       |                   |--Compute Scalar(DEFINE:([Expr1007]=[@Parameter1], [Expr1008]=[@Parameter1], [Expr1006]=(62)))
+       |                        |--Constant Scan
+       |--Index Seek(OBJECT:([Northwind].[dbo].[Orders].[ShipPostalCode]), SEEK:([Northwind].[dbo].[Orders].[ShipPostalCode] &gt; [Expr1009] AND [Northwind].[dbo].[Orders].[ShipPostalCode] &lt; [Expr1010]) ORDERED FORWARD)</pre>
+
+</div>
+<div></div>
+</div>
+<p>挺复杂的是吧，其实我分析了一下脚本，关于为什么会生成这个计划脚本的原因，是为了解决如下几个问题：</p>
+<p>1、前面我们写的脚本在IN里面写的是两个常量值，并且是不同的值，所以形成了两个索引值的查找通过OR关键字组合， 这种方式貌似没问题，但是我们将这两个数值变成了参数，这就引来了新的问题，假如这两个参数我们输入的是相等的，那么利用前面的执行计划就会生成如下</p>
+<p>[Northwind].[dbo].[Orders].[ShipPostalCode]=N’05022′</p>
+<p>OR</p>
+<p>[Northwind].[dbo].[Orders].[ShipPostalCode]=N’05022′</p>
+<p>这样执行产生的输出结果就是2条一样的输出值！…但是表里面确实只有1条数据…所以这样输出结果不正确！ 所以变成参数后首先解决的问题就是去重问题，2个一样的变成1个。</p>
+<p>2、上面变成参数，还引入了另外一个问题，加入我们两个值有一个传入的为Null值，或者两个都为Null值，同样输出结果面临着这样的问题。所以这里还要解决的去Null值的问题。   为了解决上面的问题，我们来粗略的分析一下执行计划，看SQL Server如何解决这个问题的 <img alt="" src="/images/jobbole.com/a5932aa87d836f49e0475da3da6cb8e7.jpg">简单点将就是通过扫描变量中的值，然后将内容进行汇总值，然后在进行排序，再将参数中的重复值去掉，这样获取的值就是一个正确的值，最后拿这些去重后的参数值参与到嵌套循环中，和表Orders进行索引查找。</p>
+<p>但是分析的过程中，有一个问题我也没看明白，就是最好的经过去重之后的常量汇总值，用来嵌套循环连接的时候，在下面的索引查找的时候的过滤条件变成了 and  查找 <img alt="" src="/images/jobbole.com/3e9829cc38b921fe11ddc313ad89106f.jpg">我将上面的最后的索引查找条件，整理如下：</p>
+<p>|–Index Seek(OBJECT:([Northwind].[dbo].[Orders].[ShipPostalCode]), SEEK:</p>
+<p>(</p>
+<p>[Northwind].[dbo].[Orders].[ShipPostalCode] &gt; [Expr1009]</p>
+<p>AND</p>
+<p>[Northwind].[dbo].[Orders].[ShipPostalCode] &lt; [Expr1010]</p>
+<p>) ORDERED FORWARD)</p>
+<p><strong>这个地方怎么搞的？我也没弄清楚，还望有看明白童鞋的稍加指导下….</strong></p>
+<p>好了，我们继续</p>
+<p>上面的执行计划中，提到了一个新的运算符：合并间隔（merge interval operator）</p>
+<p>我们来分析下这个运算符的作用，其实在上面我们已经在执行计划的图中标示出该运算符的作用了，去掉重复值。</p>
+<p>其实关于去重的操作有很多的，比如前面文章中我们提到的各种去重操作。</p>
+<p>这里怎么又冒出个合并间隔去重？其实原因很简单，因为我们在使用这个运算符之前已经对结果进行了排序操作，排序后的结果项重复值是紧紧靠在一起的，所以就引入了合并间隔的方式去处理，这样性能是最好的。</p>
+<p>更重要的是合并间隔这种运算符应用场景不仅仅局限于重复值的去除，更重要的是还应用于重复区间的去除。 来看下面的例子</p>
+<pre class="brush: actionscript3; gutter: true">--参数化查询条件
+DECLARE @Parameter1 DATETIME,@Parameter2 DATETIME
+SELECT @Parameter1='1998-01-01',@Parameter2='1998-01-04'
+SELECT OrderID 
+FROM ORDERS
+WHERE OrderDate BETWEEN @Parameter1 AND DATEADD(DAY,6,@Parameter1)
+OR OrderDate BETWEEN @Parameter2 AND DATEADD(DAY,6,@Parameter2)</pre>
+
+<p>我们看看这个生成的查询计划项 <img alt="" src="/images/jobbole.com/47c1a3d7eb97048994de1d1ae9ba62d6.jpg">可以看到，SQL Server为我们生成的查询计划，和前面我们写的语句是一模一样的，当然我们的语句也没做多少改动，改动的地方就是查询条件上。</p>
+<p>我们来分析下这个查询条件：</p>
+<p>WHERE OrderDate BETWEEN @Parameter1 AND DATEADD(DAY,6,@Parameter1)</p>
+<p>OR OrderDate BETWEEN @Parameter2 AND DATEADD(DAY,6,@Parameter2)</p>
+<p>很简单的筛选条件，要获取订单日期在1998-01-01开始到1998-01-07内的值或者1998-01-04开始到1998-01-10内的值（不包含开始日期）</p>
+<p>这里用的逻辑谓词为：OR…其实也就等同于我们前面写的IN</p>
+<p>但是我们这里再分析一下，你会发现这两个时间段是重叠的 <img alt="" src="/images/jobbole.com/07e07944fc7d7b01be834be7e674b6d1.jpg">这个重复的区间值，如果用到前面的直接索引查找，在这段区间之内的搜索出来的范围值就是重复的，所以为了避免这种问题，SQL Server又引入了“合并间隔”这个运算符。</p>
+<p>其实，经过上面的分析，我们已经分析出这种动态索引查找的优缺点了，有时候我们为了避免这种复杂的执行计划生成，使用最简单的方式就是直接传值进入语句中（当然这里需要重编译），当然大部分的情况我们写的程序都是只定义的参数，然后进行的运算。可能带来的麻烦就是上面的问题，当然有时候参数多了，为了合并间隔所应用的排序就消耗的内存就会增长。怎么使用，根据场景自己酌情分析。</p>
+<p>二<strong>、索引联合</strong> 所谓的索引联合，就是根据就是根据筛选条件的不同，拆分成不同的条件，去匹配不同的索引项。 举个例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT OrderID 
+FROM ORDERS
+WHERE OrderDate BETWEEN '1998-01-01' AND '1998-01-07'
+OR ShippedDate BETWEEN '1998-01-01' AND '1998-01-07'</pre>
+
+<p>这段代码是查询出订单中的订单日期在1998年1月1日到1998年1月7日的或者发货日期同样在1998年1月1日到1998年1月7日的。</p>
+<p>逻辑很简单，我们知道在这种表里面这两个字段都有索引项。所以这个查询在SQL Server中就有了两个选择：</p>
+<p>1、一次性的来个索引扫描根据匹配结果项输出，这样简单有效，但是如果订单表数据量比较大的话，性能就会很差，因为大部分数据就根本不是我们想要的，还要浪费时间去扫描。</p>
+<p>2、就是通过两列的索引字段直接查找获取这部分数据，这样可以直接减少数据表的扫描量，但是带来的问题就是，如果分开扫描，有一部分数据就是重复的：那些同时在1998年1月1日到1998年1月7日的订单，发货日期也在这段时间内，因为两个扫描项都包含，所以再输出的时候需要将这部分重复数据去掉。</p>
+<p>我们来看SQL Server如何选择</p>
+<p><img alt="" src="/images/jobbole.com/cffdc85f7c4eb6f5ff90954bdfc6bdce.jpg">看来SQL Server经过评估选择了第2中方法。但是上面的方法也不尽完美，采用去重操作耗费了64%的资源。</p>
+<p>其实，上面的方法，我们根据生成的查询计划可以变通的使用以下逻辑，其效果和上面的语句是一样的，并且生成的查询计划也一样</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">SELECT OrderID 
+FROM ORDERS
+WHERE OrderDate BETWEEN '1998-01-01' AND '1998-01-07'
+UNION 
+SELECT OrderID 
+FROM ORDERS
+WHERE  ShippedDate BETWEEN '1998-01-01' AND '1998-01-07'</pre>
+
+</div>
+<div></div>
+</div>
+<p><img alt="" src="/images/jobbole.com/e3dd1707e5cac9631f2a430698a7a1a9.jpg">  我们再来看一个索引联合的例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT OrderID 
+FROM ORDERS
+WHERE OrderDate = '1998-01-01' 
+OR ShippedDate = '1998-01-01'</pre>
+
+<p>我们将上面的Between and不等式筛选条件改成等式筛选条件，我们来看一下这样形成的执行计划</p>
+<p><img alt="" src="/images/jobbole.com/242b70cdee9e76d80a6c2fa6be3982ab.jpg">基本相同的语句，只是我们改变了不同的查询条件，但是生成的查询计划还是变化蛮大的，有几点不同之处：</p>
+<p>1、前面的用between…and  的筛选条件，通过索引查找返回的值进行组合是用的串联的方式，所谓的串联就是两个数据集拼凑在一起就行，无所谓顺序连接什么的。</p>
+<p>2、前面的用between…and  的筛选条件，通过串联拼凑的结果集去重的方式，是排序去重（Sort Distinct）…并且耗费了大量的资源。这里采用了流聚合来干这个事，基本不消耗</p>
+<p>我们来分析以下产生着两点不同的原因有哪些：</p>
+<p>首先、这里改变了筛选条件为等式连接，所通过索引查找所产生的结果项是排序的，并且按照我们所要查询的OrderID列排序，因此在两个数据集进行汇总的时候，正适合合并连接的条件！需要提前排序。所以这里最优的方式就是采用合并连接！</p>
+<p>那么前面我们用between…and  的筛选条件通过索引查找获取的结果项也是排序的，但是这里它没有按照OrderID排序，它是按照OrderDate或者ShippedDate列排序的，而我们的结果是要OrderID列，所以这里的排序是没用的……所以SQL Server只能选择一个串联操作，将结果汇聚到一起，然后在排序了……我希望这里我已经讲明白了…</p>
+<p>其次、关于去重操作，毫无疑问采用流聚合（Aggregate）这种方式最好，消耗内存少，速度又快…但是前提是要提前排序…前面选用的排序去重（Sort Distinct）纯属无奈之举…</p>
+<p><strong>总结下：我们在写语句的时候能确定为等式连接，最好采用等式连接。还有就是如果能确定输出条件的最好能写入，避免多余的书签查找，还有万恶的SELEECT *….</strong></p>
+<p><strong>如果写了万恶的SELECT *…那么你所写的语句基本上就可以和非聚集索引查找告别了….顶多就是聚集索引扫描或者RID查找…</strong></p>
+<p><strong>瞅瞅以下语句</strong></p>
+<pre class="brush: actionscript3; gutter: true">SELECT * 
+FROM ORDERS
+WHERE OrderDate = '1998-01-01' 
+OR ShippedDate = '1998-01-01'</pre>
+
+<p><img alt="" src="/images/jobbole.com/3ac389d29ae91913e9790cc1ed0824fd.jpg"></p>
+<p>最后，奉上一个AND的一个连接谓词的操作方式，这个方式被称为：索引交叉，意思就是说如果两个或多个筛选条件如果采用的索引是交叉进行的，那么使用一个就可以进行查询。 来看个语句就明白了</p>
+<pre class="brush: actionscript3; gutter: true">SELECT OrderID 
+FROM ORDERS
+WHERE OrderDate = '1998-01-01' 
+AND ShippedDate = '1998-03-05'</pre>
+
+<p><img alt="" src="/images/jobbole.com/9bc407cf9b8ab45689330c9cfb764165.jpg">这里我们采用了的谓词连接方式为AND，所以在实际执行的时候，虽然两列都存在非聚集索引，理论都可以使用，但是我们只要选一个最优的索引进行查找，另外一个直接使用书签查找出来就可以。省去了前面介绍的各种神马排序去重….流聚合去重….等等不人性的操作。 看来AND连接符是一个很帅的运算符…所以很多时候我们在尝试写OR的情况下，不如换个思路改用AND更高效。   <strong>参考文献</strong></p>
+<ul>
+<li>微软联机丛书<a href="http://msdn.microsoft.com/zh-cn/library/ms191158(SQL.90).aspx" target="_blank">逻辑运算符和物理运算符引用</a>
+</li>
+<li>参照书籍《SQL.Server.2005.技术内幕》系列</li>
+</ul>
+<p><strong>结语</strong> 此篇文章主要介绍了索引运算的一些方式，主要是描述了我们平常在写语句的时候所应用的方式，并且举了几个例子，算作抛砖引玉吧，其实我们平常所写的语句中无非也就本篇文章中介绍的各种方式的更改，拼凑。而且根据此，我们该怎样建立索引也作为一个指导项。 下一篇我们介绍子查询一系列的内容，有兴趣可提前关注，关于SQL Server性能调优的内容涉及面很广，后续文章中依次展开分析。 有问题可以留言或者私信，随时恭候有兴趣的童鞋加入SQL SERVER的深入研究。共同学习，一起进步。</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-12-81189-e246d0739.html" title="Previous Post: SQL Server调优系列基础篇（并行运算总结篇二）" data-instant>&laquo; SQL Server调优系列基础篇（并行运算总结篇二）</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-12-81196-6bf51109d.html" title="Next Post: 一个成功的 Git 分支模型" data-instant>一个成功的 Git 分支模型 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81189-e246d0739.html">SQL Server调优系列基础篇（并行运算总结篇二）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81186-49d084331.html">SQL Server调优系列基础篇（并行运算总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

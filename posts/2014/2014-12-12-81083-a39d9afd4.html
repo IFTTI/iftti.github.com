@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>实现键值对存储（四）：API设计</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-12-81083-a39d9afd4.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>实现键值对存储（四）：API设计</h1>
+    <p class="meta"><span class="time">Dec 12, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/81083/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">为开发者打造的Linux视频教程</a></li>
+</div>
+</div>
+
+<ul>
+<li><a href="http://blog.jobbole.com/75842/" target="_blank">实现键值对存储（0）：目录</a></li>
+<li><a href="http://blog.jobbole.com/75844/" target="_blank">实现键值对存储（1）：什么是键值对存储，为什么要实现它</a></li>
+<li><a href="http://blog.jobbole.com/77750/" target="_blank">实现键值对存储（2）：以现有键值对存储为模型</a></li>
+<li><a href="http://blog.jobbole.com/78869/" target="_blank">实现键值对存储（3）：Kyoto Cabinet和LevelDB的架构比较分析</a></li>
+</ul>
+<p>我终于为这个键值对存储项目确定了一个名字，从现在开始我将叫它<span style="text-decoration: line-through;">FelixDB</span> <strong>KingDB</strong>。（译注：改成这么土的名字也是醉了）</p>
+<p>在本文中，我将对带着大家看一看四个键值对存储和数据库系统的API：LevelDB, Kyoto Cabinet, BerkekeyDB 和 SQLite3。对于其API中的每个主要功能，我将会比较他们的命名习惯和方法原型，以平衡其优缺点并为正在开发的键值对存储KingDB设计API。本文将包括：</p>
+<ol>
+<li>API设计的一般准则</li>
+<li>定义KingDB公共API的功能</li>
+<li>比较现有数据库的API<br>
+3.1 打开和关闭数据库<br>
+3.2 读写操作<br>
+3.3 遍历<br>
+3.4 参数处理<br>
+3.5 错误管理</li>
+<li>结论</li>
+<li>参考文献</li>
+</ol>
+<h1>1.API设计的一般准则</h1>
+<p>设计一个好的API很难，相当难。但我在这说的不是什么新东西，而只是在重复之前很多人告诉我的东西。到目前为止我发现的最好的资料是Joshua Bloch的演讲“How to Design a Good API &amp; Why it Matters（如何设计一个好的API及为什么这很重要）”<a href="#ref">[1]</a>，及其摘要版本<a href="#ref">[2]</a>。如果你还没有看过这个演讲，我强烈建议你找时间去看一下。在这个演讲中，Bloch清晰的陈述了听众需要记住的两个很重要的东西。我复制了摘要版本的要点并添加了一些评论：</p>
+<ol>
+<li>
+<strong>不确定的时候，先放一边。</strong>当不确定某功能、类、方法或参数是否要添加在API中的时候，不要添加。</li>
+<li>
+<strong>不要让用户做库可以做的事情。</strong>如果你的API让客户执行一系列函数调用的时候，需要将每个函数的输出塞到下一个函数的输入里，那你应该在API中添加一个函数来执行这一系列的函数调用。</li>
+</ol>
+<p>另一个关于API设计的好资源是Joshua Bloch写的《Effective Java》<a href="#ref">4</a>和Scott Meyers写的《Effective C++》<a href="#ref">3</a>第四章“Designs and Declarations”。</p>
+<p>这些资源对于当前阶段的这个键值对存储项目来说十分重要，尽管我觉得这些资源没有包含一个很重要的因素：用户期望。将API从草图上设计出来是很难的，但这个键值对存储的例子来说，是有例可循的。用户一直和他们的键值对存储或数据库系统的API打交道。因此，当面对一个新的键值对存储的时候，用户希望有一个类似的环境，而不关心这潜规则只会提高用户对新API的学习曲线，并让用户不高兴。</p>
+<p>鉴于这个原因，即便我牢记上文列出的这些资料中的所有好建议，但我仍认为我必须尽可能多的复制已有库的API，因为这可以在用户使用我正创建的API时更简单。</p>
+<h1>2.定义KingDB公共API的功能</h1>
+<p>考虑到这只是万里长征的第一步，我打算实现一个最小且可靠的键值对存储，我当然不会包含所有的，像Kyoto Cabinet 和LevelDB那样的成熟项目提供的高级功能。我打算先让基本功能实现，然后我将逐渐增加其他功能。对于我来说，基本功能严格限制在：</p>
+<ul>
+<li>打开和关闭数据库</li>
+<li>读写数据库</li>
+<li>遍历数据库中所有的键值对集合</li>
+<li>提供参数调整的方法</li>
+<li>提供一个合适的错误通知接口</li>
+</ul>
+<p>我意识到这些功能对于一些用例来说过于局限了，但暂时应该对付的过来。我不打算添加任何事务机制、分类查询、或原子操作。同样，现在我不打算提供快照功能。</p>
+<h1>3.比较现有数据库的API</h1>
+<p>为了比较现有数据库的C++ API，我将会比较每个功能的示例代码。 这些示例代码是修改自或直接取自于官方代码“Fundamental Specifications of Kyoto Cabinet” <a href="#ref">[5]</a>, “LevelDB’s Detailed Documentation” <a href="#ref">[6]</a>, “Getting Started with Berkeley DB” <a href="#ref%22">[7]</a>, 和 “SQLite in 5 minutes or less” <a href="#ref">[8]</a>。 我同样会使用不同的颜色来标示来自不同的API。</p>
+<h2>3.1 打开和关闭数据库</h2>
+<p>下述示例代码显示出研究的系统是如何打开数据库的。为了更清晰的显示代码原理，选项设置和错误管理没有在此显示，并且会在下述各节中解释更多的细节。</p>
+<pre class="brush: cpp; gutter: true">/* LevelDB */
+leveldb::DB* db;
+leveldb::DB::Open(leveldb::Options, "/tmp/testdb", &amp;db);
+...
+delete db;</pre>
+
+<pre class="brush: cpp; gutter: true">/* Kyoto Cabinet */
+HashDB db;
+db.open("dbfile.kch", HashDB::OWRITER | HashDB::OCREATE);
+...
+db.close()</pre>
+
+<pre class="brush: cpp; gutter: true">/* SQLite3 */
+sqlite3 *db;
+sqlite3_open("askyb.db", &amp;db);
+...
+sqlite3_close(db);</pre>
+
+<pre class="brush: cpp; gutter: true">/* Berkeley DB */
+Db db(NULL, 0);
+db.open(NULL, "my_db.db", NULL, DB_BTREE, DB_CREATE, 0);
+...
+db.close(0);</pre>
+
+<p> </p>
+<p>在打开数据库部分出现了两种清晰的模式。一方面，LevelDB 和SQLite3的API请求创建一个数据库对象的指针（句柄）。然后调用打开函数的时候将这个指针的引用作为参数，以定位对象的内存空间，然后设置这个数据库对象。另一方面，Kyoto Cabinet 和Berkeley DB的API以实例化一个数据库对象为开始，然后调对象的用open()方法来设置这个数据库对象。</p>
+<p>说到关闭数据库部分，LevelDB只需要请求删除指针就行了，但SQLite3必须调用关闭函数。Kyoto Cabinet 和BerkeleyDB的数据库对象自身有一个close()方法。</p>
+<p>我相信像LevelDB 和SQLite3那样强制使用数据库对象的指针，然后将指针传递给打开函数是很“C风格”的。另外，我认为LevelDB处理关闭的方法—通过删除指针—是一个设计缺陷。因为这会导致API的<strong>不对称</strong>。在API中，函数的对称应该尽可能的对称，因为这样更加直观和逻辑。“如果我调用了open() 那我就应该调用close()”的想法比“如果我调用了open() 那我就应该删除指针”的想法合乎逻辑一万倍。</p>
+<p><strong>设计决策</strong></p>
+<p>因此我决定使用在KingDB上的是类似于Kyoto Cabinet 和Berkeley DB的，先实例化一个数据库对象，然后调用对象的Open() 和Close()方法。至于命名，我仍使用传统的Open() 和Close()。</p>
+<p> </p>
+<h2>3.2 读写</h2>
+<p>在本节，我比较他们读写功能的API。</p>
+<pre class="brush: cpp; gutter: true">/* LevelDB */
+std::string value;
+db-&amp;gt;Get(leveldb::ReadOptions(), "key1", &amp;amp;value);
+db-&amp;gt;Put(leveldb::WriteOptions(), "key2", value);</pre>
+
+<pre class="brush: cpp; gutter: true">/* Kyoto Cabinet */
+string value;
+db.get("key1", &amp;amp;value);
+db.set("key2", "value");</pre>
+
+<pre class="brush: cpp; gutter: true">/* SQLite3 */
+int szErrMsg;
+char *query = “INSERT INTO table col1, col2 VALUES (‘value1’, ‘value2’)”;
+sqlite3_exec(db, query, NULL, 0, &amp;amp;szErrMsg);</pre>
+
+<pre class="brush: cpp; gutter: true">/* Berkeley DB */
+/* reading */
+Dbt key, data;
+
+key.set_data(&amp;amp;money);
+key.set_size(sizeof(float));
+
+data.set_data(description);
+data.set_ulen(DESCRIPTION_SIZE + 1);
+data.set_flags(DB_DBT_USERMEM);
+
+db.get(NULL, &amp;amp;key, &amp;amp;data, 0);
+
+/* writing */
+char *description = "Grocery bill.";
+float money = 122.45;
+
+Dbt key(&amp;amp;money, sizeof(float));
+Dbt data(description, strlen(description) + 1);
+
+db.put(NULL, &amp;amp;key, &amp;amp;data, DB_NOOVERWRITE);
+
+int const DESCRIPTION_SIZE = 199;
+float money = 122.45;
+char description[DESCRIPTION_SIZE + 1];</pre>
+
+<p>我不会考虑SQLite3的设计，因为其是基于SQL的，因此其读写是通过SQL请求进行的，而非方法调用。Berkeley DB请求Dbt类对象的创建，并在上面进行一大堆设置，因此我也不会考虑这个设计。剩下的只有LevelDB 和Kyoto Cabinet，而他们有很漂亮的getter/setter对称接口。LevelDB 有Get() 和Put(), 而Kyoto Cabinet 有get() 和set()。Setter方法的原型——Put() 和set()十分相似：键名是值传递，而键值是传递的指针使得调用时可以更改。键值并不通过调用返回，返回值是给错误管理使用的。</p>
+<p><strong>设计决策</strong></p>
+<p>对于KingDB，我打算使用和LevelDB 及Kyoto Cabinet相似的方法，对于setter方法使用一个相似的原型，即用值传递键值而用指针传递键值。至于命名，一开始我觉得Get() 和Set()是最好的选择，但仔细思考之后我更倾向于LevelDB那样，使用Get() 和Put()。其原因是Get/Set 和Get/Put都很对称，但“Get” 和 “Set”两个词太相似，只差了一个字母。因此阅读代码的时候使用“Get” 和“Put”会更加清晰且更易辨认，因此我会使用Get/Put。</p>
+<h2>3.3 遍历</h2>
+<pre class="brush: cpp; gutter: true">/* LevelDB */
+leveldb::Iterator* it = db-&amp;gt;NewIterator(leveldb::ReadOptions());
+for (it-&amp;gt;SeekToFirst(); it-&amp;gt;Valid(); it-&amp;gt;Next()) {
+  cout &amp;lt;&amp;lt; it-&amp;gt;key().ToString() &amp;lt;&amp;lt; ": "  &amp;lt;&amp;lt; it-&amp;gt;value().ToString() &amp;lt;&amp;lt; endl;
+}
+delete it;</pre>
+
+<pre class="brush: cpp; gutter: true">/* Kyoto Cabinet */
+DB::Cursor* cur = db.cursor();
+cur-&amp;gt;jump();
+string ckey, cvalue;
+while (cur-&amp;gt;get(&amp;amp;ckey, &amp;amp;cvalue, true)) {
+  cout &amp;lt;&amp;lt; ckey &amp;lt;&amp;lt; ":" &amp;lt;&amp;lt; cvalue &amp;lt;&amp;lt; endl;
+}
+delete cur;</pre>
+
+<pre class="brush: cpp; gutter: true">/* SQLite3 */
+static int callback(void *NotUsed, int argc, char **argv, char **szColName) {
+  for(int i = 0; i &amp;lt; argc; i++) {
+    printf("%s = %s\n", szColName[i], argv[i] ? argv[i] : "NULL");
+  }
+  printf("\n");
+  return 0;
+}
+
+char *query = “SELECT * FROM table”;
+sqlite3_exec(db, query, callback, 0, &amp;amp;szErrMsg);</pre>
+
+<pre class="brush: cpp; gutter: true">/* Berkeley DB */
+Dbc *cursorp;
+db.cursor(NULL, &amp;amp;cursorp, 0);
+Dbt key, data;
+while (cursorp-&amp;gt;get(&amp;amp;key, &amp;amp;data, DB_NEXT) == 0) {
+  // do things
+}
+cursorp-&amp;gt;close();</pre>
+
+<p>在上一节中，SQLite3不被考虑是因为其不满足键值对存储的需求。但看看它是如何将一个SELECT请求发送到数据库，然后在取回来的每一行上调用回调函数是比较有趣的。大多数MySQL 和 PostgreSQL的API用循环并调用一个能够填充本地变量的函数来做到，而非这样使用一个回调函数。我发现这种回调函数比较棘手，因为这对于那些想执行合计操作或对取回来的行进行计算的用户来说，会让事情变得复杂。但这是另一方面的讨论，现在回到我们的键值对存储上来！</p>
+<p>这里有两种方法：使用游标或者使用遍历器。Kyoto Cabinet 和BerkeleyDB使用游标，一开始创建一个指向游标对象的指针并实例化对象，然后在while循环中重复调用游标的get()方法来获取数据库中所有的值。LevelDB使用遍历器设计模式，一开始创建一个指向遍历器对象的指针并实例化对象（这部分和游标一样），但是使用一个for循环来遍历集合中的项目。注意这里的while和for循环只是习惯：游标可以使用for循环而遍历器也可以使用while循环。其主要的不同是，在游标中，键和值是指针传递然后在游标的get()方法中填充内容，但在迭代器中，键和值是通过迭代器方法的返回值来访问的。</p>
+<p><strong>设计决策</strong></p>
+<p>同样，游标和其while循环是相当“C风格”的。我发现迭代器的方法更加清晰并更符合“C++风格”，因为这正是C++中STL的集合的访问方式。因此对于KingDB来说，我选择使用LevelDB那样的遍历器。至于命名，我简单的复制了LevelDB中的方法名。</p>
+<h2>3.4 参数处理</h2>
+<p>参数在IKVS系列文章中第三部分3.4节已经简要叙述了，但我还想在这提一下。</p>
+<pre class="brush: cpp; gutter: true">/* LevelDB */
+leveldb::DB* db;
+leveldb::Options options;
+options.create_if_missing = true;
+options.compression = leveldb::kNoCompression;
+leveldb::DB::Open(options, "/tmp/testdb", &amp;amp;db);
+...
+leveldb::WriteOptions write_options;
+write_options.sync = true;
+db-&amp;gt;Put(write_options, "key", "value");</pre>
+
+<pre class="brush: cpp; gutter: true">/* Kyoto Cabinet */
+db.tune_options(GrassDB::TCCOMPESS);
+db.tune_buckets(500LL * 1000);
+db.tune_page(32768);
+db.tune_page_cache(1LL &amp;lt;&amp;lt; 20);
+db.open(...);</pre>
+
+<pre class="brush: cpp; gutter: true">/* SQLite3 */ 
+sqlite3_config(SQLITE_CONFIG_MULTITHREAD);
+sqlite3_config(SQLITE_CONFIG_MEMSTATUS, 1);
+sqlite3_config(SQLITE_CONFIG_LOG, SqliteLogger, NULL);
+sqlite3_initialize();
+sqlite3_open(...);</pre>
+
+<pre class="brush: cpp; gutter: true">/* Berkeley DB */
+db.set_flags(DB_DUPSORT);
+db.set_bt_compare(compare_fct);
+db.open(NULL, file_name, NULL, DB_BTREE, DB_CREATE, 0);</pre>
+
+<p>SQLite3是通过sqlite3_config()修改全局参数，然后在所有后续连接建立的时候应用。Kyoto Cabinet 和Berkeley DB中，选项是在调用open()之前通过调用数据库对象的方法来设置选项的，和SQlite3的做法比较相似。在这些方法之上，更通用的选项是通过open()方法的参数来设置的（见上文3.1节）。这表示选项被分为两部分，一些通过方法的调用来设置，而另一些是通过open()的调用来设置。</p>
+<p>LevelDB的做法不大一样。选项是在自己的类中一起定义，而参数是通过这些类的属性来更改。之后这些设置类的对象以方法参数的形式传递，并总是第一个参数。例如LevelDB数据对象的open()方法的第一个参数是leveldb::Options类的对象，而Get()和Put()方法的第一个参数分别是leveldb::ReadOptions 和leveldb::WriteOptions。这种设计的一个好处是在同时创建多个数据库的情况下可以很简单的共享设置，尽管在Kyoto Cabinet 和 Berkeley DB的例子中可以为一组设置创建一个方法，然后通过调用这个方法来设置这组设定。像LevelDB那样把设置放到一个特定的类中真正的优势在于，其接口更稳定，因为扩展设置只需要修改这个选项类，而不用修改数据库对象的任何方法。</p>
+<p>尽管我想用这种选项类，但我必须说的是LevelDB这种总是将选项作为第一个参数在各个方法中传递的方式我不是很习惯。如果没有需要修改的选项，这导致代码中需要使用默认选项，就像这样：</p>
+<pre class="brush: cpp; gutter: true">db.Put(leveldb::WriteOptions, "key", "value");</pre>
+
+<p>这可能导致代码膨胀，而另一种可能是将选项作为最后一个参数，然后为这个参数设定一个缺省值，使得不需要设置选项的时候可以省掉这项。而另一种源自于C++的解决方式是函数的重载，有数个带有原型的方法使其可以省略掉选项的对象。把选项放到参数的最后对于我来说看上去更符合逻辑，因为其是可能省略的。但我相信LevelDB的作者把选项作为第一个参数是有很好的原因的。</p>
+<p><strong>设计决策</strong></p>
+<p>对于参数处理，我觉得将选项作为类是最简洁的方式，同时其符合面向对象设计。</p>
+<p>对于KingDB来说，我会像LevelDB那样使用独立的类来处理选项，不过我会将作为方法的最后一个参数。我或许以后能明白将选项作为最后一个参数是真正正确的方法——或者有谁能帮我解释下——但现在我坚持将其放到最后。最后，命名子啊这儿不是很重要，因此Options, ReadOption 和WriteOption都可以。</p>
+<h2>3.5 错误管理</h2>
+<p>在IKVS系列第三部分3.6节，有关于错误管理的一些讨论，基本上是说用户看不到的代码是如何管理错误的。本节再次讨论这个话题但稍有不同，不讨论库中错误的细节，而是关于错误发生后是怎么报告给使用公共接口的用户的。</p>
+<pre class="brush: cpp; gutter: true">/* LevelDB */
+leveldb::Status s = db-&amp;gt;Put(leveldb::WriteOptions(), "key", "value");
+if (!s.ok()) {
+  cerr &amp;lt;&amp;lt; s.ToString() &amp;lt;&amp;lt; endl;
+}</pre>
+
+<pre class="brush: cpp; gutter: true">/* Kyoto Cabinet */
+if (!db.set("baz", "jump")) {
+  cerr &amp;lt;&amp;lt; "set error: " &amp;lt;&amp;lt; db.error().name() &amp;lt;&amp;lt; endl;
+}</pre>
+
+<pre class="brush: cpp; gutter: true">/* SQLite3 */
+int rc = sqlite3_exec(db, query, callback, 0, &amp;amp;zErrMsg);
+if (rc != SQLITE_OK) {
+  fprintf(stderr, "SQL error: %s\n", zErrMsg);
+  sqlite3_free(zErrMsg);
+}</pre>
+
+<pre class="brush: cpp; gutter: true">/* Berkeley DB */
+int ret = my_database.put(NULL, &amp;amp;key, &amp;amp;data, DB_NOOVERWRITE);
+if (ret == DB_KEYEXIST) {
+  my_database.err(ret, "Put failed because key %f already exists", money);
+}</pre>
+
+<p>Kyoto Cabinet, Berkeley DB 和SQLite3使用相同的方法处理错误，即其方法返回一个整型的错误代码。如在IKVS系列第三部分3.6节所述，Kyoto Cabinet内部将值设置在数据库对象中，这就是为何上述示例代码中，错误信息是从db.error().name()取出的。</p>
+<p>LevelDB有个一特别的Status类，包含错误类型和提供了关于此错误更多信息的消息。LevelDB库中的所有方法都返回了此类的一个对象，这使错误测试和将错误传递给系统各部分以进行进一步的检查更加简单。</p>
+<p><strong>设计决策</strong></p>
+<p>返回错误代码而避免使用C++的异常处理机制是十分正确的，然而整形并不足以携带有意义的信息。Kyoto Cabinet, Berkeley DB 和SQLite3都有其自己的存储错误信息的方法，然而即便是在在Kyoto Cabinet 和Berkeley例子中，创建了错误管理和数据库类的强耦合，，仍然会为取得信息添加额外的步骤。像LevelDB那样使用一个Status类可以避免使用C++异常处理，同时也避免了和架构其他部分的耦合。</p>
+<h1>4.结论</h1>
+<p>API的预设比较有意思，因为去看不同的工程师如何解决相同的问题总是很有意思的。这同样让我意识到Kyoto Cabinet 和Berkeley DB的API有多么相似。Kyoto Cabinet 的作者Mikio Hirabayashi清楚地声明了他的键值对存储是基于Berkeley DB的，而在看完API相似性之后这一点更加清晰了。</p>
+<p>LevelDB的设计相当好，但我还是对于一些我认为可以以其他方式实现的细节有些意见。例如数据库打开和关闭以及方法原型。</p>
+<p>我吸取了每个系统的一点长处，而我现在对于KingDB的API设计的各个选择感觉更加自信了。</p>
+<p> </p>
+<p><a name="ref"></a></p>
+<h1>5.参考文献</h1>
+<p>[1] http://www.infoq.com/presentations/effective-api-design<br>
+[2] http://www.infoq.com/articles/API-Design-Joshua-Bloch<br>
+[3] http://www.amazon.com/Effective-Specific-Improve-Programs-Designs/dp/0321334876<br>
+[4] http://www.amazon.com/Effective-Java-Edition-Joshua-Bloch/dp/0321356683<br>
+[5] http://fallabs.com/kyotocabinet/spex.html<br>
+[6] http://leveldb.googlecode.com/svn/trunk/doc/index.html<br>
+[7] http://docs.oracle.com/cd/E17076_02/html/gsg/CXX/index.html<br>
+[8] http://www.sqlite.org/quickstart.html</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-12--id=19-96752c478.html" title="Previous Post: What Happened to NSMethodSignature?" data-instant>&laquo; What Happened to NSMethodSignature?</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-12-81091-62ce72541.html" title="Next Post: 实现键值对存储（五）：哈希表实现" data-instant>实现键值对存储（五）：哈希表实现 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81091-62ce72541.html">实现键值对存储（五）：哈希表实现</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81186-49d084331.html">SQL Server调优系列基础篇（并行运算总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

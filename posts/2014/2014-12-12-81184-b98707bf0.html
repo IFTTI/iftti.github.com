@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL Server调优系列基础篇（联合运算符总结）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-12-81184-b98707bf0.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL Server调优系列基础篇（联合运算符总结）</h1>
+    <p class="meta"><span class="time">Dec 12, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/81184/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
+</div>
+</div>
+
+<p><strong>前言</strong></p>
+<p>上两篇文章我们介绍了<a href="http://blog.jobbole.com/81176/" target="_blank">查看查询计划的方式</a>，以及一些<a href="http://blog.jobbole.com/81182/" target="_blank">常用的连接运算符的优化技巧</a>，本篇我们总结联合运算符的使用方式和优化技巧。</p>
+<p>废话少说，直接进入本篇的主题。</p>
+<p><strong>技术准备</strong></p>
+<p>基于SQL Server2008R2版本，利用微软的一个更简洁的案例库（Northwind）进行解析。</p>
+<p><strong>一、联合运算符</strong></p>
+<p>所谓的联合运算符，其实应用最多的就两种：UNION ALL和UNION。</p>
+<p>这两个运算符用法很简单，前者是将两个数据集结果合并，后者则是合并后进行去重操作，如果有过写T-SQL语句的码农都不会陌生。</p>
+<p>我们来分析下这两个运算符在执行计划中的显示，举个例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT FirstName+N''+LastName,City,Country FROM Employees
+UNION ALL
+SELECT ContactName,City,Country FROM Customers</pre>
+
+<p><img alt="" src="/images/jobbole.com/a573e1f1c88074e1831001ecce1cbd97.jpg"></p>
+<p>就是上面这个图标了，这就是UNION ALL联合运算符的图标。</p>
+<p><img alt="" src="/images/jobbole.com/0d877d98b1c0d32a7df2a9e13bfe632d.jpg"></p>
+<p>这个联合运算符很简单的操作，将两个数据集合扫描完通过联合将结果汇总。</p>
+<p>我们来看一下UNION 这个运算符，例子如下</p>
+<pre class="brush: actionscript3; gutter: true">select City,Country from Employees
+UNION
+SELECT City,Country FROM Customers</pre>
+
+<p><img alt="" src="/images/jobbole.com/3ad0527989de6b497b6dbc9c1bf06240.jpg"></p>
+<p>我们可以看到，UNION 运算符是在串联运算符之后发生了一个Distinct Sort排序操作，经过这个操作会将结果集合中的重复值去掉。</p>
+<p>我们一直强调：大数据表的排序是一个非常耗资源的动作！</p>
+<p>所以，到这里我们已经找到了可优化的选项，去掉排序，或者更改排序方式。</p>
+<p>替换掉Distinct Sort排序操作的方式就是哈序聚合。Distinct Sort排序操作需要的内存和去除重复之前数据集合的数据量成正比，而哈希聚合需要的内存则是和去除重复之后的结果集成正比！</p>
+<p>所以如果数据行中重复值很多，那么相比而言通过哈希聚合所消耗的内存会少。</p>
+<p>我们来举个例子</p>
+<pre class="brush: actionscript3; gutter: true">select ShipCountry from Orders
+UNION
+SELECT ShipCountry FROM Orders</pre>
+
+<p>这个例子其实没啥用处，这里就是为了演示，我们来看一下结果</p>
+<p><img alt="" src="/images/jobbole.com/10a6f9571e62d7962386b8e51325f75e.jpg"></p>
+<p>我们知道，这张表里这个ShipCountry是存在大面积重复值的，所以采用了哈希匹配来去重操作是最优的方式。</p>
+<p>其实，相比哈希匹配连接还有一种更轻量级的去重的连接方式：合并连接</p>
+<p>上一篇我已经分析了这个连接方法，用于两个数据集的连接方式，这里其实类似，应用前都必须先将原结果集合排序！</p>
+<p>我们知道优化的方式可以采用建立索引来提高排序速度。</p>
+<p>我们来重现这种去重方式，我们新建一个表，然后建立索引，代码如下</p>
+<div>
+<div>
+<pre class="brush: actionscript3; gutter: true">--新建表
+SELECT EmployeeID,FirstName+N' '+LastName AS ContactName,City,Country
+INTO NewEmployees
+FROM Employees
+GO
+--添加索引
+ALTER TABLE NewEmployees ADD CONSTRAINT PK_NewEmployees PRIMARY KEY(EmployeeID)
+CREATE INDEX ContactName ON NewEmployees(ContactName)
+CREATE INDEX ContactName ON CUSTOMERS(ContactName)
+GO
+--新建查询，这里一定要加上一个显示的Order by才能出现合并连接去重
+SELECT ContactName FROM NewEmployees
+UNION ALL
+SELECT ContactName FROM Customers
+ORDER BY ContactName</pre>
+
+</div>
+</div>
+<p><img alt="" src="/images/jobbole.com/17ddcf5853ea7eb207bab193975799d1.jpg"></p>
+<p> </p>
+<p>我们采用索引扫描的方式可以避免显式的排序操作。</p>
+<p>我们将UNION ALL改成UNION，该操作将会对两个数据集进行去重操作。</p>
+<pre class="brush: actionscript3; gutter: true">--新建查询，这里一定要加上一个显示的Order by才能出现合并连接去重
+SELECT ContactName FROM NewEmployees
+UNION 
+SELECT ContactName FROM Customers
+ORDER BY ContactName</pre>
+
+<p><img alt="" src="/images/jobbole.com/8be518bdedfb55620994cc6a9257510e.jpg"></p>
+<p>这里我们知道UNION操作会对结果进行去重操作，上面应用了流聚合操作，流聚合一般应用于分组操作中，当然这里用它进行了分组去重。</p>
+<p> </p>
+<p>在我们实际的应用环境中，最常用的方式还是合并连接，但是有一种情况最适合哈希连接，那就是一个小表和大表进行联合操作，尤其适合哪种大表中存在大量重复值的情况下。</p>
+<p>哈希算法真是个好东西！</p>
+<p> </p>
+<p><strong>参考文献</strong></p>
+<ul>
+<li>微软联机丛书<a href="http://msdn.microsoft.com/zh-cn/library/ms191158(SQL.90).aspx" target="_blank">逻辑运算符和物理运算符引用</a>
+</li>
+<li>参照书籍《SQL.Server.2005.技术内幕》系列</li>
+</ul>
+<p><strong>结语</strong></p>
+<p>此篇文章先到此吧，简短一点，便于理解掌握，本篇主要介绍了查询计划中的联合操作运算符，下一篇我们分析SQL Server中的并行运算，在多核超线程云集的今天，来看SQL Server如何利用并行运算来最大化的利用现有硬件资源提升性能，有兴趣可提前关注，关于SQL Server性能调优的内容涉及面很广，后续文章中依次展开分析。</p>
+<p> </p>
+<p><strong>SQL Server这个软件一旦深入进去，你会发现它真的非常深，基本可以用深不见底来描述，如果想研究里面的性能调优这块，可以关注本系列内容，我们一起研究！</strong></p>
+<p><strong>而且到现在还有很多人对SQL Server这套产品有误解，或者说观点有待纠正，以前就遇到过客户直接当我面大谈神马SQL Server导入数据一多就宕机了….</strong></p>
+<p><strong>神马SQL Server只能做小数据量的应用…神马不如Oracle云云….!!!</strong></p>
+<p><strong>还有一部分童鞋单纯的认为SQL Server是小儿科，没啥技术含量…简单的很….</strong></p>
+<p><strong>关于这些观点，我不想吐槽啥，我只想让那些真正了解SQL Server的朋友一起来为SQL Server证明点什么。</strong></p>
+<p> </p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-12-81182-05c6e8f15.html" title="Previous Post: SQL Server调优系列基础篇（常用运算符总结）" data-instant>&laquo; SQL Server调优系列基础篇（常用运算符总结）</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-12-81186-49d084331.html" title="Next Post: SQL Server调优系列基础篇（并行运算总结）" data-instant>SQL Server调优系列基础篇（并行运算总结） &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81189-e246d0739.html">SQL Server调优系列基础篇（并行运算总结篇二）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81186-49d084331.html">SQL Server调优系列基础篇（并行运算总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
