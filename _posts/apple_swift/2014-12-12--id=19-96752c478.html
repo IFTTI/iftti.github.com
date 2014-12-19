@@ -1,0 +1,82 @@
+---
+layout: post
+title: 'What Happened to NSMethodSignature?'
+time: 2014-12-12 00:00:00 +0800
+site_name: developer.apple.com/swift/blog
+source_url: https://developer.apple.com/swift/blog/?id=19
+---
+{% raw %}
+
+						
+						
+
+						<p class="update">UPDATE: We’ve added the Request.playground file to this post so you can download it and easily experiment with the code yourself.</p>
+<p>Bringing the Cocoa frameworks to Swift gave us a unique opportunity to look at our APIs with a fresh perspective. We found classes that we didn't feel fit with the goals of Swift, most often due to the priority we give to safety.  For instance, some classes related to dynamic method invocation are not exposed in Swift, namely <span class="keyword">NSInvocation</span> and <span class="keyword">NSMethodSignature</span>.</p>
+<p>We recently received a bug report from a developer who noticed this absence. This developer was using <span class="keyword">NSMethodSignature</span> in Objective-C to introspect the types of method arguments, and in the process of migrating this code to Swift, noticed that <span class="keyword">NSMethodSignature</span> is not available. The code being migrated could accept HTTP handlers of varying signatures, such as:</p>
+<pre><code><span class="key">func</span> handleRequest(request: <span class="pointer">HTTPRequest</span>, queryStringArguments: [<span class="title">String</span>: <span class="title">String</span>]) { }
+<span class="key">func</span> handleRequest(request: <span class="pointer">HTTPRequest</span>, jsonBody: <span class="title">JSON</span>) { }</code></pre>
+<p>In Objective-C, <span class="keyword">NSMethodSignature</span> can be used to determine that the API of the first method would require a <span class="keyword">[String: String]</span> argument, and the second method would require a <span class="keyword">JSON</span> value. However, Swift is a powerful language and can easily handle this scenario without using <span class="keyword">NSMethodSignature</span>, and in a way that doesn't undermine the help that the compiler provides for type and memory safety.</p>
+<p>Here is an alternative way to solve the same problem in Swift:</p>
+<pre><code><span class="key">struct</span> HTTPRequest {
+	<span class="comment">// ...</span>
+}
+
+<span class="key">protocol</span> HTTPHandlerType {
+	<span class="key">typealias</span> Data
+
+	<span class="comment">/// :returns: true if the request was handled; false otherwise</span>
+	<span class="key">func</span> handle(request: <span class="pointer">HTTPRequest</span>, data: <span class="title">Data</span>) -&gt; <span class="title">Bool</span>
+}</code></pre>
+<p>First, we'll use a protocol to define that whatever is going to handle our <span class="keyword">HTTPRequest</span> does so via this interface. This protocol is very simple, with only a single method.</p>
+<p>Why use a protocol here, instead of subclassing an <span class="keyword">HTTPHandler</span> class? Because protocols give the flexibility of leaving the implementation details up to the clients of this code. If we were to make an <span class="keyword">HTTPHandler</span> class, we would require clients to also use classes, forcing upon them the semantics of reference types. However, by using a protocol, clients can decide for themselves the appropriate type to use in their code, whether it be class, struct, or even enum.</p>
+<pre><code><span class="key">class</span> HTTPServer {
+	<span class="key">func</span> addHandler&lt;T: HTTPHandlerType&gt;(handler: <span class="title">T</span>) {
+		handlers.append { (request: <span class="pointer">HTTPRequest</span>, args: <span class="title">Any</span>) -&gt; Bool <span class="key">in</span>
+			<span class="key">if let</span> typedArgs = args <span class="key">as</span>? <span class="pointer">T</span>.<span class="title">Data</span> {
+				<span class="key">return</span> handler.handle(request, data: typedArgs)
+			}
+			<span class="key">return false</span>
+		}
+	}
+
+	<span class="comment">// ...</span>
+}</code></pre>
+<p>Next, our <span class="keyword">HTTPServer</span> class has a generic method that accepts an <span class="keyword">HTTPHandlerType</span> as a parameter. By using the handler's associated type, it can perform the conditional downcast of the <span class="keyword">args</span> parameter to determine if this handler should be given an opportunity to handle the request. Here we can see the benefit of defining <span class="keyword">HTTPHandlerType</span> as a protocol. The <span class="keyword">HTTPServer</span> doesn't need to know <em>how</em> the handler is reacting to the request, nor does it even need to care about the nature of the handler itself. All it needs to know is that the value can handle requests.</p>
+<pre><code><span class="key">class</span> HTTPServer {
+	<span class="comment">// ...</span>
+
+	<span class="key">private var</span> handlers: [(<span class="pointer">HTTPRequest</span>, <span class="title">Any</span>) -&gt; <span class="title">Bool</span>] = []
+
+	<span class="key">func</span> dispatch(req: <span class="pointer">HTTPRequest</span>, args: <span class="title">Any</span>) -&gt; <span class="title">Bool</span> {
+		<span class="key">for</span> handler <span class="key">in</span> <span class="pointer">handlers</span> {
+			<span class="key">if</span> handler(req, args) {
+				<span class="key">return true</span>
+			}
+		}
+		<span class="key">return false</span>
+	}
+}</code></pre>
+<p>When our <span class="keyword">HTTPServer</span> receives a request, it will iterate through its handlers and see if any can deal with the request.</p>
+<p>Now we can easily create a custom <span class="keyword">HTTPHandlerType</span> with varying argument types and register it with the <span class="keyword">HTTPServer</span>:</p>
+<pre><code><span class="key">class</span> MyHandler : <span class="pointer">HTTPHandlerType</span> {
+	<span class="key">func</span> handle(request: <span class="pointer">HTTPRequest</span>, data: <span class="title">Int</span>) -&gt; <span class="title">Bool</span> {
+		<span class="key">return</span> data &gt; <span class="number">5</span>
+	}
+}
+
+<span class="key">let</span> server = <span class="pointer">HTTPServer</span>()
+<span class="pointer">server</span>.<span class="enum">addHandler</span>(<span class="pointer">MyHandler</span>())
+<span class="pointer">server</span>.dispatch(<span class="pointer">HTTPRequest</span>(...), args: <span class="string">"x"</span>) <span class="comment">// returns false</span>
+<span class="pointer">server</span>.dispatch(<span class="pointer">HTTPRequest</span>(...), args: <span class="number">5</span>)   <span class="comment">// returns false</span>
+<span class="pointer">server</span>.dispatch(<span class="pointer">HTTPRequest</span>(...), args: <span class="number">10</span>)  <span class="comment">// returns true</span></code></pre>
+<p>With a combination of protocols and generics, we have written Swift code to elegantly create and register HTTP handlers of varying types. This approach also lets the compiler guarantee type safety, while ensuring excellent runtime performance.</p>
+
+						
+												<ul class="links small padding-top-20">
+														<li class="download"><a href="/swift/blog/downloads/Request.zip">Request.playground</a></li>
+													</ul>
+						
+
+												
+											
+{% endraw %}

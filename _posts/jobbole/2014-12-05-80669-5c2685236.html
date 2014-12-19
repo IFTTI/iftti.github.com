@@ -1,0 +1,122 @@
+---
+layout: post
+title: 'lucene字典实现原理'
+time: 2014-12-05 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/80669/
+images:
+  ed396eee2b81ca658b91a74f448f3152: http://ww3.sinaimg.cn/mw690/7178f37ejw1emyva5c1duj205d05874f.jpg
+  2e46d77b80c98301e4aae11323fd6937: http://ww3.sinaimg.cn/mw690/7178f37ejw1emyva5kz58j20cb01ot8m.jpg
+  b39384cd2beadb9dab8a91b23d975172: http://ww2.sinaimg.cn/mw690/7178f37ejw1emyva5vynlj20g003cwel.jpg
+  03c1805dbc52eb7acb89df31c251ec58: http://ww2.sinaimg.cn/mw690/7178f37ejw1emyva660jmj20g003xq33.jpg
+  33384eee0778924bd343f4455fd97361: http://ww3.sinaimg.cn/mw690/7178f37ejw1emyva6kjdij20g0054q35.jpg
+  5961235dd059ff3f4ddac1dc3bad7cee: http://images.cnitblog.com/blog/522490/201411/242226566064202.png
+  6b7b96210b41b9b36904db3b47acdec5: http://ww2.sinaimg.cn/mw690/7178f37ejw1emyve51le8j20d501yweo.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
+</div>
+</div>
+		
+		
+<h2>1 lucene字典</h2>
+<p>使用lucene进行查询不可避免都会使用到其提供的字典功能，即根据给定的term找到该term所对应的倒排文档id列表等信息。实际上lucene索引文件后缀名为tim和tip的文件实现的就是lucene的字典功能。</p>
+<p>怎么实现一个字典呢？我们马上想到排序数组，即term字典是一个已经按字母顺序排序好的数组，数组每一项存放着term和对应的倒排文档id列表。每次载入索引的时候只要将term数组载入内存，通过二分查找即可。这种方法查询时间复杂度为Log(N)，N指的是term数目，占用的空间大小是O(N*str(term))。排序数组的缺点是消耗内存，即需要完整存储每一个term，当term数目多达上千万时，占用的内存将不可接受。</p>
+<p><img alt="" src="/images/jobbole.com/ed396eee2b81ca658b91a74f448f3152.jpg"></p>
+<h2>2 常用字典数据结构</h2>
+<p>很多数据结构均能完成字典功能，总结如下。</p>
+<table border="0" align="center">
+<tbody>
+<tr>
+<td>数据结构</td>
+<td>优缺点</td>
+</tr>
+<tr>
+<td>排序列表Array/List</td>
+<td>使用二分法查找，不平衡</td>
+</tr>
+<tr>
+<td>HashMap/TreeMap</td>
+<td>性能高，内存消耗大，几乎是原始数据的三倍</td>
+</tr>
+<tr>
+<td>Skip List</td>
+<td>跳跃表，可快速查找词语，在lucene、redis、Hbase等均有实现。相对于TreeMap等结构，特别适合高并发场景（<a href="http://kenby.iteye.com/blog/1187303" target="_blank">Skip List介绍</a>）</td>
+</tr>
+<tr>
+<td>Trie</td>
+<td>适合英文词典，如果系统中存在大量字符串且这些字符串基本没有公共前缀，则相应的trie树将非常消耗内存（<a href="http://dongxicheng.org/structure/trietree/" target="_blank">数据结构之trie树</a>）</td>
+</tr>
+<tr>
+<td>Double Array Trie</td>
+<td>适合做中文词典，内存占用小，很多分词工具均采用此种算法（<a href="http://blog.csdn.net/zhoubl668/article/details/6957830" target="_blank">深入双数组Trie</a>）</td>
+</tr>
+<tr>
+<td>Ternary Search Tree</td>
+<td>三叉树，每一个node有3个节点，兼具省空间和查询快的优点（<a href="http://www.drdobbs.com/database/ternary-search-trees/184410528" target="_blank">Ternary Search Tree</a>）</td>
+</tr>
+<tr>
+<td>Finite State Transducers (FST)</td>
+<td>一种有限状态转移机，Lucene 4有开源实现，并大量使用</td>
+</tr>
+</tbody>
+</table>
+<h2>3 FST原理简析</h2>
+<p>lucene从4开始大量使用的数据结构是FST（Finite State Transducer）。FST有两个优点：1）空间占用小。通过对词典中单词前缀和后缀的重复利用，压缩了存储空间；2）查询速度快。O(len(str))的查询时间复杂度。</p>
+<p>下面简单描述下FST的构造过程（工具演示：<a href="http://examples.mikemccandless.com/fst.py?terms=&amp;cmd=Build+it%21" target="_blank" rel="nofollow">http://examples.mikemccandless.com/fst.py?terms=&amp;cmd=Build+it%21</a>）。我们对“cat”、 “deep”、 “do”、 “dog” 、“dogs”这5个单词进行插入构建FST（注：必须已排序）。</p>
+<p>1）插入“cat”</p>
+<p>插入cat，每个字母形成一条边，其中t边指向终点。</p>
+<p><img alt="" src="/images/jobbole.com/2e46d77b80c98301e4aae11323fd6937.jpg"></p>
+<p>2）插入“deep”</p>
+<p>与前一个单词“cat”进行最大前缀匹配，发现没有匹配则直接插入，P边指向终点。</p>
+<p><img alt="" src="/images/jobbole.com/b39384cd2beadb9dab8a91b23d975172.jpg"></p>
+<p>3）插入“do”</p>
+<p>与前一个单词“deep”进行最大前缀匹配，发现是d，则在d边后增加新边o，o边指向终点。</p>
+<p><img alt="" src="/images/jobbole.com/03c1805dbc52eb7acb89df31c251ec58.jpg"></p>
+<p>4）插入“dog”</p>
+<p>与前一个单词“do”进行最大前缀匹配，发现是do，则在o边后增加新边g，g边指向终点。</p>
+<p><img alt="" src="/images/jobbole.com/33384eee0778924bd343f4455fd97361.jpg"></p>
+<p>5）插入“dogs”</p>
+<p>与前一个单词“dog”进行最大前缀匹配，发现是dog，则在g后增加新边s，s边指向终点。</p>
+<p><img alt="" src="/images/jobbole.com/5961235dd059ff3f4ddac1dc3bad7cee.jpg"></p>
+<p>最终我们得到了如上一个有向无环图。利用该结构可以很方便的进行查询，如给定一个term “dog”，我们可以通过上述结构很方便的查询存不存在，甚至我们在构建过程中可以将单词与某一数字、单词进行关联，从而实现key-value的映射。</p>
+<h2>4 FST使用与性能评测</h2>
+<p>我们可以将FST当做Key-Value数据结构来进行使用，特别在对内存开销要求少的应用场景。Lucene已经为我们提供了开源的FST工具，下面的代码是使用说明。</p>
+<p>FST压缩率一般在3倍~20倍之间，相对于TreeMap/HashMap的膨胀3倍，内存节省就有9倍到60倍！（摘自：<a href="http://blog.csdn.net/whinah/article/details/9980893">把自动机用作 Key-Value 存储</a>），那FST在性能方面真的能满足要求吗？</p>
+<p>下面是我在苹果笔记本（i7处理器）进行的简单测试，性能虽不如TreeMap和HashMap，但也算良好，能够满足大部分应用的需求。</p>
+<p><img alt="" src="/images/jobbole.com/6b7b96210b41b9b36904db3b47acdec5.jpg"></p>
+<h2>参考文献</h2>
+<p><a href="http://sbp810050504.blog.51cto.com/2799422/1361551">http://sbp810050504.blog.51cto.com/2799422/1361551</a></p>
+<p><a href="http://blog.sina.com.cn/s/blog_4bec92980101hvdd.html">http://blog.sina.com.cn/s/blog_4bec92980101hvdd.html</a></p>
+<p><a href="http://blog.mikemccandless.com/2013/06/build-your-own-finite-state-transducer.html">http://blog.mikemccandless.com/2013/06/build-your-own-finite-state-transducer.html</a></p>
+<p><a href="http://examples.mikemccandless.com/fst.py?terms=mop%2F0%0D%0Amoth%2F1%0D%0Apop%2F2%0D%0Astar%2F3%0D%0Astop%2F4%0D%0Atop%2F5%0D%0Atqqq%2F6&amp;cmd=Build+it%21">http://examples.mikemccandless.com/fst.py?terms=mop%2F0%0D%0Amoth%2F1%0D%0Apop%2F2%0D%0Astar%2F3%0D%0Astop%2F4%0D%0Atop%2F5%0D%0Atqqq%2F6&amp;cmd=Build+it%21</a></p>
+
+        
+        			<div class="textwidget">
+</div>
+		
+
+	
+{% endraw %}

@@ -1,0 +1,176 @@
+---
+layout: post
+title: 'SQL Server调优系列基础篇'
+time: 2014-12-12 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/81176/
+images:
+  7a0247d9ef3142d616a23e9995b11524: http://ww1.sinaimg.cn/mw690/69ab9b51gw1en6yq8fy39j20f7051mx7.jpg
+  d9ddfeef25f1607c7886d8a1064212f5: http://ww1.sinaimg.cn/mw690/69ab9b51gw1en6yq8oz0wj20e402vmxm.jpg
+  69cec43308e06e63af202b13f465dc0a: http://ww1.sinaimg.cn/mw690/69ab9b51gw1en6yq92fbdj20n90edacc.jpg
+  33eb87e7910d7d74402698af9caa5956: http://ww1.sinaimg.cn/mw690/69ab9b51gw1en6yq9gvz8j20co0ejq52.jpg
+  b98f80451b3edbb618164c5ae07488a2: http://ww2.sinaimg.cn/mw690/69ab9b51gw1en6yq9yacpj20bz0eemyl.jpg
+  41ac1c29c6e9532f27093ec28786134c: http://ww1.sinaimg.cn/mw690/69ab9b51gw1en6yqadse0j20fi0b3q4o.jpg
+  5b2a274822fdcc5a4a951a17e5e9dba1: http://ww2.sinaimg.cn/mw690/69ab9b51gw1en6yqasawmj20d804fdgh.jpg
+  bf6240c7315f2be978d4250f41ff2268: http://ww4.sinaimg.cn/mw690/69ab9b51gw1en6yqb768zj20r50cj0wh.jpg
+  45ba5b511e44b6fa9274568e0cb29146: http://ww3.sinaimg.cn/mw690/69ab9b51gw1en6yqbqzn9j20t008xmzi.jpg
+  085fbae0143af20ed9a12583119892c2: http://ww4.sinaimg.cn/mw690/69ab9b51gw1en6yqc9oxtj20um0cdwi1.jpg
+  f9b5a64352f5f92f7e09d7146674bd46: http://ww2.sinaimg.cn/mw690/69ab9b51gw1en6yqcuj3nj20q608ogn8.jpg
+  f7666d75f178b2e7872f91308fe64e3d: http://ww3.sinaimg.cn/mw690/69ab9b51gw1en6yqdipgoj20rf0g4dkm.jpg
+  ef796e7e79e2bb244d9de3c14d503077: http://ww2.sinaimg.cn/mw690/69ab9b51gw1en6yqe3tu9j20dc073mxv.jpg
+  3c83430dbd1ed96aeb395cae8dc170dd: http://ww2.sinaimg.cn/mw690/69ab9b51gw1en6yqep5d8j20h2072my1.jpg
+  ba8c7ba0bfb9dd6e7bd5a95b906db01f: http://ww1.sinaimg.cn/mw690/69ab9b51gw1en6yqfeku9j20wt0ab40a.jpg
+  5bc4cb43325dff2280546bf351a5722d: http://ww4.sinaimg.cn/mw690/69ab9b51gw1en6yqfxkhej20cg073t9i.jpg
+  1013258f6d033168e3d86fc4dbab9d6d: http://ww2.sinaimg.cn/mw690/69ab9b51gw1en6yqgkz63j20iz0aumxv.jpg
+  d0e8879ecc4ac6cf213b0a1fd786b61c: http://images.cnitblog.com/blog/222972/201412/022101099987567.png
+  48252f25ec3834f1f1f15afe7850ad2b: http://ww3.sinaimg.cn/mw690/69ab9b51gw1en6yqh926zj20f509d3zt.jpg
+  a60f7d60c3a7299cd68770ec28e9dd72: http://ww3.sinaimg.cn/mw690/69ab9b51gw1en6yqhtyw4j20pw07qdgo.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        			<div class="textwidget">
+<div class="featured-courses">
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/172?from=jobboleblog">jQuery源码解析（架构与依赖模块）</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/202?from=jobboleblog">深入浅出 Java 多线程</a></li>
+<li style="width: 310px;display: inline-block;"><a target="_blank" href="http://www.imooc.com/learn/69">MVC架构模式分析与设计</a></li>
+<li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
+</div>
+</div>
+		
+		
+<p><strong>前言</strong></p>
+<p>关于SQL Server调优系列是一个庞大的内容体系，非一言两语能够分析清楚，本篇先就在SQL 调优中所最常用的查询计划进行解析，力图做好基础的掌握，夯实基本功！而后再谈谈整体的语句调优。</p>
+<p>通过本篇了解如何阅读和理解查询计划、并且列举一系列最常用的查询执行运算符。</p>
+<p><strong>技术准备</strong></p>
+<p>基于SQL Server2008R2版本，利用微软的一个更简洁的案例库（Northwind）进行解析。</p>
+<p><strong>一、区别不同的运算符</strong></p>
+<p>在所有T-SQL语句在执行的时候，都会将语句分解为一些基本的结构单元，这些结构单元统称为：运算符。每一个运算符都实现一个单独的基本操作，比如：表扫描、索引查找、索引扫描、过滤等。每个运算符可以循环迭代，也可以延续子运算符，这样就可以组成查询树，即：查询计划。</p>
+<p>每个T-SQL语句都会通过多种运算符进行组合形成不同的查询计划，并且这些查询计划对于结果的筛选都是有效的，但在执行的时候，SQL Server的查询优化器会自动为我们找到一个最优的。</p>
+<p>每一个运算符都会有源数据的传入和结果数据的输出，源数据的输入可以来源于其它的运算符或者直接从数据源表中读取，经过本身的运算进行结果的输出。所以每一个运算符是独立的。互不关心的。</p>
+<p>如下例子</p>
+<pre class="brush: actionscript3; gutter: true">SELECT COUNT(*) FROM Orders</pre>
+<p>此语句会生成两个简单的运算符</p>
+<p><img alt="" src="/images/jobbole.com/7a0247d9ef3142d616a23e9995b11524.jpg"></p>
+<p>当然，在SQL Server中上述的两个运算符有它自己的表达方式，Count(*)是流聚合运算符进行的。</p>
+<p>每一个运算符会有三个属性影响其执行的效率</p>
+<p><strong>1、内存消耗</strong></p>
+<p>所有的运算符都需要一定量的固定内存用以完成执行。当一个T-SQL语句经过编译后生成查询计划后，SQL Server会为认为最优的查询计划尝试去固定内存，目的是为了再次执行的时候不需要再重新申请内存而浪费时间，加快执行速度。</p>
+<p>然后，有一些运算符需要额外的内存空间来存储行数据，这样的运算符所需要的内存量通常就和处理的数据行数成正比。如果出现如下几种情况则会导致内存不能申请到，而影响执行性能</p>
+<p>a、如果服务器上正在执行其它的类似的内存消耗巨大的查询，导致系统内存剩余不足的时候，当前的查询就得延迟进行，直接影响性能。</p>
+<p>b、当并发量过大的的情况下，多个查询竞争有限的内存资源，服务器会适当的控制并发和减少吞吐量来维护机器性能，这时候同样也会影响性能</p>
+<p>c、如果当前申请的到可用内存很少的情况下，SQL Server会在执行过程中和磁盘进行交换数据，通常是使用Tempdb临时库进行操作，而这个过程会很慢。更有甚者，会耗尽Tempdb上的磁盘空间以失败结束</p>
+<p>通常比较消耗内存的运算符主要有分类、哈希连接以及哈希聚合等连接操作。</p>
+<p><strong>2、阻断运算和非阻断运算</strong></p>
+<p>所谓阻断和非阻断的区别就是：运算符是否在输入数据的时候能够直接输出结果数据。</p>
+<p>a、当一个运算符在消耗输入行的同时生成输出行，这种运算符就是非阻断式的。</p>
+<p>比如我们经常使用的 Select Top …操作，此操作就是输入行的同时进行输出行操作，所以此操作就是非阻断式的。</p>
+<p>b、当一个运算符所产生的输出结果需要等待所有的数据输入的时候，这个操作运算就是阻断运算的。</p>
+<p>比如上面我们举的例子Count(*)操作，此操作就需要等待所有的数据行输入才能计算出，所以为阻断式运算，另外还有分组计算。</p>
+<p>提示：并不是所有的阻断式操作就需要消耗内存，比如Count(*)就为阻断式，但它不消耗内存，但大部分阻断式操作都会消耗内存。</p>
+<p>在大部分的OLTP系统中，我们要尽量的使用非阻断式操作来代替阻断式操作，这样才能更好的提高相应时间，比如有时候我们用EXISTS子查询来判断，比用SELECT count(*)&gt;0的速度要理想的多。</p>
+<p> </p>
+<p><strong>二、查看查询计划</strong></p>
+<p>在SQL Server2005版本以上，系统提供了三种展示方式：图像方式、文本方式和XML方式。</p>
+<p><strong>1、图像方式</strong></p>
+<p>图像方式这种方式是最为常见的一种方式，清晰、简洁、易懂。非常适合入门级，当然也有它自身的缺点比如复杂的T-SQL语句会产生较大的图像，查看必须收缩操作，比较麻烦。</p>
+<p>SSMS默认给我们提供了查看该查询计划的便捷按钮，需要查看某一条语句的时候，只需要点击上就可以</p>
+<p><img alt="" src="/images/jobbole.com/d9ddfeef25f1607c7886d8a1064212f5.jpg"></p>
+<p>我们来看一个图像方式展示的查询计划图</p>
+<p><img alt="" src="/images/jobbole.com/69cec43308e06e63af202b13f465dc0a.jpg"></p>
+<p>以上查询语句所产生的实际执行计划，将其分成了各个不同的运算符进行组合，从最右侧的聚集索引扫描（index scan）然后经过一系列的运算符加工形成最左侧的结果输出（select）。</p>
+<p>需要注意的是图中箭头的方向指向的是数据的流向，箭头线的粗细表示了数据量的多少。</p>
+<p>在图形化执行计划中，每一个不同的运算符都有它自身的属性值，我们可以把鼠标移至运算符图标上查看</p>
+<p><img alt="" src="/images/jobbole.com/33eb87e7910d7d74402698af9caa5956.jpg"></p>
+<p>当然也可以直接在图标上右键，查看属性，进入到属性面板，查看更详细的属性值</p>
+<p><img alt="" src="/images/jobbole.com/b98f80451b3edbb618164c5ae07488a2.jpg"></p>
+<p>关于这里面各个运算符的详细指标值，我们在后面介绍，不过这里面有几个关键的值这里可以说是先稍微提一下，关于影响此语句的整体的性能参数，我们可以选择最开始的Select运算符，右键查看属性值</p>
+<p><img alt="" src="/images/jobbole.com/41ac1c29c6e9532f27093ec28786134c.jpg"></p>
+<p>此运算符包含了整条语句的编译时间、所需内存、缓存计划大小、并行度、内存授权、编译执行所需要的参数以及变量值等信息。</p>
+<p>此方式作为一种相对直观的方式展示给用户，所以在我们语句调优中占据很大的指导地位，我们知道一条T-SQL语句可能会生成很多不同的执行计划，而SQL Server会帮助我们选择最优的执行计划，当然我们也可以利用它选择的执行计划去调整自己的语句达到优化的目的。</p>
+<p>鉴于以上目标，SSMS为我们提供了“评估执行计划”选项，此选项只为评估指导使用，并未实际执行，所以它不包含实际行等具体信息</p>
+<p><img alt="" src="/images/jobbole.com/5b2a274822fdcc5a4a951a17e5e9dba1.jpg"></p>
+<p><strong>2、文本方式</strong></p>
+<p>此方式在SSMS中默认没有提供快捷键，我们需要自己用语句开启，开启的方式有两种</p>
+<p>a、只开启执行计划，不包括详细的评估值</p>
+<pre class="brush: actionscript3; gutter: true">SET SHOWPLAN_TEXT ON</pre>
+<p>b、开启所有的执行计划明细，包括各个属性的评估值</p>
+<pre class="brush: actionscript3; gutter: true">SET SHOWPLAN_ALL ON</pre>
+<p>文本方式展现的方式，没有了明确的箭头指示，改用竖线（|）标示子运算符和当前运算的子父关系。并且数据流方向都是从子运算符流向父运算符的，虽然文本展现方式不够直观，但是如果掌握了文本的阅读方式，此方式会更易阅读，尤其在涉及很大的大型计划的时候，此方式更容易保存、处理、搜索和比较。</p>
+<p>我们来看一个列子</p>
+<p><img alt="" src="/images/jobbole.com/bf6240c7315f2be978d4250f41ff2268.jpg"></p>
+<p>此种方式输出的形式为文本方式，我们可以拷贝至文本编辑器中分析，方便于查找分析等操作</p>
+<p><img alt="" src="/images/jobbole.com/45ba5b511e44b6fa9274568e0cb29146.jpg"> 以上是文本查询计划的分析方式，简单点的就是从最里面的运算符开始执行，数据流方向也是依次从子运算符流向父运算符。</p>
+<p>上面的方式看起来有点图像方式，分析起来简单更易用。但是或许缺少的是每个运算符的属性运算信息，我们通过b方法里来查看明细</p>
+<p><img alt="" src="/images/jobbole.com/085fbae0143af20ed9a12583119892c2.jpg"></p>
+<p>利用此方式可以直观的分析出每个运算符操作的属性评估值。</p>
+<p><strong>3、XML方式</strong></p>
+<p>XML展现查询计划的方式是SQL Server2005中新加入的功能，此方式结合了文本方式和图形计划方式的优点。利用XML元素的方式展现查询计划。</p>
+<p>更主要的特点是利用XML方式是一种规范的方式，可以利用编程的方式进行标准XML操作，利于查询。并且在SQL Server2005中还加入的XML的数据类型，并且内置了XQuery功能进行查询。此方式尤其对与超大型的查询计划查看非常的方便。</p>
+<p>通过以下语句开启</p>
+<pre class="brush: actionscript3; gutter: true">SET STATISTICS XML ON</pre>
+<p><img alt="" src="/images/jobbole.com/f9b5a64352f5f92f7e09d7146674bd46.jpg"></p>
+<p>我们可以点击输出的XML进行查看</p>
+<p><img alt="" src="/images/jobbole.com/f7666d75f178b2e7872f91308fe64e3d.jpg"></p>
+<p>XML方式展现了非常详细的查询计划信息，我们可以简单的分析下</p>
+<ul>
+<li>StmtSimple：描述了T-SQL的执行文本，并且详细分析了该语句的类型，以及各个属性的评估值。</li>
+<li>StatementSetOptions：描述该语句的各种属性值的Set值</li>
+<li>QueryPlan：是详细的执行计划，包括执行计划的并行的线程数、编译时间、内存占有量等</li>
+<li>OutputList：输出参数列表</li>
+<li>在中间这部分就是具体的不同的执行运算符的信息了，并且包括详细的预估值等</li>
+<li>ParameterList：输出参数列表</li>
+</ul>
+<p>XML方式提供的信息是最为全面的，并且在SQL Server内部存储的查询计划类型也为XML数据类型。</p>
+<p><strong>三、分析查询计划</strong></p>
+<p>当我们拿到一个语句的查询计划，我们应该会分析里面的执行计划的含义，以及各个运算符的属性值，学会如何调整各个运算符的属性值来整体的提高该语句的运行效率。</p>
+<p><strong>1、扫描以及查找</strong></p>
+<p>对于扫描（scan）和查找（seek）这两种方式是数据库里面从基础数据表里获取的数据的基本方式。</p>
+<p>a、当一张表为堆表（没有任何索引）的时候或者获取的数据列不存在任何索引来供查找，此种数据的获取只能通过全表扫描过滤获取，如果存在索引项会通过索引项的扫描来获取数据，提高获取数据的速度。</p>
+<p><img alt="" src="/images/jobbole.com/ef796e7e79e2bb244d9de3c14d503077.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/3c83430dbd1ed96aeb395cae8dc170dd.jpg"></p>
+<p>该方法是最为简单的获取数据的方式</p>
+<p><img alt="" src="/images/jobbole.com/ba8c7ba0bfb9dd6e7bd5a95b906db01f.jpg"></p>
+<p>b、如果当前搜寻的数据行存在索引项，那么会采取索引查找（seek）进行数据检索。</p>
+<p><img alt="" src="/images/jobbole.com/5bc4cb43325dff2280546bf351a5722d.jpg"></p>
+<p>该条语句就是执行的索引查找，因为在Orders表中的OrderDate列存在非聚集索引项。这里顺便提一下如果引入静态变量，SQL Server会自动参数化该值，目的是为了减少编译次数，重复利用执行计划。</p>
+<p><img alt="" src="/images/jobbole.com/1013258f6d033168e3d86fc4dbab9d6d.jpg"></p>
+<p>由于查找只是搜寻符合条件的这些页进行输出操作，所以查找效率只和符合条件的行数、页数成正比，和整个表中的总行数没有关系。</p>
+<p>c、当所选的索引列不包含输出列的时候，也就是说要筛选出的列项不为索引所覆盖，对于这种情况又引出了另外一种查找方式</p>
+<p>书签查找（Bookmark Lookup）</p>
+<p>其实该方式是扫描和查找之间的一个折中方式，我们知道，如果通过聚集索引扫描，则会获取所有的列，但是这涉及表中的每一行数据，影响性能，相反如果只是通过聚集索引方式进行查找，则有一些列不能获取得到，如果这些列正是我们需要的，这就是不准确的，所以，鉴于此，引入了折中的方式：书签查找（Bookmark Lookup)</p>
+<p>简单点讲：书签查找就是通过索引页节点数据查找相关的列数据。</p>
+<p><img alt="" src="/images/jobbole.com/d0e8879ecc4ac6cf213b0a1fd786b61c.jpg"></p>
+<p>我们来看一个具体的查询列子</p>
+<p><img alt="" src="/images/jobbole.com/48252f25ec3834f1f1f15afe7850ad2b.jpg"></p>
+<p>这里需要解释一下，在SQL Server2005 SP2版本以上，书签查找也被称为键查找，其实是一个概念。</p>
+<p>这种方式有一些弊端，就是在进行书签查找的时候，如果通过非聚集索引的叶节点查找到聚集索引数据，这种情况通过聚集索引能够快速的获取到数据，如果非聚集索引关键字和聚集索引关键字不存在任何关联，这种情况下，书签查找就会执行随机的I/O操作到聚集索引或者堆表中，而这种情况是非常耗时的，相比而言顺序I/O扫描都要比随机I/O扫描性能好很多。</p>
+<p>为了解决上面所述的问题，在SQL Server2005以后的版本中，在创建index的时候引入了INCLUDE关键字。通过创建索引的时候，直接将书签要查找的项直接包含进去，这样就不会发生随机I/O操作。此种方式的缺点会造成索引存储增大一部分，但相比带来的好处，基本可以忽略不计。</p>
+<p><img alt="" src="/images/jobbole.com/a60f7d60c3a7299cd68770ec28e9dd72.jpg"></p>
+<p> </p>
+<p><strong>结语</strong></p>
+<p>此篇文章先到此吧，本篇主要介绍了关于T-SQL语句调优从执行计划该如下下手，并介绍了几个常见的简单运算符，下一篇将着重介绍我们最常用的一些运算符和调优技巧，包括：连接运算符、聚合运算符、联合运算符、并行运算等吧，关于SQL Server性能调优的内容涉及面很广，后续文章中依次展开分析。</p>
+<p> </p>
+
+        
+        			<div class="textwidget">
+</div>
+		
+
+	
+{% endraw %}
