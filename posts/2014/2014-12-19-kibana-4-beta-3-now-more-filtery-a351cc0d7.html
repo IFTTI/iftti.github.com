@@ -4,10 +4,10 @@
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>给 Kibana 实现百分比统计图表</title>
+    <title>【翻译】Kibana 4 beta 3 发布，重新支持过滤器</title>
     <meta name="viewport" content="width=device-width">
     <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
-    <link rel="canonical" href="http://iftti.com/posts/2014/2014-05-17-implement-percentiles-aggregation-on-kibana-56567329d.html">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-19-kibana-4-beta-3-now-more-filtery-a351cc0d7.html">
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/main.css">
@@ -50,106 +50,88 @@
       <div class="post">
 
   <header class="post-header">
-    <h1>给 Kibana 实现百分比统计图表</h1>
-    <p class="meta"><span class="time">May 17, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/05/17/implement-percentiles-aggregation-on-kibana" target="_blank">[原文链接]</a></span></p>
+    <h1>【翻译】Kibana 4 beta 3 发布，重新支持过滤器</h1>
+    <p class="meta"><span class="time">Dec 19, 2014</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2014/12/19/kibana-4-beta-3-now-more-filtery" target="_blank">[原文链接]</a></span></p>
   </header>
 
   <article class="post-content">
-    <div style="background-color: #FFF;">
-    <p>kibana 图表类型中有个 stats 类型，返回对应请求的某指定数值字段的数学统计值，包括最大值、最小值、平均值、方差和标准差(当前通过 logstash-1.4.1 分发的 kibana 版本还只支持单列显示，前天，即 5 月 15 日刚<a href="http://www.elasticsearch.org/blog/kibana-3-1/">更新了 Kibana 3.1 版</a>，支持多列同时显示)。这个 stats 图表是利用 Elasticsearch 的 facets 功能来实现的。而在 Elasticsearch 1.0 版本以后，新出现了一个更细致的功能叫 aggregation，按照官方文档所说，会慢慢的彻底替代掉 facets。具体到 1.1 版本的时候， aggregation 里多了一项 percentile，可以具体返回某指定数值字段的区间分布情况。这对日志分析可是大有帮助。对这项功能，Elasticsearch 官方也很得意的专门在博客上写了一篇报道：<a href="http://www.elasticsearch.org/blog/averages-can-dangerous-use-percentile/">Averages can be misleading: try a percentile</a>。</p>
 
-<p>周五晚上下班前，我突然决定试试给 Kibana 加上 percentile 图表类型。因为群里正好携程的同学说到他们仿造 trend 类型做了 stat_trend 图表，我想 percentile 从数据结构到展示方法跟 stats 都很像，应该难度不大，正好作为学习 angularjs 的入手点好了。</p>
-
-<p>花了半天多的时间，基本搞定这件事情，中间几度碰到难题，这里记录一下：</p>
-
-<h1 id="kibana-31--elasticjs-">kibana 3.1 中的 elasticjs 版本</h1>
-
-<p>这是一个非常非常坑爹的地方，kibana/src/vendor/elasticjs/elastic.js 文件开头写着版本号是 <code>v1.1.1</code>，但是其实它是大半年前(2013-08-14)的。而实际它加上 aggregation 支持的时间是今年的 3 月 16 号，最近版本是 3 月 21 号发布的 ——但是版本号依然是 <code>v1.1.1</code>！！</p>
-
-<p>我在昨天晚上花了一个多小时慢慢看完了 elasticjs 官网上 v1.1.1 的<a href="http://docs.fullscale.co/elasticjs/ejs.FilterAggregation.html">接口说明</a>，结果其实在 kibana3.1 自带的 elasticjs 上完全不可用。</p>
-
-<h1 id="elasticjs-">elasticjs 新版用法</h1>
-
-<p>随后我替换成了最新的 elasticjs 文件，结果依然不可用，仔细看过文档后发现，新的 elasticjs 只专心处理请求的 DSL，把客户端初始化、配置、收发等事情都交给了 Elasticsearch 官方发布的 elasticsearch.js 来完成。原先版本自带的 elastic-angular-client.js 压根就没用了。</p>
-
-<p>变动大成这样了，居然还不改版本号！？！？</p>
-
-<h1 id="elasticsearchjs-">elasticsearch.js 的多层目录</h1>
-
-<p>下载了 elasticsearch.js 源码后，发现目录里有一个 elasticsearch.angular.client.js 文件，于是我很开心的想，官方考虑的还是很周全的嘛！然后花了一阵功夫在 kibana/src/app/app.js、kibana/src/app/components/require.config.js 等各处添加上了这个 elasticsearch 模块。结果依然不可用。</p>
-
-<p>原来整个 elasticsearch.js 把功能模块化拆分到了很多个不同的多层次的目录里，然后相互之间广泛采用类似 <code>require('../lib/util/')</code> 这样的语句进行加载。</p>
-
-<p>但是：Kibana 采用的是 requirejs 和 angularjs 合作的模式，整个 js 库的加载过程完全在 kibana/src/app/components/require.config.js 一个文件里定义，你可以看到这个文件里就写了很多 jquery 的子项目文件，但是这些文件都是平铺在 kibana/src/vendor/jquery/ 这个目录里的。</p>
-
-<p>所以，即便在 require.config.js 里写了 elasticsearh 也没用，文件里的 require 语句依然是报错的。而且再往下的压根没法继续添加到 require.config.js 里了，因为太复杂了，肯定得修改 elasticsearch.js 源码的各个文件。</p>
-
-<p>总的来说，就是 elasticsearch.js 不适合跟 requirejs 一起工作。</p>
-
+  <div style="background-color: #FFF;">
+    <p>本文是 Elasticsearch 官方博客内容，原文地址：<a href="http://www.elasticsearch.org/blog/kibana-4-beta-3-now-more-filtery/">http://www.elasticsearch.org/blog/kibana-4-beta-3-now-more-filtery/</a></p>
 <hr>
-
-<p>至此，简单更新 js 库然后调用现成接口的计划完全破产。</p>
-
-<p>感谢 Elasticsearch 本身就是一个 RESTful 接口，所以还剩下一个不太漂亮但是确实好用的办法，那就是自己组装请求数据，直接通过 angularjs 内置的 <code>$http</code> 收发。</p>
-
-<h1 id="aggregationname-">aggregation_name 的限制</h1>
-
-<p>angularjs 的 <code>$http.post</code> 使用跟 jquery 的 <code>$.post</code> 非常类似，所以写起来难度不大，确定这个思路之后唯一碰到的问题却是 Elasticsearch 本身的新限制。</p>
-
-<p>目前 Kibana 里都是以 alias 形式来区分每一个子请求的，具体内容是 <code>var alias = q.alias || q.query;</code>，即在页面上搜索框里写的查询语句或者是搜索框左侧色彩设置菜单里的 <code>Legend value</code>。</p>
-
-<p>比如我的场景下，<code>q.query</code> 是 “xff:10.5.16.*“，<code>q.alias</code> 是”教育网访问”。那么最后发送的请求里这条过滤项的 <code>facets_name</code> 就叫 “stats_教育网访问”。</p>
-
-<p>同样的写法迁移到 aggregation 上就完全不可解析了。<strong>服务器会返回一条报错说：<code>aggregation_name</code> 只能是字母、数字、<code>_</code> 或者 <code>-</code> 四种。</strong></p>
-
-<p>(这里比较怪的是抓包看到 facets 其实也报错说请求内容解析失败，但是居然同时也返回了结果，只能猜测目前是处在一种兼容状态？)</p>
-
-<p>于是这里稍微修改了一下逻辑，把 <code>queries</code> 数组的 <code>_.each</code> 改用 <code>$.each</code> 来做，这样回调函数里不单返回数组元素，还返回数组下标，下标是一定为数字的，就可以以数组下标作为 <code>aggregation_name</code> 了。后面处理结果的 <code>queries.map</code> 同样以下标来获取即可。</p>
-
-<p>目前效果图如下：</p>
-
-<p><img src="/images/uploads/kibana-percentile.png" alt=""></p>
-
-<p>我的改动已经上传到 <a href="https://github.com/chenryn/kibana/commit/c27b44996bff575886041e0f4f800fda04fbdbde">github</a> 上，欢迎大家一起改进。</p>
-
-<p>目前的问题有两个：图表里的列排序功能不可用，还没找到原因；percents 值还没在 editor.html 里提供自定义办法。</p>
-
-<hr>
-
-<p>2014.05.26 更新： percents 值已经可以自定义</p>
-
-<hr>
-
-<p>2014.06.06 更新： 排序功能可用。原因是 elasticsearch 不管你提交的 percents 带不带小数点，返回值里都会保留小数点后一位，而在 <code>sortBy</code> 里头，这个小数点就会被理解成 javascript 里获取数据结构键值的意思。所以收到响应后，用 <code>parseInt</code> 函数干掉小数点就可以了。</p>
-
+<p>Kibana 4 Beta 3 出来啦! 我们依然给你机会直接<a href="http://www.elasticsearch.org/overview/kibana/installation/">下载 Kibana 4 Beta 3</a>。不过还是要建议你阅读本文对主要特性的讲解。嗯，先暂停一下下载，开始阅读吧！</p>
+<h2 id="section">交互式图表和仪表盘</h2>
+<p>过滤器回到了仪表盘上，也可以在单个可视化页上使用了！柱状图、点图、饼图都可以通过点击的方式创建可切换的过滤器。我们还添加了一些函数来操作所有的过滤器，这样你可以一键切换整个过滤效果。</p>
+<p><img src="/images/chenlinux.com/cbcf25cdd795f421f30ccfaa341104d9.jpg" alt="Screen Shot 2014-12-15 at 12.28.30 PM"></p>
+<h2 id="section-1">脚本化字段</h2>
+<p>Kibana 现在支持 Elasticsearch 脚本了！不单是可以写脚本，还可以给它命名，并且在应用中跟用普通字段一样调用你取的名字。创建一个脚本化字段，这个字段就像本来就存在一样的显示在你的 Kibana 文档里了。唯一需要注意的是，脚本毕竟不是 Elasticsearch 索引的内容，你不能在这个字段里进行搜索。</p>
+<p>你可以用脚本来连接多个字段，或者在数值字段上做运算，然后把结果导入可视化页里。为了帮助你上手，我们在脚本化字段屏下添加了一个标题叫“从时间字段创建的示例”的连接。你可以在设置(Settings)标签页的索引(Index)区域里找到这个连接。选择或者创建一个索引表达式，然后点击“脚本化字段(Scripted Fields)”标签。</p>
+<p><img src="/images/chenlinux.com/0d7bcd941759969d4f8f2bf85803efa4.jpg" alt="Screen Shot 2014-12-15 at 1.06.51 PM"></p>
+<p>做完这些以后，你就可以在聚合页里找到一些新的数值字段可用。比如说，我们可以查一天的 24 个小时，然后获取 30 天 来每个小时的 hits 数的总和：</p>
+<p><img src="/images/chenlinux.com/3eb98923a097937b7e395e23c2481b6a.jpg" alt="unnamed"></p>
+<h2 id="source-">高亮和 _source 的新格式</h2>
+<p>JSON 很棒，我们都爱 JSON。谁会不爱 JSON 呢？XML，这是谁？完全无关紧要嘛。</p>
+<p>JSON 在查看上可能有点乱，所以我们对格式做了一点优化。原始的 JSON 内容，当然可以在点击 JSON 标签展开事件后查看。Kibana 现在还会自动高亮匹配上的字段，甚至把他们挪到本行开头的位置展示：</p>
+<p><img src="/images/chenlinux.com/ab8e2dd4ea11545f1c4134b735b36399.jpg" alt="Screen Shot 2014-12-16 at 11.16.17 AM"></p>
+<h2 id="hit-">hit 连接</h2>
+<p>可能你已经注意到前面截屏上的 “Link to..” ? 你可能不需要分享整个可视化结果或者一个搜索结果，你只是想让别人看到一条重要的命中的记录。现在，这事儿简单了！</p>
+<h2 id="metric-visualization">metric visualization</h2>
+<p>有时候你不需要图或者文档！你只需要一个数值在仪表盘上就够了。现在可以做到了：</p>
+<p><img src="/images/chenlinux.com/4e1e896f9a611b3ac8b2837029be41ab.jpg" alt="Screen Shot 2014-12-16 at 11.16.59 AM"></p>
+<p>好了，就是这些！还是那句话，到 <a href="https://github.com/elasticsearch/kibana">GitHub</a> 上给我们提问题，建议，贡献。或者，如果你跟我们一样喜欢 IRC，加入我们在 Freenode 上的 #kibana 频道。</p>
     <hr>
 
     <hr>
-
-  <!-- UY BEGIN -->
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
 
 <!-- UY END -->
-
   </div>
 
   </article>
 
   <div class="meta">
 
-    <a class="basic-alignment left" href="/posts/2014/2014-05-17-free-as-in-we-own-your-ip.html-c85e758cc.html" title="Previous Post: Free, as in, We Own Your IP" data-instant>&laquo; Free, as in, We Own Your IP</a>
-
-    <a class="basic-alignment right" href="/posts/2014/2014-05-18-3149-6a86c0dbe.html" title="Next Post: R17新的调度策略+sub" data-instant>R17新的调度策略+sub &raquo;</a>
+    <a class="basic-alignment left" href="/posts/2014/2014-12-18-81106-2aba1c5c3.html" title="Previous Post: 超酷算法：用四叉树和希尔伯特曲线做空间索引" data-instant>&laquo; 超酷算法：用四叉树和希尔伯特曲线做空间索引</a>
 
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
 
-      <li><span>18 Aug 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-08-18-intro-range-facet-and-implement-panel-for-it-9f5a65b7a.html">用 ES 的 RangeFacets 接口实现一个查看区间占比的 Kibana 面板 </a></li>
+      <li><span>08 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-08-difference-filterings-kibana-a2d6b87c1.html">Kibana 中几个不同的 filtering</a></li>
 
-      <li><span>07 Oct 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-10-07-kibana-4-beta-1-released-bce65c2c2.html">【翻译】Kibana 4 beta 1 发版日志</a></li>
+      <li><span>20 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-20-phantomjs-snapshot-63b00217f.html">用 phantomjs 截图</a></li>
 
-      <li><span>04 Jun 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-06-04-elasticsearch-direct-to-skyline-f6d51c10e.html">直接从 elasticsearch 获取数据进入 skyline 异常检测</a></li>
+      <li><span>18 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-18-kibana4-beta-2-get-now-2e4418715.html">【翻译】Kibana 4 beta 2 发布</a></li>
 
   </ul>
 </div>
