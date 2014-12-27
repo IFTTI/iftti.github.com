@@ -1,0 +1,512 @@
+---
+layout: post
+title: '重构遗留代码（11）：终结篇'
+time: 2014-12-19 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/81330/
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p>旧代码，丑陋的代码，复杂的代码，意大利面条似的代码，鬼话废话……就是四个字：遗留代码。这是一个系列文章，将有助于你处理并解决它。</p>
+<ul>
+<li><a href="http://blog.jobbole.com/78635/" target="_blank">重构遗留代码（1）：金牌大师</a></li>
+<li><a href="http://blog.jobbole.com/79323/" target="_blank">重构遗留代码（2）：魔术字符串和常量</a></li>
+<li><a href="http://blog.jobbole.com/80106" target="_blank">重构遗留代码（3）：复杂的条件语句</a></li>
+<li><a href="http://blog.jobbole.com/80095/" target="_blank">重构遗留代码（4）：第一个单元测试</a></li>
+<li><a href="http://blog.jobbole.com/80096/" target="_blank">重构遗留代码（5）：游戏的可测试方法</a></li>
+<li><a href="http://blog.jobbole.com/80094/" target="_blank">重构遗留代码（6）：进攻复杂的方法</a></li>
+<li><a href="http://blog.jobbole.com/80382/" target="_blank">重构遗留代码（7）：识别表示层</a></li>
+<li><a href="http://blog.jobbole.com/80383/" target="_blank">重构遗留代码（8）：一个整洁架构的依赖反转</a></li>
+<li><a href="http://blog.jobbole.com/80384/" target="_blank">重构遗留代码（9）：分析 Concerns</a></li>
+<li><a href="http://blog.jobbole.com/80565/" target="_blank">重构遗留代码（10）：剖析长方法</a></li>
+</ul>
+<p>在我们前面的课程中，我们已经学习了一种通过提取直到放弃来理解和做出更好代码的方法。虽然那篇教程是学习这项技术的不错的方式，但它并不是理解这项技术好处的理想例子。在这篇教程中，我们将对所有的问答游戏相关代码使用提取直到放弃的方法，并且我们将分析最后的结果。</p>
+<p>这篇教程也将总结我们关于重构这一系列的文章。如果你认为我们遗漏了什么，以建议的主题来随意评论吧。如果好主意收集了，我将基于你的要求继续写额外的教程。</p>
+<p> </p>
+<h1>
+<b>进</b><b>攻我</b><b>们</b><b>最</b><b>长</b><b>的方法</b><b></b>
+</h1>
+<p>拿我们最长的方法并将它提取到小段代码中，有比这更好地开始我们文章的方式吗。像往常一样，测试优先将使得这一过程不仅有效而且也有趣。</p>
+<p>通常，当我开始这篇教程的时候，你已经有了代码，它在php start文件夹里，而最终结果在php文件夹。</p>
+<pre class="brush: php; gutter: true">function wasCorrectlyAnswered() {
+      if ($this-&gt;inPenaltyBox[$this-&gt;currentPlayer]) {
+            if ($this-&gt;isGettingOutOfPenaltyBox) {
+                  $this-&gt;display-&gt;correctAnswer();
+                  $this-&gt;purses[$this-&gt;currentPlayer]++;
+
+                  $this-&gt;display-&gt;playerCoins($this-&gt;players[$this-&gt;currentPlayer], $this-&gt;purses[$this-&gt;currentPlayer]);
+
+                  $winner = $this-&gt;didPlayerNotWin();
+                  $this-&gt;currentPlayer++;
+                  if ($this-&gt;shouldResetCurrentPlayer()) {
+                        $this-&gt;currentPlayer = 0;
+                  }
+
+                  return $winner;
+            } else {
+                  $this-&gt;currentPlayer++;
+                  if ($this-&gt;shouldResetCurrentPlayer()) {
+                        $this-&gt;currentPlayer = 0;
+                  }
+                  return true;
+            }
+
+      } else {
+
+            $this-&gt;display-&gt;correctAnswerWithTypo();
+            $this-&gt;purses[$this-&gt;currentPlayer]++;
+            $this-&gt;display-&gt;playerCoins($this-&gt;players[$this-&gt;currentPlayer], $this-&gt;purses[$this-&gt;currentPlayer]);
+
+            $winner = $this-&gt;didPlayerNotWin();
+            $this-&gt;currentPlayer++;
+            if ($this-&gt;shouldResetCurrentPlayer()) {
+                  $this-&gt;currentPlayer = 0;
+            }
+
+            return $winner;
+      }
+}</pre>
+<p>wasCorrectlyAnswered()这个方法是我们第一个牺牲者。</p>
+<pre></pre>
+<p> </p>
+<h1>
+<b>测试</b><b>wasCorrectlyAnswered()</b>
+</h1>
+<p>正如我们在前一课程学到的，修改遗留代码的第一步是测试它。这是个艰难的过程。对我们来说幸运的是，wasCorrectlyAnswered()方法很简单。它由几个if-else表达式组成。代码的每个分支返回一个值。当我们有返回值时，我们总可以推测测试是可行的。不一定容易，但至少可能。 </p>
+<pre class="brush: php; gutter: true">function testWasCorrectlyAnsweredAndGettingOutOfPenaltyBoxWhileBeingAWinner() {
+      $this-&gt;setAPlayerThatIsInThePenaltyBox();
+      $this-&gt;game-&gt;isGettingOutOfPenaltyBox = true;
+      $this-&gt;game-&gt;purses[$this-&gt;game-&gt;currentPlayer] = Game::$numberOfCoinsToWin;
+
+      $this-&gt;assertTrue($this-&gt;game-&gt;wasCorrectlyAnswered());
+}</pre>
+<p>先写什么测试没有明确的规则。我们只选择这里执行部分的第一分支。实际上我们有个不错的惊喜，我们重用了在之前的教程中提取很多次的私有方法中的一个。但我们还没完成。全部通过，那么是时候重构了。</p>
+<pre class="brush: php; gutter: true">function testWasCorrectlyAnsweredAndGettingOutOfPenaltyBoxWhileBeingAWinner() {
+      $this-&gt;setAPlayerThatIsInThePenaltyBox();
+      $this-&gt;currentPlayerWillLeavePenaltyBox();
+      $this-&gt;setCurrentPlayerAWinner();
+
+      $this-&gt;assertTrue($this-&gt;game-&gt;wasCorrectlyAnswered());
+}</pre>
+<p>这更容易阅读并且明显更具描述性。你可以在附带的代码中找到提取的方法。</p>
+<pre class="brush: php; gutter: true">function testWasCorrectlyAnsweredAndGettingOutOfPenaltyBoxWhileNOTBeingAWinner() {
+      $this-&gt;setAPlayerThatIsInThePenaltyBox();
+      $this-&gt;currentPlayerWillLeavePenaltyBox();
+      $this-&gt;setCurrentPlayerNotAWinner();
+
+      $this-&gt;assertFalse($this-&gt;game-&gt;wasCorrectlyAnswered());
+}
+
+private function setCurrentPlayerNotAWinner() {
+      $this-&gt;game-&gt;purses[$this-&gt;game-&gt;currentPlayer] = 0;
+}</pre>
+<p>我们期望这能通过，但它失败了。原因还不明确。对didPlayerNotWin()解析也许会有帮助。</p>
+<pre class="brush: php; gutter: true">function didPlayerNotWin() {
+      return !($this-&gt;purses[$this-&gt;currentPlayer] == self::$numberOfCoinsToWin);
+}</pre>
+<p>事实上当玩家没有赢的时候方法返回了true。也许我们可以重命名变量，但首先测试必须通过。</p>
+<pre class="brush: php; gutter: true">private function setCurrentPlayerAWinner() {
+      $this-&gt;game-&gt;purses[$this-&gt;game-&gt;currentPlayer] = Game::$numberOfCoinsToWin;
+}
+
+private function setCurrentPlayerNotAWinner() {
+      $this-&gt;game-&gt;purses[$this-&gt;game-&gt;currentPlayer] = 0;
+}</pre>
+<p>通过仔细观察，我们知道我们在这儿混淆了值。我们的困惑存在于在方法名和变量名之间，使得我们反转了条件。</p>
+<pre class="brush: php; gutter: true">private function setCurrentPlayerAWinner() {
+      $this-&gt;game-&gt;purses[$this-&gt;game-&gt;currentPlayer] = 0;
+}
+
+private function setCurrentPlayerNotAWinner() {
+      $this-&gt;game-&gt;purses[$this-&gt;game-&gt;currentPlayer] = Game::$numberOfCoinsToWin - 1;
+}</pre>
+<p>这样可以了。当分析didPlayerNotWin()的时候，我们同样注意到它使用等于来决定赢家。我们必须设置值，一个都不能少，因为在我们测试的产品代码中值是增加的。</p>
+<p>剩下的三个测试程序很容易写。它们只是前两个的变体。你可以在附带的代码中找到它们。</p>
+<h1>
+<b>提取并重命名</b><b>wasCorrectlyAnswered()</b><b>方法直到我</b><b>们</b><b>放弃</b><b></b>
+</h1>
+<p>最困惑的一个问题是具有误导性的$winner变量名。那应该是$notWinner。</p>
+<pre class="brush: php; gutter: true">$notAWinner = $this-&gt;didPlayerNotWin();
+$this-&gt;currentPlayer++;
+if ($this-&gt;shouldResetCurrentPlayer()) {
+      $this-&gt;currentPlayer = 0;
+}
+return $notAWinner;</pre>
+<p>我们看到$notWinner变量是只用来返回值的。我们可以在return语句中直接调用didPlayerNotWin()方法吗？</p>
+<pre class="brush: php; gutter: true">$this-&gt;currentPlayer++;
+if ($this-&gt;shouldResetCurrentPlayer()) {
+      $this-&gt;currentPlayer = 0;
+}
+return $this-&gt;didPlayerNotWin();</pre>
+<p>这仍然使得我们的单元测试通过了，但如果我们运行金牌大师测试程序，将会以“没有足够内存”而失败。事实上，修改使得游戏永远结束不了。</p>
+<p>目前的情况是，当前玩家被更新为下一个玩家了。因为我们只有一个单一的玩家，所以我们总是复用相同的玩家。这就是测试发生的。你永远不会知道什么时候在一段很难的代码中你会发现一个隐藏的逻辑。</p>
+<pre class="brush: php; gutter: true">function testWasCorrectlyAnsweredAndGettingOutOfPenaltyBoxWhileBeingAWinner() {
+      $this-&gt;setAPlayerThatIsInThePenaltyBox();
+      $this-&gt;game-&gt;add('Another Player');
+      $this-&gt;currentPlayerWillLeavePenaltyBox();
+      $this-&gt;setCurrentPlayerAWinner();
+
+      $this-&gt;assertTrue($this-&gt;game-&gt;wasCorrectlyAnswered());
+}</pre>
+<p>只通过在针对这个方法的每个测试方法中增加另一个玩家，我们可以确保逻辑被覆盖到。测试将使得上述修改后的return语句失败。</p>
+<pre class="brush: php; gutter: true">private function selectNextPlayer() {
+      $this-&gt;currentPlayer++;
+      if ($this-&gt;shouldResetCurrentPlayer()) {
+            $this-&gt;currentPlayer = 0;
+      }
+}</pre>
+<p>我们可以马上发现对于下一个玩家的选择在两个条件下都是相同的。我们可以将其移到一个方法中去。我们给这个方法的名字是selectNextPlayer()。这个名字帮助突出当前玩家的值将被修改这一事实。它同样表明didPlayerNotWin()方法可以被重命名为能反映当前玩家关系的名字。</p>
+<pre class="brush: php; gutter: true">function wasCorrectlyAnswered() {
+      if ($this-&gt;inPenaltyBox[$this-&gt;currentPlayer]) {
+            if ($this-&gt;isGettingOutOfPenaltyBox) {
+                  $this-&gt;display-&gt;correctAnswer();
+                  $this-&gt;purses[$this-&gt;currentPlayer]++;
+
+                  $this-&gt;display-&gt;playerCoins($this-&gt;players[$this-&gt;currentPlayer], $this-&gt;purses[$this-&gt;currentPlayer]);
+
+                  $notAWinner = $this-&gt;didCurrentPlayerNotWin();
+                  $this-&gt;selectNextPlayer();
+                  return $notAWinner;
+            } else {
+                  $this-&gt;selectNextPlayer();
+                  return true;
+            }
+
+      } else {
+
+            $this-&gt;display-&gt;correctAnswerWithTypo();
+            $this-&gt;purses[$this-&gt;currentPlayer]++;
+            $this-&gt;display-&gt;playerCoins($this-&gt;players[$this-&gt;currentPlayer], $this-&gt;purses[$this-&gt;currentPlayer]);
+
+            $notAWinner = $this-&gt;didCurrentPlayerNotWin();
+            $this-&gt;selectNextPlayer();
+
+            return $notAWinner;
+      }
+}</pre>
+<p>我们的代码变得更短并更具说明力了。接下来我们能做什么？我们可以修改“not winner”逻辑的奇怪的名字并且将方法从负逻辑改为正逻辑。或者我们可以继续提取并稍后处理混乱的负逻辑。我不认为有一种确定的方式去做这事。所以，我将把负逻辑的问题作为你的一个练习，我们将继续提取。</p>
+<pre class="brush: php; gutter: true">function wasCorrectlyAnswered() {
+      if ($this-&gt;inPenaltyBox[$this-&gt;currentPlayer]) {
+            return $this-&gt;getCorrectlyAnsweredForPlayersInPenaltyBox();
+      } else {
+            return $this-&gt;getCorrectlyAnsweredForPlayersNotInPenaltyBox();
+      }
+}</pre>
+<p><em>作为一个经验法则，试着将一行代码放到决策逻辑的每条分支上。</em></p>
+<p>我们提取每个if表达式中的整块代码。这是很重要的步骤，是你应该经常思考的。当你的代码中有决策路径或者循环，它其中应该只有单一的表达式。阅读这个方法的人大部分可能是不关心具体的实现的。他或者她会关心决策逻辑，就是if表达式。</p>
+<pre class="brush: php; gutter: true">function wasCorrectlyAnswered() {
+      if ($this-&gt;inPenaltyBox[$this-&gt;currentPlayer]) {
+            return $this-&gt;getCorrectlyAnsweredForPlayersInPenaltyBox();
+      }
+
+      return $this-&gt;getCorrectlyAnsweredForPlayersNotInPenaltyBox();
+}</pre>
+<p>如果我们摆脱了任何额外的代码，我们应该这么做。移除else并且在我们稍稍做修改的情况下，仍旧保持相同的逻辑。我更喜欢这个解决方案，因为它突出了函数“默认的”行为是什么。该代码是直接在函数的内部(这里的最后一行代码)。if表达式是加到默认函数的特殊的功能。</p>
+<p>我听说推论按照这种方式写条件如果if表达式激活的话，可能会隐藏默认没有执行的事实。我只能赞同这点，如果你更愿意保留else部分以更清晰，请这么做。</p>
+<pre class="brush: php; gutter: true">private function getCorrectlyAnsweredForPlayersInPenaltyBox() {
+      if ($this-&gt;isGettingOutOfPenaltyBox) {
+            return $this-&gt;getCorrectlyAnsweredForPlayerGettingOutOfPenaltyBox();
+      } else {
+            return $this-&gt;getCorrectlyAnsweredForPlayerStayingInPenaltyBox();
+      }
+}</pre>
+<p>我们可以继续在新建的私有方法中提取。对下一个条件表达式适用相同的规则将带来上述的代码。</p>
+<pre class="brush: php; gutter: true">private function giveCurrentUserACoin() {
+      $this-&gt;purses[$this-&gt;currentPlayer]++;
+}</pre>
+<p>通过观察私有方法getCorrectlyAnsweredForPlayerNotInPenaltyBox()和getCorrectlyAnsweredForPlayerGettingOutOfPenaltyBox()，我们可以马上注意到简单的任务重复了。那个任务可能对于像我们这样已经知道钱包和钱币的人来说是明显的，但对一个新人来说不是。将那一行提取到方法giveCurrentUserACoin()中是个好主意。</p>
+<p>它也对处理重复有利。如果将来我们修改给予玩家钱币的方式，我们只需要修改这个私有方法的代码。</p>
+<pre class="brush: php; gutter: true">private function getCorrectlyAnsweredForPlayersNotInPenaltyBox() {
+      $this-&gt;display-&gt;correctAnswerWithTypo();
+      return $this-&gt;getCorrectlyAnsweredForAPlayer();
+}
+
+private function getCorrectlyAnsweredForPlayerGettingOutOfPenaltyBox() {
+      $this-&gt;display-&gt;correctAnswer();
+      return $this-&gt;getCorrectlyAnsweredForAPlayer();
+}
+
+private function getCorrectlyAnsweredForAPlayer() {
+      $this-&gt;giveCurrentUserACoin();
+      $this-&gt;display-&gt;playerCoins($this-&gt;players[$this-&gt;currentPlayer], $this-&gt;purses[$this-&gt;currentPlayer]);
+
+      $notAWinner = $this-&gt;didCurrentPlayerNotWin();
+      $this-&gt;selectNextPlayer();
+      return $notAWinner;
+}</pre>
+<p>那么两个正确回答的方法是相同的，除了其中一个输出了带错字的内容。我们提取了重复的代码并且将不同保持在各自方法里。你可能会想我们可以在调用代码处使用提取的带一个参数的方法，并且一次输出正常，一次输出带错字。然而，上述提出的解决方案有个优点：它使两个概念分离，不在禁区和摆脱禁区。</p>
+<p>这就是对wasCorrectlyAnswered()处理的结论。</p>
+<pre></pre>
+<p> </p>
+<h1>
+<b>wrongAnswer()</b><b>方法怎么</b><b>处</b><b>理？</b><b></b>
+</h1>
+<p> </p>
+<pre class="brush: php; gutter: true">function wrongAnswer() {
+      $this-&gt;display-&gt;incorrectAnswer();
+      $currentPlayer = $this-&gt;players[$this-&gt;currentPlayer];
+      $this-&gt;display-&gt;playerSentToPenaltyBox($currentPlayer);
+      $this-&gt;inPenaltyBox[$this-&gt;currentPlayer] = true;
+
+      $this-&gt;currentPlayer++;
+      if ($this-&gt;shouldResetCurrentPlayer()) {
+            $this-&gt;currentPlayer = 0;
+      }
+      return true;
+}</pre>
+<p>这个方法有11行不算巨大，但无疑很大。你还记得魔术数字7加负二的研究吗？它指出，我们的大脑可以同时想7+-2这样的事。也就是说，我们的能力有限。所以为了容易并完全得理解一个方法，我们需要它的内部逻辑适用其范围。总共11行，包括9行内容，这个方法就是这种极限。你可能会说，其实也有一个空行，另外只是一个括号。这使得逻辑行只有7行。</p>
+<p>虽然括号和空格所占空间很短，但对于我们它们是有意义的。它们分离了逻辑部分，并且有意义，所以我们的大脑必须处理它们。是的，相对于全部的比较逻辑，它是容易的但仍需处理。</p>
+<p>这就是为什么方法中我们的目标逻辑行是4行的原因。那是对上述逻辑最低线之下的，这样天才和平庸的程序员都应该能够理解方法。</p>
+<pre class="brush: php; gutter: true">$this-&gt;currentPlayer++;
+if ($this-&gt;shouldResetCurrentPlayer()) {
+      $this-&gt;currentPlayer = 0;
+}</pre>
+<p>我们已经有了针对这段代码的一个方法，所以我们应该利用它。</p>
+<pre class="brush: php; gutter: true">function wrongAnswer() {
+      $this-&gt;display-&gt;incorrectAnswer();
+      $currentPlayer = $this-&gt;players[$this-&gt;currentPlayer];
+      $this-&gt;display-&gt;playerSentToPenaltyBox($currentPlayer);
+      $this-&gt;inPenaltyBox[$this-&gt;currentPlayer] = true;
+      $this-&gt;selectNextPlayer();
+      return true;
+}</pre>
+<p>更好了，但我们应该放弃还是继续？</p>
+<pre class="brush: php; gutter: true">$currentPlayer = $this-&gt;players[$this-&gt;currentPlayer];
+$this-&gt;display-&gt;playerSentToPenaltyBox($currentPlayer);</pre>
+<p>我们可以从这两行内联变量。$this-&gt;currentPlayer很明显返回当前玩家，所以没必要重复这个逻辑。通过使用局部变量，我们没学到任何新东西或者抽象任何新东西。</p>
+<pre class="brush: php; gutter: true">function wrongAnswer() {
+      $this-&gt;display-&gt;incorrectAnswer();
+ $this-&gt;display-&gt;playerSentToPenaltyBox($this-&gt;players[$this-&gt;currentPlayer]);
+      $this-&gt;inPenaltyBox[$this-&gt;currentPlayer] = true;
+      $this-&gt;selectNextPlayer();
+      return true;
+}</pre>
+<p>降到5行了。还有什么其他内容吗？</p>
+<pre class="brush: php; gutter: true">$this-&gt;inPenaltyBox[$this-&gt;currentPlayer] = true;</pre>
+<p>我们可以把上面这行提取到它自己的方法中。它将帮助解释发什么并且隔离在它自己的方法中的送当前玩家到禁区的逻辑里。</p>
+<pre class="brush: php; gutter: true">function wrongAnswer() {
+      $this-&gt;display-&gt;incorrectAnswer();
+ $this-&gt;display-&gt;playerSentToPenaltyBox($this-&gt;players[$this-&gt;currentPlayer]);
+      $this-&gt;sendCurrentPlayerToPenaltyBox();
+      $this-&gt;selectNextPlayer();
+      return true;
+}</pre>
+<p>还是5行，但所有都是方法调用。最初的两个是显示用的。接下来的两个关系我们的逻辑。最后一行只返回true。不引入复杂的提取物，我看没有办法使这个方法更容易理解，例如通过提取两个显示方法到一个私有方法中的方式。如果我们要这么做，方法应该怎么提取？放入这个Game类，还是放入Display类？我认为这已经是一个太复杂的问题，针对我们方法纯粹的简单性来说，这点不值得考虑。</p>
+<p> </p>
+<h1>
+<b>最后的思考和一些统计</b><b></b>
+</h1>
+<p>让我们通过从PHPUnit开发者那里检出这个强大的工具<a href="https://github.com/sebastianbergmann/phploc.git">https://github.com/sebastianbergmann/phploc.git</a>来做一些统计。</p>
+<p> </p>
+<p><b>原始问答游戏代码的统计</b><b></b></p>
+<pre class="brush: php; gutter: true">./phploc ../Refactoring Legacy Code - Part 1: The Golden Master/Source/trivia/php/
+
+phploc 2.1-gca70e70 by Sebastian Bergmann.
+
+Size
+
+  Lines of Code (LOC)                              232
+
+  Comment Lines of Code (CLOC)                       0 (0.00%)
+
+  Non-Comment Lines of Code (NCLOC)                232 (100.00%)
+
+  Logical Lines of Code (LLOC)                      99 (42.67%)
+
+    Classes                                         88 (88.89%)
+
+      Average Class Length                          88
+
+        Minimum Class Length                        88
+
+        Maximum Class Length                        88
+
+      Average Method Length                          7
+
+        Minimum Method Length                        1
+
+        Maximum Method Length                       17
+
+    Functions                                        1 (1.01%)
+
+      Average Function Length                        1
+
+    Not in classes or functions                     10 (10.10%)
+
+Cyclomatic Complexity
+
+  Average Complexity per LLOC                     0.26
+
+  Average Complexity per Class                   25.00
+
+    Minimum Class Complexity                     25.00
+
+    Maximum Class Complexity                     25.00
+
+  Average Complexity per Method                   3.18
+
+    Minimum Method Complexity                     1.00
+
+    Maximum Method Complexity                    10.00
+
+Dependencies
+
+  Global Accesses                                    0
+
+    Global Constants                                 0 (0.00%)
+
+    Global Variables                                 0 (0.00%)
+
+    Super-Global Variables                           0 (0.00%)
+
+  Attribute Accesses                               115
+
+    Non-Static                                     115 (100.00%)
+
+    Static                                           0 (0.00%)
+
+  Method Calls                                      21
+
+    Non-Static                                      21 (100.00%)
+
+    Static                                           0 (0.00%)
+
+Structure
+
+  Namespaces                                         0
+
+  Interfaces                                         0
+
+  Traits                                             0
+
+  Classes                                            1
+
+    Abstract Classes                                 0 (0.00%)
+
+    Concrete Classes                                 1 (100.00%)
+
+  Methods                                           11
+
+    Scope
+
+      Non-Static Methods                            11 (100.00%)
+
+      Static Methods                                 0 (0.00%)
+
+    Visibility
+
+      Public Methods                                11 (100.00%)
+
+      Non-Public Methods                             0 (0.00%)
+
+  Functions                                          1
+
+    Named Functions                                  1 (100.00%)
+
+    Anonymous Functions                              0 (0.00%)
+
+  Constants                                          0
+
+    Global Constants                                 0 (0.00%)
+
+    Class Constants                                  0 (0.00%)</pre>
+<p><b> </b></p>
+<p><b>重构后问答游戏代码的统计</b></p>
+<pre class="brush: php; gutter: true">./phploc ../Refactoring Legacy Code - Part 11: The End?/Source/trivia/php
+phploc 2.1-gca70e70 by Sebastian Bergmann.
+
+Size
+  Lines of Code (LOC)                              371
+  Comment Lines of Code (CLOC)                       0 (0.00%)
+  Non-Comment Lines of Code (NCLOC)                371 (100.00%)
+  Logical Lines of Code (LLOC)                     151 (40.70%)
+    Classes                                        145 (96.03%)
+      Average Class Length                          36
+        Minimum Class Length                         8
+        Maximum Class Length                        89
+      Average Method Length                          2
+        Minimum Method Length                        1
+        Maximum Method Length                       14
+    Functions                                        0 (0.00%)
+      Average Function Length                        0
+    Not in classes or functions                      6 (3.97%)
+
+Cyclomatic Complexity
+  Average Complexity per LLOC                     0.15
+  Average Complexity per Class                    6.50
+    Minimum Class Complexity                      1.00
+    Maximum Class Complexity                     17.00
+  Average Complexity per Method                   1.46
+    Minimum Method Complexity                     1.00
+    Maximum Method Complexity                    10.00
+
+Dependencies
+  Global Accesses                                    0
+    Global Constants                                 0 (0.00%)
+    Global Variables                                 0 (0.00%)
+    Super-Global Variables                           0 (0.00%)
+  Attribute Accesses                                96
+    Non-Static                                      94 (97.92%)
+    Static                                           2 (2.08%)
+  Method Calls                                      74
+    Non-Static                                      74 (100.00%)
+    Static                                           0 (0.00%)
+
+Structure
+  Namespaces                                         0
+  Interfaces                                         1
+  Traits                                             0
+  Classes                                            3
+    Abstract Classes                                 0 (0.00%)
+    Concrete Classes                                 3 (100.00%)
+  Methods                                           59
+    Scope
+      Non-Static Methods                            59 (100.00%)
+      Static Methods                                 0 (0.00%)
+    Visibility
+      Public Methods                                35 (59.32%)
+      Non-Public Methods                            24 (40.68%)
+  Functions                                          0
+    Named Functions                                  0 (0.00%)
+    Anonymous Functions                              0 (0.00%)
+  Constants                                          3
+    Global Constants                                 0 (0.00%)
+    Class Constants                                  3 (100.00%)</pre>
+<h3></h3>
+<h3>分析</h3>
+<p>本身的数据一样好，我们可以理解并分析它。</p>
+<p>逻辑代码行数增加相当显著从99行加到了151行。但这个数字不应该欺骗你让你认为我们的代码变得更复杂了。这是一个良好重构代码的自然趋势，因为增加了方法和对它们的调用代码。</p>
+<p>只要我们看看类的平均长度，我们可以看到代码行数大幅下降，从88行降到36行。</p>
+<p>这是多么得惊人，方法长度从平均7行降到只有2行代码。</p>
+<p>行数是每个计量单位代码量的良好指标，真正获得的是圈复杂度的分析。每次我们对代码做了个决定，我们将增加了圈复杂度。当我们把if表达式放在另一个里面时，该方法的圈复杂度呈指数上升。我们持续得提取导致方法中只有一个单一的决策，从而降低了它们每个方法的平均复杂度从3.18到1.00。你可以将其理解为“我们重构的方法比原始代码简单3.18倍”。在类级别，复杂度的降低甚至更加惊人。它从25.00降到了6.50。</p>
+<h3></h3>
+<p><b>结</b><b>束了？</b><b></b></p>
+<p>好了，就这样了。结束这个系列。如果你认为我们遗漏了任何重构话题，请在下面的评论中自由表述你的意见来询问它们。如果它们很有趣那我将会把它们移到这个系列的额外篇幅中。</p>
+<p> </p>
+<p>感谢你的全神贯注。</p>
+
+        
+        			<div class="textwidget">
+</div>
+		
+
+	
+{% endraw %}

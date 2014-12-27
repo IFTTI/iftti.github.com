@@ -1,0 +1,293 @@
+---
+layout: post
+title: 'MapReduce实例浅析'
+time: 2014-12-19 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/81676/
+images:
+  fa0c8daeccec299d6274456b7f95f2e9: http://ww4.sinaimg.cn/large/7178f37ejw1enete1z0zyj20j507j750.jpg
+  f8f1609a69e7e2aeb6be826b172c28a5: http://ww4.sinaimg.cn/mw690/7178f37ejw1enete2d2dfj20bv04jdfv.jpg
+  33003804bf2c324f3255fd6bdf4de91d: http://ww2.sinaimg.cn/large/7178f37ejw1enete2qo0kj20jl0dwmz1.jpg
+  2b44260ecff000a48f1ab45b123b78f0: http://ww2.sinaimg.cn/large/7178f37ejw1enete32a9oj20e806fwet.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p>在文章《<a href="http://blog.jobbole.com/80619/" target="_blank">MapReduce原理与设计思想</a>》中，详细剖析了MapReduce的原理，这篇文章则通过实例重点剖析MapReduce</p>
+<h2>1.MapReduce概述</h2>
+<div>
+<p>Hadoop Map/Reduce是一个使用简易的软件框架，基于它写出来的应用程序能够运行在由上千个商用机器组成的大型集群上，并以一种可靠容错的方式并行处理上T级别的数据集。</p>
+<p>一个Map/Reduce 作业（job） 通常会把输入的数据集切分为若干独立的数据块，由 <em>map任务（task）</em>以完全并行的方式处理它们。框架会对map的输出先进行排序， 然后把结果输入给<em>reduce任务</em>。通常作业的输入和输出都会被存储在文件系统中。 整个框架负责任务的调度和监控，以及重新执行已经失败的任务。</p>
+<p>通常，Map/Reduce框架和分布式文件系统是运行在一组相同的节点上的，也就是说，计算节点和存储节点通常在一起。这种配置允许框架在那些已经存好数据的节点上高效地调度任务，这可以使整个集群的网络带宽被非常高效地利用。</p>
+<p>Map/Reduce框架由一个单独的master JobTracker 和每个集群节点一个slave TaskTracker共同组成。master负责调度构成一个作业的所有任务，这些任务分布在不同的slave上，master监控它们的执行，重新执行已经失败的任务。而slave仅负责执行由master指派的任务。</p>
+<p>应用程序至少应该指明输入/输出的位置（路径），并通过实现合适的接口或抽象类提供map和reduce函数。再加上其他作业的参数，就构成了<em>作业配置（job configuration）</em>。然后，Hadoop的 <em>job client</em>提交作业（jar包/可执行程序等）和配置信息给JobTracker，后者负责分发这些软件和配置信息给slave、调度任务并监控它们的执行，同时提供状态和诊断信息给job-client。</p>
+<p>虽然Hadoop框架是用Java实现的，但Map/Reduce应用程序则不一定要用 Java来写 。</p>
+<p><img alt="" src="/images/jobbole.com/fa0c8daeccec299d6274456b7f95f2e9.jpg"></p>
+<h2>2.样例分析：单词计数</h2>
+<p><strong>1、WordCount源码分析</strong></p>
+<p>单词计数是最简单也是最能体现MapReduce思想的程序之一，该程序完整的代码可以在Hadoop安装包的src/examples目录下找到</p>
+<p>单词计数主要完成的功能是：统计一系列文本文件中每个单词出现的次数，如图所示：</p>
+<p><img alt="" src="/images/jobbole.com/f8f1609a69e7e2aeb6be826b172c28a5.jpg"></p>
+<p>（1）Map过程</p>
+<p>Map过程需要继承org.apache.hadoop.mapreduce包中的Mapper类，并重写map方法</p>
+<p>通过在map方法中添加两句把key值和value值输出到控制台的代码，可以发现map方法中的value值存储的是文本文件中的一行（以回车符作为行结束标记），而key值为该行的首字符相对于文本文件的首地址的偏移量。然后StringTokenizer类将每一行拆分成一个个的单词，并将&lt;word,1&gt;作为map方法的结果输出，其余的工作都交由MapReduce框架处理。其中IntWritable和Text类是Hadoop对int和string类的封装，这些类能够被串行化，以方便在分布式环境中进行数据交换。</p>
+<p>TokenizerMapper的实现代码如下：</p>
+<pre class="brush: java; gutter: true">public static class TokenizerMapper extends Mapper&lt;Object, Text, Text, IntWritable&gt;{
+    private final static IntWritable one = new IntWritable(1);
+    private Text word = new Text();
+      
+    public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+        System.out.println("key = " + key.toString());//添加查看key值
+        System.out.println("value = " + value.toString());//添加查看value值
+        StringTokenizer itr = new StringTokenizer(value.toString());
+        while (itr.hasMoreTokens()) {
+            word.set(itr.nextToken());
+            context.write(word, one);
+        }
+    }
+}</pre>
+<p>（2）Reduce过程</p>
+<p>Reduce过程需要继承org.apache.hadoop.mapreduce包中的Reducer类，并重写reduce方法</p>
+<p>reduce方法的输入参数key为单个单词，而values是由各Mapper上对应单词的计数值所组成的列表，所以只要遍历values并求和，即可得到某个单词的出现总次数</p>
+<p>IntSumReduce类的实现代码如下：</p>
+<pre class="brush: java; gutter: true">public static class IntSumReducer extends Reducer&lt;Text,IntWritable,Text,IntWritable&gt; {
+    private IntWritable result = new IntWritable();
+
+    public void reduce(Text key, Iterable&lt;IntWritable&gt; values, Context context) throws IOException, InterruptedException {
+      int sum = 0;
+      for (IntWritable val : values) {
+          sum += val.get();
+      }
+      result.set(sum);
+      context.write(key, result);
+   }
+}</pre>
+<p>（3）执行MapReduce任务</p>
+<p>在MapReduce中，由Job对象负责管理和运行一个计算任务，并通过Job的一些方法对任务的参数进行相关的设置。此处设置了使用TokenizerMapper完成Map过程和使用的IntSumReduce完成Combine和Reduce过程。还设置了Map过程和Reduce过程的输出类型：key的类型为Text，value的类型为IntWritable。任务的输入和输出路径则由命令行参数指定，并由FileInputFormat和FileOutputFormat分别设定。完成相应任务的参数设定后，即可调用job.waitForCompletion()方法执行任务，主函数实现如下：</p>
+<pre class="brush: java; gutter: true">public static void main(String[] args) throws Exception {
+    Configuration conf = new Configuration();
+    String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+    if (otherArgs.length != 2) {
+      System.err.println("Usage: wordcount &lt;in&gt; &lt;out&gt;");
+      System.exit(2);
+    }
+    Job job = new Job(conf, "word count");
+    job.setJarByClass(wordCount.class);
+    job.setMapperClass(TokenizerMapper.class);
+    job.setCombinerClass(IntSumReducer.class);
+    job.setReducerClass(IntSumReducer.class);
+    job.setOutputKeyClass(Text.class);
+    job.setOutputValueClass(IntWritable.class);
+    FileInputFormat.addInputPath(job, new Path(otherArgs[0]));
+    FileOutputFormat.setOutputPath(job, new Path(otherArgs[1]));
+    System.exit(job.waitForCompletion(true) ? 0 : 1);
+  }
+}</pre>
+<p>运行结果如下：</p>
+<p><span style="color: #ff0000">14/12/17 05:53:26 INFO jvm.JvmMetrics: Initializing JVM Metrics with processName=JobTracker, sessionId=</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO mapred.JobClient: Running job: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+key = 0<br>
+value = Hello World<br>
+key = 12<br>
+value = Bye World<br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Starting flush of map output</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Starting flush of map output</span><br>
+key = 0<br>
+value = Hello Hadoop<br>
+key = 13<br>
+value = Bye Hadoop<br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000001_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000001_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.Merger: Merging 2 sorted segments</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.Merger: Down to the last merge-pass, with 2 segments left of total size: 73 bytes</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task:attempt_local_0001_r_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task attempt_local_0001_r_000000_0 is allowed to commit now</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO output.FileOutputCommitter: Saved output of task ‘attempt_local_0001_r_000000_0′ to out</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: reduce &gt; reduce</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task ‘attempt_local_0001_r_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: map 100% reduce 100%</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Job complete: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Counters: 14</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: FileSystemCounters</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: FILE_BYTES_READ=17886</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: HDFS_BYTES_READ=52932</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: FILE_BYTES_WRITTEN=54239</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: HDFS_BYTES_WRITTEN=71431</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map-Reduce Framework</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce input groups=4</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Combine output records=6</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map input records=4</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce shuffle bytes=0</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce output records=4</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Spilled Records=12</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map output bytes=78</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Combine input records=8</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map output records=8</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce input records=6</span></p>
+<p>2、WordCount处理过程</p>
+<p>上面给出了WordCount的设计思路和源码，但是没有深入细节，下面对WordCount进行更加详细的分析：</p>
+<p>（1）将文件拆分成splits，由于测试用的文件较小，所以每一个文件为一个split，并将文件按行分割成&lt;key, value&gt;对，如图，这一步由Mapreduce框架自动完成，其中偏移量包括了回车所占的字符</p>
+<p>（2）将分割好的&lt;key, value&gt;对交给用户定义的map方法进行处理，生成新的&lt;key, value&gt;对</p>
+<p>（3）得到map方法输出的&lt;key, value&gt;对后，Mapper会将它们按照key值进行排序，并执行Combine过程，将key值相同的value值累加，得到Mapper的最终输出结果，如图：</p>
+<p><img alt="" src="/images/jobbole.com/33003804bf2c324f3255fd6bdf4de91d.jpg"></p>
+<p>（4）Reduce先对从Mapper接收的数据进行排序，再交由用户自定义的reduce方法进行处理，得到新的&lt;key, value&gt;对，并作为WordCount的输出结果，如图：</p>
+<p><img alt="" src="/images/jobbole.com/2b44260ecff000a48f1ab45b123b78f0.jpg"></p>
+<h2>3.MapReduce，你够了解吗？</h2>
+<p>MapReduce框架在幕后默默地完成了很多的事情，如果不重写map和reduce方法，会出现什么情况呢？</p>
+<p>下面来实现一个简化的MapReduce，新建一个LazyMapReduce，该类只对任务进行必要的初始化及输入/输出路径的设置，其余的参数均保持默认</p>
+<p>代码如下：</p>
+<pre class="brush: java; gutter: true">public class LazyMapReduce {
+    public static void main(String[] args) throws Exception {
+        // TODO Auto-generated method stub
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if(otherArgs.length != 2) {
+            System.err.println("Usage:wordcount&lt;in&gt;&lt;out&gt;");
+            System.exit(2);
+        }
+        Job job = new Job(conf, "LazyMapReduce");
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        System.exit(job.waitForCompletion(true)? 0:1);
+    }
+}</pre>
+<p>运行结果为：</p>
+<p><span style="color: #ff0000">14/12/17 23:04:13 INFO jvm.JvmMetrics: Initializing JVM Metrics with processName=JobTracker, sessionId=</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO mapred.JobClient: Running job: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 23:04:15 INFO mapred.JobClient: map 0% reduce 0%</span><br>
+<span style="color: #ff0000">14/12/17 23:04:18 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 23:04:18 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+<span style="color: #ff0000">14/12/17 23:04:18 INFO mapred.MapTask: Starting flush of map output</span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: Starting flush of map output</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000001_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000001_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.Merger: Merging 2 sorted segments</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.Merger: Down to the last merge-pass, with 2 segments left of total size: 90 bytes</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task:attempt_local_0001_r_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task attempt_local_0001_r_000000_0 is allowed to commit now</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO output.FileOutputCommitter: Saved output of task ‘attempt_local_0001_r_000000_0′ to out</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: reduce &gt; reduce</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task ‘attempt_local_0001_r_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: map 100% reduce 100%</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Job complete: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Counters: 14</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: FileSystemCounters</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: FILE_BYTES_READ=46040</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: HDFS_BYTES_READ=51471</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: FILE_BYTES_WRITTEN=52808</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: HDFS_BYTES_WRITTEN=98132</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map-Reduce Framework</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce input groups=3</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Combine output records=0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map input records=4</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce shuffle bytes=0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce output records=4</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Spilled Records=8</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map output bytes=78</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Combine input records=0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map output records=4</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce input records=4</span></p>
+<p>可见在默认情况下，MapReduce原封不动地将输入&lt;key, value&gt;写到输出</p>
+<p>下面介绍MapReduce的部分参数及其默认设置：</p>
+<p>（1）InputFormat类</p>
+<p>该类的作用是将输入的数据分割成一个个的split，并将split进一步拆分成&lt;key, value&gt;对作为map函数的输入</p>
+<p>（2）Mapper类</p>
+<p>实现map函数，根据输入的&lt;key, value&gt;对生产中间结果</p>
+<p>（3）Combiner</p>
+<p>实现combine函数，合并中间结果中具有相同key值的键值对。</p>
+<p>（4）Partitioner类</p>
+<p>实现getPartition函数，用于在Shuffle过程按照key值将中间数据分成R份，每一份由一个Reduce负责</p>
+<p>（5）Reducer类</p>
+<p>实现reduce函数，将中间结果合并，得到最终的结果</p>
+<p>（6）OutputFormat类</p>
+<p>该类负责输出最终的结果</p>
+<p>上面的代码可以改写为:</p>
+<pre class="brush: java; gutter: true">public class LazyMapReduce {
+    public static void main(String[] args) throws Exception {
+        // TODO Auto-generated method stub
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if(otherArgs.length != 2) {
+            System.err.println("Usage:wordcount&lt;in&gt;&lt;out&gt;");
+            System.exit(2);
+        }
+        Job job = new Job(conf, "LazyMapReduce");
+        job.setInputFormatClass(TextInputFormat.class);
+        job.setMapperClass(Mapper.class);
+        
+        job.setMapOutputKeyClass(LongWritable.class);
+        job.setMapOutputValueClass(Text.class);
+        job.setPartitionerClass(HashPartitioner.class);
+        job.setReducerClass(Reducer.class);
+        
+        job.setOutputKeyClass(LongWritable.class);
+        job.setOutputValueClass(Text.class);
+        job.setOutputFormatClass(FileOutputFormat.class);
+        
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        System.exit(job.waitForCompletion(true)? 0:1);
+    }
+}</pre>
+<p>不过由于版本问题，显示有些类已经过时</p>
+<h2><strong>参考资料</strong></h2>
+<p>《实战Hadop：开启通向云计算的捷径.刘鹏》</p>
+
+</div>
+
+        
+        			<div class="textwidget">
+</div>
+		
+
+	
+{% endraw %}
