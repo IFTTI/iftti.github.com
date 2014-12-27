@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>MapReduce实战：倒排索引</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-24-82607-e1c6c09df.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>MapReduce实战：倒排索引</h1>
+    <p class="meta"><span class="time">Dec 24, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/82607/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<h2>1.倒排索引简介</h2>
+<p><strong>倒排索引</strong>（Inverted index），也常被称为<strong>反向索引</strong>、<strong>置入档案</strong>或<strong>反向档案</strong>，是一种索引方法，被用来存储在全文搜索下某个单词在一个文档或者一组文档中的存储位置的映射。它是文档检索系统中最常用的数据结构。</p>
+<p>有两种不同的反向索引形式：</p>
+<ul>
+<li>一条记录的水平反向索引（或者反向档案索引）包含每个引用单词的文档的列表。</li>
+<li>一个单词的水平反向索引（或者完全反向索引）又包含每个单词在一个文档中的位置。<sup id="cite_ref-isbn0-201-39829-X-p192_1-0"><br>
+</sup>
+</li>
+</ul>
+<p>后者的形式提供了更多的兼容性（比如短语搜索），但是需要更多的时间和空间来创建。</p>
+<p><strong>举例：</strong></p>
+<p>以英文为例，下面是要被索引的文本：</p>
+<ul>
+<li><code>T<sub>0</sub> = "it is what it is"</code></li>
+<li><code>T<sub>1</sub> = "what is it"</code></li>
+<li><code>T<sub>2</sub> = "it is a banana"</code></li>
+</ul>
+<p>我们就能得到下面的反向文件索引：</p>
+<pre class="brush: text; gutter: true"> "a":      {2}
+ "banana": {2}
+ "is":     {0, 1, 2}
+ "it":     {0, 1, 2}
+ "what":   {0, 1}</pre>
+
+<p>检索的条件<code>"what"</code>, <code>"is"</code> 和 <code>"it"</code> 将对应这个集合：{0,1}∩{0,1,2}∩{0,1,2}={0,1}。</p>
+<p>对相同的文字，我们得到后面这些完全反向索引，有文档数量和当前查询的单词结果组成的的成对数据。 同样，文档数量和当前查询的单词结果都从零开始。</p>
+<p>所以，<code>"banana": {(2, 3)}</code> 就是说 “banana”在第三个文档里 (T<sub>2</sub>)，而且在第三个文档的位置是第四个单词(地址为 3)。</p>
+<pre class="brush: text; gutter: true">"a":      {(2, 2)}
+"banana": {(2, 3)}
+"is":     {(0, 1), (0, 4), (1, 1), (2, 1)}
+"it":     {(0, 0), (0, 3), (1, 2), (2, 0)} 
+"what":   {(0, 2), (1, 0)}</pre>
+
+<p>如果我们执行短语搜索<code>"what is it"</code> 我们得到这个短语的全部单词各自的结果所在文档为文档0和文档1。但是这个短语检索的连续的条件仅仅在文档1得到。</p>
+<h2>2.分析和设计</h2>
+<p>（1）Map过程</p>
+<p>首先使用默认的TextInputFormat类对输入文件进行处理，得到文本中每行的偏移量及其内容，Map过程首先必须分析输入的&lt;key, value&gt;对，得到倒排索引中需要的三个信息：单词、文档URI和词频，如图所示：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/953fd2d4c32e99e3fb3c9af1c8a89c1d.jpg" rel="lightbox[82607]" title="MapReduce实战：倒排索引"><img class="alignnone size-full wp-image-82609" alt="182227128605743" src="/images/jobbole.com/38f9bd33a5007579e7d82ca2fbe68bd9.jpg"></a></p>
+<p>存在两个问题，第一：&lt;key, value&gt;对只能有两个值，在不使用Hadoop自定义数据类型的情况下，需要根据情况将其中的两个值合并成一个值，作为value或key值；</p>
+<p>第二，通过一个Reduce过程无法同时完成词频统计和生成文档列表，所以必须增加一个Combine过程完成词频统计</p>
+<div>
+<pre class="brush: java; gutter: true">public static class InvertedIndexMapper extends Mapper&lt;Object, Text, Text, Text&gt; {
+    private Text keyInfo = new Text();  //存储单词和URI的组合
+    private Text valueInfo = new Text();//存储词频
+    private FileSplit split;            //存储Split对象
+    
+    public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+        //获得&lt;key,value&gt;对所属的FileSplit对象
+        split = (FileSplit)context.getInputSplit();
+        StringTokenizer itr = new StringTokenizer(value.toString());
+        
+        while(itr.hasMoreTokens()) {
+            //key值由单词和URI组成，如"MapReduce:1.txt"
+            keyInfo.set(itr.nextToken() + ":" + split.getPath().toString());
+            // 词频初始为1
+            valueInfo.set("1");
+            context.write(keyInfo, valueInfo);
+        }
+    }
+}</pre>
+
+</div>
+<p>（2）Combine过程</p>
+<p>将key值相同的value值累加，得到一个单词在文档中的词频，如图</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/fac86f77df394927cdfd2d2288889d0a.jpg" rel="lightbox[82607]" title="MapReduce实战：倒排索引"><img class="alignnone size-full wp-image-82610" alt="221942393901921" src="/images/jobbole.com/8317f43498fc14260dd06782d29e83c7.jpg"></a></p>
+<div>
+<pre class="brush: java; gutter: true">public static class InvertedIndexCombiner extends Reducer&lt;Text, Text, Text, Text&gt; {
+    private Text info = new Text();
+    public void reduce(Text key, Iterable&lt;Text&gt;values, Context context) throws IOException, InterruptedException {
+        //统计词频
+        int sum = 0;
+        for(Text value : values) {
+            sum += Integer.parseInt(value.toString());
+        }
+        int splitIndex= key.toString().indexOf(":");
+        
+        //重新设置value值由URI和词频组成
+        info.set(key.toString().substring(splitIndex + 1) + ":" + sum);
+        //重新设置key值为单词
+        key.set(key.toString().substring(0, splitIndex));
+        context.write(key, info);
+    }
+}</pre>
+
+</div>
+<p>（3）Reduce过程</p>
+<p>讲过上述两个过程后，Reduce过程只需将相同key值的value值组合成倒排索引文件所需的格式即可，剩下的事情就可以直接交给MapReduce框架进行处理了</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/38026ed22fc1a91d92b5d2ef93540f20.jpg" rel="lightbox[82607]" title="MapReduce实战：倒排索引"><img class="alignnone size-full wp-image-82611" alt="3" src="/images/jobbole.com/5e5d4ebd2ac4c7767f75437293ec8ee9.jpg"></a></p>
+<div>
+<pre class="brush: java; gutter: true">public static class InvertedIndexReducer extends Reducer&lt;Text, Text, Text, Text&gt; {
+    private Text result = new Text();
+    public void reducer(Text key, Iterable&lt;Text&gt;values, Context context) throws IOException, InterruptedException {
+        //生成文档列表
+        String fileList = new String();
+        for(Text value : values) {
+            fileList += value.toString() + ";";
+        }
+        result.set(fileList);
+        context.write(key, result);
+    }
+}</pre>
+
+</div>
+<p>完整代码如下：</p>
+<div>
+<pre class="brush: java; gutter: true">import java.io.IOException;
+import java.util.StringTokenizer;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
+
+public class InvertedIndex {
+    public static class InvertedIndexMapper extends Mapper&lt;Object, Text, Text, Text&gt; {
+        private Text keyInfo = new Text();
+        private Text valueInfo = new Text();
+        private FileSplit split;
+        
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            split = (FileSplit)context.getInputSplit();
+            StringTokenizer itr = new StringTokenizer(value.toString());
+            
+            while(itr.hasMoreTokens()) {
+                keyInfo.set(itr.nextToken() + ":" + split.getPath().toString());
+                valueInfo.set("1");
+                context.write(keyInfo, valueInfo);
+            }
+        }
+        
+    }
+    public static class InvertedIndexCombiner extends Reducer&lt;Text, Text, Text, Text&gt; {
+        private Text info = new Text();
+        public void reduce(Text key, Iterable&lt;Text&gt;values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+            for(Text value : values) {
+                sum += Integer.parseInt(value.toString());
+            }
+            int splitIndex= key.toString().indexOf(":");
+            info.set(key.toString().substring(splitIndex + 1) + ":" + sum);
+            key.set(key.toString().substring(0, splitIndex));
+            context.write(key, info);
+        }
+    }
+    public static class InvertedIndexReducer extends Reducer&lt;Text, Text, Text, Text&gt; {
+        private Text result = new Text();
+        public void reducer(Text key, Iterable&lt;Text&gt;values, Context context) throws IOException, InterruptedException {
+            String fileList = new String();
+            for(Text value : values) {
+                fileList += value.toString() + ";";
+            }
+            result.set(fileList);
+            context.write(key, result);
+        }
+    }
+    public static void main(String[] args) throws Exception{
+        // TODO Auto-generated method stub
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if(otherArgs.length != 2) {
+            System.err.println("Usage: wordcount &lt;in&gt; &lt;out&gt;");
+            System.exit(2);
+        }
+        Job job = new Job(conf, "InvertedIndex");
+        job.setJarByClass(InvertedIndex.class);
+        job.setMapperClass(InvertedIndexMapper.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(Text.class);
+        job.setCombinerClass(InvertedIndexCombiner.class);
+        job.setReducerClass(InvertedIndexReducer.class);
+        
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+        
+        FileInputFormat.addInputPath(job, new Path(otherArgs[0]));
+        FileOutputFormat.setOutputPath(job, new Path(otherArgs[1]));
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}</pre>
+
+</div>
+<h2>参考资料</h2>
+<p><a href="http://zh.wikipedia.org/wiki/%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95">http://zh.wikipedia.org/wiki/%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95</a></p>
+<p>《实战Hadop：开启通向云计算的捷径.刘鹏》</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-21-82467-53e038f55.html" title="Previous Post: SQL Server调优系列进阶篇（查询优化器的运行方式）" data-instant>&laquo; SQL Server调优系列进阶篇（查询优化器的运行方式）</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-25-82633-cb2017403.html" title="Next Post: 有哪些实用的计算机相关技能，可以在一天内学会？" data-instant>有哪些实用的计算机相关技能，可以在一天内学会？ &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>19 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-19-81676-eae58d6ae.html">MapReduce实例浅析</a></li>
+
+      <li><span>03 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-03-79305-ecaa57b9e.html">浅谈算法和数据结构（7）：二叉查找树</a></li>
+
+      <li><span>19 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-19-81330-79e917487.html">重构遗留代码（11）：终结篇</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

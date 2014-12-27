@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>MapReduce实例浅析</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-19-81676-eae58d6ae.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>MapReduce实例浅析</h1>
+    <p class="meta"><span class="time">Dec 19, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/81676/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<p>在文章《<a href="http://blog.jobbole.com/80619/" target="_blank">MapReduce原理与设计思想</a>》中，详细剖析了MapReduce的原理，这篇文章则通过实例重点剖析MapReduce</p>
+<h2>1.MapReduce概述</h2>
+<div>
+<p>Hadoop Map/Reduce是一个使用简易的软件框架，基于它写出来的应用程序能够运行在由上千个商用机器组成的大型集群上，并以一种可靠容错的方式并行处理上T级别的数据集。</p>
+<p>一个Map/Reduce 作业（job） 通常会把输入的数据集切分为若干独立的数据块，由 <em>map任务（task）</em>以完全并行的方式处理它们。框架会对map的输出先进行排序， 然后把结果输入给<em>reduce任务</em>。通常作业的输入和输出都会被存储在文件系统中。 整个框架负责任务的调度和监控，以及重新执行已经失败的任务。</p>
+<p>通常，Map/Reduce框架和分布式文件系统是运行在一组相同的节点上的，也就是说，计算节点和存储节点通常在一起。这种配置允许框架在那些已经存好数据的节点上高效地调度任务，这可以使整个集群的网络带宽被非常高效地利用。</p>
+<p>Map/Reduce框架由一个单独的master JobTracker 和每个集群节点一个slave TaskTracker共同组成。master负责调度构成一个作业的所有任务，这些任务分布在不同的slave上，master监控它们的执行，重新执行已经失败的任务。而slave仅负责执行由master指派的任务。</p>
+<p>应用程序至少应该指明输入/输出的位置（路径），并通过实现合适的接口或抽象类提供map和reduce函数。再加上其他作业的参数，就构成了<em>作业配置（job configuration）</em>。然后，Hadoop的 <em>job client</em>提交作业（jar包/可执行程序等）和配置信息给JobTracker，后者负责分发这些软件和配置信息给slave、调度任务并监控它们的执行，同时提供状态和诊断信息给job-client。</p>
+<p>虽然Hadoop框架是用Java实现的，但Map/Reduce应用程序则不一定要用 Java来写 。</p>
+<p><img alt="" src="/images/jobbole.com/fa0c8daeccec299d6274456b7f95f2e9.jpg"></p>
+<h2>2.样例分析：单词计数</h2>
+<p><strong>1、WordCount源码分析</strong></p>
+<p>单词计数是最简单也是最能体现MapReduce思想的程序之一，该程序完整的代码可以在Hadoop安装包的src/examples目录下找到</p>
+<p>单词计数主要完成的功能是：统计一系列文本文件中每个单词出现的次数，如图所示：</p>
+<p><img alt="" src="/images/jobbole.com/f8f1609a69e7e2aeb6be826b172c28a5.jpg"></p>
+<p>（1）Map过程</p>
+<p>Map过程需要继承org.apache.hadoop.mapreduce包中的Mapper类，并重写map方法</p>
+<p>通过在map方法中添加两句把key值和value值输出到控制台的代码，可以发现map方法中的value值存储的是文本文件中的一行（以回车符作为行结束标记），而key值为该行的首字符相对于文本文件的首地址的偏移量。然后StringTokenizer类将每一行拆分成一个个的单词，并将&lt;word,1&gt;作为map方法的结果输出，其余的工作都交由MapReduce框架处理。其中IntWritable和Text类是Hadoop对int和string类的封装，这些类能够被串行化，以方便在分布式环境中进行数据交换。</p>
+<p>TokenizerMapper的实现代码如下：</p>
+<pre class="brush: java; gutter: true">public static class TokenizerMapper extends Mapper&lt;Object, Text, Text, IntWritable&gt;{
+    private final static IntWritable one = new IntWritable(1);
+    private Text word = new Text();
+      
+    public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+        System.out.println("key = " + key.toString());//添加查看key值
+        System.out.println("value = " + value.toString());//添加查看value值
+        StringTokenizer itr = new StringTokenizer(value.toString());
+        while (itr.hasMoreTokens()) {
+            word.set(itr.nextToken());
+            context.write(word, one);
+        }
+    }
+}</pre>
+
+<p>（2）Reduce过程</p>
+<p>Reduce过程需要继承org.apache.hadoop.mapreduce包中的Reducer类，并重写reduce方法</p>
+<p>reduce方法的输入参数key为单个单词，而values是由各Mapper上对应单词的计数值所组成的列表，所以只要遍历values并求和，即可得到某个单词的出现总次数</p>
+<p>IntSumReduce类的实现代码如下：</p>
+<pre class="brush: java; gutter: true">public static class IntSumReducer extends Reducer&lt;Text,IntWritable,Text,IntWritable&gt; {
+    private IntWritable result = new IntWritable();
+
+    public void reduce(Text key, Iterable&lt;IntWritable&gt; values, Context context) throws IOException, InterruptedException {
+      int sum = 0;
+      for (IntWritable val : values) {
+          sum += val.get();
+      }
+      result.set(sum);
+      context.write(key, result);
+   }
+}</pre>
+
+<p>（3）执行MapReduce任务</p>
+<p>在MapReduce中，由Job对象负责管理和运行一个计算任务，并通过Job的一些方法对任务的参数进行相关的设置。此处设置了使用TokenizerMapper完成Map过程和使用的IntSumReduce完成Combine和Reduce过程。还设置了Map过程和Reduce过程的输出类型：key的类型为Text，value的类型为IntWritable。任务的输入和输出路径则由命令行参数指定，并由FileInputFormat和FileOutputFormat分别设定。完成相应任务的参数设定后，即可调用job.waitForCompletion()方法执行任务，主函数实现如下：</p>
+<pre class="brush: java; gutter: true">public static void main(String[] args) throws Exception {
+    Configuration conf = new Configuration();
+    String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+    if (otherArgs.length != 2) {
+      System.err.println("Usage: wordcount &lt;in&gt; &lt;out&gt;");
+      System.exit(2);
+    }
+    Job job = new Job(conf, "word count");
+    job.setJarByClass(wordCount.class);
+    job.setMapperClass(TokenizerMapper.class);
+    job.setCombinerClass(IntSumReducer.class);
+    job.setReducerClass(IntSumReducer.class);
+    job.setOutputKeyClass(Text.class);
+    job.setOutputValueClass(IntWritable.class);
+    FileInputFormat.addInputPath(job, new Path(otherArgs[0]));
+    FileOutputFormat.setOutputPath(job, new Path(otherArgs[1]));
+    System.exit(job.waitForCompletion(true) ? 0 : 1);
+  }
+}</pre>
+
+<p>运行结果如下：</p>
+<p><span style="color: #ff0000">14/12/17 05:53:26 INFO jvm.JvmMetrics: Initializing JVM Metrics with processName=JobTracker, sessionId=</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO mapred.JobClient: Running job: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 05:53:26 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+key = 0<br>
+value = Hello World<br>
+key = 12<br>
+value = Bye World<br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Starting flush of map output</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Starting flush of map output</span><br>
+key = 0<br>
+value = Hello Hadoop<br>
+key = 13<br>
+value = Bye Hadoop<br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000001_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000001_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.Merger: Merging 2 sorted segments</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.Merger: Down to the last merge-pass, with 2 segments left of total size: 73 bytes</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task:attempt_local_0001_r_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task attempt_local_0001_r_000000_0 is allowed to commit now</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO output.FileOutputCommitter: Saved output of task ‘attempt_local_0001_r_000000_0′ to out</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.LocalJobRunner: reduce &gt; reduce</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.TaskRunner: Task ‘attempt_local_0001_r_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: map 100% reduce 100%</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Job complete: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Counters: 14</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: FileSystemCounters</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: FILE_BYTES_READ=17886</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: HDFS_BYTES_READ=52932</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: FILE_BYTES_WRITTEN=54239</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: HDFS_BYTES_WRITTEN=71431</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map-Reduce Framework</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce input groups=4</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Combine output records=6</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map input records=4</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce shuffle bytes=0</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce output records=4</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Spilled Records=12</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map output bytes=78</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Combine input records=8</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Map output records=8</span><br>
+<span style="color: #ff0000">14/12/17 05:53:27 INFO mapred.JobClient: Reduce input records=6</span></p>
+<p>2、WordCount处理过程</p>
+<p>上面给出了WordCount的设计思路和源码，但是没有深入细节，下面对WordCount进行更加详细的分析：</p>
+<p>（1）将文件拆分成splits，由于测试用的文件较小，所以每一个文件为一个split，并将文件按行分割成&lt;key, value&gt;对，如图，这一步由Mapreduce框架自动完成，其中偏移量包括了回车所占的字符</p>
+<p>（2）将分割好的&lt;key, value&gt;对交给用户定义的map方法进行处理，生成新的&lt;key, value&gt;对</p>
+<p>（3）得到map方法输出的&lt;key, value&gt;对后，Mapper会将它们按照key值进行排序，并执行Combine过程，将key值相同的value值累加，得到Mapper的最终输出结果，如图：</p>
+<p><img alt="" src="/images/jobbole.com/33003804bf2c324f3255fd6bdf4de91d.jpg"></p>
+<p>（4）Reduce先对从Mapper接收的数据进行排序，再交由用户自定义的reduce方法进行处理，得到新的&lt;key, value&gt;对，并作为WordCount的输出结果，如图：</p>
+<p><img alt="" src="/images/jobbole.com/2b44260ecff000a48f1ab45b123b78f0.jpg"></p>
+<h2>3.MapReduce，你够了解吗？</h2>
+<p>MapReduce框架在幕后默默地完成了很多的事情，如果不重写map和reduce方法，会出现什么情况呢？</p>
+<p>下面来实现一个简化的MapReduce，新建一个LazyMapReduce，该类只对任务进行必要的初始化及输入/输出路径的设置，其余的参数均保持默认</p>
+<p>代码如下：</p>
+<pre class="brush: java; gutter: true">public class LazyMapReduce {
+    public static void main(String[] args) throws Exception {
+        // TODO Auto-generated method stub
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if(otherArgs.length != 2) {
+            System.err.println("Usage:wordcount&lt;in&gt;&lt;out&gt;");
+            System.exit(2);
+        }
+        Job job = new Job(conf, "LazyMapReduce");
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        System.exit(job.waitForCompletion(true)? 0:1);
+    }
+}</pre>
+
+<p>运行结果为：</p>
+<p><span style="color: #ff0000">14/12/17 23:04:13 INFO jvm.JvmMetrics: Initializing JVM Metrics with processName=JobTracker, sessionId=</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO mapred.JobClient: Running job: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO input.FileInputFormat: Total input paths to process : 2</span><br>
+<span style="color: #ff0000">14/12/17 23:04:14 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 23:04:15 INFO mapred.JobClient: map 0% reduce 0%</span><br>
+<span style="color: #ff0000">14/12/17 23:04:18 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 23:04:18 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+<span style="color: #ff0000">14/12/17 23:04:18 INFO mapred.MapTask: Starting flush of map output</span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:19 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: io.sort.mb = 100</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: data buffer = 79691776/99614720</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: record buffer = 262144/327680</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: Starting flush of map output</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.MapTask: Finished spill 0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task:attempt_local_0001_m_000001_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task ‘attempt_local_0001_m_000001_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.Merger: Merging 2 sorted segments</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.Merger: Down to the last merge-pass, with 2 segments left of total size: 90 bytes</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task:attempt_local_0001_r_000000_0 is done. And is in the process of commiting</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: </span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task attempt_local_0001_r_000000_0 is allowed to commit now</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO output.FileOutputCommitter: Saved output of task ‘attempt_local_0001_r_000000_0′ to out</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.LocalJobRunner: reduce &gt; reduce</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.TaskRunner: Task ‘attempt_local_0001_r_000000_0′ done.</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: map 100% reduce 100%</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Job complete: job_local_0001</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Counters: 14</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: FileSystemCounters</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: FILE_BYTES_READ=46040</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: HDFS_BYTES_READ=51471</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: FILE_BYTES_WRITTEN=52808</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: HDFS_BYTES_WRITTEN=98132</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map-Reduce Framework</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce input groups=3</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Combine output records=0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map input records=4</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce shuffle bytes=0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce output records=4</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Spilled Records=8</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map output bytes=78</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Combine input records=0</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Map output records=4</span><br>
+<span style="color: #ff0000">14/12/17 23:04:20 INFO mapred.JobClient: Reduce input records=4</span></p>
+<p>可见在默认情况下，MapReduce原封不动地将输入&lt;key, value&gt;写到输出</p>
+<p>下面介绍MapReduce的部分参数及其默认设置：</p>
+<p>（1）InputFormat类</p>
+<p>该类的作用是将输入的数据分割成一个个的split，并将split进一步拆分成&lt;key, value&gt;对作为map函数的输入</p>
+<p>（2）Mapper类</p>
+<p>实现map函数，根据输入的&lt;key, value&gt;对生产中间结果</p>
+<p>（3）Combiner</p>
+<p>实现combine函数，合并中间结果中具有相同key值的键值对。</p>
+<p>（4）Partitioner类</p>
+<p>实现getPartition函数，用于在Shuffle过程按照key值将中间数据分成R份，每一份由一个Reduce负责</p>
+<p>（5）Reducer类</p>
+<p>实现reduce函数，将中间结果合并，得到最终的结果</p>
+<p>（6）OutputFormat类</p>
+<p>该类负责输出最终的结果</p>
+<p>上面的代码可以改写为:</p>
+<pre class="brush: java; gutter: true">public class LazyMapReduce {
+    public static void main(String[] args) throws Exception {
+        // TODO Auto-generated method stub
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if(otherArgs.length != 2) {
+            System.err.println("Usage:wordcount&lt;in&gt;&lt;out&gt;");
+            System.exit(2);
+        }
+        Job job = new Job(conf, "LazyMapReduce");
+        job.setInputFormatClass(TextInputFormat.class);
+        job.setMapperClass(Mapper.class);
+        
+        job.setMapOutputKeyClass(LongWritable.class);
+        job.setMapOutputValueClass(Text.class);
+        job.setPartitionerClass(HashPartitioner.class);
+        job.setReducerClass(Reducer.class);
+        
+        job.setOutputKeyClass(LongWritable.class);
+        job.setOutputValueClass(Text.class);
+        job.setOutputFormatClass(FileOutputFormat.class);
+        
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        System.exit(job.waitForCompletion(true)? 0:1);
+    }
+}</pre>
+
+<p>不过由于版本问题，显示有些类已经过时</p>
+<h2><strong>参考资料</strong></h2>
+<p>《实战Hadop：开启通向云计算的捷径.刘鹏》</p>
+
+</div>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-19-81330-79e917487.html" title="Previous Post: 重构遗留代码（11）：终结篇" data-instant>&laquo; 重构遗留代码（11）：终结篇</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-19-kibana-4-beta-3-now-more-filtery-a351cc0d7.html" title="Next Post: 【翻译】Kibana 4 beta 3 发布，重新支持过滤器" data-instant>【翻译】Kibana 4 beta 3 发布，重新支持过滤器 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>24 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-24-82607-e1c6c09df.html">MapReduce实战：倒排索引</a></li>
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

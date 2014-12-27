@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL Server调优系列基础篇（子查询运算总结）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-12-21-82459-896aaf6f8.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL Server调优系列基础篇（子查询运算总结）</h1>
+    <p class="meta"><span class="time">Dec 21, 2014</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/82459/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<p><strong>前言</strong></p>
+<p>前面我们的几篇文章介绍了一系列关于运算符的介绍，以及各个运算符的优化方式和技巧。其中涵盖：查看执行计划的方式、几种数据集常用的连接方式、联合运算符方式、并行运算符等一系列的我们常见的运算符。有兴趣的童鞋可以点击查看。</p>
+<p>本篇我们介绍关于子查询语句的一系列内容，子查询一般是我们形成复杂查询的一些基础性操作，所以关于子查询的应用方式就非常重要。</p>
+<p>废话少说，开始本篇的正题。</p>
+<p><strong>技术准备</strong></p>
+<p>数据库版本为SQL Server2008R2，利用微软的一个更简洁的案例库（Northwind）进行分析。</p>
+<p><strong>一、独立的子查询方式</strong></p>
+<p>所谓的独立的子查询方式，就是说子查询和主查询没有相关性，这样带来的好处就是子查询不依赖于外部查询，所以可以独立外部查询而被评估，形成自己的执行计划执行。</p>
+<p>举个例子</p>
+<pre class="brush: sql; gutter: true">SELECT O1.OrderID,O1.Freight
+FROM Orders O1
+WHERE O1.Freight&gt;
+(
+   SELECT AVG(O2.Freight)
+   FROM Orders O2
+)</pre>
+
+<p>这句SQL执行的目标是查询订单中运费大于平均运费数的订单。</p>
+<p>这里提取平均运费的子句就是一个完全独立的子查询，完全不依赖主查询而独立执行。同时这里我们这里利用利用一个标量计算（AVG），因此正好返回一行。</p>
+<p>查看一下该语句的查询计划：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/b8ea7007df5dbcb7acc84c7ea1d87d35.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82469" alt="pic1" src="/images/jobbole.com/2ef5f6f30fb5d50870f67a8fa220f754.jpg"></a></p>
+<p>这个查询计划没啥好介绍的，关于子查询的执行计划形成可以参照我的第二篇：<a href="http://blog.jobbole.com/81182/" target="_blank">SQL Server调优系列基础篇（常用运算符总结）</a></p>
+<p>不过这里需要提示一下就是，关于流聚合和计算标量形成的结果值（AVG）只包含一个结果值，所以该语句能正常的执行。</p>
+<p>我们再来看另外一种情况</p>
+<pre class="brush: sql; gutter: true">SELECT O.OrderID
+FROM Orders O
+WHERE O.CustomerID=
+(
+   SELECT C.CustomerID
+   FROM Customers C
+   WHERE C.ContactName=N'Maria Anders'
+)</pre>
+
+<p>该语句的也是获取名字为’Maria Anders’的顾客有多少订单。这句T-SQL语句能否执行的前提是在顾客表里存不存在同名的“’Maria Anders’”顾客，如果存在同名情况，该语句就不能正确执行，而如果恰巧只有一名顾客为’Maria Anders’，则能正常执行。</p>
+<p>我们来分析一下对于这种执行的时候才能判断能否正确执行的SQL Server如何判断的。</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/e6492c6a731d44402737bf08032a5cd8.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82471" alt="pic2" src="/images/jobbole.com/c6402bdab7b9069c19c4c33f3224f09b.jpg"></a></p>
+<p> </p>
+<p>在这里出现了一个新的运算符，名字是：断言。我们用文本执行计划来查看一下，这个运算符的主要功能是什么</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/44359f0078a64fbc57f2485f8af558d1.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82474" alt="pic3" src="/images/jobbole.com/734538939353a6b0c3848754dd6a5c62.jpg"></a></p>
+<p> </p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/fb5fabf73a5d46c19fb390901dbdaecb.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82475" alt="pic4" src="/images/jobbole.com/87985cf5f1dfb226990e728e9c0e98a9.jpg"></a></p>
+<p> </p>
+<p>经过上面的分析，我们已经分析出了上面的“断言”运算符的作用，因为我们的子查询语句不能保证返回的结果为一行，所以，这里引入了一个断言运算符来做判断。</p>
+<p>所以，断言的作用就是根据下文的条件，判断子查询句的查询结果是否满足主语句的查询要求。</p>
+<p>如果，断言发现子语句不满足，就会直接报错，比如上面的Expr1005&gt;1</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/e71e6c1e0311333eaf86c6f90015e0e6.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82476" alt="pic5" src="/images/jobbole.com/ab5cdcbd95b4f8336962f260ab8e1fa3.jpg"></a></p>
+<p> </p>
+<p>并且，断言运算符还经常用来检测其它条件是否满足，比如：约束条件、参数类型、值长度等。</p>
+<p>其实，这里断言要解决的问题就是判断我们的筛选条件中ContactName中的值是否存在重复值的，对于这种判断相对性能消耗还是比较小的，有时候对于别的复杂的断言操作需要消耗大量资源，所以我们就可以根据适当情况情况避免断言操作。</p>
+<p>比如，上面的语句我们可以明确的告诉SQL Server在表Customers中ContactName列就不存在重复值，它就不需要断言了。我们在上面建立一个：<strong>唯一、非聚集索引</strong>实现。</p>
+<pre class="brush: sql; gutter: true">CREATE UNIQUE INDEX ContactNameIndex ON Customers(ContactName)
+GO
+SELECT O.OrderID
+FROM Orders O
+WHERE O.CustomerID=
+(
+   SELECT C.CustomerID
+   FROM Customers C
+   WHERE C.ContactName=N'Maria Anders'
+)
+drop index Customers.ContactNameIndex
+GO</pre>
+
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/ea2364f25dbcbb9f760966c0a074055b.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82477" alt="pic6" src="/images/jobbole.com/a0e298f4857de7a50525704978eb9258.jpg"></a></p>
+<p> </p>
+<p>经过我们唯一非聚集索引的提示，SQL Server已经明确的知道我们的子查询语句不会返回多行的情况，所以就去掉了断言操作。</p>
+<p><strong>二、相关的子查询方式</strong></p>
+<p>相比上面的独立子查询方式，这里的相关的子查询方式相对复杂点，就是我们的子查询依赖于主查询的的结果，对于这种子查询就不能单独执行。</p>
+<p>我们来看个这样的子查询例子</p>
+<pre class="brush: sql; gutter: true">SELECT O1.OrderID
+FROM Orders O1
+WHERE O1.Freight&gt;
+(
+   SELECT AVG(O2.Freight)
+   FROM Orders O2
+   WHERE O2.OrderDate&lt;O1.OrderDate
+)</pre>
+
+<p>这个语句就是返回之前订单中运费量大于平均值的顶点编号。</p>
+<p>语句很简单的逻辑，但是这里面的子查询就依赖于主查询的结果项，筛选条件中 WHERE O2.OrderDate&lt;O1.OrderDate，所以这个子查询就不能独立运行。</p>
+<p>我们来看一下这个语句的执行计划</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/335ca6ae128e1e9ed929fc7172020673.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82478" alt="pic7" src="/images/jobbole.com/be6d65ae1b6833aa278db3063a54568e.jpg"></a></p>
+<p> </p>
+<p>这里的查询计划有出现了一个新的运算符：索引假脱机。</p>
+<p>其实，关于索引假脱机的作用主要是用于子查询的独立运行，因为我们知道这里的子查询的查询条件是依赖于主查询的，所以，这里想运行的话就的先提前获取出主查询的结果项，而这里获取的主查询的结果项需要一个中间表来暂存，这里暂存的工具就是：(索引池)Index Spool，而对这个索引池的操作，比如：新建、增加等操作就是上面我们所标示的“索引假脱机”了。</p>
+<p>索引假脱机分为两种：Eager Spool和Lazy Spool，其实简单点讲就是需不需要立刻将结果存入Index Spool里面，还是通过延迟操作。</p>
+<p>而这里形成的索引池（Index Spool）是存放于系统的临时库Tempdb中。</p>
+<p>我们通过文本查询计划，来分析下两个索引假脱机里面的值是什么</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/a2bf5f40dd19e648ff84280352a52403.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82479" alt="pic8" src="/images/jobbole.com/10c2faa408bab295a03214bdfdfaa9bd.jpg"></a></p>
+<p> </p>
+<p>经过上面的分析，我们已经看到了，里面的Eager Spool是和主查询比较形成的结果值，因为这个必须要及时的形成，以便于子查询的进行，所以它的类型为Eager Spool，</p>
+<p>而子查询外面的那个Index Spool为Lazy Spool，这个结果项的保存不需要那么及时了，这个保存的就是子查询的形成的结果项了，就是相对每个订单运费的平均值。</p>
+<p>我上面的分析，希望各位看官能看懂了。</p>
+<p><span style="color: #ff0000;">其实，关于这个Index Spool的设计的目的，完全为了就是提升性能，因为我们知道上面的查询语句每个子查询的进行，都必须回调主查询的结果，所以为了避免每次都回调，就采用了Index Spool进行暂存，而这个Index Spool存储的位置就是Tempdb，所以Tempdb运行的快慢直接关乎这种查询语句的性能。</span></p>
+<p>这也是我们为什么强调大并发的数据库搭建，建议将Tempdb库单独存放于高性能的硬件环境中。</p>
+<p><strong>Index Spool</strong> 物理运算符在<strong> Argument</strong> 列中包含 SEEK:() 谓词。<strong>Index Spool</strong> 运算符扫描其输入行，将每行的副本放置在隐藏的假脱机文件（存储在<strong> tempdb</strong> 数据库中且只在查询的生存期内存在）中，并为这些行创建非聚集索引。这样可以使用索引的查找功能来仅输出那些满足 SEEK:() 谓词的行。</p>
+<p>如果重绕该运算符（例如通过 <strong>Nested Loops</strong> 运算符重绕），但不需要任何重新绑定，则将使用假脱机数据，而不用重新扫描输入。</p>
+<p>跟索引脱机类似的还有一个相似的运算符：表脱机，其功能类似，表脱机存储的应该是键值列，而表脱机则是存储的是多列数据了。</p>
+<p>来看例子</p>
+<pre class="brush: sql; gutter: true">SELECT O1.OrderID,O1.Freight
+FROM Orders O1
+WHERE O1.Freight&gt;
+(
+   SELECT AVG(O2.Freight)
+   FROM Orders O2
+   WHERE O2.CustomerID=O1.CustomerID
+)</pre>
+
+<p>这个查询和上面的类似，只不过是查询的同一个客户加入的超过所有订单运费平均值的订单。</p>
+<p>此语句同样不是独立的子查询语句，每个子查询的结果的形成都需要依赖主查询的结果项，为了加快速度，提升性能，SQL Server会将主表查询的的结果项暂存到一张临时表中，这个表就被称为<strong>表脱机</strong></p>
+<p>我们来看这句话的执行计划：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/0575c5ca0afa3e2b875c1c249b55a70c.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82483" alt="pic9" src="/images/jobbole.com/5cdde8e32f1ecb0d4aef0c75c054745e.jpg"></a></p>
+<p> </p>
+<p>这里就用到了一个表脱机的运算符，这个运算符的作用就是用来暂存后面扫描获取的结果集合，用于下面的子查询的应用</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/906605f3561557653801a07c547757a4.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82484" alt="pic10" src="/images/jobbole.com/14029c4186bdbf8efcbb4ff70645ec0c.jpg"></a></p>
+<p> </p>
+<p>这个表脱机形成的结果项也是存储到临时库Tempdb中，所以它的应用和前面提到的索引脱机类似。</p>
+<p>上面的执行计划中，还提到了一个新的运算符：段（Segment）</p>
+<p>这个运算符的解释是：<br>
+<strong>Segment</strong> 既是一个物理运算符，也是一个逻辑运算符。它基于一个或多个列的值将输入集划分成多个段。这些列显示为 Segment 运算符中的参数。然后运算符每次输出一个段。</p>
+<p>其实作用就是将结果进行汇总整理，将相同值汇聚到一起，跟排序一样，只不过这里可以对多列值进行汇聚。</p>
+<p>我们再来看一个例子，加深 一下关于段运算的作用</p>
+<pre class="brush: sql; gutter: true">SELECT CustomerID,O1.OrderID,O1.Freight
+FROM Orders O1
+WHERE O1.Freight=
+(
+   SELECT MAX(O2.Freight)
+   FROM Orders O2
+   WHERE O2.CustomerID=O1.CustomerID
+)</pre>
+
+<p>这个语句查询的是：<span style="color: #ff0000;">每个顾客所产生的最大运费的订单数据。</span></p>
+<p>以上语句，如果理解起来有难度，我们可以变通以下的相同逻辑的T-SQL语句，相同的逻辑</p>
+<pre class="brush: sql; gutter: true">SELECT O1.CustomerID,O1.OrderID,O1.Freight 
+FROM Orders O1
+INNER JOIN
+(
+    SELECT CustomerID,max(Freight) Freight
+    FROM Orders
+    GROUP BY CustomerID
+) AS O2
+ON O1.CustomerID=O2.CustomerID
+AND O1.Freight=O2.Freight</pre>
+
+<p>先根据客户编号分组，然后获取出最大的运费项，再关联主表获取订单信息。</p>
+<p>以上两种语句生成的相同的查询计划：</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/45030f060cb9e34f61b6868ecff171a9.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82486" alt="pic11" src="/images/jobbole.com/59333e03d1e5ef246d3107f52f143be4.jpg"></a></p>
+<p> </p>
+<p>这里我们来解释一下，SQL Server的强大之处，也是段运算符使用的最佳方式。</p>
+<p>本来这句话要实现，按照逻辑需要有一个嵌套循环连接，参照上面的方式，使用表脱机的方式进行数据的获取。</p>
+<p>但是，我们这句话获取的结果项是每个顾客的最大运费的订单明细项，而且CustomerID列作为输出项，所以这里采用了，先按照运费列（Freight）排序，</p>
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/3fccd101141eb64fa36763ecf8f2654f.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82487" alt="pic12" src="/images/jobbole.com/1e08afa099325dcaa29f21e1ad46f902.jpg"></a></p>
+<p> </p>
+<p>然后采用段运算符进行将每个顾客相同的数据汇聚到一起，然后再输出每个顾客的前一列（TOP 1）获取的就是最每个顾客的运费最大的订单项。</p>
+<p>省去了任何的表假脱机、索引假脱机、关联连接等一系列复杂的操作。</p>
+<p>SQL Server看来这种智能化的操作还是挺强的。</p>
+<p> </p>
+<p>我们再来分析SQL Server关于子查询这块的智能特性，因为经过上面的分析通过对比，相关的子查询语句在运行时需要更多的消耗：</p>
+<p>1、有时候需要通过索引假脱机（Index Spool）、表脱机（Table Spool）进行中间结果项的暂存，而这一过程的中间项需要创建、增加、删除、销毁等操作都需要消耗大量的内存和CPU</p>
+<p>2、关于相关子查询中以上提到的中间项的形成都是位于Tempdb临时库中，有时候会增大Tempdb的空间，增加Tempdb库的消耗、页争用等问题。</p>
+<p>所以，要避免上面的问题，最好的方式是避免使用相关子查询，尽量使用独立子查询进行操作。</p>
+<p>当然，SQL Server同样提供了自动转换的功能，智能的去分析语句，避免相关的子查询操作进行：</p>
+<p>来看一个稍差的写法：</p>
+<pre class="brush: sql; gutter: true">SELECT o.OrderID 
+FROM Orders O
+WHERE EXISTS
+(
+   SELECT c.CustomerID
+   FROM  Customers C
+   WHERE C.City=N'Londom' AND C.CustomerID=O.CustomerID
+)</pre>
+
+<p><a href="http://jbcdn2.b0.upaiyun.com/2014/12/d87682b10d42449d80fdbc2a183a329d.png" rel="lightbox[82459]" title="SQL Server调优系列基础篇（子查询运算总结）"><img class="alignnone size-full wp-image-82488" alt="pic13" src="/images/jobbole.com/6e8e6d7717022ea2757acf7dbe11ed8b.jpg"></a></p>
+<p> </p>
+<p>上面的语句，我们写的是相关的子查询操作，但是在执行计划中形成的确实独立的子查询，这样从而避免相关的子查询所带来的性能消耗。</p>
+<p>其实上面语句，相对好的写法是如下</p>
+<pre class="brush: sql; gutter: true">SELECT o.OrderID 
+FROM Orders O
+WHERE O.CustomerID IN
+(
+   SELECT c.CustomerID
+   FROM  Customers C
+   WHERE C.City=N'Londom'
+)</pre>
+
+<p>这样所形成的就是完全独立的子查询，这也是SQL Server要执行的意图。所以这个语句形成的查询计划是和上面的查询计划一样。</p>
+<p>这里的优化全部得益于SQL Server的智能化。</p>
+<p>但是我们在写语句的时候，需要自己了解，掌握好，这样才能写出高效的T-SQL语句。</p>
+<p><strong>参考文献</strong></p>
+<ul>
+<li>微软联机丛书逻辑运算符和物理运算符引用</li>
+<li>参照书籍《SQL.Server.2005.技术内幕》系列</li>
+</ul>
+<p><strong>结语</strong></p>
+<p>本篇篇幅有点长，但是介绍的子查询内容也还不是很全，后续慢慢的补充上，我们写的SQL语句中很多都涉及到子查询，所以这块应用还是挺普遍的。到本篇文章关于日常调优的T-SQL中的查询语句经常用到的一些运算符基本介绍全了，当然，还有一些别的增删改一系列的运算符，这些日常生活中我们一般不采用查询计划调优，后续我们的文章会将这些运算符也添加上，以供参考之用。</p>
+<p>在完成本系列关于查询计划相关的调优之后，我打算将数据库有关统计信息这块也做一个详细的分析介绍。因为统计信息是支撑SQL Server评估最优执行计划的最重要的决策点，</p>
+<p>所以统计信息的重要性不言而喻。有兴趣的童鞋可以提前关注。</p>
+<p>关于SQL Server性能调优的内容涉及面很广，后续文章中依次展开分析。</p>
+<p>有问题可以留言或者私信，随时恭候有兴趣的童鞋加入SQL SERVER的深入研究。共同学习，一起进步。</p>
+
+        			<div class="textwidget">
+</div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2014/2014-12-19-kibana-4-beta-3-now-more-filtery-a351cc0d7.html" title="Previous Post: 【翻译】Kibana 4 beta 3 发布，重新支持过滤器" data-instant>&laquo; 【翻译】Kibana 4 beta 3 发布，重新支持过滤器</a>
+
+    <a class="basic-alignment right" href="/posts/2014/2014-12-21-82467-53e038f55.html" title="Next Post: SQL Server调优系列进阶篇（查询优化器的运行方式）" data-instant>SQL Server调优系列进阶篇（查询优化器的运行方式） &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>21 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-21-82467-53e038f55.html">SQL Server调优系列进阶篇（查询优化器的运行方式）</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81193-13e555725.html">SQL Server调优系列基础篇（索引运算总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
