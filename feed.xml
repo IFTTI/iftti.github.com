@@ -5,9 +5,350 @@
     <description>[IT技术干货iftti.com] @KernelHacks</description>
     <link>http://iftti.com/</link>
     <atom:link href="http://iftti.com/feed.xml" rel="self" type="application/rss+xml" />
-    <pubDate>Sat, 27 Dec 2014 12:46:42 +0800</pubDate>
-    <lastBuildDate>Sat, 27 Dec 2014 12:46:42 +0800</lastBuildDate>
+    <pubDate>Fri, 09 Jan 2015 11:00:48 +0800</pubDate>
+    <lastBuildDate>Fri, 09 Jan 2015 11:00:48 +0800</lastBuildDate>
     <generator>Jekyll v2.2.0</generator>
+    
+      <item>
+        <title>给 Kibana3 添加脚本化字段支持</title>
+        <description>
+
+  
+  &lt;div style=&quot;background-color: #FFF;&quot;&gt;
+    &lt;p&gt;Kibana4 中确实有不少让人眼前一亮的新特性，但是整体框架和使用思路上的重构实在让人较难上手。所以，把一些有需要的特性，port 回目前更稳定的 Kibana3 就有必要了。好在去年在自己 fork 中已经做了很多铺垫，包括一些基础库的版本更新。这些特性基本都只需要几行代码的变动就可以实现。&lt;/p&gt;
+&lt;p&gt;从上次写博客介绍的 uniq histogram 去重统计功能后，这段时间又添加了两个功能。&lt;/p&gt;
+&lt;h2 id=&quot;table-&quot;&gt;table 的数据导出&lt;/h2&gt;
+&lt;p&gt;kibana3 已经带有 &lt;a href=&quot;https://github.com/eligrey/FileSaver.js&quot;&gt;filesaver.js&lt;/a&gt;，所以加一个 &lt;code&gt;exportAsCsv&lt;/code&gt; 函数即可。要点在于怎么给 table panel 右上角那排小按钮加上一个新图标。&lt;/p&gt;
+&lt;p&gt;我之前说过，kibana3 代码划分的很细致，每个 panel 都固定只需要提供 editor.html，module.html，module.js 三个文件即可。panel 本身的框架，是不用关心的。因为这部分代码，在 &lt;code&gt;app/directives/kibanaPanel.js&lt;/code&gt; 中。这次我们想修改 panel 外围的样式，就需要来看这个的代码了。最关键的部分在这里：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;s1&quot;&gt;&#39;&amp;lt;span ng-repeat=&quot;task in panelMeta.modals&quot; class=&quot;row-button extra&quot; ng-show=&quot;task.show&quot;&amp;gt;&#39;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;
+              &lt;span class=&quot;s1&quot;&gt;&#39;&amp;lt;span bs-modal=&quot;task.partial&quot; class=&quot;pointer&quot;&amp;gt;&amp;lt;i &#39;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;
+                &lt;span class=&quot;s1&quot;&gt;&#39;bs-tooltip=&quot;task.description&quot; ng-class=&quot;task.icon&quot; class=&quot;pointer&quot;&amp;gt;&amp;lt;/i&amp;gt;&amp;lt;/span&amp;gt;&#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;
+            &lt;span class=&quot;s1&quot;&gt;&#39;&amp;lt;/span&amp;gt;&#39;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;也就是说，它会读取你在 module.js 里定义的 &lt;code&gt;$scope.panelMeta.modals&lt;/code&gt; 数组，然后依次显示。那么就好办了，在我们 table/module.js 里定义下就好了：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panelMeta&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+       &lt;span class=&quot;nx&quot;&gt;modals&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;
+         &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+          &lt;span class=&quot;nx&quot;&gt;description&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;Export&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+          &lt;span class=&quot;nx&quot;&gt;icon&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;icon-download-alt&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+          &lt;span class=&quot;nx&quot;&gt;partial&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;s2&quot;&gt;&quot;app/panels/table/export.html&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+          &lt;span class=&quot;nx&quot;&gt;show&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;exportable&lt;/span&gt;
+        &lt;span class=&quot;p&quot;&gt;},&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;为了跟其他的比如 inspector, editor 图标行为一致，这里又新增了一个 &lt;code&gt;$scope.panel.exportable&lt;/code&gt; 变量。而这也带来一个问题：之前已经存在的 dashboard，他们的 schema 里是没有这个变量的，所以即便使用带有这个特性的 kibana 打开老 dashboard，依然看不到导出按钮。这时候，可以手动修改一下 schema 的 JSON 内容，添加上一行 &lt;a href=&quot;https://github.com/chenryn/kibana-authorization/blob/master/src/app/dashboards/logstash.json#L138&quot;&gt;&lt;code&gt;&quot;exportable&quot;: true&lt;/code&gt;&lt;/a&gt;，也可以点击 panel 上的 dup 复制按钮，复制出来的 panel 会读取默认变量设置，就会出现导出按钮了。然后删掉原 panel ，保存 dashboard 即可。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;/strong&gt;：导出的数据只是 table 里的内容，这只是一个 js 功能。不要把它理解成调用 scroll API 获取 Elasticsearch 集群里的全部数据。&lt;/p&gt;
+&lt;h2 id=&quot;scriptfield-&quot;&gt;scriptField 聚合&lt;/h2&gt;
+&lt;p&gt;Kibana4beta3 的另一个重要特性，是可以预定义一段 script 为 scriptedField，然后在搜索、聚合的时候可以当做普通 field 一样使用这个 scriptedField。示例见官方博客说明(可以直接看&lt;a href=&quot;http://chenlinux.com/2014/12/19/kibana-4-beta-3-now-more-filtery/&quot;&gt;我的翻译&lt;/a&gt;)。至于 script 本身能在 Elasticsearch 里做些什么，之前博客里也写过&lt;a href=&quot;http://chenlinux.com/2014/11/27/elasticsearch-scripts-aggregations/&quot;&gt;两个小示例&lt;/a&gt;。&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;动态 script 功能在 ES 1.4 之前是因为安全问题被建议关闭的。1.4 开始加入了沙箱功能，才这么大胆的使用。&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;我印象中 script field 应该是不能保存在 mapping 里的，于是稍微看了一下 kibana4 的代码，疑似是另外用一个索引来存储这个信息。&lt;em&gt;不确保是这样，kibana4 的代码比 kibana3 难懂多了。&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;kibana3 整个界面结构跟 kibana4 不一样，没有单独的字段管理页面，而是通过 &lt;code&gt;app/services/fields.js&lt;/code&gt; 提供了 &lt;code&gt;fields.list&lt;/code&gt; 在各个 panel 的 editor.html 里做 &lt;code&gt;bs-typeahead&lt;/code&gt;。所以，如果完整的思路 port 回来，应该是写一个 &lt;em&gt;app/services/scriptFields.js&lt;/em&gt; 来提供 scriptedField 的增删改查，然后还要自己写个页面来提供操作界面。&lt;/p&gt;
+&lt;p&gt;作为页面手残党，我迅速决定放弃这个思路，选择一个更简单的方式来完成类似目的：直接在最常用的 terms panel 里提供输入 script 字符串的功能，反正每个 dashboard 最后会固化成 JSON 的。而且其他 panel 应该不太会用到这个功能(如果要在 table 里也实现，改动又稍大了。Kibana4 里我猜测应该是直接返回勾选的 fields，这个接口是支持 script 的；Kibana3 里则是返回全部字段，然后在 js 里完成的表格字段选择性展示)。&lt;/p&gt;
+&lt;p&gt;terms panel 中对类似情况就有示例在。这里本是有个 &lt;code&gt;tmode&lt;/code&gt; 参数，用来选择是用 termsFacet 还是 termstatsFacet API。照葫芦画瓢，我新加了一个 &lt;code&gt;fmode&lt;/code&gt; 参数，用来选择是普通字段(“normal”)还是脚本字段(“script”)：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-html&quot; data-lang=&quot;html&quot;&gt;&lt;span class=&quot;nt&quot;&gt;&amp;lt;div&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;class=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;editor-option&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;ng-show=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;panel.fmode == &#39;script&#39;&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&amp;lt;label&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;class=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;small&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;ScriptField&lt;span class=&quot;nt&quot;&gt;&amp;lt;/label&amp;gt;&lt;/span&gt;
+        &lt;span class=&quot;nt&quot;&gt;&amp;lt;input&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;type=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;text&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;class=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;input-large&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;ng-model=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;panel.script&quot;&lt;/span&gt; &lt;span class=&quot;na&quot;&gt;ng-change=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;set_refresh(true)&quot;&lt;/span&gt;&lt;span class=&quot;nt&quot;&gt;&amp;gt;&lt;/span&gt;
+      &lt;span class=&quot;nt&quot;&gt;&amp;lt;/div&amp;gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;然后在生成 request 的时候，做一下判断：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;fmode&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;===&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;script&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+          &lt;span class=&quot;nx&quot;&gt;terms_facet&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;scriptField&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;script&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;这就 OK 了~&lt;/p&gt;
+&lt;p&gt;接下来另一个难点：&lt;strong&gt;terms panel 是支持点击生成 filtering 过滤条件的。&lt;/strong&gt;&lt;/p&gt;
+&lt;p&gt;显然 filtering 里没有 script 的支持。filtering 的功能都出自 &lt;code&gt;app/services/filterSrv.js&lt;/code&gt; 服务。其中 &lt;code&gt;toEjsObj&lt;/code&gt; 方法调用不同的 Elastic.js 的 Filter 方法。在这里面可以看到原本 terms 的是怎么生成的：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;k&quot;&gt;case&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;terms&#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;TermsFilter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;filter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;filter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;那么我就添加一个：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;k&quot;&gt;case&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;script&#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;ejs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;ScriptFilter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;filter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;script&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;filterSrv 支持搞定。最后一步，就是返回 terms panel 的 module.js 里完成调用。过一遍 click 关键字很容易找到 &lt;code&gt;build_search&lt;/code&gt; 方法。其中原先是这么生成过滤的：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;isUndefined&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;term&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;meta&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+         &lt;span class=&quot;nx&quot;&gt;filterSrv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;type&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;terms&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;field&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;term&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;label&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+           &lt;span class=&quot;nx&quot;&gt;mandate&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;negate&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;?&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;mustNot&#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;must&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)});&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;那么在这个前面判断一下：&lt;/p&gt;
+&lt;div class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;fmode&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;===&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;script&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;nx&quot;&gt;filterSrv&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;({&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;type&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;script&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;script&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;$scope&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;panel&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;script&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39; == \&quot;&#39;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;nx&quot;&gt;term&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;label&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;\&quot;&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+          &lt;span class=&quot;nx&quot;&gt;mandate&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;negate&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;?&lt;/span&gt; &lt;span class=&quot;s1&quot;&gt;&#39;mustNot&#39;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;:&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&#39;must&#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)});&lt;/span&gt;
+      &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;isUndefined&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;term&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;nx&quot;&gt;meta&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+&lt;p&gt;大功告成！&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;/images/chenlinux.com/2335ac5d2a4c0f757b6d3fa1f3d6b87c.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+    &lt;hr&gt;
+    
+    &lt;hr&gt;
+  &lt;!-- JiaThis Button BEGIN --&gt;
+&lt;div class=&quot;jiathis_style&quot;&gt;
+&lt;span class=&quot;jiathis_txt&quot;&gt;分享到：&lt;/span&gt;
+&lt;a class=&quot;jiathis_button_tsina&quot;&gt;新浪微博&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_weixin&quot;&gt;微信&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_renren&quot;&gt;人人网&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_ydnote&quot;&gt;有道云笔记&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_gmail&quot;&gt;Gmail邮箱&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_twitter&quot;&gt;Twitter&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_googleplus&quot;&gt;Google+&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_hi&quot;&gt;百度空间&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_fb&quot;&gt;Facebook&lt;/a&gt;
+&lt;a class=&quot;jiathis_button_douban&quot;&gt;豆瓣&lt;/a&gt;
+&lt;a href=&quot;http://www.jiathis.com/share?uid=1589850&quot; class=&quot;jiathis jiathis_txt jiathis_separator jtico jtico_jiathis&quot; target=&quot;_blank&quot;&gt;更多&lt;/a&gt;
+&lt;a class=&quot;jiathis_counter_style&quot;&gt;&lt;/a&gt;
+&lt;/div&gt;
+&lt;script type=&quot;text/javascript&quot;&gt;
+var jiathis_config={
+	data_track_clickback:true,
+	summary:&quot;&quot;,
+	ralateuid:{
+		&quot;tsina&quot;:&quot;1035836154&quot;
+	},
+	shortUrl:false,
+	hideMore:false
+}
+&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;http://v3.jiathis.com/code/jia.js?uid=1589850&quot; charset=&quot;utf-8&quot;&gt;&lt;/script&gt;
+&lt;!-- JiaThis Button END --&gt;
+&lt;!-- UY BEGIN --&gt;
+
+
+&lt;!-- UY END --&gt;
+  &lt;/div&gt;
+
+</description>
+        <pubDate>Tue, 06 Jan 2015 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2015/2015-01-06-implement-script-field-for-kibana3-633adc088.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2015/2015-01-06-implement-script-field-for-kibana3-633adc088.html</guid>
+        
+        
+        <category>chenlinux</category>
+        
+      </item>
+    
+      <item>
+        <title>2014年个人总结</title>
+        <description>
+&lt;p&gt;2014年对于我来说是重要的一年，因为一方面我刚好年满30岁了，另一方面我的家庭生活和工作都经历了很大的变化。值得总结的包括：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;通过分享，进一步提高了自己的技术影响力&lt;/li&gt;
+&lt;li&gt;创业进一步取得成绩&lt;/li&gt;
+&lt;/ol&gt;
+
+
+&lt;h2&gt;技术分享&lt;/h2&gt;
+
+&lt;p&gt;2014年，我的技术分享包括：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;在自己的博客上发布了58篇技术文章。&lt;/li&gt;
+&lt;li&gt;在InfoQ网站发表了35期“iOS开发周报”。&lt;/li&gt;
+&lt;li&gt;在《程序员》杂志和CSDN网站上发表文章4篇，分别是《从Facebook看移动开发的发展》、《iOS应用安全开发概述》、《WWDC2014，苹果的“软件”发布会》、《那些好用的iOS开发工具》。&lt;/li&gt;
+&lt;li&gt;在InfoQ网站和《架构师》迷你书上发表文章4篇，分别是 《作为码农，我们为什么要写作》、《ReactiveCocoa – iOS开发的新框架》、《深入理解Tagged Pointer》、《专访《iOS测试指南》作者羋峮》。&lt;/li&gt;
+&lt;li&gt;受朋友邀请，在深圳微信、人人网和豆瓣做了三场技术分享，分享的主题都是：《深入Objective-C对象模型》。&lt;/li&gt;
+&lt;li&gt;11月2日在CSDN主办的MDCC移动开发者大会上做了一次分享，主题是：“猿题库的流量优化之路”。&lt;/li&gt;
+&lt;li&gt;12月20日在InfoQ主办的ArchSummit北京上做了一次分享，主题是：“猿题库客户端的技术细节”。&lt;/li&gt;
+&lt;li&gt;完成了图书&lt;a href=&quot;https://github.com/tangqiaoboy/iOS-Pro&quot;&gt;《iOS开发进阶》&lt;/a&gt;的写作，100本签售版很快卖光，不过正式出版得到2015年1月中旬。&lt;/li&gt;
+&lt;li&gt;开源了两个猿题库客户端的iOS基础库：&lt;a href=&quot;https://github.com/yuantiku/YTKKeyValueStore&quot;&gt;YTKKeyValueStore&lt;/a&gt; 和 &lt;a href=&quot;https://github.com/yuantiku/YTKNetwork&quot;&gt;YTKNetwork&lt;/a&gt;，分别得到了400多和700多的star。&lt;/li&gt;
+&lt;li&gt;微信公共帐号：iOSDevTips 发表了将近100篇推送，得到了10000多的粉丝。我的微博 &lt;a href=&quot;http://www.weibo.com/tangqiaoboy&quot;&gt;@唐巧_boy&lt;/a&gt; 分享了上百条技术内容，得到了13000多的粉丝。&lt;/li&gt;
+&lt;/ol&gt;
+
+
+&lt;p&gt;年初的时候我还会怀疑自己的影响力，但现在已经习惯了成为iOS界的“大V”了。微博上分享技术类信息转发常常超过50次，也会常常被人@提醒来请教问题。&lt;/p&gt;
+
+&lt;p&gt;那我是如何树立起自己的技术影响力的呢？这其实主要是通过写博客的方式。我没有想到，从我2010年底开始学iOS开发，到现在短短4年时间，通过博客我能够获得这么大的影响力。现在我也看到越来越多的人加入到技术分享的行列中，用原创的技术博客给整个社区带来知识的分享，同时收获自己的成长和影响力。&lt;/p&gt;
+
+&lt;h2&gt;关于创业&lt;/h2&gt;
+
+&lt;p&gt;我们今年顺利拿到了&lt;a href=&quot;http://tech.sina.com.cn/i/2014-07-22/11209510273.shtml&quot;&gt;C轮1500万美元的融资&lt;/a&gt;，估值达到1.25亿美元。我自己的创业感悟就是觉得决策团队非常牛逼，另外大家的执行力都非常强。我今年除了做日常的iOS开发外，还承担了一些别的事情，包括：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;指导了一位iOS开发零基础的实习生，现在他能够独立的进行开发，非常高兴看着他取得这么大的进步。&lt;/li&gt;
+&lt;li&gt;指导了一位实习生完成了Latex渲染引擎在移动端的移植（但其实主要是他的工作出色），这个工作使得我们的客户端在显示公式上和市面上所有同类应用相比具有决定性优势。&lt;/li&gt;
+&lt;li&gt;承担了校园招聘的组织工作，大家都被出面试题搞得焦头烂额的，不过最终我们还是搞定了，也收获了不少很有潜力的应届生。&lt;/li&gt;
+&lt;li&gt;开始负责小猿搜题这个项目，开始更多地思考产品方面的东西，更多的沟通工作，也开始为更多事情焦虑。&lt;/li&gt;
+&lt;/ul&gt;
+
+
+&lt;p&gt;负责小猿搜题项目对我是一个新的挑战，之前我作为一个iOS程序员，基本上都只需要专注于技术层面上的实现。而现在我不但需要参与产品的讨论，也需要做更多的组织沟通工作。我们团队仍然保持着强大的执行力，小猿搜题从7月底立项到9月底上线只经历了短短2个月时间。而我们的评测数据显示，我们在搜索质量上毫不逊于竞争对手。但我们需要改进的事情还有很多，希望小猿搜题的用户量和活跃度能够超过猿题库，成为又一个拥有海量初高中生用户的产品。&lt;/p&gt;
+
+&lt;h2&gt;读书&lt;/h2&gt;
+
+&lt;p&gt;今年为了更加深入的掌握Swift的函数式编程特性，学习了Scala语言以及coursea上的Funtional Programming相关的课程，不过仍然没有找到感觉。我感觉可能后面多写一些Swift程序才能有深入的理解。&lt;/p&gt;
+
+&lt;p&gt;今年也读了不少产品的书，包括《我的互联网方法论》、《思考的技术》、《失控》、《定位》等。&lt;/p&gt;
+
+&lt;h2&gt;个人Milestone&lt;/h2&gt;
+
+&lt;ul&gt;
+&lt;li&gt;完成 《iOS开发进阶》的写作&lt;/li&gt;
+&lt;li&gt;创业完成C轮融资，开始负责小猿搜题项目&lt;/li&gt;
+&lt;li&gt;有了宝宝&lt;/li&gt;
+&lt;/ul&gt;
+
+
+</description>
+        <pubDate>Thu, 01 Jan 2015 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2015/2015-01-01-2014-summary-2d5e03e4c.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2015/2015-01-01-2014-summary-2d5e03e4c.html</guid>
+        
+        
+        <category>devtang</category>
+        
+      </item>
+    
+      <item>
+        <title>Linux Page Cache Hit Ratio</title>
+        <description>
+
+&lt;p&gt;A recent Linux performance regression turned out to be caused by a difference in the page cache hit ratio: what was caching very well on the older system was caching poorly on the newer one. So how do you measure the page cache hit ratio directly?&lt;/p&gt;
+
+&lt;p&gt;How about a tool like this?:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;./cachestat 1&lt;/b&gt;
+Counting cache functions... Output every 1 seconds.
+    HITS   MISSES  DIRTIES    RATIO   BUFFERS_MB   CACHE_MB
+     210      869        0    19.5%            2        209
+     444     1413        0    23.9%            8        210
+     471     1399        0    25.2%           12        211
+     403     1507        3    21.1%           18        211
+     967     1853        3    34.3%           24        212
+     422     1397        0    23.2%           30        212
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;This not only shows the size of the buffer and page cache, but also activity statistics. I&#39;ve added cachestat to my &lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt; collection on github.&lt;/p&gt;
+
+&lt;h2&gt;Longer Example&lt;/h2&gt;
+
+&lt;p&gt;Here is some sample output followed by the workload that caused it:&lt;/p&gt;
+
+&lt;pre&gt;
+# &lt;b&gt;./cachestat -t&lt;/b&gt;
+Counting cache functions... Output every 1 seconds.
+TIME         HITS   MISSES  DIRTIES    RATIO   BUFFERS_MB   CACHE_MB
+08:28:57      415        0        0   100.0%            1        191
+08:28:58      411        0        0   100.0%            1        191
+08:28:59      362       97        0    78.9%            0          8
+08:29:00      411        0        0   100.0%            0          9
+08:29:01      775    20489        0     3.6%            0         89
+08:29:02      411        0        0   100.0%            0         89
+08:29:03     6069        0        0   100.0%            0         89
+08:29:04    15249        0        0   100.0%            0         89
+08:29:05      411        0        0   100.0%            0         89
+08:29:06      411        0        0   100.0%            0         89
+08:29:07      411        0        3   100.0%            0         89
+[...]
+&lt;/pre&gt;
+
+&lt;p&gt;I used the -t option to include the TIME column, to make describing the output easier.&lt;/p&gt;
+
+&lt;p&gt;The workload was:&lt;/p&gt;
+
+&lt;pre&gt;
+# echo 1 &amp;gt; /proc/sys/vm/drop_caches; sleep 2; cksum 80m; sleep 2; cksum 80m
+&lt;/pre&gt;
+
+&lt;p&gt;At 8:28:58, the page cache was dropped by the first command, which can be seen by the drop in size for &quot;CACHE_MB&quot; (page cache size) from 191 Mbytes to 8.&lt;/p&gt;
+
+&lt;p&gt;After a 2 second sleep, a cksum command was issued at 8:29:01, for an 80 Mbyte file (called &quot;80m&quot;), which caused a total of ~20,400 misses (&quot;MISSES&quot; column), and the page cache size to grow by 80 Mbytes. Each page is 4 Kbytes, so 20k x 4k == 80 Mbytes. The hit ratio during the uncached read dropped to 3.6%.&lt;/p&gt;
+
+&lt;p&gt;Finally, after another 2 second sleep, at 8:29:03 the cksum command was run a second time, this time hitting entirely from cache (the statistics spanning two output rows).&lt;/p&gt;
+
+&lt;h2&gt;How It Works&lt;/h2&gt;
+
+&lt;p&gt;I was curious to see whether ftrace, which is built into the Linux kernel, could measure cache activity, since ftrace function profiling provides efficient in-kernel counts. Systems can have a very high rate of cache activity, so we need to be careful to consider the overhead of any instrumentation.&lt;/p&gt;
+
+&lt;p&gt;While ftrace function profiling is cheap, its capabilities are also limited. It can count kernel function calls by-CPU, and show average latency, but that&#39;s all. (It is the same facility used by funccount from &lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt;.) I can&#39;t, for example, use it with an advanced filter to match on function arguments or return values. It will only work if I deduce cache activity from kernel function calls alone.&lt;/p&gt;
+
+&lt;p&gt;For the kernels I&#39;m studying (3.2 and 3.13), here are the four kernel functions I&#39;m profiling to measure cache activity:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;mark_page_accessed() for measuring cache accesses&lt;/li&gt;
+&lt;li&gt;mark_buffer_dirty() for measuring cache writes&lt;/li&gt;
+&lt;li&gt;add_to_page_cache_lru() for measuring page additions&lt;/li&gt;
+&lt;li&gt;account_page_dirtied() for measuring page dirties&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;mark_page_accessed() shows total cache accesses, and add_to_page_cache_lru() shows cache insertions (so does add_to_page_cache_locked(), which even includes a tracepoint, but doesn&#39;t fire on later kernels). I thought for a second that these two were sufficient: assuming insertions are misses, I have misses and total accesses, and can calculate hits.&lt;/p&gt;
+
+&lt;p&gt;The problem is that accesses and insertions also happens for writes, dirtying cache data. So the other two kernel functions help tease this apart (remember, I only have function call rates to work with here). mark_buffer_dirty() is used to see which of the accesses were for writes, and account_page_dirtied() to see which of the insertions were for writes.&lt;/p&gt;
+
+&lt;p&gt;It is possible that the kernel functions I&#39;m using have been renamed (or are different logically) for your kernel version, and this script will not work as-is. I was hoping to use fewer than four functions, to make this more maintainable, but I didn&#39;t find a smaller set that worked for the workloads I tested.&lt;/p&gt;
+
+&lt;p&gt;If cachestat starts breaking too much for my kernel versions, I may rewrite it to use SystemTap or perf_events, which allow filtering.&lt;/p&gt;
+
+&lt;h2&gt;Warnings&lt;/h2&gt;
+
+&lt;p&gt;Instrumenting cache activity does cost some overhead, and this tool might slow your target system by 2% or so. Higher if you stress-test the cache. It also uses dynamic tracing of kernel functions, which could cause kernel freezes or panics, depending on your kernel version. Test before use.&lt;/p&gt;
+
+&lt;p&gt;The statistics should also be treated as best-effort. There may be some error margin depending on the frequency of unusual workload types, not properly matched by these four kernel functions. Test with a known workload to get confidence it will work for the intended target.&lt;/p&gt;
+
+&lt;h2&gt;The Problem&lt;/h2&gt;
+
+&lt;p&gt;When I encountered the earlier Linux performance regression, I didn&#39;t have cachestat. We had spotted a high rate of disk I/O, which led me to investigate the cause and work my way back to cache misses. I did this using custom ftrace and perf_events commands, measuring the rate of kernel functions and their call stacks.&lt;/p&gt;
+
+&lt;p&gt;While I got the job done, I wanted a better way for next time, which led to cachestat.&lt;/p&gt;
+
+&lt;h2&gt;Other Techniques&lt;/h2&gt;
+
+&lt;p&gt;I&#39;ve found a few ways people commonly study the page cache hit ratio on Linux:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;p&gt;A) Study the page cache miss rate by using iostat(1) to monitor disk reads, and assume these are cache misses, and not, for example, O_DIRECT. The miss rate is usually a more important metric than the ratio anyway, since misses are proportional to application pain. Also use free(1) to see the cache sizes.&lt;/p&gt;
+
+&lt;p&gt;B) Drop the page cache (echo 1 &amp;gt; /proc/sys/vm/drop_caches), and measure how much performance gets worse! I love the use of a negative experiment, but this is of course a painful way to shed some light on cache usage.&lt;/p&gt;
+
+&lt;p&gt;C) Use sar(1) and study minor and major faults. I don&#39;t think this works (eg, regular I/O).&lt;/p&gt;
+
+&lt;p&gt;D) Use the &lt;a href=&quot;https://sourceware.org/systemtap/wiki/WSCacheHitRate&quot;&gt;cache-hit-rate.stp&lt;/a&gt; SystemTap script, which is number two in an Internet search for Linux page cache hit ratio.  It instruments cache access high in the stack, in the VFS interface, so that reads to any file system or storage device can be seen. Cache misses are measured via their disk I/O. This also misses some workload types (some are mentioned in &quot;Lessons&quot; on that page), and calls ratios &quot;rates&quot;.&lt;/p&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;I would have tried the SystemTap approach myself to begin with, but it can miss types including mmap&#39;d reads and other kernel sources. For example, here&#39;s a call stack for mark_page_accessed() (a cache read), showing that we got here via a write() syscall:&lt;/p&gt;
+
+&lt;pre&gt;
+          dd-30425 [000] 6788093.150288: mark_page_accessed: (mark_page_accessed+0x0/0x60)
+          dd-30425 [000] 6788093.150291: &lt;stack trace&gt;
+ =&amp;gt; __getblk
+ =&amp;gt; __bread
+ =&amp;gt; ext3_get_branch
+ =&amp;gt; ext3_get_blocks_handle
+ =&amp;gt; ext3_get_block
+ =&amp;gt; __block_write_begin
+ =&amp;gt; ext3_write_begin
+ =&amp;gt; generic_perform_write
+ =&amp;gt; generic_file_buffered_write
+ =&amp;gt; __generic_file_aio_write
+ =&amp;gt; generic_file_aio_write
+ =&amp;gt; do_sync_write
+ =&amp;gt; vfs_write
+ =&amp;gt; sys_write
+ =&amp;gt; system_call_fastpath
+&lt;/stack&gt;&lt;/pre&gt;
+
+&lt;p&gt;It&#39;s reading file system metadata. This example uses ftrace, via my kprobe tool (&lt;a href=&quot;https://github.com/brendangregg/perf-tools&quot;&gt;perf-tools&lt;/a&gt;).&lt;/p&gt;
+
+&lt;p&gt;My preferred technique would be to modify the kernel to instrument page cache activity. Eg, either:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;p&gt;E) Apply Keiichi&#39;s &lt;a href=&quot;https://lkml.org/lkml/2011/7/18/326&quot;&gt;pagecache monitoring&lt;/a&gt; kernel patch, which provides tracepoints for cache instrumentation, and tools with awesome capabilities: not just system-wide ratios, but also per-process and per-file. I&#39;d like this to be in mainline.&lt;/p&gt;
+
+&lt;p&gt;F) Develop another kernel patch to add cache hit/miss statistics to /proc/meminfo.&lt;/p&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;And then, there&#39;s the approach I used myself for the issue: dynamic tracing of file system and disk I/O functions using ftrace and perf_events.&lt;/p&gt;
+
+&lt;h2&gt;pcstat&lt;/h2&gt;
+
+&lt;p&gt;If you&#39;re interested in page cache activity, you should also like &lt;a href=&quot;https://github.com/tobert/pcstat&quot;&gt;pcstat&lt;/a&gt;, by Al Tobey, which uses mincore (or fincore), to see size how much files are present in the page cache. It&#39;s pretty awesome.&lt;/p&gt;
+
+&lt;h2&gt;Conclusion&lt;/h2&gt;
+
+&lt;p&gt;Hopefully in the future the kernel will provide an easy way to measure page cache activity, be it from /proc or tracepoints. In the meantime, I have cachestat which works for my kernel versions. Its current implementation is brittle, and may not work well on other versions without modifications, so its greatest value may be &lt;a href=&quot;http://dtrace.org/blogs/brendan/2013/05/27/the-greatest-tool-that-never-worked-har/&quot;&gt;showing what can be done&lt;/a&gt; with a little effort.&lt;/p&gt;
+
+
+</description>
+        <pubDate>Wed, 31 Dec 2014 00:00:00 +0800</pubDate>
+        <link>http://iftti.com/posts/2014/2014-12-31-linux-page-cache-hit-ratio.html-deae9b8e2.html</link>
+        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-12-31-linux-page-cache-hit-ratio.html-deae9b8e2.html</guid>
+        
+        
+        <category>brendangregg</category>
+        
+      </item>
     
       <item>
         <title>2014 年度个人总结</title>
@@ -5549,546 +5890,6 @@ var jiathis_config={
         
         
         <category>chenlinux</category>
-        
-      </item>
-    
-      <item>
-        <title>lucene字典实现原理</title>
-        <description>
-
-        &lt;!-- div style=&quot;margin-bottom: 10px;&quot;&gt;
-            &lt;script language=javascript&gt;
-                var randomNumLuobo = Math.round(Math.random()*1);
-                var imageLuobo=new Array(2);
-                imageLuobo[0]=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png&quot;;
-                imageLuobo[1]=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png&quot;;
-                var imageUrlLuobo=imageLuobo[randomNumLuobo];
-                var urlsLuobo=new Array(2);
-                urlsLuobo[0]=&quot;http://www.luobo360.com&quot;;
-                urlsLuobo[1]=&quot;http://www.luobo360.com&quot;;
-                var urlLuobo = urlsLuobo[randomNumLuobo];
-                var adHTML = &quot;&lt;a href=&#39;&quot;+urlLuobo+&quot;&#39; target=&#39;_blank&#39;&gt;&lt;img src=&#39;&quot;+imageUrlLuobo+&quot;&#39; border=&#39;0&#39;&gt;&lt;/a&gt;&quot;;
-                document.write(adHTML);
-            &lt;/script&gt;
-        &lt;/div --&gt;
-
-        			&lt;div class=&quot;textwidget&quot;&gt;
-&lt;div class=&quot;featured-courses&quot;&gt;
-&lt;li style=&quot;width: 310px;display: inline-block;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/172?from=jobboleblog&quot;&gt;jQuery源码解析（架构与依赖模块）&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/202?from=jobboleblog&quot;&gt;深入浅出 Java 多线程&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline-block;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/69&quot;&gt;MVC架构模式分析与设计&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/181&quot;&gt;专为开发者打造的Linux学习视频教程&lt;/a&gt;&lt;/li&gt;
-&lt;/div&gt;
-&lt;/div&gt;
-		
-		
-&lt;h2&gt;1 lucene字典&lt;/h2&gt;
-&lt;p&gt;使用lucene进行查询不可避免都会使用到其提供的字典功能，即根据给定的term找到该term所对应的倒排文档id列表等信息。实际上lucene索引文件后缀名为tim和tip的文件实现的就是lucene的字典功能。&lt;/p&gt;
-&lt;p&gt;怎么实现一个字典呢？我们马上想到排序数组，即term字典是一个已经按字母顺序排序好的数组，数组每一项存放着term和对应的倒排文档id列表。每次载入索引的时候只要将term数组载入内存，通过二分查找即可。这种方法查询时间复杂度为Log(N)，N指的是term数目，占用的空间大小是O(N*str(term))。排序数组的缺点是消耗内存，即需要完整存储每一个term，当term数目多达上千万时，占用的内存将不可接受。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/ed396eee2b81ca658b91a74f448f3152.jpg&quot;&gt;&lt;/p&gt;
-&lt;h2&gt;2 常用字典数据结构&lt;/h2&gt;
-&lt;p&gt;很多数据结构均能完成字典功能，总结如下。&lt;/p&gt;
-&lt;table border=&quot;0&quot; align=&quot;center&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;数据结构&lt;/td&gt;
-&lt;td&gt;优缺点&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td&gt;排序列表Array/List&lt;/td&gt;
-&lt;td&gt;使用二分法查找，不平衡&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td&gt;HashMap/TreeMap&lt;/td&gt;
-&lt;td&gt;性能高，内存消耗大，几乎是原始数据的三倍&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td&gt;Skip List&lt;/td&gt;
-&lt;td&gt;跳跃表，可快速查找词语，在lucene、redis、Hbase等均有实现。相对于TreeMap等结构，特别适合高并发场景（&lt;a href=&quot;http://kenby.iteye.com/blog/1187303&quot; target=&quot;_blank&quot;&gt;Skip List介绍&lt;/a&gt;）&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td&gt;Trie&lt;/td&gt;
-&lt;td&gt;适合英文词典，如果系统中存在大量字符串且这些字符串基本没有公共前缀，则相应的trie树将非常消耗内存（&lt;a href=&quot;http://dongxicheng.org/structure/trietree/&quot; target=&quot;_blank&quot;&gt;数据结构之trie树&lt;/a&gt;）&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td&gt;Double Array Trie&lt;/td&gt;
-&lt;td&gt;适合做中文词典，内存占用小，很多分词工具均采用此种算法（&lt;a href=&quot;http://blog.csdn.net/zhoubl668/article/details/6957830&quot; target=&quot;_blank&quot;&gt;深入双数组Trie&lt;/a&gt;）&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td&gt;Ternary Search Tree&lt;/td&gt;
-&lt;td&gt;三叉树，每一个node有3个节点，兼具省空间和查询快的优点（&lt;a href=&quot;http://www.drdobbs.com/database/ternary-search-trees/184410528&quot; target=&quot;_blank&quot;&gt;Ternary Search Tree&lt;/a&gt;）&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td&gt;Finite State Transducers (FST)&lt;/td&gt;
-&lt;td&gt;一种有限状态转移机，Lucene 4有开源实现，并大量使用&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;h2&gt;3 FST原理简析&lt;/h2&gt;
-&lt;p&gt;lucene从4开始大量使用的数据结构是FST（Finite State Transducer）。FST有两个优点：1）空间占用小。通过对词典中单词前缀和后缀的重复利用，压缩了存储空间；2）查询速度快。O(len(str))的查询时间复杂度。&lt;/p&gt;
-&lt;p&gt;下面简单描述下FST的构造过程（工具演示：&lt;a href=&quot;http://examples.mikemccandless.com/fst.py?terms=&amp;amp;cmd=Build+it%21&quot; target=&quot;_blank&quot; rel=&quot;nofollow&quot;&gt;http://examples.mikemccandless.com/fst.py?terms=&amp;amp;cmd=Build+it%21&lt;/a&gt;）。我们对“cat”、 “deep”、 “do”、 “dog” 、“dogs”这5个单词进行插入构建FST（注：必须已排序）。&lt;/p&gt;
-&lt;p&gt;1）插入“cat”&lt;/p&gt;
-&lt;p&gt;插入cat，每个字母形成一条边，其中t边指向终点。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/2e46d77b80c98301e4aae11323fd6937.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;2）插入“deep”&lt;/p&gt;
-&lt;p&gt;与前一个单词“cat”进行最大前缀匹配，发现没有匹配则直接插入，P边指向终点。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/b39384cd2beadb9dab8a91b23d975172.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;3）插入“do”&lt;/p&gt;
-&lt;p&gt;与前一个单词“deep”进行最大前缀匹配，发现是d，则在d边后增加新边o，o边指向终点。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/03c1805dbc52eb7acb89df31c251ec58.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;4）插入“dog”&lt;/p&gt;
-&lt;p&gt;与前一个单词“do”进行最大前缀匹配，发现是do，则在o边后增加新边g，g边指向终点。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/33384eee0778924bd343f4455fd97361.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;5）插入“dogs”&lt;/p&gt;
-&lt;p&gt;与前一个单词“dog”进行最大前缀匹配，发现是dog，则在g后增加新边s，s边指向终点。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5961235dd059ff3f4ddac1dc3bad7cee.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;最终我们得到了如上一个有向无环图。利用该结构可以很方便的进行查询，如给定一个term “dog”，我们可以通过上述结构很方便的查询存不存在，甚至我们在构建过程中可以将单词与某一数字、单词进行关联，从而实现key-value的映射。&lt;/p&gt;
-&lt;h2&gt;4 FST使用与性能评测&lt;/h2&gt;
-&lt;p&gt;我们可以将FST当做Key-Value数据结构来进行使用，特别在对内存开销要求少的应用场景。Lucene已经为我们提供了开源的FST工具，下面的代码是使用说明。&lt;/p&gt;
-&lt;p&gt;FST压缩率一般在3倍~20倍之间，相对于TreeMap/HashMap的膨胀3倍，内存节省就有9倍到60倍！（摘自：&lt;a href=&quot;http://blog.csdn.net/whinah/article/details/9980893&quot;&gt;把自动机用作 Key-Value 存储&lt;/a&gt;），那FST在性能方面真的能满足要求吗？&lt;/p&gt;
-&lt;p&gt;下面是我在苹果笔记本（i7处理器）进行的简单测试，性能虽不如TreeMap和HashMap，但也算良好，能够满足大部分应用的需求。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/6b7b96210b41b9b36904db3b47acdec5.jpg&quot;&gt;&lt;/p&gt;
-&lt;h2&gt;参考文献&lt;/h2&gt;
-&lt;p&gt;&lt;a href=&quot;http://sbp810050504.blog.51cto.com/2799422/1361551&quot;&gt;http://sbp810050504.blog.51cto.com/2799422/1361551&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://blog.sina.com.cn/s/blog_4bec92980101hvdd.html&quot;&gt;http://blog.sina.com.cn/s/blog_4bec92980101hvdd.html&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://blog.mikemccandless.com/2013/06/build-your-own-finite-state-transducer.html&quot;&gt;http://blog.mikemccandless.com/2013/06/build-your-own-finite-state-transducer.html&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://examples.mikemccandless.com/fst.py?terms=mop%2F0%0D%0Amoth%2F1%0D%0Apop%2F2%0D%0Astar%2F3%0D%0Astop%2F4%0D%0Atop%2F5%0D%0Atqqq%2F6&amp;amp;cmd=Build+it%21&quot;&gt;http://examples.mikemccandless.com/fst.py?terms=mop%2F0%0D%0Amoth%2F1%0D%0Apop%2F2%0D%0Astar%2F3%0D%0Astop%2F4%0D%0Atop%2F5%0D%0Atqqq%2F6&amp;amp;cmd=Build+it%21&lt;/a&gt;&lt;/p&gt;
-
-        
-        			&lt;div class=&quot;textwidget&quot;&gt;
-&lt;/div&gt;
-		
-
-	
-
-</description>
-        <pubDate>Fri, 05 Dec 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-12-05-80669-5c2685236.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-12-05-80669-5c2685236.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>GeoHash核心原理解析</title>
-        <description>
-
-        &lt;!-- div style=&quot;margin-bottom: 10px;&quot;&gt;
-            &lt;script language=javascript&gt;
-                var randomNumLuobo = Math.round(Math.random()*1);
-                var imageLuobo=new Array(2);
-                imageLuobo[0]=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png&quot;;
-                imageLuobo[1]=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png&quot;;
-                var imageUrlLuobo=imageLuobo[randomNumLuobo];
-                var urlsLuobo=new Array(2);
-                urlsLuobo[0]=&quot;http://www.luobo360.com&quot;;
-                urlsLuobo[1]=&quot;http://www.luobo360.com&quot;;
-                var urlLuobo = urlsLuobo[randomNumLuobo];
-                var adHTML = &quot;&lt;a href=&#39;&quot;+urlLuobo+&quot;&#39; target=&#39;_blank&#39;&gt;&lt;img src=&#39;&quot;+imageUrlLuobo+&quot;&#39; border=&#39;0&#39;&gt;&lt;/a&gt;&quot;;
-                document.write(adHTML);
-            &lt;/script&gt;
-        &lt;/div --&gt;
-
-        			&lt;div class=&quot;textwidget&quot;&gt;
-&lt;div class=&quot;featured-courses&quot;&gt;
-&lt;li style=&quot;width: 310px;display: inline-block;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/172?from=jobboleblog&quot;&gt;jQuery源码解析（架构与依赖模块）&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/202?from=jobboleblog&quot;&gt;深入浅出 Java 多线程&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline-block;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/69&quot;&gt;MVC架构模式分析与设计&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/181&quot;&gt;专为开发者打造的Linux学习视频教程&lt;/a&gt;&lt;/li&gt;
-&lt;/div&gt;
-&lt;/div&gt;
-		
-		
-&lt;p&gt;&lt;strong&gt;引子&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;机机是个好动又好学的孩子，平日里就喜欢拿着手机地图点点按按来查询一些好玩的东西。某一天机机到北海公园游玩，肚肚饿了，于是乎打开手机地图，搜索北海公园附近的餐馆，并选了其中一家用餐。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/7afa18a198d79a2260074d375bffb5f2.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;饭饱之后机机开始反思了，地图后台如何根据自己所在位置查询来查询附近餐馆的呢？苦思冥想了半天，机机想出了个方法：计算所在位置P与北京所有餐馆的距离，然后返回距离&amp;lt;=1000米的餐馆。小得意了一会儿，机机发现北京的餐馆何其多啊，这样计算不得了，于是想了，既然知道经纬度了，那它应该知道自己在西城区，那应该计算所在位置P与西城区所有餐馆的距离啊，机机运用了递归的思想，想到了西城区也很多餐馆啊，应该计算所在位置P与所在街道所有餐馆的距离，这样计算量又小了，效率也提升了。&lt;/p&gt;
-&lt;p&gt;机机的计算思想很朴素，就是通过过滤的方法来减小参与计算的餐馆数目，从某种角度上讲，机机在使用索引技术。&lt;/p&gt;
-&lt;p&gt;一提到索引，大家脑子里马上浮现出B树索引，因为大量的数据库（如MySQL、oracle、PostgreSQL等）都在使用B树。B树索引本质上是对索引字段进行排序，然后通过类似二分查找的方法进行快速查找，即它要求索引的字段是可排序的，一般而言，可排序的是一维字段，比如时间、年龄、薪水等等。但是对于空间上的一个点（二维，包括经度和纬度），如何排序呢？又如何索引呢？解决的方法很多，下文介绍一种方法来解决这一问题。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;思想：&lt;/strong&gt;如果能通过某种方法将二维的点数据转换成一维的数据，那样不就可以继续使用B树索引了嘛。那这种方法真的存在嘛，答案是肯定的。目前很火的GeoHash算法就是运用了上述思想，下面我们就开始GeoHash之旅吧。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;一、感性认识GeoHash&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;首先来点感性认识，&lt;a href=&quot;http://openlocation.org/geohash/geohash-js/&quot;&gt;http://openlocation.org/geohash/geohash-js/&lt;/a&gt; 提供了在地图上显示geohash编码的功能。&lt;/p&gt;
-&lt;p&gt;1）GeoHash将二维的经纬度转换成字符串，比如下图展示了北京9个区域的GeoHash字符串，分别是WX4ER，WX4G2、WX4G3等等，每一个字符串代表了某一矩形区域。也就是说，这个矩形区域内所有的点（经纬度坐标）都共享相同的GeoHash字符串，这样既可以保护隐私（只表示大概区域位置而不是具体的点），又比较容易做缓存，&lt;strong&gt;比如左上角这个区域内的用户不断发送位置信息请求餐馆数据&lt;/strong&gt;，由于这些用户的GeoHash字符串都是WX4ER，所以可以把WX4ER当作key，把该区域的餐馆信息当作value来进行缓存，而如果不使用GeoHash的话，由于区域内的用户传来的经纬度是各不相同的，很难做缓存。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/d5979331c6687f825735d8ecf03d0194.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;2）字符串越长，表示的范围越精确。如图所示，5位的编码能表示10平方千米范围的矩形区域，而6位编码能表示更精细的区域（约0.34平方千米）&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/90cd8ef33b58c3c015e85d56c1b72ccc.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;3）字符串相似的表示距离相近（特殊情况后文阐述），这样可以利用字符串的前缀匹配来查询附近的POI信息。如下两个图所示，一个在城区，一个在郊区，城区的GeoHash字符串之间比较相似，郊区的字符串之间也比较相似，而城区和郊区的GeoHash字符串相似程度要低些。&lt;/p&gt;
-&lt;table cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/16103d5db3378ff113c88d63fd432103.jpg&quot;&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/1ed7d3ebe0672aa6879d8d842dff66db.jpg&quot;&gt;&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;城区&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;郊区&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;p&gt;通过上面的介绍我们知道了GeoHash就是一种将经纬度转换成字符串的方法，并且使得在大部分情况下，字符串前缀匹配越多的距离越近，回到我们的案例，根据所在位置查询来查询附近餐馆时，只需要将所在位置经纬度转换成GeoHash字符串，并与各个餐馆的GeoHash字符串进行前缀匹配，匹配越多的距离越近。&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;二、GeoHash算法的步骤&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;下面以北海公园为例介绍GeoHash算法的计算步骤&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/bf26fb42a420cf2857dcbf9fa08bc9fe.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;2.1. 根据经纬度计算GeoHash二进制编码&lt;/p&gt;
-&lt;p&gt;地球纬度区间是[-90,90]， 北海公园的纬度是39.928167，可以通过下面算法对纬度39.928167进行逼近编码:&lt;/p&gt;
-&lt;p&gt;1）区间[-90,90]进行二分为[-90,0),[0,90]，称为左右区间，可以确定39.928167属于右区间[0,90]，给标记为1；&lt;/p&gt;
-&lt;p&gt;2）接着将区间[0,90]进行二分为 [0,45),[45,90]，可以确定39.928167属于左区间 [0,45)，给标记为0；&lt;/p&gt;
-&lt;p&gt;3）递归上述过程39.928167总是属于某个区间[a,b]。随着每次迭代区间[a,b]总在缩小，并越来越逼近39.928167；&lt;/p&gt;
-&lt;p&gt;4）如果给定的纬度x（39.928167）属于左区间，则记录0，如果属于右区间则记录1，这样随着算法的进行会产生一个序列1011100，序列的长度跟给定的区间划分次数有关。&lt;/p&gt;
-&lt;p&gt;根据纬度算编码&lt;/p&gt;
-&lt;table cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;bit&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;min&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;mid&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;max&lt;/strong&gt;&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;-90.000&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;0.000&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;90.000&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;0.000&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;45.000&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;90.000&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;0.000&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;22.500&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;45.000&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;22.500&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;33.750&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;45.000&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;33.7500&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.375&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;45.000&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.375&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;42.188&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;45.000&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.375&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;40.7815&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;42.188&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.375&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;40.07825&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;40.7815&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.375&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.726625&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;40.07825&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.726625&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;39.9024375&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;40.07825&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;p&gt;同理，地球经度区间是[-180,180]，可以对经度116.389550进行编码。&lt;/p&gt;
-&lt;p&gt;根据经度算编码&lt;/p&gt;
-&lt;table cellspacing=&quot;0&quot; cellpadding=&quot;0&quot;&gt;
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;bit&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;min&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;mid&lt;/strong&gt;&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;&lt;strong&gt;max&lt;/strong&gt;&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;-180&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;0.000&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;180&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;0.000&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;90&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;180&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;90&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;135&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;180&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;90&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;112.5&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;135&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;112.5&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;123.75&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;135&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;112.5&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;118.125&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;123.75&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;112.5&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;115.3125&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;118.125&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;0&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;115.3125&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;116.71875&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;118.125&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;115.3125&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;116.015625&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;116.71875&lt;/td&gt;
-&lt;/tr&gt;
-&lt;tr&gt;
-&lt;td valign=&quot;top&quot;&gt;1&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;116.015625&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;116.3671875&lt;/td&gt;
-&lt;td valign=&quot;top&quot;&gt;116.71875&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-&lt;p&gt;2.2. 组码&lt;/p&gt;
-&lt;p&gt;通过上述计算，纬度产生的编码为10111 00011，经度产生的编码为11010 01011。偶数位放经度，奇数位放纬度，把2串编码组合生成新串：11100 11101 00100 01111。&lt;/p&gt;
-&lt;p&gt;最后使用用0-9、b-z（去掉a, i, l, o）这32个字母进行base32编码，首先将11100 11101 00100 01111转成十进制，对应着28、29、4、15，十进制对应的编码就是wx4g。同理，将编码转换成经纬度的解码算法与之相反，具体不再赘述。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/aacf4c88e9178db201e6d668ae7915a2.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;三、GeoHash Base32编码长度与精度&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;下表摘自维基百科：&lt;a href=&quot;http://en.wikipedia.org/wiki/Geohash&quot;&gt;http://en.wikipedia.org/wiki/Geohash&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;可以看出，当geohash base32编码长度为8时，精度在19米左右，而当编码长度为9时，精度在2米左右，编码长度需要根据数据情况进行选择。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/5a015f8e4f82ad6e78f16f4c5c888f9b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;三、GeoHash算法&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;上文讲了GeoHash的计算步骤，仅仅说明是什么而没有说明为什么？为什么分别给经度和维度编码？为什么需要将经纬度两串编码交叉组合成一串编码？本节试图回答这一问题。&lt;/p&gt;
-&lt;p&gt;如图所示，我们将二进制编码的结果填写到空间中，当将空间划分为四块时候，编码的顺序分别是左下角00，左上角01，右下脚10，右上角11，也就是类似于Z的曲线，当我们递归的将各个块分解成更小的子块时，编码的顺序是自相似的（分形），每一个子快也形成Z曲线，这种类型的曲线被称为Peano空间填充曲线。&lt;/p&gt;
-&lt;p&gt;这种类型的空间填充曲线的优点是将二维空间转换成一维曲线（事实上是分形维），对大部分而言，编码相似的距离也相近， 但Peano空间填充曲线最大的缺点就是突变性，有些编码相邻但距离却相差很远，比如0111与1000，编码是相邻的，但距离相差很大。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/c4374a13b76a2b1b4927f29791e1b008.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;除Peano空间填充曲线外，还有很多空间填充曲线，如图所示，其中效果公认较好是Hilbert空间填充曲线，相较于Peano曲线而言，Hilbert曲线没有较大的突变。为什么GeoHash不选择Hilbert空间填充曲线呢？可能是Peano曲线思路以及计算上比较简单吧，事实上，Peano曲线就是一种四叉树线性编码方式。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/9faa21acf707c7c82a9cdd6fafe4441b.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;&lt;strong&gt;四、使用注意点&lt;/strong&gt;&lt;/p&gt;
-&lt;p&gt;1）由于GeoHash是将区域划分为一个个规则矩形，并对每个矩形进行编码，这样在查询附近POI信息时会导致以下问题，比如红色的点是我们的位置，绿色的两个点分别是附近的两个餐馆，但是在查询的时候会发现距离较远餐馆的GeoHash编码与我们一样（因为在同一个GeoHash区域块上），而较近餐馆的GeoHash编码与我们不一致。这个问题往往产生在边界处。&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/a893348090a6cf901006a2707ef0efcc.jpg&quot;&gt;&lt;/p&gt;
-&lt;p&gt;解决的思路很简单，我们查询时，除了使用定位点的GeoHash编码进行匹配外，还使用周围8个区域的GeoHash编码，这样可以避免这个问题。&lt;/p&gt;
-&lt;p&gt;2）我们已经知道现有的GeoHash算法使用的是Peano空间填充曲线，这种曲线会产生突变，造成了编码虽然相似但距离可能相差很大的问题，因此在查询附近餐馆时候，首先筛选GeoHash编码相似的POI点，然后进行实际距离计算。&lt;/p&gt;
-&lt;p&gt;参考文献：&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://en.wikipedia.org/wiki/Geohash&quot; target=&quot;_blank&quot; rel=&quot;nofollow&quot;&gt;http://en.wikipedia.org/wiki/Geohash&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;&lt;a href=&quot;http://openlocation.org/geohash/geohash-js/&quot; target=&quot;_blank&quot; rel=&quot;nofollow&quot;&gt;http://openlocation.org/geohash/geohash-js/&lt;/a&gt;&lt;/p&gt;
-
-        
-        			&lt;div class=&quot;textwidget&quot;&gt;
-&lt;/div&gt;
-		
-
-	
-
-</description>
-        <pubDate>Fri, 05 Dec 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-12-05-80633-053c66af0.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-12-05-80633-053c66af0.html</guid>
-        
-        
-        <category>jobbole</category>
-        
-      </item>
-    
-      <item>
-        <title>递归与尾递归（C语言）</title>
-        <description>
-
-        &lt;!-- div style=&quot;margin-bottom: 10px;&quot;&gt;
-            &lt;script language=javascript&gt;
-                var randomNumLuobo = Math.round(Math.random()*1);
-                var imageLuobo=new Array(2);
-                imageLuobo[0]=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png&quot;;
-                imageLuobo[1]=&quot;http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png&quot;;
-                var imageUrlLuobo=imageLuobo[randomNumLuobo];
-                var urlsLuobo=new Array(2);
-                urlsLuobo[0]=&quot;http://www.luobo360.com&quot;;
-                urlsLuobo[1]=&quot;http://www.luobo360.com&quot;;
-                var urlLuobo = urlsLuobo[randomNumLuobo];
-                var adHTML = &quot;&lt;a href=&#39;&quot;+urlLuobo+&quot;&#39; target=&#39;_blank&#39;&gt;&lt;img src=&#39;&quot;+imageUrlLuobo+&quot;&#39; border=&#39;0&#39;&gt;&lt;/a&gt;&quot;;
-                document.write(adHTML);
-            &lt;/script&gt;
-        &lt;/div --&gt;
-
-        			&lt;div class=&quot;textwidget&quot;&gt;
-&lt;div class=&quot;featured-courses&quot;&gt;
-&lt;li style=&quot;width: 310px;display: inline-block;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/172?from=jobboleblog&quot;&gt;jQuery源码解析（架构与依赖模块）&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/202?from=jobboleblog&quot;&gt;深入浅出 Java 多线程&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline-block;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/69&quot;&gt;MVC架构模式分析与设计&lt;/a&gt;&lt;/li&gt;
-&lt;li style=&quot;width: 310px;display: inline;&quot;&gt;&lt;a target=&quot;_blank&quot; href=&quot;http://www.imooc.com/learn/181&quot;&gt;专为开发者打造的Linux学习视频教程&lt;/a&gt;&lt;/li&gt;
-&lt;/div&gt;
-&lt;/div&gt;
-		
-		
-&lt;p&gt;在计算机科学领域中，递归式通过递归函数来实现的。程序调用自身的编程技巧称为递归（ recursion）。&lt;/p&gt;
-&lt;p&gt;一个过程或函数在其定义或说明中有直接或间接调用自身的一种方法，它通常把一个大型复杂的问题层层转化为一个与原问题相似的规模较小的问题来求解，递归策略只需少量的程序就可描述出解题过程所需要的多次重复计算，大大地减少了程序的代码量。递归的能力在于用有限的语句来定义对象的无限集合。&lt;/p&gt;
-&lt;p&gt;一般来说，递归需要有：边界条件、递归前进段和递归返回段。&lt;/p&gt;
-&lt;p&gt;当边界条件不满足时，递归前进；当边界条件满足时，递归返回。&lt;/p&gt;
-&lt;p&gt;注意：&lt;/p&gt;
-&lt;p&gt;(1) 递归就是在过程或函数里调用自身；&lt;/p&gt;
-&lt;p&gt;(2) 在使用递归策略时，必须有一个明确的递归结束条件，称为递归出口。&lt;/p&gt;
-&lt;h2&gt;基本递归&lt;/h2&gt;
-&lt;p&gt;问题：计算n！&lt;/p&gt;
-&lt;p&gt;数学上的计算公式为：n！=n×(n-1)×(n-2)……2×1&lt;/p&gt;
-&lt;p&gt;使用递归的方式，可以定义为：&lt;/p&gt;
-&lt;p&gt;&lt;img alt=&quot;&quot; src=&quot;/images/jobbole.com/3962bea3804e41cc6e833f338bf01852.jpg&quot; width=&quot;234&quot; height=&quot;48&quot;&gt;&lt;/p&gt;
-&lt;p&gt;以递归的方式计算4！&lt;/p&gt;
-&lt;p&gt;F(4)=4×F(3)　　　　　　　　　　　　递归阶段&lt;/p&gt;
-&lt;p&gt;F(3)=3×F(2)&lt;/p&gt;
-&lt;p&gt;F(2)=2×F(1)&lt;/p&gt;
-&lt;p&gt;F(1)=1　　终止条件&lt;/p&gt;
-&lt;p&gt;F(2)=(2)×(1)　　　 回归阶段&lt;/p&gt;
-&lt;p&gt;F(3)=(3)×(2)&lt;/p&gt;
-&lt;p&gt;F(4)=(4)×(6)&lt;/p&gt;
-&lt;p&gt;24　　　　　　　　　　　　　　　　  递归完成&lt;/p&gt;
-&lt;p&gt;以递归方式实现阶乘函数的实现：&lt;/p&gt;
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;int fact(int n) {
-    if(n &amp;lt; 0)
-        return 0;
-    else if (n == 0 || n == 1)
-        return 1;
-    else
-        return n * fact(n - 1);
-}&lt;/pre&gt;
-&lt;p&gt;下面来详细分析递归的工作原理&lt;/p&gt;
-&lt;p&gt;先看看C语言中函数的执行方式，需要了解一些关于C程序在内存中的组织方式：&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;&lt;strong&gt;BSS段:&lt;/strong&gt;（bss segment）通常是指用来存放程序中未初始化的全局变量的一块内存区域。BSS是英文Block Started by Symbol的简称。BSS段属于静态内存分配。&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;&lt;strong&gt;数据段&lt;/strong&gt; ：数据段（data segment）通常是指用来存放程序中已初始化的全局变量的一块内存区域。数据段属于静态内存分配。&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;&lt;strong&gt;代码段：&lt;/strong&gt; 代码段（code segment/text segment）通常是指用来存放 程序执行代码的一块内存区域。这部分区域的大小在程序运行前就已经确定，并且内存区域通常属于只读 , 某些架构也允许代码段为可写，即允许修改程序。在代码段中，也有可能包含一些只读的常数变量 ，例如字符串常量等。程序段为程序代码在内存中的映射.一个程序可以在内存中多有个副本.&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;&lt;strong&gt;堆（heap）&lt;/strong&gt; ：堆是用于存放进程运行中被动态分配的内存段，它的大小并不固定，可动态扩张或缩减。当进程调用malloc/free等函数分配内存时，新分配的内存就被动态添加到堆上（堆被扩张）/释放的内存从堆中被剔除（堆被缩减）&lt;/span&gt;&lt;/p&gt;
-&lt;p style=&quot;padding-left: 30px;&quot;&gt;&lt;span style=&quot;color: #888888;&quot;&gt;&lt;strong&gt;栈(stack)&lt;/strong&gt; ：栈又称堆栈， 存放程序的局部变量（但不包括static声明的变量， static 意味着 在数据段中存放变量）。除此以外，在函数被调用时，栈用来传递参数和返回值。由于栈的后进先出特点，所以栈特别方便用来保存/恢复调用现场。从这个意义上讲，我们可以把堆栈看成一个寄存、交换临时数据的内存区。&lt;/span&gt;&lt;/p&gt;
-&lt;p&gt;堆的增长方向为从低地址到高地址向上增长，而栈的增长方向刚好相反（实际情况与CPU的体系结构有关）&lt;/p&gt;
-&lt;p&gt;当C程序中调用了一个函数时，栈中会分配一块空间来保存与这个调用相关的信息，每一个调用都被当作是活跃的。栈上的那块存储空间称为活跃记录或者栈帧&lt;/p&gt;
-&lt;p&gt;栈帧由5个区域组成：输入参数、返回值空间、计算表达式时用到的临时存储空间、函数调用时保存的状态信息以及输出参数，参见下图：&lt;/p&gt;
-&lt;p&gt;&lt;img class=&quot;alignnone&quot; alt=&quot;&quot; src=&quot;/images/jobbole.com/d5d1a34579decb86ab234409140454fc.jpg&quot; width=&quot;422&quot; height=&quot;400&quot;&gt;&lt;/p&gt;
-&lt;p&gt;可以使用下面的程序来检验:&lt;/p&gt;
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;#include &amp;lt;stdio.h&amp;gt;
-int g1=0, g2=0, g3=0;
-int max(int i)
-{
-    int m1 = 0, m2, m3 = 0, *p_max;
-    static n1_max = 0, n2_max, n3_max = 0;
-    p_max = (int*)malloc(10);
-    printf(&quot;打印max程序地址\n&quot;);
-    printf(&quot;in max: 0x%08x\n\n&quot;,max);
-    printf(&quot;打印max传入参数地址\n&quot;);
-    printf(&quot;in max: 0x%08x\n\n&quot;,&amp;amp;i);
-    printf(&quot;打印max函数中静态变量地址\n&quot;);
-    printf(&quot;0x%08x\n&quot;,&amp;amp;n1_max); //打印各本地变量的内存地址
-    printf(&quot;0x%08x\n&quot;,&amp;amp;n2_max);
-    printf(&quot;0x%08x\n\n&quot;,&amp;amp;n3_max);
-    printf(&quot;打印max函数中局部变量地址\n&quot;);
-    printf(&quot;0x%08x\n&quot;,&amp;amp;m1); //打印各本地变量的内存地址
-    printf(&quot;0x%08x\n&quot;,&amp;amp;m2);
-    printf(&quot;0x%08x\n\n&quot;,&amp;amp;m3);
-    printf(&quot;打印max函数中malloc分配地址\n&quot;);
-    printf(&quot;0x%08x\n\n&quot;,p_max); //打印各本地变量的内存地址
-    if(i) return 1;
-    else return 0;
-}
-int main(int argc, char **argv)
-{
-    static int s1=0, s2, s3=0;
-    int v1=0, v2, v3=0;
-    int *p;    
-    p = (int*)malloc(10);
-    printf(&quot;打印各全局变量(已初始化)的内存地址\n&quot;);
-    printf(&quot;0x%08x\n&quot;,&amp;amp;g1); //打印各全局变量的内存地址
-    printf(&quot;0x%08x\n&quot;,&amp;amp;g2);
-    printf(&quot;0x%08x\n\n&quot;,&amp;amp;g3);
-    printf(&quot;======================\n&quot;);
-    printf(&quot;打印程序初始程序main地址\n&quot;);
-    printf(&quot;main: 0x%08x\n\n&quot;, main);
-    printf(&quot;打印主参地址\n&quot;);
-    printf(&quot;argv: 0x%08x\n\n&quot;,argv);
-    printf(&quot;打印各静态变量的内存地址\n&quot;);
-    printf(&quot;0x%08x\n&quot;,&amp;amp;s1); //打印各静态变量的内存地址
-    printf(&quot;0x%08x\n&quot;,&amp;amp;s2);
-    printf(&quot;0x%08x\n\n&quot;,&amp;amp;s3);
-    printf(&quot;打印各局部变量的内存地址\n&quot;);
-    printf(&quot;0x%08x\n&quot;,&amp;amp;v1); //打印各本地变量的内存地址
-    printf(&quot;0x%08x\n&quot;,&amp;amp;v2);
-    printf(&quot;0x%08x\n\n&quot;,&amp;amp;v3);
-    printf(&quot;打印malloc分配的堆地址\n&quot;);
-    printf(&quot;malloc: 0x%08x\n\n&quot;,p);
-    printf(&quot;======================\n&quot;);
-    max(v1);
-    printf(&quot;======================\n&quot;);
-    printf(&quot;打印子函数起始地址\n&quot;);
-    printf(&quot;max: 0x%08x\n\n&quot;,max);
-    return 0;
-}&lt;/pre&gt;
-&lt;p&gt;栈是用来存储函数调用信息的绝好方案，然而栈也有一些缺点：&lt;/p&gt;
-&lt;p&gt;栈维护了每个函数调用的信息直到函数返回后才释放，这需要占用相当大的空间，尤其是在程序中使用了许多的递归调用的情况下。除此之外，因为有大量的信息需要保存和恢复，因此生成和销毁活跃记录需要消耗一定的时间。我们需要考虑采用迭代的方案。幸运的是我们可以采用一种称为尾递归的特殊递归方式来避免前面提到的这些缺点。&lt;/p&gt;
-&lt;h2&gt;尾递归&lt;/h2&gt;
-&lt;h3&gt;定义&lt;/h3&gt;
-&lt;p&gt;如果一个函数中所有递归形式的调用都出现在函数的末尾，我们称这个递归函数是尾递归的。当递归调用是整个函数体中最后执行的语句且它的返回值不属于表达式的一部分时，这个递归调用就是尾递归。尾递归函数的特点是在回归过程中不用做任何操作，这个特性很重要，因为大多数现代的编译器会利用这种特点自动生成优化的代码。&lt;/p&gt;
-&lt;h3&gt;原理&lt;/h3&gt;
-&lt;p&gt;当编译器检测到一个函数调用是尾递归的时候，它就覆盖当前的活动记录而不是在栈中去创建一个新的。编译器可以做到这点，因为递归调用是当前活跃期内最后一条待执行的语句，于是当这个调用返回时栈帧中并没有其他事情可做，因此也就没有保存栈帧的必要了。通过覆盖当前的栈帧而不是在其之上重新添加一个，这样所使用的栈空间就大大缩减了，这使得实际的运行效率会变得更高。虽然编译器能够优化尾递归造成的栈溢出问题，但是在编程中，我们还是应该尽量避免尾递归的出现，因为所有的尾递归都是可以用简单的goto循环替代的。&lt;/p&gt;
-&lt;h3&gt;实例&lt;/h3&gt;
-&lt;p&gt;为了理解尾递归是如何工作的，让我们再次以递归的形式计算阶乘。首先，这可以很容易让我们理解为什么之前所定义的递归不是尾递归。回忆之前对计算n!的定义：在每个活跃期计算n倍的(n－1)!的值，让n=n－1并持续这个过程直到n=1为止。这种定义不是尾递归的，因为每个活跃期的返回值都依赖于用n乘以下一个活跃期的返回值，因此每次调用产生的栈帧将不得不保存在栈上直到下一个子调用的返回值确定。现在让我们考虑以尾递归的形式来定义计算n!的过程。&lt;/p&gt;
-&lt;p&gt;这种定义还需要接受第二个参数a，除此之外并没有太大区别。a（初始化为1）维护递归层次的深度。这就让我们避免了每次还需要将返回值再乘以n。然而，在每次递归调用中，令a=na并且n=n－1。继续递归调用，直到n=1，这满足结束条件，此时直接返回a即可。&lt;/p&gt;
-&lt;p&gt;代码实例给出了一个C函数facttail，它接受一个整数n并以尾递归的形式计算n!。这个函数还接受一个参数a，a的初始值为1。facttail使用a来维护递归层次的深度，除此之外它和fact很相似。读者可以注意一下函数的具体实现和尾递归定义的相似之处。&lt;/p&gt;
-&lt;pre class=&quot;brush: c; gutter: true&quot;&gt;int facttail(int n, int a)
-{
-    if (n &amp;lt; 0)
-        return 0;
-    else if (n == 0)
-        return 1;
-    else if (n == 1)
-        return a;
-    else
-        return facttail(n - 1, n * a);
-}&lt;/pre&gt;
-&lt;p&gt;示例中的函数是尾递归的，因为对facttail的单次递归调用是函数返回前最后执行的一条语句。在facttail中碰巧最后一条语句也是对facttail的调用，但这并不是必需的。换句话说，在递归调用之后还可以有其他的语句执行，只是它们只能在递归调用没有执行时才可以执行。&lt;/p&gt;
-&lt;p&gt;尾递归是极其重要的，不用尾递归，函数的堆栈耗用难以估量，需要保存很多中间函数的堆栈。比如f(n, sum) = f(n-1) + value(n) + sum; 会保存n个函数调用堆栈，而使用尾递归f(n, sum) = f(n-1, sum+value(n)); 这样则只保留后一个函数堆栈即可，之前的可优化删去。&lt;/p&gt;
-&lt;p&gt;也许在C语言中有很多的特例，但编程语言不只有C语言，在函数式语言Erlang中（亦是栈语言），如果想要保持语言的高并发特性，就必须用尾递归来替代传统的递归。&lt;/p&gt;
-
-        
-        			&lt;div class=&quot;textwidget&quot;&gt;
-&lt;/div&gt;
-		
-
-	
-
-</description>
-        <pubDate>Fri, 05 Dec 2014 00:00:00 +0800</pubDate>
-        <link>http://iftti.com/posts/2014/2014-12-05-80626-1f2cf131d.html</link>
-        <guid isPermaLink="true">http://iftti.com/posts/2014/2014-12-05-80626-1f2cf131d.html</guid>
-        
-        
-        <category>jobbole</category>
         
       </item>
     
