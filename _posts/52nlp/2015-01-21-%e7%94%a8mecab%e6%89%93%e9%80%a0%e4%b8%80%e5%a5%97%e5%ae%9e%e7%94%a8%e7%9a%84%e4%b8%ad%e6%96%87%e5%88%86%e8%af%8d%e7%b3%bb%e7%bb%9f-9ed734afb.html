@@ -1,0 +1,441 @@
+---
+layout: post
+title: '用MeCab打造一套实用的中文分词系统'
+time: 2015-01-21
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/%e7%94%a8mecab%e6%89%93%e9%80%a0%e4%b8%80%e5%a5%97%e5%ae%9e%e7%94%a8%e7%9a%84%e4%b8%ad%e6%96%87%e5%88%86%e8%af%8d%e7%b3%bb%e7%bb%9f
+---
+{% raw %}
+
+						<p><a href="https://code.google.com/p/mecab/">MeCab</a>是一套日文分词（形态分析）和词性标注系统（Yet Another Part-of-Speech and Morphological Analyzer）， <a href="http://www.52nlp.cn/author/rickjin">rick</a>曾经在这里分享过<a href="https://code.google.com/p/mecab/">MeCab</a>的官方文档中文翻译: <a href="http://www.52nlp.cn/?p=5371">日文分词器 Mecab 文档</a>，这款日文分词器基于<a href="http://www.52nlp.cn/?p=3378">条件随机场</a>打造，有着诸多优点，譬如代码基于C++实现，基本内嵌CRF++代码，词典检索的算法和数据结构均使用双数组Double-Array，性能优良，并通过SWIG提供多种语言调用接口，可扩展性和通用性都非常不错：</p>
+<blockquote>
+<p>mecab (http://mecab.sourceforge.net/) 是奈良先端科学技術大学院的工藤拓开发的日文分词系统， 该作者写过多个 machine learning 方面的软件包， 最有名的就是 CRF++， 目前该作者在 google@Japan 工作。</p>
+<p>mecab 是基于CRF 的一个日文分词系统，代码使用 c++ 实现， 基本上内嵌了 CRF++ 的代码， 同时提供了多种脚本语言调用的接口(python, perl， ruby 等).整个系统的架构采用通用泛化的设计，用户可以通过配置文件定制CRF训练中需要使用的特征模板。 甚至， 如果你有中文的分词语料作为训练语料，可以在该架构下按照其配置文件的规范定制一个中文的分词系统。</p>
+<p>日文NLP 界有几个有名的开源分词系统， Juman, Chasen, Mecab.   Juman 和 Chasen 都是比较老的系统了， Mecab 系统比较新， 在很多方面都优于 Juman 和 Chasen, mecab 目前开发也比较活跃。 Mecab 虽然使用 CRF 实现， 但是解析效率上确相当高效， 据作者的介绍， Mecab 比基于 HMM 的 Chasen 的解析速度要快。 笔者在一台 Linux 机器上粗略测试过其速度，将近达到 2MB/s， 完全达到了工程应用的需求， 该系统目前在日文 NLP 界被广泛使用。</p>
+</blockquote>
+<p>我们曾经介绍过一个非常初级的CRF中文分词实现方案：<a href="http://www.52nlp.cn/?p=6339">中文分词入门之字标注法4</a>，基于CRF++实现了一个Toy级别的CRF中文分词系统，但是还远远不够。在仔细看过这篇日文分词系统MeCab的中文文档并亲测之后，不得不赞这真是一个理想的CRF分词系统，除了上述所说的优点之外，在使用上它还支持Nbest输出，多种输出格式，全切分模式，系统词典和用户词典定制等等，难怪这套分词系统在日本NLP界被广泛使用。</p>
+<p>MeCab的诸多优点以及它的通用性一直深深吸引着我，但是除了日文资料，相关的中文或英文资料相当匮乏，曾经尝试过基于MeCab的中文翻译文档以及代码中测试用例中的例子来训练一套中文分词系统，但是第一次以失败告终。这几天，由于偶然的因素又一次捡起了MeCab，然后通过Google及Google翻译发现了这篇日文文章《<a href="http://www.onaneet.org/blog/archives/4020">MeCabで中国語の形態素解析（分かち書き）をしてみる</a>》，虽其是日语所写，但是主旨是通过MeCab构造一套中文（貌似是繁体）形态（中文分词+词性标注）分析系统，给了我很大的帮助。所以接下来，我会基于这篇文章的提示以及rick翻译文档中第八节“从原始词典/语料库做参数估计”的参考，同时结合<a href="http://www.52nlp.cn/?p=2885">backoff2005</a>中微软研究院的中文分词语料来训练一套极简的中文分词系统，至于MeCab的相关介绍及安装使用请参考 <a href="http://www.52nlp.cn/?p=5371">日文分词器 Mecab 文档</a>，这里不再赘述。以下是我在Mac OS下的操作记录，同理可推广制Linux下，至于Windows下，请自行测试。一些中文分词的背景知识可参考这里过往的相关文章: <a href="http://www.52nlp.cn/category/word-segmentation">中文分词</a>。<br>
+<span id="more-6932"></span></p>
+<p>0、首先在和SIGHAN backoff2005的相关语料icwb2-data的同层次目录里建立一个msr_mecab_test目录：</p>
+<p>mkdir msr_mecab_test<br>
+cd msr_mecab_test</p>
+<p>然后在这个目录下分别建立三个子目录：seed, final, script:</p>
+<p>mkdir seed<br>
+mkdir final<br>
+mkdir script</p>
+<p>1、准备Seed 词典</p>
+<blockquote>
+<p>MeCab 的词典是 CSV 格式的. Seed 词典和用于发布的词典的格式基本上是相同的 .</p>
+<p>以下是词典的词条条目的例子 .</p>
+<p>進学校,0,0,0,名詞,一般,*,*,*,*,進学校,シンガクコウ,シンガクコー<br>
+梅暦,0,0,0,名詞,一般,*,*,*,*,梅暦,ウメゴヨミ,ウメゴヨミ<br>
+気圧,0,0,0,名詞,一般,*,*,*,*,気圧,キアツ,キアツ<br>
+水中翼船,0,0,0,名詞,一般,*,*,*,*,水中翼船,スイチュウヨクセン,スイチューヨクセン<br>
+前面4个字段是必须的,</p>
+<p>表层形(词条本身)<br>
+左连接状态号<br>
+右连接状态号<br>
+cost</p>
+</blockquote>
+<p>我们的词典源来自于icwb2-data/gold/msr_training_words.utf8，由于不含词性等其他信息，这里我们提供一个非常简单的Seed 词条格式，如下所示：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">１１２３项,0,0,0,0,0,0<br>
+义演,0,0,0,0,0,0<br>
+佳酿,0,0,0,0,0,0<br>
+沿街,0,0,0,0,0,0<br>
+老理,0,0,0,0,0,0<br>
+三四十岁,0,0,0,0,0,0<br>
+解波,0,0,0,0,0,0<br>
+统建,0,0,0,0,0,0<br>
+蓓蕾,0,0,0,0,0,0<br>
+李佑生,0,0,0,0,0,0</div></td>
+</tr></tbody></table></div>
+<p>这里提供一个python脚本用于制作seed词典: <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/MeCab/script/make_mecab_seed_data.py">make_mecab_seed_data.py</a>:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>
+</div></td>
+<td><div class="text codecolorer">#!/usr/bin/env python<br>
+# -*- coding: utf-8 -*-<br>
+# Author: 52nlpcn@gmail.com<br>
+# Copyright 2015 @ YuZhen Technology<br>
+<br>
+import codecs<br>
+import sys<br>
+<br>
+def make_mecab_seed_data(input_file, output_file):<br>
+    input_data = codecs.open(input_file, 'r', 'utf-8')<br>
+    output_data = codecs.open(output_file, 'w', 'utf-8')<br>
+    for line in input_data.readlines():<br>
+        word = line.strip()<br>
+        output_data.write(word+ ",0,0,0,0,0,0\n")<br>
+    input_data.close()<br>
+    output_data.close()<br>
+<br>
+if __name__ == '__main__':<br>
+    if len(sys.argv) &lt; 3:<br>
+        print "pls use: python make_mecab_seed_data.py input output"<br>
+        sys.exit()<br>
+    input_file = sys.argv[1]<br>
+    output_file = sys.argv[2]<br>
+    make_mecab_seed_data(input_file, output_file)</div></td>
+</tr></tbody></table></div>
+<p>可以将这个脚本拷贝到script目录下，然后进入到seed目录，执行 python ../script/make_mecab_seed_data.py ../../icwb2-data/gold/msr_training_words.utf8 msr_words.csv 即可得到MeCab所需的Seed词典。</p>
+<p>2、准备配置文件<br>
+在seed目录下准备5个最基础的配置文件，分别是dicrc, char.def, unk.def, rewrite.def, feature.def , 这5个配置文件我主要参考自上述那篇日文文章，略作修改，其具体解释可参考中文翻译文档中的详细描述：</p>
+<p>1) <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/MeCab/seed/dicrc">dicrc</a>: 该文件中设定词典的各种动作的，以下为最小配置：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>
+</div></td>
+<td><div class="text codecolorer">cost-factor = 800<br>
+bos-feature = BOS/EOS,*,*,*,*,*,*,*,*<br>
+eval-size = 6<br>
+unk-eval-size = 4<br>
+config-charset = UTF-8</div></td>
+</tr></tbody></table></div>
+<p>2) <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/MeCab/seed/char.def">char.def</a>: 定义未登陆词处理的文件. 通常日语的词法分析是基于字符的种类处理未登陆词, Mecab 中哪个文字属于哪个字符种类, 用户可以进行细致的指定; 对于每个字符类别， 需要采用哪种未登陆词的识别处理,也可以进行详细的定义。</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">DEFAULT        0 1 0  # DEFAULT is a mandatory category!<br>
+SPACE          0 1 0<br>
+CJK            0 0 2<br>
+<br>
+# SPACE<br>
+0x0020 SPACE  # DO NOT REMOVE THIS LINE,  0x0020 is reserved for SPACE<br>
+0x00D0 SPACE<br>
+0x0009 SPACE<br>
+0x000B SPACE<br>
+0x000A SPACE</div></td>
+</tr></tbody></table></div>
+<p>3) <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/MeCab/seed/unk.def">unk.def</a>: 用于未登陆词的词典。</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>
+</div></td>
+<td><div class="text codecolorer">DEFAULT,0,0,0,unk,*,*<br>
+SPACE,0,0,0,unk,*,*<br>
+CJK,0,0,0,unk,*,*</div></td>
+</tr></tbody></table></div>
+<p>4) <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/MeCab/seed/rewrite.def">rewrite.def</a>: 定义从特征列到内部状态特征列的转换映射。</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>
+</div></td>
+<td><div class="text codecolorer">[unigram rewrite]<br>
+*,*,*   \$1,\$2,\$3<br>
+<br>
+[left rewrite]<br>
+*,*,*   \$1,\$2,\$3<br>
+<br>
+[right rewrite]<br>
+*,*,*   \$1,\$2,\$3</div></td>
+</tr></tbody></table></div>
+<p>5) <a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/MeCab/seed/feature.def">feature.def</a>: 该文件中定义了从内部状态的素生列中抽取CRF的素生列的模板</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>
+</div></td>
+<td><div class="text codecolorer">UNIGRAM W0:%F[6]<br>
+UNIGRAM W1:%F[0]/%F[6]<br>
+UNIGRAM W2:%F[0],%F?[1]/%F[6]<br>
+UNIGRAM W3:%F[0],%F[1],%F?[2]/%F[6]<br>
+UNIGRAM W4:%F[0],%F[1],%F[2],%F?[3]/%F[6]<br>
+<br>
+UNIGRAM T0:%t<br>
+UNIGRAM T1:%F[0]/%t<br>
+UNIGRAM T2:%F[0],%F?[1]/%t<br>
+UNIGRAM T3:%F[0],%F[1],%F?[2]/%t<br>
+UNIGRAM T4:%F[0],%F[1],%F[2],%F?[3]/%t<br>
+<br>
+BIGRAM B00:%L[0]/%R[0]<br>
+BIGRAM B01:%L[0],%L?[1]/%R[0]<br>
+BIGRAM B02:%L[0]/%R[0],%R?[1]<br>
+BIGRAM B03:%L[0]/%R[0],%R[1],%R?[2]<br>
+BIGRAM B04:%L[0],%L?[1]/%R[0],%R[1],%R?[2]<br>
+BIGRAM B05:%L[0]/%R[0],%R[1],%R[2],%R?[3]<br>
+BIGRAM B06:%L[0],%L?[1]/%R[0],%R[1],%R[2],%R?[3]</div></td>
+</tr></tbody></table></div>
+<p>3、准备训练语料</p>
+<blockquote>
+<p>用于训练的数据， 和 MeCab 的输出是相同格式的，</p>
+<p>太郎    名詞,固有名詞,人名,名,*,*,太郎,タロウ,タロー<br>
+は      助詞,係助詞,*,*,*,*,は,ハ,ワ<br>
+花子    名詞,固有名詞,人名,名,*,*,花子,ハナコ,ハナコ<br>
+が      助詞,格助詞,一般,*,*,*, が,ガ,ガ<br>
+好き    名詞,形容動詞語幹,*,*,*,*, 好き,スキ,スキ<br>
+だ      助動詞,*,*,*, 特殊・ダ,基本形,だ,ダ,ダ<br>
+.       記号,句点,*,*,*,*, . , . , .<br>
+EOS<br>
+焼酎    名詞,一般,*,*,*,*,焼酎,ショウチュウ,ショーチュー<br>
+好き    名詞,形容動詞語幹,*,*,*,*,好き,スキ,スキ<br>
+の      助詞,連体化,*,*,*,*, の,ノ,ノ<br>
+親父    名詞,一般,*,*,*,*,親父,オヤジ,オヤジ<br>
+.       記号,句点,*,*,*,*, . , . , .<br>
+EOS<br>
+…<br>
+Tab 键分隔的第一个部分为词条表层文字, 随后是CSV 格式的特征列, 句子结束标志为 只包行EOS的行.</p>
+</blockquote>
+<p>我们的中文分词训练语料来源于icwb2-data/training/msr_training.utf8 ，和词典格式一样，我们提供一份格式非常简单的用于MeCab训练的分词语料，如下所示：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>
+</div></td>
+<td><div class="text codecolorer">“ 0,0,0,0,0,0<br>
+人们  0,0,0,0,0,0<br>
+常 0,0,0,0,0,0<br>
+说 0,0,0,0,0,0<br>
+生活  0,0,0,0,0,0<br>
+是 0,0,0,0,0,0<br>
+一 0,0,0,0,0,0<br>
+部 0,0,0,0,0,0<br>
+教科书   0,0,0,0,0,0<br>
+， 0,0,0,0,0,0</div></td>
+</tr></tbody></table></div>
+<p>同样提供一个可用于语料格式转换的脚本：<a href="https://github.com/panyang/yuzhen_nlp_edu_tools/blob/master/CLPT/WordSegmentation/MeCab/script/make_mecab_train_data.py">make_mecab_train_data.py</a></p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>25<br>26<br>27<br>
+</div></td>
+<td><div class="text codecolorer">#!/usr/bin/env python<br>
+# -*- coding: utf-8 -*-<br>
+# Author: 52nlpcn@gmail.com<br>
+# Copyright 2015 @ YuZhen Technology<br>
+<br>
+import codecs<br>
+import sys<br>
+<br>
+def make_mecab_train_data(input_file, output_file):<br>
+    input_data = codecs.open(input_file, 'r', 'utf-8')<br>
+    output_data = codecs.open(output_file, 'w', 'utf-8')<br>
+    for line in input_data.readlines():<br>
+        word_list = line.strip().split()<br>
+        if len(word_list) == 0: continue<br>
+        for word in word_list:<br>
+            output_data.write(word+ "\t0,0,0,0,0,0\n")<br>
+        output_data.write("EOS\n")<br>
+    input_data.close()<br>
+    output_data.close()<br>
+<br>
+if __name__ == '__main__':<br>
+    if len(sys.argv) &lt; 3:<br>
+        print "pls use: python make_mecab_train_data.py input output"<br>
+        sys.exit()<br>
+    input_file = sys.argv[1]<br>
+    output_file = sys.argv[2]<br>
+    make_mecab_train_data(input_file, output_file)</div></td>
+</tr></tbody></table></div>
+<p>可将其拷贝到script目录下，然后执行 python ../script/make_mecab_train_data.py ../../icwb2-data/training/msr_training.utf8 corpus 即可。</p>
+<p>4、生成训练用的二进制词典</p>
+<p>好了，目前为止，我们需要训练用的词典，配置文件及训练语料已准备就绪：</p>
+<blockquote><p>seed 词典(CSV 格式文件集合)<br>
+所有的配置文件 (char.def, unk.def, rewrite.def, feature.def)<br>
+训练用的数据 (文件名: corpus)</p></blockquote>
+<p>在seed目录下运行以下命令， 生成学习用的二进制词典:</p>
+<p>/usr/local/libexec/mecab/mecab-dict-index</p>
+<p>也可以通过 -d,  -o 选项指定输入输出目录来运行该命令<br>
+/usr/local/libexec/mecab/mecab-dict-index -d \$WORK/seed -o \$WORK/seed<br>
+-d: 包含seed 词典和配置文件的目录(缺省为当前目录)<br>
+-o: 训练用二进制词典的输出目录(缺省为当前目录)</p>
+<p>执行过程如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>
+</div></td>
+<td><div class="text codecolorer">./pos-id.def is not found. minimum setting is used<br>
+reading ./unk.def ... 3<br>
+emitting double-array: 100% |###########################################| <br>
+./model.def is not found. skipped.<br>
+./pos-id.def is not found. minimum setting is used<br>
+reading ./msr_words.csv ... 88119<br>
+emitting double-array: 100% |###########################################| <br>
+./matrix.def is not found. minimum setting is used.<br>
+reading ./matrix.def ... 1x1<br>
+<br>
+done!</div></td>
+</tr></tbody></table></div>
+<p>5、CRF模型参数训练</p>
+<p>在seed目录下执行如下命令，训练CRF模型：<br>
+/usr/local/libexec/mecab/mecab-cost-train -c 1.0 corpus model</p>
+<p>可以使用 -d 参数指定使用的词典<br>
+/usr/local/libexec/mecab/mecab-cost-train -d \$WORK/seed -c 1.0 \$WORK/seed/corpus \$WORK/seed/model<br>
+-d: 包含训练用二进制词典的目录(缺省为当前目录)<br>
+-c: CRF的超参数(hyper-parameter)<br>
+-f: 特征频率的阈值<br>
+-p NUM: 实行NUM个并行训练 (缺省为1)<br>
+corpus: 训练数据文件名<br>
+model: 输出CRF参数文件名</p>
+<p>这个训练过程需要一会儿时间，最终的输出大致如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>15<br>16<br>17<br>18<br>19<br>20<br>21<br>22<br>23<br>24<br>25<br>26<br>27<br>28<br>29<br>30<br>31<br>32<br>33<br>34<br>35<br>36<br>37<br>
+</div></td>
+<td><div class="text codecolorer">adding virtual node: 0,0,0,0,0,0<br>
+adding virtual node: 0,0,0,0,0,0<br>
+adding virtual node: 0,0,0,0,0,0<br>
+adding virtual node: 0,0,0,0,0,0<br>
+...<br>
+Number of sentences: 86918<br>
+Number of features:  28<br>
+eta:                 0.00005<br>
+freq:                1<br>
+eval-size:           6<br>
+unk-eval-size:       4<br>
+threads:             1<br>
+charset:             EUC-JP<br>
+C(sigma^2):          1.00000<br>
+<br>
+iter=0 err=0.29595 F=0.94870 target=2267078.26396 diff=1.00000<br>
+iter=1 err=0.13623 F=0.97665 target=1056367.13470 diff=0.53404<br>
+iter=2 err=0.13849 F=0.97610 target=1005496.50043 diff=0.04816<br>
+iter=3 err=0.14630 F=0.97388 target=924449.25300 diff=0.08060<br>
+iter=4 err=0.13693 F=0.97643 target=891815.15638 diff=0.03530<br>
+iter=5 err=0.13537 F=0.97672 target=869032.52748 diff=0.02555<br>
+iter=6 err=0.11850 F=0.98127 target=854787.02218 diff=0.01639<br>
+iter=7 err=0.10803 F=0.98411 target=845031.70611 diff=0.01141<br>
+iter=8 err=0.08712 F=0.98848 target=838863.46990 diff=0.00730<br>
+iter=9 err=0.07940 F=0.99001 target=835481.49751 diff=0.00403<br>
+iter=10 err=0.07276 F=0.99114 target=833719.13204 diff=0.00211<br>
+iter=11 err=0.06556 F=0.99263 target=833462.32905 diff=0.00031<br>
+iter=12 err=0.06569 F=0.99258 target=831886.20533 diff=0.00189<br>
+iter=13 err=0.06568 F=0.99259 target=831739.11465 diff=0.00018<br>
+iter=14 err=0.06559 F=0.99262 target=831643.59710 diff=0.00011<br>
+iter=15 err=0.06531 F=0.99266 target=831599.69205 diff=0.00005<br>
+iter=16 err=0.06502 F=0.99274 target=831544.40251 diff=0.00007<br>
+iter=17 err=0.06480 F=0.99279 target=831518.14668 diff=0.00003<br>
+iter=18 err=0.06475 F=0.99280 target=831504.33361 diff=0.00002<br>
+iter=19 err=0.06470 F=0.99281 target=831502.92263 diff=0.00000<br>
+<br>
+Done! writing model file ...</div></td>
+</tr></tbody></table></div>
+<p>6、生成用于发布的词典</p>
+<p>在seed目录下执行：</p>
+<p>/usr/local/libexec/mecab/mecab-dict-gen -o ../final -m model</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>
+</div></td>
+<td><div class="text codecolorer">model is not a binary model. reopen it as text mode...<br>
+reading ./unk.def ... 3<br>
+reading ./msr_words.csv ... 88119<br>
+emitting ../final/left-id.def/ ../final/right-id.def<br>
+emitting ../final/unk.def ... 3<br>
+emitting ../final/msr_words.csv ... 88119<br>
+emitting matrix      : 100% |###########################################| <br>
+emitting matrix      : 133% |###########################################        copying ./char.def to ../final/char.def<br>
+copying ./rewrite.def to ../final/rewrite.def<br>
+copying ./dicrc to ../final/dicrc<br>
+copying ./feature.def to ../final/feature.def<br>
+copying model to ../final/model.def<br>
+<br>
+done!</div></td>
+</tr></tbody></table></div>
+<p>也可以使用 -d -o 选项指定词典<br>
+/usr/local/libexec/mecab/mecab-dict-gen -o \$WORK/final -d \$WORK/seed -m \$WORK/seed/model<br>
+-d: 包含seed 词典和配置文件的目录(缺省为当前目录)<br>
+-o: 用于发布的词典的输出目录<br>
+-m: CRF 的参数文件<br>
+用于发布的词典， 必须输出到和 seed 词典不同的目录，通常把包含发布词典的 final 目录打包之后用于发布 .</p>
+<p>7、生成用于解析器的词典<br>
+进入到final目录下<br>
+cd ../final<br>
+执行<br>
+/usr/local/libexec/mecab/mecab-dict-index</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>
+</div></td>
+<td><div class="text codecolorer">reading ./unk.def ... 3<br>
+emitting double-array: 100% |###########################################| <br>
+./pos-id.def is not found. minimum setting is used<br>
+reading ./msr_words.csv ... 88119<br>
+emitting double-array: 100% |###########################################| <br>
+reading ./matrix.def ... 3x3<br>
+emitting matrix      : 100% |###########################################| <br>
+<br>
+done!</div></td>
+</tr></tbody></table></div>
+<p>也可以使用 -d -o 选项指定词典<br>
+usr/local/libexec/mecab/mecab-dict-index -d \$WORK/final -o \$WORK/final<br>
+-d: 包含seed 词典和配置文件的目录(缺省为当前目录)<br>
+-o: 用于解析器的二进制词典的输出目录(缺省为当前目录)</p>
+<p>至此，MeCab中文分词所需的词典和模型文件准备就绪，都在final目录下，可以测试一下，回到上一层目录（cd ..)，然后执行</p>
+<p>    mecab -d ./final/</p>
+<p>让MeCab加载中文分词所需的相关词典文件，待加载完毕，输入一行中文句子：</p>
+<p>    扬帆远东做与中国合作的先行</p>
+<p>回车后我们得到逐行的分词结果，和输入的训练文件格式相似：</p>
+<p>扬帆	0,0,0<br>
+远东	0,0,0<br>
+做	0,0,0<br>
+与	0,0,0<br>
+中国	0,0,0<br>
+合作	0,0,0<br>
+的	0,0,0<br>
+先行	0,0,0<br>
+EOS</p>
+<p>如果想得到NBest的输出结果，可以这样执行：</p>
+<p>mecab -d ./final/ -N2<br>
+扬帆远东做与中国合作的先行<br>
+扬帆	0,0,0<br>
+远东	0,0,0<br>
+做	0,0,0<br>
+与	0,0,0<br>
+中国	0,0,0<br>
+合作	0,0,0<br>
+的	0,0,0<br>
+先行	0,0,0<br>
+EOS<br>
+扬帆	0,0,0<br>
+远东	0,0,0<br>
+做	0,0,0<br>
+与	0,0,0<br>
+中	0,0,0<br>
+国	0,0,0<br>
+合作	0,0,0<br>
+的	0,0,0<br>
+先行	0,0,0<br>
+EOS</p>
+<p>如果想得到单行的分词结果，可以这样执行：</p>
+<p>mecab -d ./final/ -O wakati<br>
+扬帆远东做与中国合作的先行<br>
+扬帆 远东 做 与 中国 合作 的 先行 </p>
+<p>如果想直接对文件分词，可以这样执行：</p>
+<p>mecab -d ./final/ INPUT -o OUTPUT</p>
+<p>基于以上信息，我们可以利益backoff2005的评估脚本来评估本次分词的结果，首先利益mecab对msr的测试文件进行中文分词：</p>
+<p>mecab -d ./final/ -O wakati ../icwb2-data/testing/msr_test.utf8 -o msr_test.mecab</p>
+<p>然后用测试脚本来评估MeCab的中文分词结果文件msr_test.mecab的准确率和召回率，执行：</p>
+<p>../icwb2-data/scripts/score ../icwb2-data/gold/msr_training_words.utf8 ../icwb2-data/gold/msr_test_gold.utf8 msr_test.mecab &gt; msr_test.mecab.score</p>
+<p>最终的结果如下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>12<br>13<br>14<br>
+</div></td>
+<td><div class="text codecolorer">=== SUMMARY:<br>
+=== TOTAL INSERTIONS:   4984<br>
+=== TOTAL DELETIONS:    474<br>
+=== TOTAL SUBSTITUTIONS:    4828<br>
+=== TOTAL NCHANGE:  10286<br>
+=== TOTAL TRUE WORD COUNT:  106873<br>
+=== TOTAL TEST WORD COUNT:  111383<br>
+=== TOTAL TRUE WORDS RECALL:    0.950<br>
+=== TOTAL TEST WORDS PRECISION: 0.912<br>
+=== F MEASURE:  0.931<br>
+=== OOV Rate:   0.026<br>
+=== OOV Recall Rate:    0.000<br>
+=== IV Recall Rate: 0.976<br>
+### msr_test.mecab  4984    474 4828    10286   106873  111383  0.950   0.912   0.931   0.026   0.000   0.976</div></td>
+</tr></tbody></table></div>
+<p>我们得到一个准确率91.2%，召回率95%，F值为93.1%的中文分词器。当然，这只是一个初步测试，还有许多工作要做，譬如添加词典，添加语料，设计特征模板等等。</p>
+<p>我们再说一下如何在Python中调用MeCab进行中文分词，其他各种语言的绑定的安装方法参见 perl/README, ruby/README, python/README, java/README），写得很清楚。首先下载mecab-python-0.996.tar.gz，一路解压安装，安装成功后打开python解释器，这里使用ipython:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><table cellspacing="0" cellpadding="0"><tbody><tr>
+<td class="line-numbers"><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8<br>9<br>10<br>11<br>
+</div></td>
+<td><div class="text codecolorer">In [1]: import sys<br>
+<br>
+In [2]: import MeCab<br>
+<br>
+In [3]: m = MeCab.Tagger("-d ./final/ -O wakati")<br>
+<br>
+In [4]: m.parse("扬帆远东做与中国合作的先行")<br>
+Out[4]: '\xe6\x89\xac\xe5\xb8\x86 \xe8\xbf\x9c\xe4\xb8\x9c \xe5\x81\x9a \xe4\xb8\x8e \xe4\xb8\xad\xe5\x9b\xbd \xe5\x90\x88\xe4\xbd\x9c \xe7\x9a\x84 \xe5\x85\x88\xe8\xa1\x8c \n'<br>
+<br>
+In [5]: print m.parse("扬帆远东做与中国合作的先行")<br>
+扬帆 远东 做 与 中国 合作 的 先行</div></td>
+</tr></tbody></table></div>
+<p>最后再说一下之所以说实用，并不是说马上给出一个实用的中文分词系统，而是在这个通用的分词框架下，我们可以做很多有趣的事情和测试，最终定制属于我们自己的实用的中文分词和词性标注系统，也欢迎大家一起来探索。</p>
+<p>注：原创文章，转载请注明出处“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/?p=6932">http://www.52nlp.cn/用mecab打造一套实用的中文分词系统</a></p>
+
+											
+{% endraw %}
