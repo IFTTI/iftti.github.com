@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>PRML读书会第十章  Approximate Inference</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-01-31-prml%25e8%25af%25bb%25e4%25b9%25a6%25e4%25bc%259a%25e7%25ac%25ac%25e5%258d%2581%25e7%25ab%25a0-approximate-inference-c3b1e2e4b.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>PRML读书会第十章  Approximate Inference</h1>
+    <p class="meta"><span class="time">Jan 31, 2015</span><span class="source_url"> • 来自 52nlp.cn <a name="52nlp.cn" href="http://www.52nlp.cn/prml%e8%af%bb%e4%b9%a6%e4%bc%9a%e7%ac%ac%e5%8d%81%e7%ab%a0-approximate-inference" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+						<p style="text-align: center"><span style="font-family: 微软雅黑;font-size: 15pt"><strong>PRML读书会第十章 Approximate Inference<br>
+</strong></span></p>
+<p style="text-align: center"><span style="font-family: 微软雅黑;font-size: 15pt"><strong>主讲人 戴玮<br>
+</strong></span></p>
+<p style="text-align: center"><span style="font-family: 微软雅黑;font-size: 12pt"><strong>（新浪微博: <a href="http://weibo.com/u/1433881802">@戴玮_CASIA</a>）<br>
+</strong></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">Wilbur_中博(1954123) 20:02:04<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"> 我们在前面看到，概率推断的核心任务就是计算某分布下的某个函数的期望、或者计算边缘概率分布、条件概率分布等等。 比如前面在第九章尼采兄讲EM时，我们就计算了对数似然函数在隐变量后验分布下的期望。这些任务往往需要积分或求和操作。 但在很多情况下，计算这些东西往往不那么容易。因为首先，我们积分中涉及的分布可能有很复杂的形式，这样就无法直接得到解析解，而我们当然希望分布是类似指数族分布这样具有共轭分布、容易得到解析解的分布形式；其次，我们要积分的变量空间可能有很高的维度，这样就把我们做数值积分的路都给堵死了。因为这两个原因，我们进行精确计算往往是不可行的。<br>
+为了解决这一问题，我们需要引入一些近似计算方法。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"> 近似计算有随机和确定两条路子。随机方法也就是MCMC之类的采样法，我们会在讲第十一章的时候专门讲到，而确定近似法就是我们这一章讲的变分。变分法的优点主要是：有解析解、计算开销较小、易于在大规模问题中应用。但它的缺点是推导出想要的形式比较困难。也就是说，人琢磨的部分比较复杂，而机器算的部分比较简单。这和第十一章的采样法的优缺点恰好有互补性。所以我们可以在不同的场合应用变分法或采样法。这里我的一个问题是：是否可以结合二者的优点，使得人也不用考虑太多、机器算起来也比较简单？<br>
+变分法相当于把微积分从变量推广到函数上。我们都知道，微积分是用来分析变量变化、也就是函数性质的，这里函数定义为f: x -&gt; f(x)，而导数则是df/dx；与之相对，变分用到了泛函的概念：F: f -&gt; F(f)，也就是把函数映射为某个值，而相应地，也有导数dF/df，衡量函数是如何变化的。比如我们熟悉的信息论中的熵，就是把概率分布这个函数映射到熵这个值上。和微积分一样，我们也可以通过导数为0的条件求解无约束极值问题，以及引入拉格朗日乘子来求解有约束极值问题。比如说，我们可以通过概率分布积分为1的约束，求解最大熵的变分问题。PRML的附录D和E有比较详细的解释，我们后面也还会看到，这里就不多说了。<br>
+变分法这名字听起来比较可怕，但它的核心思想，就是从某个函数空间中找到满足某些条件或约束的函数。我们在统计推断当中用到的变分法，实际上就是用形式简单的分布，去近似形式复杂、不易计算的分布，这样再做积分运算就会容易很多。 比如，我们可以在所有高斯分布当中，选一个和目标分布最相似的分布，这样后面做进一步计算时就容易获得解析解。此外，我们还可以假设多元分布的各变量之间独立，这样积分的时候就可以把它们变成多个一元积分，从而解决高维问题。这也是最简单的两种近似。<br>
+</span><span id="more-7763"></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"> 概率推断中的变分近似方法，最根本的思想，就是想用形式简单的分布去近似形式复杂、不易计算的分布。比如，我们可以在指数族函数空间当中，选一个和目标分布最相像的分布，这样计算起来就方便多了。<br>
+显然，我们这里需要一个衡量分布之间相似性或差异性的度量，然后我们才能针对这个度量进行最优化，求相似性最大或差异性最小的分布。一般情况下，我们会选用KL散度：<br>
+<img src="/images/52nlp.cn/afe24c856b2bc43a55ab237b58994092.jpg" alt=""><br>
+或者<img src="/images/52nlp.cn/bf06b8a75cee1c3f30276c4ac4c9e999.jpg" alt="">，当然离散分布就不是积分而是在离散状态上求和。这个值是非负的，而且只在两分布完全相同的情况下取0，所以可以看成两分布之间的距离。但这种度量是不对称的，也就是<img src="/images/52nlp.cn/00a5c3912b3a22fb0cb1ceab3223c43f.jpg" alt="">，而我们在优化的时候，这两种度量实际上都可以使用。这样一来，我们后面也会看到，会造成一些有趣且奇怪的现象。有了这个度量，我们就可以对某个给定的概率分布，求一个在某些条件下和它最相似或距离最小的分布。这里我们看几个例子，直观地认识一下KL散度的不对称性、以及产生这种不对称性的原因。这是两个方差不同的一元高斯分布，其中方差较小的是q（红色曲线），方差较大的是p（蓝色曲线）：<br>
+<img src="/images/52nlp.cn/a488fd1e953fce1ecca283101ccb88d5.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">根据KL散度的公式<img src="/images/52nlp.cn/e8c2a972b661486470fb3ec8ba23bf1b.jpg" alt="">，我们能否估计一下，是KL(q||p)较大，还是KL(p||q)较大？我们可以看到，在曲线的中间部分，q(x) &gt; p(x)，因此，如果光考虑这部分，显然KL(q||p)会比较大。但是，考虑两边 q(x) &lt; p(x) 的部分，我们可以看到，q(x) 很快趋近于0，此时 p(x)/q(x) 会变得很大，比中间部分要大得多（打个比方，0.8/0.4 和 0.01/0.001）。尽管还要考虑 log 前面的 q(x)，但当 q(x) 不等于0时，分母趋近于0造成的影响还是压倒性的。所以综合考虑，KL(q||p)要小于KL(p||q)。它们的精确值分别为0.32和0.81。另一个例子是，如果两个高斯分布方差相等，则KL散度也会相等：<br>
+<img src="/images/52nlp.cn/9f5f993ed5cd47460045be15d46a2051.jpg" alt=""><br>
+这一点很容易理解。再来看一个复杂一点的例子。在这个例子中，q是单峰高斯分布，p是双峰高斯分布：<br>
+<img src="/images/52nlp.cn/368ca23aafb46a110ffdf118dc782b45.jpg" alt=""><br>
+这三种情况中，p的两个峰没有分开，有一定粘连，而q则分别拟合了p的左峰、右峰（见PRML 4.4节的拉普拉斯近似，上次读书会也简单介绍过，可参看上次读书会的总结），以及拟合p的均值和方差（即单峰高斯分布的两个参数）。三种拟合情况对应左、中、右三图。对于这三种情况，KL(q||p)分别为1.17、0.09、0.07，KL(p||q)分别为23.2、0.12、0.07。可以看到，无论是哪一种KL散度，在p的双峰没有完全分开的情况下，用单峰高斯q去近似双峰高斯p得到的最优解，都相当于拟合p的均值和方差。如果p的两个峰分开的话，情况会如何呢？<br>
+<img src="/images/52nlp.cn/c9449cbcb42cf309f567a1929f068b26.jpg" alt=""><br>
+和前一个例子一样，我们分别拟合p的左峰、右峰，以及均值和方差。显然，这里由于p中间有一段概率密度为0的区域，所以可以想见，KL(q||p)可能会比较大。实际情况也是如此：KL(q||p)分别为0.69、0.69、3.45，KL(p||q)分别为43.9、15.4、0.97。可以看到，如果用KL(p||q)做最优化，结果和双峰粘连时一样，仍然是拟合p的均值和方差，也就是所谓的moment-matching；而用KL(q||p)做最优化，结果则会有所变化：会拟合双峰的其中一峰，也就是所谓的mode-seeking。<br>
+我们从前面这几个例子中，可以总结一个规律：用KL(q||p)做最优化，是希望p(x)为0的地方q(x)也要为0，否则q(x)/p(x)就会很大，刚才例子的右图在中间部分（5附近）就违背了这一点；反之，如果用KL(p||q)做最优化，就要尽量避免p(x)不为0而q(x)用0去拟合的情况，或者说p(x)不为0的地方q(x)也不要为0，刚才例子的左、中两图也违反了这一点。<br>
+所以，KL(q||p)得到的近似分布q(x)会比较窄，因为它希望q(x)为0的地方可能比较多；而KL(p||q)得到的近似分布q(x)会比较宽，因为它希望q(x)不为0的地方比较多。<br>
+最后看一个多元高斯分布的例子，书上的图10.3： <img src="/images/52nlp.cn/e9c0ff564835d562b6bb9f9f9a2ededc.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">即有了前面的讲解，我们可以猜一下，哪些图是KL(q||p)得到的最优解，哪些图是KL(p||q)得到的最优解。<br>
+由于KL(q||p)至少可以拟合到其中的一个峰上，而KL(p||q)拟合的结果，其概率密度最大的地方可能没什么意义，所以很多情况下，KL(q||p)得到的结果更符合我们的需要。到这里有什么问题吗。。理解理解。。KL散度这东西。<br>
+</span></p>
+<p><span style="color: #333333;font-size: 12pt"><span style="font-family: Arial">============================</span><span style="font-family: 宋体">讨论</span><span style="font-family: Arial">=================================<br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">飞羽(346723494) 20:24:23<br>
+KL(q||p) 就是相当于用q去拟合p？<br>
+Yuli(764794071) 20:25:31<br>
+KL就是KL Divergence（相对熵）吧 用信息论来解释的话 是用来衡量两个正函数是否相似<br>
+飞羽(346723494) 20:25:57<br>
+对， 就是相对熵<br>
+Wilbur_中博(1954123) 20:27:06<br>
+嗯，我们现在有一个分布p，很多时候是后验分布，但它形式复杂，所以想用形式比较简单的q去近似p。其实也可以直接用后验分布的统计量，比如mode或mean去代替整个分布，进行进一步计算，比如最大后验什么的。但现在如果用近似分布去做预测的话，性能会好得多。<br>
+linbo-phd-bayesian(99878724) 20:27:15<br>
+请问为何KL(q||p)》=0，为何没有《0啊，有知道的吗？<br>
+飞羽(346723494) 20:28:06<br>
+<img src="/images/52nlp.cn/828a75a7912690fd1c64da1b2b37e932.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">Wilbur_中博(1954123) 20:29:21<br>
+那个不太难证，利用ln凹函数性质可以证出来。。不过细节我忘记了，呵呵。查一查吧。。应该很多地方都有的。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">逸风(421723497) 20:30:44<br>
+PRML P56<br>
+Wilbur_中博(1954123) 20:31:50<br>
+总之就是利用KL作为目标函数，去做最优化。。找到和已知复杂分布最相近的一个近似分布。这一章的基本思路就是这样。具体动机最开始的时候已经提到过了。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">逸风(421723497) 20:35:31<br>
+为什么要用KL散度这样一个不具备对称性的”距离”，而不采用对称性的测度呢？有什么好处?<br>
+Wilbur_中博(1954123) 20:37:15<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">似乎没有特别好的对称的度量？PRML的公式(10.20)提过一种叫Hellinger distance的度量，是对称的，但后来也没有用这个。不知道为什么。不容易优化？有没有了解原因的朋友。。比如说，为啥不用 (p(x) – q(x) ^ 2 做积分作为度量？ 或者其他什么的。<br>
+WayneZhang(824976094) 20:41:52<br>
+我感觉是优化求解过程中近似时自然而然导出了KL这个度量。<br>
+karnon(447457116) 20:42:24<br>
+KL算的是熵的增益，所以一定是那种形式 ，这取决于你怎么定义”近似”, 认为信息增益最少就是”近似”也是一种合理的定义<br>
+Wilbur_中博(1954123) 20:43:07<br>
+这里目的是为了找近似分布<br>
+</span></p>
+<p><span style="color: #333333;font-size: 12pt"><span style="font-family: Arial">========================</span><span style="font-family: 宋体">讨论结束</span><span style="font-family: Arial">=================================<br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">我们在PRML这本书的4.4节，其实看到过一种简单的近似方法，或者可以说是最简单的近似方法之一：拉普拉斯近似。它是用高斯分布去近似目标分布的极值点也就是mode。这里并没有涉及到变分的概念。<br>
+它只是要求高斯分布的mode和目标分布的mode位置相同，方法就是把目标分布在mode处做泰勒级数展开到第二阶，然后用对应的高斯分布去代替，就是把未知系数给凑出来：<br>
+<img src="/images/52nlp.cn/5414097800184dbee322576141b51507.jpg" alt=""><br>
+这是目标分布在\theta^*（mode）的二阶泰勒展开：<br>
+<img src="/images/52nlp.cn/523918b6319b238d426006c730105700.jpg" alt=""><br>
+一比较就知道高斯分布的两个参数应该取：<br>
+<img src="/images/52nlp.cn/11bcb31e5b94e501ae7a83fec2513711.jpg" alt=""><br>
+也就是PRML图10.1的红线：<br>
+<img src="/images/52nlp.cn/da54e25cfee8083263dca584bf485cd5.jpg" alt=""><br>
+棕色部分是目标分布，绿线是我们用变分近似，在高斯分布中选一个和目标函数的KL散度最小的分布。<br>
+反正就均值和方差两个未知参数，优化起来应该不难。<br>
+</span></p>
+<p> </p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"><strong>下面开始讲10.1.1 可分解分布，这一节非常重要，可以说是本章的基础和最重点的部分。</strong>基本思想就是，我们把近似分布限制在可分解分布的范围内，也就是满足(10.5)式：<br>
+<img src="/images/52nlp.cn/ec5dd522109cb571d9d4df9ae8a6fc40.jpg" alt=""><br>
+可以说，这个分布的各组变量Z_i互相之间是独立的。这样一来，我们计算这个分布的积分时，就可以变成多个较低维度的积分，就算用数值积分什么的也会简单很多。 在统计物理当中，这种可分解形式的变分近似方法称作平均场（mean field）方法，这个名字实际上是很直观的，和它最后得到的解的形式有关，我们马上会看到。不过现在不仅在统计物理领域，机器学习很多时候也就管它叫mean field了。现在很火的RBM什么的，求参数时经常能看到这个术语。<br>
+上一章曾经讲过，最小化KL距离，和最大化下界L(q)是一回事，也就是(10.2)到(10.4)这三个式子：<br>
+<img src="/images/52nlp.cn/6773adf7c953556cac59c2cff585a7e4.jpg" alt=""><br>
+<img src="/images/52nlp.cn/80a29d3889ef8e4a0c6abe27f00bd0dc.jpg" alt=""><br>
+<img src="/images/52nlp.cn/4a8471566c0879a387641d6fbdfe3d68.jpg" alt=""><br>
+这和9.4节当中(9.70)到(9.72)实际上是一样的，区别在于Z不仅是隐变量还把参数吸收了进来。等式左边那项和我们想求的Z无关，所以可以看成常数，而右边的p(Z|X)是我们想去近似的，不知道具体形式，所以可以间接通过最大化右边第一项来达到最小化右边第二项也就是KL散度的目的。<br>
+根据上面的(10.5)式会得到公式(10.6)：<br>
+<img src="/images/52nlp.cn/d9586762c0aab850c0a4084e61f37bf5.jpg" alt=""><br>
+我们这里也可以看MLAPP的(21.28)到(21.31)：<br>
+<img src="/images/52nlp.cn/3496cd9cba013bd4e7ed2eec836e37d4.jpg" alt=""><br>
+推导得要详细得多。。所以多备几本参考书是必要的。<br>
+MLAPP是Machine Learning – A Probabilistic Perspective的缩写。。群共享里应该有吧。很不错的机器学习书。<br>
+huajh7(284696304) 21:02:10<br>
+插一句。这里优化的目标其实是最大化low bound L(q)  （log P(D)是对数证据，常数，KL(Q||P)=0时，L(Q)最大）。也就是找到一个最合适的q分布，而不是优化参数。 优化过程中，求导，拉格朗日什么，是针对q分布的，也就是泛函。 这是为什么叫变分法：<br>
+<img src="/images/52nlp.cn/dc256e5afc9f30fbf48d9cae96189d5e.jpg" alt=""><br>
+Wilbur_中博(1954123) 21:03:04<br>
+好，谢谢。我看了你的博客http://www.blog.huajh7.com/variational-bayes/，文章写得很好。你好像毕业论文就是专门做这个的吧？ 也许你下次可以再专门讲一讲你对变分近似的心得体会，呵呵。<br>
+简单说，这里的推导就是每一步只看q_j相关的那些项，和q_j无关的项全都归到常数里去。比如(21.30)的这部分：<br>
+<img src="/images/52nlp.cn/c6435044fa231cc530817d7324c43230.jpg" alt=""><br>
+实际上就全扔到常数里去了。哦。。还少了个(21.32)：<br>
+<img src="/images/52nlp.cn/90840aeafec86143868efc68c799c06b.jpg" alt=""><br>
+这里我们是在除了x_j之外的其他x_i上求期望，也就是这个东西：<br>
+<img src="/images/52nlp.cn/32d2fcc142d7ec4c4a47ad00faad9aa9.jpg" alt="">，它是关于x_j的函数。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">下面讲一下10.1.1的可分解分布，也就是刚才说过的，假设多元分布可分解为多个一元分布的乘积，即用<img src="/images/52nlp.cn/b449af457cb53ca76b95769d54821442.jpg" alt="">去近似p(x)。由于各个变量之间是解耦的，所以我们可以每次只关注单个变量的最优化，也就是用所谓坐标下降（coordinate descent）的方式来做最优化。具体做法，就是把最小化KL散度转化为最大化L(q)（参见公式(10.2)到(10.4)），然后把公式(10.5)代入(10.3)，每次把L(q)其中一个q_j当做变量，而把其他q_i当做常数，对L(q)进行最优化：<br>
+<img src="/images/52nlp.cn/24fd9835171a07c8a07b4181b26605af.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">这里：<img src="/images/52nlp.cn/620749a2821a2773dde187ff01479361.jpg" alt=""><br>
+前面讲过，KL散度也可以写成：<img src="/images/52nlp.cn/e0bacf58a0dc56d32275cde64f0081f0.jpg" alt="">，可以看到，(10.6)最后得到的这个<img src="/images/52nlp.cn/2e3a4d49fb235dd2e5ff8fcfabead53b.jpg" alt="">，恰好是负KL散度的形式。我们知道，KL散度为0也就是最小的时候，两分布恰好相同，因此每一步的最优化结果可得到：<img src="/images/52nlp.cn/5d8bdfaa95dfabe71e25e12fb04b9b23.jpg" alt=""><br>
+也就是每一步更新的结果，可得到分解出来的变量的分布为：<br>
+<img src="/images/52nlp.cn/c27bd825b65a7d0b454917ef5579c948.jpg" alt=""><br>
+就是两边都取exp然后归一化。由于是以其他变量的均值作为当前变量分布的形式，所以这种方法也称作mean-field。这部分内容也可以参见MLAPP的21.3.1，那一节讲得感觉比PRML清楚一些。 那个公式是比较头疼。。不过只要记住只有一个q_j是变量，其他都当成常数，推一推应该也ok。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">重新回顾下前面的内容：<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">变分推断的核心思想是：用形式比较简单、做积分运算比较容易的分布，去替代原先形式复杂、不易求积分的分布。因此，这里的主要问题就是：如何找到和原分布近似程度较高的简单分布。前面我们讲了一些变分推断的背景知识和KL divergence（KLD）的相关知识，还稍微讲了讲假设分布可分解时是如何推导出mean field形式的。KLD是衡量两个分布差异大小的方式之一，KLD越大则差异越大，反之则两分布越相似。因此，我们可以将KL(q||p)作为目标函数，并限定q为较简单的分布形式，找到这类分布中最接近原分布p的那个分布。我们这里主要关注的近似对象是后验分布。因为我们前面一直在讲如何求后验分布，但后验分布求出来的形式往往不那么好用，所以需要用简单分布去近似。然而，计算p(Z|X)需要计算归一化因子p(X)。p(X)是边缘分布，需要对p(Z,X)做积分，而p(Z,X)又不那么容易积分。因此，我们可以直接用未归一化的p(Z,X)作为近似计算的目标，也就是下面这个关系：<br>
+<img src="/images/52nlp.cn/224bb29ee712163f9a94768cd2218cf0.jpg" alt=""><br>
+其中：<br>
+<img src="/images/52nlp.cn/941157d77289fec6652518fa47163f4b.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">这里ln(p(X))只是个常数，所以极小化KLD和极大化L得到的结果是一样的，但对L做最优化可直接用联合概率分布去做、而不用归一化。:我们想要得到的简单分布具有什么样的形式？我们喜欢的一种简单分布是可分解分布，就是说，我们可以假设各个隐变量Z_i之间是独立的，因此可拆成各隐变量分布的乘积：<br>
+<img src="/images/52nlp.cn/cd36bbe4a6cec1e0fdd487f1c59b4a2c.jpg" alt=""><br>
+那么，各个隐变量的L可写为：<br>
+<img src="/images/52nlp.cn/734e0bc5ed498fd8829bd9ee6679c4e1.jpg" alt=""><br>
+其中<br>
+<img src="/images/52nlp.cn/f24e28434aea94aef41cfab3e9dff907.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">这里<img src="/images/52nlp.cn/f9169a5f5132fa9168ccbf0f147f1d67.jpg" alt="">表示：<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+<img src="/images/52nlp.cn/54990acd5cecaca2ef97a7641e98aa7b.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">这是对Z_j之外的其他所有随机变量求期望，也叫做mean field。极大化L相当于极小化<img src="/images/52nlp.cn/2be1aefc5310a5283eaabf826758b342.jpg" alt="">，显然<img src="/images/52nlp.cn/73b812dbcf75507751c5ed12c68e6dee.jpg" alt="">取和<img src="/images/52nlp.cn/78437a7e55a5652358f7bfe385ba9f0b.jpg" alt="">完全相同的形式时，KLD极小，同时L极大。所以我们有最优解：<br>
+<img src="/images/52nlp.cn/3e2780d9fa66df02cbb1a8b8bf5439cc.jpg" alt=""><br>
+这里p是已知的，所以可对它做积分。对除Z_j以外的随机变量求期望得到的分布，就是分解出来的q_j的分布。我们每一步迭代都对每一个分解分布q_j进行求解。这种方法也称做coordinate descent。<br>
+</span></p>
+<p><span style="color: #333333;font-size: 12pt"><span style="font-family: Arial">============================</span><span style="font-family: 宋体">讨论</span><span style="font-family: Arial">=================================<br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 21:15:06<br>
+10.6后面有，10.7的const没有必要吧？我当时好像看懂了 做的笔记 现在一下看不懂了。。 后面那个很简单 是因为  其他的Zi积分为1。我记起来了 ，把后面的lnqi的和拆开，只把j的那一项留着，其他的都可以积分积掉，划到const里，这里主要是吧j的那一项拿出来表示，其他的 不相干的都不管。<br>
+huajh7(284696304) 21:25:23<br>
+有必要吧。否则不相等了，这里const表示归一化常量。实际上需要特别注意const，尤其自己推导的时候，const更多是表示与z_j无关的量，而不是指一个常量。在概率图中就是不在z_j的马尔科夫毯上的量。阿邦(1549614810) 21:26:08<br>
+mean filed看koller的最清楚<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 21:26:57<br>
+注意Z是大写，所以j的那个积分里 其他的i都积分为1了。<br>
+huajh7(284696304) 21:27:48<br>
+const 有必要。exp(E_{i~=j}[..]) 是没有归一化的。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 21:28:23<br>
+哪里有exp<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">huajh7(284696304) 21:28:32<br>
+ln .<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">软件所-张巍&lt;zh3f@qq.com&gt; 21:26:42<br>
+问个问题：用分解的分布去近似原始分布，精度怎么保证，有没有直观点的解释。<br>
+Wilbur_中博(1954123) 21:28:32<br>
+@软件所-张巍 的问题是好问题啊。。一般来说，似乎是把变分近似看作在MAP和贝叶斯推断（用整个分布）之间的一种trade-off？<br>
+huajh7(284696304) 21:29:54<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"> 给个图 ：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/c228eec01f2676af5eec68ac75255e11.jpg" alt=""><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+Wilbur_中博(1954123) 21:30:01<br>
+因为一个是用后验分布的点估计，一个是用整个分布，不错，这是哪里的图？<br>
+huajh7(284696304) 21:32:23<br>
+variational bayeian 可以说是分布式distributional approximation，也就是wilbur说的，用的是整个分布。 The Variational Bayes Method in Signal Processing这本书的 第9页。<br>
+李笑一(94755934) 21:32:46<br>
+@张巍，我记得变分法能保证收敛到local minimum。一般情况下，最大似然是non convex的，但是变分下界却是convex，下界的minimum就是下一步要前进的方向。<br>
+一夏 吕(992463596) 21:33:23<br>
+但是变分法的前提是把dependence去掉了，这样才能把总概率拆开成各自概率的积。即使是convex的 ，也只是逼近原先intractable 的形式。10.7的那个我还是觉得const没必要。<br>
+Wilbur_中博(1954123) 21:36:04<br>
+其实就是没归一化的，所以要加个const，(10.9)那个也是这样<br>
+一夏 吕(992463596) 21:36:17<br>
+后面那个是求期望，就是上面那个花括号里的<br>
+李笑一(94755934) 21:36:30<br>
+@huajh7，图上看来，EM更好使？？？<br>
+一夏 吕(992463596) 21:37:16<br>
+EM是可解的时候用的，只是有隐变量<br>
+秦淮/sun人家(76961223) 21:37:31<br>
+EM是可以求得精确地后验<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">Happy(467594602) 21:38:30<br>
+直观解释 请参照jordan写的introduction<br>
+huajh7(284696304) 21:38:33<br>
+10.6-10.9 就是利用KL（q||p）=0<br>
+<img src="/images/52nlp.cn/8cceb175a4546ced787478b2e620c220.jpg" alt=""><br>
+分母就是const，VB也可以看成是EM。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 21:41:00<br>
+@Happy  jordan的introduction 是他的那本书吗？<br>
+Happy(467594602) 21:41:20<br>
+introduction to variational methods in graphical model<br>
+用简单分布的族 把复杂分布包裹起来 ，然后复杂分布的每一点都有一个简单分布的参数来近似<br>
+一夏 吕(992463596) 21:42:47<br>
+thanks 他还有一本书 是Graphical Models, Exponential Families, and Variational Inference<br>
+huajh7(284696304) 21:43:25<br>
+Neal,HintonA view of the EM algorithm that justifies incremental, sparse,and other variants.pdf 这篇文章 说EM，其实就是变分贝叶斯。<br>
+Happy(467594602) 21:43:25<br>
+后一本太难了。。<br>
+李笑一(94755934) 21:43:26<br>
+@huajh，弱弱的问一下，分母将Z marginalize掉这步只是在推导中出现是吧，编程的时候不会出现实际的过程？<br>
+huajh7(284696304) 21:44:06<br>
+写程序的时候，还是还归一化的。比如，GMM中的隐变量，全部算出来之后，然后再归一化。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 21:45:37<br>
+如果隐变量很多不是exponential个组合了<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">huajh7(284696304) 21:46:01<br>
+就转化为exponential<br>
+Wilbur_中博(1954123) 21:46:01<br>
+mean field的过程中呢？每个Z_j的分布也都要归一化么？@huajh7<br>
+Happy(467594602) 21:46:16<br>
+我咋记得不用归一化。。mean-field<br>
+一夏 吕(992463596) 21:46:18<br>
+那就很费时间<br>
+huajh7(284696304) 21:46:45<br>
+后来会知道。算的是充分统计量。<br>
+一夏 吕(992463596) 21:46:46<br>
+如果有64个，每个01分布就是2^64次方<br>
+李笑一(94755934) 21:47:33<br>
+恩，partition function永远是问题<br>
+Happy(467594602) 21:47:35<br>
+程序里面没有归一化步骤吧，推导中体现了<br>
+李笑一(94755934) 21:48:12<br>
+啥叫充分统计量？<br>
+huajh7(284696304) 21:48:16<br>
+概率才归一化啊。<br>
+Happy(467594602) 21:48:30<br>
+指数族里面有<br>
+huajh7(284696304) 21:48:35<br>
+充分统计量能完全表示一个分布。对<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 21:49:29<br>
+不用归一化吧，看10.9 10.10中间那个公式下面那段话<br>
+huajh7(284696304) 21:49:42<br>
+为什么是指数族。。。一个最主要的原因就是其充分统计量是可计算的<br>
+Happy(467594602) 21:50:03<br>
+这个jordan后面那个书有深入介绍。。<br>
+一夏 吕(992463596) 21:51:09<br>
+通常不需要求出分布，而是得到分布的类型和参数<br>
+huajh7(284696304) 21:51:33<br>
+@一夏 吕 可能理解不一样。归一化不是指计算那个积分(partition function)..<br>
+一夏 吕(992463596) 21:51:41<br>
+通常就是指数族，自然服从积分为1<br>
+Happy(467594602) 21:52:25<br>
+没有自然哈 也有归一化系数<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 21:53:00<br>
+恩 但是那个是和分布本身有关的，知道了参数就可以推，比如高斯的方差<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">李笑一(94755934) 21:56:38<br>
+这部分有没有类似的书写的不错的。直接讲替代教材得了<br>
+Happy(467594602) 21:57:29<br>
+jordan那个不错，不过主要是针对graphical model的<br>
+Wilbur_中博(1954123) 21:58:14<br>
+我除了PRML和MLAPP，还看了一下Bayesian Reasoning and Machine Learning的最后一章<br>
+一夏 吕(992463596) 21:58:16<br>
+有看多lda的吗 那个里面的variational inference和这个方法完全不同<br>
+Happy(467594602) 21:58:28<br>
+肿么不同。。<br>
+秦淮/sun人家(76961223) 21:58:33<br>
+@一夏 吕 其实是一样的<br>
+huajh7(284696304) 21:58:33<br>
+bishop不喜欢详细推导的。讲清楚就行。这里有篇:<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">A Tutorial on Variational Bayesian Inference （http://staffwww.dcs.shef.ac.uk/people/c.fox/fox_vbtut.pdf）  还是很清楚的 。LDA 。其实是一样的。。建立的图模型上，比较直观。<br>
+秦淮/sun人家(76961223) 21:59:37<br>
+LDA那篇文章就是使用的mean field<br>
+一夏 吕(992463596) 21:59:38<br>
+blei用拉格朗日乘子法做的。。<br>
+Happy(467594602) 21:59:46<br>
+一样的啊。。<br>
+秦淮/sun人家(76961223) 22:00:02<br>
+不同的优化方法而已……<br>
+huajh7(284696304) 22:00:03<br>
+嗯。其实是一样的。<br>
+秦淮/sun人家(76961223) 22:00:12<br>
+本质是一样的<br>
+Happy(467594602) 22:00:21<br>
+直觉一致<br>
+秦淮/sun人家(76961223) 22:00:26<br>
+不一样的是Expectation propagation 那篇<br>
+huajh7(284696304) 22:00:37<br>
+对。那个感觉有些难。<br>
+一夏 吕(992463596) 22:00:40<br>
+恩 也是搞kl距离  方法各不相同<br>
+Happy(467594602) 22:01:52<br>
+对这些有兴趣就看jordan的大作吧，这些全部都归到架构里去了<br>
+一夏 吕(992463596) 22:05:45</span></p>
+<p>http://www.cs.princeton.edu/courses/archive/fall11/cos597C/lectures/variational-inference-i.pdf</p>
+<p>推荐这个 blei的讲义<br>
+</p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">一夏 吕(992463596) 22:09:18<br>
+variational inference 是不是只是对指数族的才有用?<br>
+Happy(467594602) 22:09:26<br>
+一样的 统计模型下<br>
+一夏 吕(992463596) 22:10:04<br>
+我一般只在贝叶斯学派的文章里见到，一般都用Gibbs sampling<br>
+Happy(467594602) 22:10:16<br>
+也不一定。。<br>
+一夏 吕(992463596) 22:11:00<br>
+比如rbm就不能用variational inference<br>
+Happy(467594602) 22:11:21<br>
+可以啊，mean-field必须可以用<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">天际一线(1002621044) 22:19:40<br>
+lda 那个话题模型 谁有完整的算法啊<br>
+Happy(467594602) 22:23:48<br>
+lda老模型了吧。。程序应该多如牛毛<br>
+秦淮/sun人家(76961223) 22:24:22<br>
+对啊，mean field ，expectation propagation ，gibbs sampling，distributed ，online的都有<br>
+一堆<br>
+_Matrix_(690119781) 22:28:18</span></p>
+<p>https://github.com/sudar/Yahoo_LDA 这个可能满足你的要求</p>
+<p></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">陪你听风(407365525) 22:31:18<br>
+在效果上，variational inference，gibbs sampling两个谁更好呢<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">秦淮/sun人家(76961223) 22:38:35<br>
+sampling近似效果好，慢，不好分布式计算<br>
+陪你听风(407365525) 22:39:08<br>
+vb比较容易分布式吗<br>
+huajh7(284696304) 22:40:24<br>
+噗。VB是可以很自然地分布式的。。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">李笑一(94755934) 22:42:16<br>
+弱问。。VB为啥自然可以用分布式<br>
+huajh7(284696304) 22:45:22<br>
+利用variational message passing 框架下即可。。。节点之间传递充分统计量。充分统计量(一阶矩，二阶矩）的consensus或diffusion是有较多paper的。图模型中的BP或loopy BP算一种分布式嘛？<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">李笑一(94755934) 22:48:28<br>
+有个问题，不同问题的vb是否需要自己推导出来？不能随意套用别人的推导呢？<br>
+huajh7(284696304) 22:49:05<br>
+推导框架。如出一辙。。但自己推并不容易的。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">李笑一(94755934) 23:04:01<br>
+karnon，一篇jmlr的文章，在一个问题上证了vb 的全局解<br>
+Global Analytic Solution of Fully-observed Variational Bayesian Matrix Factorization<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">看明白了给讲讲。。。<br>
+huajh7(284696304) 23:10:47<br>
+2,3年前就出来了。。这篇估计是combined and extended。<br>
+light.(513617306) 23:15:13<br>
+这个是证明了在矩阵分解这个问题上的全局最有，不证明在其他模型上也是这样。》？<br>
+karnon(447457116) 23:15:34<br>
+这就已经很牛了<br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">李笑一(94755934) 23:17:43<br>
+vb对于不同问题有不同的解，我觉得除非熟到一定程度了，否则不可能拿来一个问题就能用vb的<br>
+karnon(447457116) 23:21:29<br>
+我看看，我知道最近有些文章研究全局收敛的矩阵分解问题，粗翻了一下，好像说的是把vb转成一个等价的svd问题？<br>
+</span><span style="color: #333333"><span style="font-family: Arial">========================</span><span style="font-family: 宋体">讨论结束</span><span style="font-family: Arial">=================================<br>
+</span></span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"> 接着主要讲几个变分推断的例子，试图阐述清楚变分推断到底是如何应用的。首先是二元高斯分布的近似。我们假设二元高斯分布是可分解的，也就是两变量之间独立。<br>
+二元高斯分布<img src="/images/52nlp.cn/0bd1a644cddb18b2fbfdaf42e87b3b20.jpg" alt=""><br>
+其中<br>
+<img src="/images/52nlp.cn/b27410eba6e99626e3ca5bb724004879.jpg" alt=""><br>
+可分解形式为：<img src="/images/52nlp.cn/729963e34ab8b84c1fbb42c7e1efa98a.jpg" alt=""><img src="/images/52nlp.cn/13c80aca194f42ccb325c1a2efecda87.jpg" alt=""><br>
+我们想用q(z)去近似p(z)，用前面推导出来的(10.9)：<br>
+<img src="/images/52nlp.cn/8846983febdaf2440902296c2f6c343a.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">因为是求z1的分布，所以按(10.9)，我们在z2上求期望，得到(10.11)。然后，我们就可以祭出第二章修炼的法宝——配方法，从(10.11)得到高斯分布：<br>
+<img src="/images/52nlp.cn/b46bc51768fde2db3aa96f024b0a6503.jpg" alt=""><br>
+其中<br>
+<img src="/images/52nlp.cn/213eb6094d2c0515a36f9132362853bc.jpg" alt=""><br>
+同样，z2的分布也可如法炮制：<br>
+<img src="/images/52nlp.cn/baf8954f5e33394573f9466cf1c5f0ea.jpg" alt=""><br>
+其中<br>
+<img src="/images/52nlp.cn/5c3a6d57b78ceb43f9e1670b093bb89c.jpg" alt=""><br>
+它们是完全对称的。因为m1里有z2的期望，而m2里又有z1的期望，所以我们可以设一个初始值，然后迭代求解。但实际上这两个式子恰好有解析解：<img src="/images/52nlp.cn/04a3c1053593171fe0af9656a362c065.jpg" alt="">和<img src="/images/52nlp.cn/c2d22acaa3357bdf5557adad548c7699.jpg" alt="">，我们可把它们代入(10.13)和(10.15)验证一下。<br>
+下面我们重点看一下参数推断问题，但其核心思想实际上和前面讲的例子区别不大。同样还是先看一下高斯分布：<br>
+我们想推断后验高斯分布的均值<img src="/images/52nlp.cn/df05892c456e1abc917586cd6956c88c.jpg" alt="">和精度<img src="/images/52nlp.cn/21a57cd60eb849ddb6ec8169c03e3074.jpg" alt=""><br>
+假如我们观察到N个数据<img src="/images/52nlp.cn/a29f552d9647a9042b3351ea024df4bd.jpg" alt="">，那么似然函数就是：<br>
+<img src="/images/52nlp.cn/b6b7d11f93cd3fc2b425dd7bcf791b7e.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">另外引入先验分布，均值服从高斯分布、精度服从Gamma分布：<br>
+<img src="/images/52nlp.cn/ef21c3d02f0e820d6eaa9f7f69f960cb.jpg" alt=""><br>
+其实这个问题我们前面第二章就讲过，不用变分推断也能直接求出来，但这里用变分推断实际上增加了更多的灵活性，因为如果先验和似然的形式不是高斯-Gamma的形式，而是更加复杂，那么我们也可以利用变分推断来算参数，这是非常方便的。我们这里只是用我们熟悉的高斯分布来举例子，把这个弄明白，以后再推广到其他例子上就容易多了。<br>
+利用mean field形式(10.9)，我们可计算出<img src="/images/52nlp.cn/6cbfb9b50b625ce5d2db619b3a70b7c2.jpg" alt="">的分布：<br>
+<img src="/images/52nlp.cn/e0a38452dfb3a1dbb6bc228289a35d55.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">可以看到，<img src="/images/52nlp.cn/bb70ca051116367139128a6a8430955d.jpg" alt="">服从高斯分布形式<img src="/images/52nlp.cn/35079a87c61b4054d8d2dc79793116a3.jpg" alt="">，且通过配方，可得到该分布参数为：<br>
+<img src="/images/52nlp.cn/a4ae341b251df8e41ac191b10a62a4b3.jpg" alt=""><br>
+注意到，样本越多也就是N越大时，均值会趋向于样本均值<img src="/images/52nlp.cn/70df279cbc90f389578938ccd23f912b.jpg" alt="">，同时精度趋向于无穷大。同样可用(10.9)计算<img src="/images/52nlp.cn/1385e151b13c25d4a16408142b1428e6.jpg" alt="">的分布，得到：<br>
+<img src="/images/52nlp.cn/e7d6325e97492891e7582d41bd273426.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">它服从Gamma分布形式<img src="/images/52nlp.cn/eda37a4cf4ef8dd47bd2bebb32ae616a.jpg" alt="">，可以看到，(10.27)和(10.30)里，仍然有和另一分布相关的期望需要计算，所以我们可以设定初始值，然后迭代计算。迭代过程和收敛后的结果图书上10.4所示：<br>
+<img src="/images/52nlp.cn/89bef34456b36f327f41e16334d35312.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">再看一个例子，是用变分推断计算线性回归的参数。线性回归的参数w，有似然和先验如下：<br>
+<img src="/images/52nlp.cn/305262cd74d7ca4a3da8b58417a0dd2d.jpg" alt=""><br>
+2.3.6讲过，<img src="/images/52nlp.cn/6342a159616614d337b8c009b7a00034.jpg" alt="">的共轭先验是Gamma分布：<br>
+<img src="/images/52nlp.cn/aa409b988035220472732963ca9be7fd.jpg" alt=""><br>
+这样联合分布就是：<br>
+<img src="/images/52nlp.cn/fc7374262b88d92757f0b21665cc1d65.jpg" alt=""><br>
+其概率图模型为图10.8：<br>
+<img src="/images/52nlp.cn/6340840ca1af9ee43993d032e770c9de.jpg" alt=""><br>
+利用变分推断来计算w和<img src="/images/52nlp.cn/5f38c67a398b17f063e3b101d74de258.jpg" alt="">，同样是假设它们有可分解形式：<br>
+<img src="/images/52nlp.cn/965a3e96a265e14958e6f74d21fe569a.jpg" alt=""><br>
+再用(10.9)（这个绝对是看家法宝）来搞，得到：<br>
+<img src="/images/52nlp.cn/41619174f338af464cee1bce415de7f2.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">可看到它服从Gamma分布：<br>
+<img src="/images/52nlp.cn/8fe7376d7d0bd0983ce5e673add24ac8.jpg" alt=""><br>
+其中<br>
+<img src="/images/52nlp.cn/88b3cac3a73ed54d82798c8c6c45fbc6.jpg" alt=""><br>
+以及：<br>
+<img src="/images/52nlp.cn/0e17740dfd0eead82fc7df36bc413079.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">可看到它服从高斯分布：<br>
+<img src="/images/52nlp.cn/ba7515610c3026bb4d6db6aef4f86e6b.jpg" alt=""><br>
+其中<br>
+<img src="/images/52nlp.cn/484b8ff35fe7f53586ea36545c7f8769.jpg" alt=""><br>
+(10.95)和(10.97)里还有奇怪的东西<img src="/images/52nlp.cn/cc059b5965652da13215a62cc34a74c9.jpg" alt="">和<img src="/images/52nlp.cn/0b031c6aa596eec1ba3b79dfd1f306be.jpg" alt="">，从附录B可知，它们分别是：<br>
+<img src="/images/52nlp.cn/b937ab547f2267444d5138022db6bd17.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">所以我们仍然可以迭代计算：给初始值，每一步都算出a_N、b_N和m_N、S_N，代入求解。<br>
+掌握了上面的三个例子，我想推广到其他情况也都没有太大难度了。其实书中还有一个例子也非常重要，就是10.2所讲的用变分推断计算高斯混合模型的参数。不过我想尼采兄讲第九章时已经打下了很好的基础，再加上刚才讲的这一章的例子，看懂这部分应该不难。<br>
+后面还有一些有趣的内容，比如Expectation Propagation，是说对<img src="/images/52nlp.cn/607dae661d4a83292803896fb562de40.jpg" alt="">做极小化，而不是<img src="/images/52nlp.cn/86e0c8ad15f0121dc2dd3ed3d33c97fb.jpg" alt="">。因为积分里前面那项变成了p(Z)而不是q(Z)，而p(Z)又是复杂分布，所以这里处理方式有所不同。感兴趣的朋友可以看看10.7节是如何做的。<br>
+我讲的内容就到这里。我个人的一点心得体会就是：高斯分布以及其他常用分布的形式、还有第二章讲到的配方法一定要掌握好，这是识别分布和直接计算分布参数的最大利器。然后就是这一章的(10.9)，也就是用可分解分布去做近似得到的mean field，这也是比较常用的。其实群里有不少对变分推断很了解的高手，比如@huajh7 ，大家对这一块有什么问题也可以找他们交流讨论。<br>
+</span></p>
+<p><span style="color: #333333;font-size: 12pt"><span style="font-family: Arial">============================</span><span style="font-family: 宋体">讨论</span><span style="font-family: Arial">=================================<br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">数据挖掘(983272906) 21:44:16<br>
+<img src="/images/52nlp.cn/d7086388eabf0fe367da66672aae5656.jpg" alt="">这种分解有没有什么限制条件<br>
+Wilbur_中博(1954123) 21:45:20<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt"> 这不是分解，是从先验和似然算联合分布。可分解的简单分布形式是(10.91)。<br>
+Y(414474527) 21:47:49<br>
+变分推断怎么应用到实际问题中呢<br>
+tzk&lt;tangzk2011@163.com&gt; 21:48:29<br>
+LDA的原始论文用的也是变分呢。。<br>
+&lt;(523723864) 21:48:43<br>
+10.9式一定是tractable的吗？<br>
+zeno(117127143) 21:52:58<br>
+平均场假设可以有效减少参数。<br>
+Wilbur_中博(1954123) 21:53:54<br>
+@Y 实际问题吗？我觉得就是作为一种工具，求解模型参数的时候会比较简单吧。之前在稀疏编码里看到过一些，我觉得这篇文章不错：http://ipg.epfl.ch/~seeger/lapmalmainweb/papers/seeger_wipf_spm10.pdf 。另外RBM似乎也有用这个的。<br>
+zeno(117127143) 21:54:19<br>
+变分把推断变为求极值问题，怎么求是另外一门课<br>
+Wilbur_中博(1954123) 21:54:43<br>
+@&lt; 我觉得不一定。。还得看p(X,Z)是什么样的。<br>
+@zeno 嗯<img src="/images/52nlp.cn/60dc5d0cf7ce28d42586a88af194df26.jpg" alt=""><br>
+&lt;(523723864) 21:55:01<br>
+按照10.9主要是推式子咯，事先不知道qj的分布<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">Wilbur_中博(1954123) 21:55:57<br>
+嗯，应该是。。但是一般来说都可以想办法搞出来吧，(10.9)的积分。<br>
+karnon(447457116) 21:59:27<br>
+为什么一开始又要用复杂分布呢，建模时用那些复杂的模型，最后到求解时都退化成naive模型，所以事实上，和naive模型一样<br>
+Wilbur_中博(1954123) 22:02:31<br>
+可能一开始就用简单分布的话，推出后验分布有连锁效应，就会越来越差吧。现在搞出后验分布再用简单分布去近似，我觉得道理上还是能说得通。<br>
+zeno(117127143) 22:03:27<br>
+那为啥有泰勒展开，展开把高次舍弃，不都不是原来函数了吗<br>
+&lt;(523723864) 22:04:21<br>
+关键是每次迭代的时候lower bound会不会上去<br>
+karnon(447457116) 22:04:22<br>
+如果你要用 taylor展开来近似，那就得证明近似后你的解的性质不变 ，所以不是任何问题都能随便近似<br>
+Wilbur_中博(1954123) 22:04:43<br>
+@&lt; 是，我觉得这个蛮关键的<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">karnon(447457116) 22:06:49<br>
+就是你的解为什么好，它好在哪，近似之后，这些好处是不是还保留着，这在变分法中，完全没有讨论<br>
+zeno(117127143) 22:10:58<br>
+要是有kl跟概率差异定量关系就没问题了，平均场本来就是假设，变分推断是合理的，kl嘛，不好说，反正不像熟悉的欧式度量，pgm不只变分一种推断方法，所以也不能建成简单模型。说实在如果能解决一类小问题效果不错就已经很好了，mrf，hmm，crf，都能算到pgm中。pgm解决不少问题。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">阿邦(1549614810) 23:41:20<br>
+推断方法不坑，主要还是模型的问题<br>
+karnon(447457116) 0:02:10<br>
+我总感觉，一定有基于非概率模型的方法<br>
+</span></p>
+<p><span style="font-family: 微软雅黑"><span style="font-size: 12pt">弹指一瞬间(337595903) 6:31:34<br>
+昨晚大家讨论的好热闹啊。@karnon：我觉得近似推理对原模型的好处还是保留着的。虽然求解的时候是在简单模型上做，但是简单模型的求解目标是去近似原模型的最优而不是简单模型的最优。这个和一上来就做简单模型假设是不大一样的。近似推理可以理解为在最优解附近找一个次优解，但总体目标还是原模型最优解的方向。而简单模型求解可能目标就不一样了。相比之下，还是用近似推理来解原问题比较好。（个人理解不一定对，欢迎跟帖<img src="/images/52nlp.cn/5374610cb635ee0b1c8445978c8c8dd6.jpg" alt="">）<br>
+zeno(117127143) 6:52:44<br>
+我喜欢概率模型，概率既能对不确定性建模更能对未知建模。做单选题25%表达的是学生对答案的未知，同样的题对老师就是已知的。同样问题用非概率解你需要知道的更多。同样四道单选题三道不会，其他三道分别选a，b，c。第四道用概率方法根据一定先验会尽量选d。不用概率方法根本做不了这种问题。<br>
+同样如果知道了答案，肯定不会用概率方法，概率比通常非概率方法麻烦。<br>
+karnon(447457116) 7:33:16<br>
+这只是理想的情况，概率模型的缺点，在于它需要精确地刻划细节。</span><span style="font-size: 9pt"><span style="color: black"><br>
+</span></span></span></p>
+<p> </p>
+<p>注：PRML读书会系列文章由 <a href="http://weibo.com/dmalgorithms">@Nietzsche_复杂网络机器学习</a> 同学授权发布，转载请注明原作者和相关的主讲人，谢谢。</p>
+<p>PRML读书会讲稿PDF版本以及更多资源下载地址：<a href="http://vdisk.weibo.com/u/1841149974">http://vdisk.weibo.com/u/1841149974</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/prml%E8%AF%BB%E4%B9%A6%E4%BC%9A%E7%AC%AC%E5%8D%81%E7%AB%A0-approximate-inference">http://www.52nlp.cn/prml读书会第十章-approximate-inference</a></p>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-01-31-prml%25e8%25af%25bb%25e4%25b9%25a6%25e4%25bc%259a%25e7%25ac%25ac%25e5%258d%2581%25e5%259b%259b%25e7%25ab%25a0-combining-models-5048ec172.html" title="Previous Post: PRML读书会第十四章 Combining Models" data-instant>&laquo; PRML读书会第十四章 Combining Models</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-02-01-talk-about-react-native-e773c25db.html" title="Next Post: 谈谈 React Native" data-instant>谈谈 React Native &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>31 Jan 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-01-31-prml%25e8%25af%25bb%25e4%25b9%25a6%25e4%25bc%259a%25e7%25ac%25ac%25e5%258d%2581%25e4%25ba%258c%25e7%25ab%25a0-continuous-latent-variables-cad03f970.html">PRML读书会第十二章 Continuous Latent Variables</a></li>
+
+      <li><span>31 Jan 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-01-31-prml%25e8%25af%25bb%25e4%25b9%25a6%25e4%25bc%259a%25e7%25ac%25ac%25e5%258d%2581%25e5%259b%259b%25e7%25ab%25a0-combining-models-5048ec172.html">PRML读书会第十四章 Combining Models</a></li>
+
+      <li><span>31 Jan 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-01-31-prml%25e8%25af%25bb%25e4%25b9%25a6%25e4%25bc%259a%25e7%25ac%25ac%25e5%258d%2581%25e4%25b8%2580%25e7%25ab%25a0-sampling-methods-ed6b661c1.html">PRML读书会第十一章  Sampling Methods</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

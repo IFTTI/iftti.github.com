@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL Server调优系列玩转篇二（如何利用汇聚联合提示（Hint）引导语句运行）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-01-26-83597-cf094ab82.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL Server调优系列玩转篇二（如何利用汇聚联合提示（Hint）引导语句运行）</h1>
+    <p class="meta"><span class="time">Jan 26, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/83597/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<p><strong>前言</strong></p>
+<p>上一篇我们分析了查询Hint的用法，作为调优系列的最后一个玩转模块的第一篇。有兴趣的可以点击查看：<a class="postTitle2" id="cb_post_title_url" href="http://blog.jobbole.com/83429/">SQL Server调优系列玩转篇（如何利用查询提示（Hint）引导语句运行）</a></p>
+<p>本篇继续玩转模块的内容，同样，还是希望扎实掌握前面一系列的内容，才进入本模块的内容分析。</p>
+<p>闲言少叙，进入本篇的内容。</p>
+<p><strong>技术准备</strong></p>
+<p>数据库版本为SQL Server2012，利用微软的以前的案例库（Northwind）进行分析，部分内容也会应用微软的另一个案例库AdventureWorks。</p>
+<p>相信了解SQL Server的朋友，对这两个库都不会太陌生。</p>
+<p><strong>误区纠正</strong></p>
+<p>在开始本篇文章主题内容之前，先纠正一些关于新手对于数据库调优的误区。也希望在日常应用解决问题的时候，切记道听途说，人云亦云，毛爷爷说过的：<span style="color: #ff0000">实践是检验真理的唯一标准。</span></p>
+<p><span style="color: #000000">两个误区：</span></p>
+<p><span style="color: #000000">1、当在查询计划中发现了表扫描（Table Scan），就仿佛找到了病根一样，就想搞掉它，因为很多过来人都说过这种方式是性能很烂，而搞掉它的方式就是上索引，而且认为有了索引的就会快很多。</span></p>
+<p><span style="color: #000000">2、SQL Server语句优化就是创建索引，而创建索引就更简单了，找找查询语句，看看Where条件后…有几个筛选条件，创建几个非聚集索引就可以。</span></p>
+<p> </p>
+<p><span style="color: #000000">来看第一个问题：关于表扫描（Table Scan）是否真像传说的性能那么差劲！</span></p>
+<p><span style="color: #000000">首先，我们知道比较查询语句性能的优越性，无非就几个关键指标：运行IO、运行时间、消耗：CPU、Memory、编译时间等。</span></p>
+<p><span style="color: #000000">来看，以下语句，完全相同的表结构、表数据，不同的是一张表是堆表，一张是加了聚集索引的表，我们来开启两个回话进行测试比较。</span></p>
+<p><span style="color: #000000">堆表查询：</span></p>
+<pre class="brush: sql; gutter: true">SET STATISTICS IO ON
+--新建个测试表
+SELECT * INTO NewOrders FROM Orders
+--先清空缓存数据
+DBCC DROPCLEANBUFFERS
+GO
+SELECT * FROM NewOrders
+SET STATISTICS IO OFF</pre>
+
+<p><span style="color: #000000">存在聚集索引的测试表查询：</span></p>
+<pre class="brush: sql; gutter: true">SET STATISTICS IO ON
+--新建个测试表
+SELECT * INTO NewCLOrders FROM Orders
+--添加聚集索引
+CREATE CLUSTERED INDEX CL_OrderID ON NewCLOrders (OrderID desc)
+GO
+--先清空缓存数据
+DBCC DROPCLEANBUFFERS
+GO
+SELECT * FROM NewCLOrders
+SET STATISTICS IO OFF</pre>
+
+<p><span style="color: #000000">这样对比的原因是：很多人认为数据库优化的方式就是加上索引，并且认为查找（Seek）就比扫描好（Scan）。</span></p>
+<p><span style="color: #000000">这样可以肯定的堆表采用的为表扫描（Table Scan），而后者则就是通过聚集索引扫描（Index Scan）</span></p>
+<p><span style="color: #000000"><img alt="" src="/images/jobbole.com/b5afa7fd9af6de90abfd73552dbc8f39.jpg" width="317" height="165"><img alt="" src="/images/jobbole.com/a45e75d3a866e6b940f33a8b659583f9.jpg"></span></p>
+<p> </p>
+<p><span style="color: #000000">先来看IO的两者对比：</span></p>
+<p><span style="color: #000000">先来看看堆表的IO信息</span></p>
+<p><span style="color: #000000"><img alt="" src="/images/jobbole.com/3beabbc7b2f9fb34a1cb7518c0d6bd73.jpg" width="792" height="233"></span></p>
+<p>堆表的表现：逻辑读取20次，预读2次，这里预读次数的多少其实是影响性能的重要指标，因为它是直接从磁盘中读取，所以性能最差，当然SQL Server此处采用并行处理，而且第一次读取数之后就缓存到内存中，防止再次的磁盘交互。</p>
+<p>再来看聚集索引表的IO信息</p>
+<p><img alt="" src="/images/jobbole.com/8afd71c237bcd4813cf504254b6fe434.jpg" width="803" height="226"></p>
+<p>采用聚集索引的表，逻辑IO为23次，预读飙升至22次。</p>
+<p>相比而言：</p>
+<p><span style="background-color: #00ffff">相同的查询语句，堆表的查询逻辑读取次数为20次、预读2次，没有物理读…，而用聚集索引的表逻辑读为23次、预读22次！还有统计信息的不准确导致的物理读取1次！….所以相比堆表的SCAN是不是性能好很多。</span></p>
+<p> </p>
+<p><span style="color: #000000">当然，要再深入点分析，其实这两者不同的原因很简单：采用了聚集索引的表因为其存储的结构（B-Tree）的方式，所以逻辑IO肯定要多3，因为从索引根节点至叶子节点，也就是需要经过三个索引页，才能获取到数据页。</span></p>
+<p><span style="color: #000000">而预读的差距这么大的原因也是同样的原因：<span style="color: #ff0000">从堆表中获取数据是一段连续的数据页（确切的说是一次连续读取64个数据页&lt;512KB&gt;），而这时所有加上索引的表做不到的！通过索引只能依次读取一个数据页（8KB）,这也是索引的局限性。</span></span></p>
+<p><span style="color: #000000">关于查询计划的逻辑读、预读、物理读等IO详细逻辑信息，可以参照我前面的文章，分析的很详细：<a class="postTitle2" id="cb_post_title_url" href="http://blog.jobbole.com/82831/">SQL Server调优系列进阶篇（查询语句运行几个指标值监测）</a></span></p>
+<p> </p>
+<p>接着我们再对比下执行时间，相信这个也是更为关注的：</p>
+<p><img alt="" src="/images/jobbole.com/f1f730dc4ebb46f6ea1e68b29d4fd4e2.jpg" width="522" height="325"><img alt="" src="/images/jobbole.com/2fe7639bbadf84bdc206c0332bad69cc.jpg" width="470" height="287"></p>
+<p>看明白了吧，获取完全相同的数据量，堆表执行的时候耗时157毫秒，并且分析和编译没有占用时间，这个很简单，因为它是堆表，根本不需要根据统计信息进行优化和选择；而加上聚集索引的表就不一样了，需要根据索引的统计信息对T-SQL语句进行优化和编译，而这足足耗费了79毫秒，然后执行的时候还需要更多的预读IO,还有如果优化器没有优化到位的时候，还要造成额外的物理IO，所以它总耗费了298毫秒…</p>
+<p>在我的测试表中只有八百多行的数据中就产生了如此的差距值..如果数据量多的话…性能就堪忧了….</p>
+<p>关于CPU和内存值我就不截图了……上面我们分析了加了聚集索引了，就产生了查询优化器一系列的过程…而编译就是需要CPU资源的…..</p>
+<p>通过上面的结果，我要表达的是：</p>
+<p><span style="color: #ff0000"><strong>首先，在我们所看到的查询计划中，不要一看到表扫描，就感觉这个运算符是很慢的，或者是很耗时的。更有甚者看到了就感觉问题出现在这上面，并且为很多人所唾弃为“万恶的表扫描”….</strong></span></p>
+<p><span style="color: #ff0000"><strong>其次，请记住，在SQL Server中你所看到的任何一个运算符，都是在目前你所设定的环境中基本是最好的….更没有那个运算符好与那个运算符烂一说…诸如偏执的认为哈希连接就比嵌套循环要快…索引查找就比索引扫描要好等问题…..我们要做的就是合适的场景运用合适的处理方式，最优的顺应SQL Server性能。</strong></span></p>
+<p><span style="color: #ff0000"><strong>再次，经过上述了问题的分析，也不要陷入另外一个极端的误区：表扫描就要比聚集索引扫描好！后续的文章中我会给你展示聚集索引比表扫描好的用处…在SQL Server的世界中，只有你真正的触摸的本质，才不会迷茫…才会看清一切所谓的教条调优都非绝对！</strong></span></p>
+<p> </p>
+<p>关于第二个问题的误区，其实是很多人的误区，误认为了非聚集索引的强大性，误以为在列中加上了索引就可以充分应用。本篇就不纠正了，可以参照我前面的文章，相信看完了基本也就懂了非聚集索引的利弊项，连接：<a class="postTitle2" id="cb_post_title_url" href="http://blog.jobbole.com/83068/">SQL Server调优系列进阶篇（如何索引调优）</a></p>
+<p><strong>一、GROUP 提示 （Hints）</strong></p>
+<p>继续咱们本篇文章的内容，上一篇我们分析了查询的几个重要的Hints,本篇文章我们来看分组提示，分组查询也是我们在写T-SQL语句经常用到的，关于分组的运算符也有两个：Order Group和Hash Group。其实关于排序一直也是数据库中最为头疼的运算。这个运算符也是消耗比较大的，相当的耗内存，如果数据量较大的话，SQL Server处理的方式也是通过哈希算法进行优化。</p>
+<p>当然，关于分组查询运算符分解，看以参照基础篇中的文章：<a class="postTitle2" id="homepage1_HomePageDays_DaysList_ctl00_DayList_TitleUrl_0" href="http://blog.jobbole.com/81182/" target="_blank">SQL Server调优系列基础篇（常用运算符总结）</a></p>
+<p>来看个例子：</p>
+<pre class="brush: sql; gutter: true">SELECT CustomerID,MAX(OrderDate) 
+FROM Orders
+GROUP BY CustomerID</pre>
+
+<p><img alt="" src="/images/jobbole.com/294191b76410466954014662fdbbbdd7.jpg" width="725" height="176"></p>
+<p>上面的查询语句，我们想获取出每个订单的最大订单日期。</p>
+<p>通过查询计划我们可以推测出肯定在CustomerID列存在索引，这样SQL Serer能直接利用这个进行排序，但是即便如此消耗还是飙升到56%….然后通过再加上一个流聚合计算出最大订单日期。</p>
+<p>当然，此方式也是SQL Server认为的一种最优方式，但是如果数据量多的话，此种方式将会造成内存严重的消耗。</p>
+<p>所以，我们可以采用GROUP Hint进行提示，将其更改为Hash 分组..代码如下：</p>
+<pre class="brush: sql; gutter: true">SELECT CustomerID,MAX(OrderDate) 
+FROM Orders
+GROUP BY CustomerID
+&lt;span style="color: #ff0000;"&gt;OPTION(HASH GROUP)&lt;/span&gt;</pre>
+
+<p><img alt="" src="/images/jobbole.com/f920ce8735716da40dc56da9399520c9.jpg" width="714" height="187"></p>
+<p>当然，此处可能并不是一个最优的方式，只是为了演示，但是如果基础数据量增大的话，我也相信SQL Server会自动的更改为哈希匹配的方式进行。</p>
+<p> </p>
+<p>二<strong>、组合提示 （Hints）</strong></p>
+<p>大部分情况下，我们所写的T-SQL语句并不是简单的，有很多的各种嵌套查询进行，如果这种查询语句，我们的提示（Hints）就可能不是单一的。</p>
+<p>我们来看如此方式该如何进行指导。先来看个简单的例子：</p>
+<pre class="brush: sql; gutter: true">SELECT O.OrderID
+FROM Customers C JOIN Orders O
+JOIN Employees E
+ON O.EmployeeID=E.EmployeeID
+ON C.CustomerID=O.CustomerID
+WHERE C.City=N'London' AND E.City=N'London'
+OPTION(FORCE ORDER,HASH JOIN)</pre>
+
+<p><img alt="" src="/images/jobbole.com/c9be08de44613b92fda379bdbcdd4f7e.jpg" width="793" height="315"></p>
+<p>不仅仅如此，我们还可以手动给查询语句写查询计划。</p>
+<p>也就是我们自己写的XML查询计划，让T-SQL语句就按照我们自定义的查询计划去进行，当然，这是大招了，我们留在最后使用。</p>
+<p> </p>
+<p><strong><strong>参考文献</strong></strong></p>
+<ul>
+<li>微软联机丛书<a href="http://msdn.microsoft.com/zh-cn/library/ms191158(SQL.90).aspx" target="_blank">逻辑运算符和物理运算符引用</a>
+</li>
+<li>参照书籍《SQL.Server.2005.技术内幕》系列</li>
+</ul>
+<p><strong>结语</strong></p>
+<p>此篇文章先到此吧，关于SQL Server调优工具Hint的使用还有很多内容，后续依次介绍，有兴趣的童鞋可以提前关注。</p>
+<p>有问题可以留言或者私信，随时恭候有兴趣的童鞋加入SQL SERVER的深入研究。共同学习，一起进步。</p>
+<p> </p>
+<p>文章最后给出前面几篇的连接，以下内容基本涵盖我们日常中所写的查询运算的分解以及调优内容项，皆为原创……..</p>
+<p>第一个基础模块注重基础内容的掌握，共分7篇文章完成，内容涵盖一系列基础运算算法，详细分析了如何查看执行计划、掌握执行计划优化点，并一一列举了日常我们平常所写的T-SQL语句所会应用的运算符:</p>
+<ul>
+<li><a id="cb_post_title_url" href="http://blog.jobbole.com/81176/" target="_blank">SQL Server调优系列基础篇</a></li>
+<li><a id="homepage1_HomePageDays_DaysList_ctl00_DayList_TitleUrl_0" href="http://blog.jobbole.com/81182/" target="_blank">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+<li><a id="cb_post_title_url" href="http://blog.jobbole.com/81184/" target="_blank">SQL Server调优系列基础篇（联合运算符总结）</a></li>
+<li><a id="cb_post_title_url" href="http://blog.jobbole.com/81186/" target="_blank">SQL Server调优系列基础篇（并行运算总结）</a></li>
+<li><a id="cb_post_title_url" href="http://blog.jobbole.com/81189/" target="_blank">SQL Server调优系列基础篇（并行运算总结篇二）</a></li>
+<li><a href="http://blog.jobbole.com/81193/" target="_blank">SQL Server调优系列基础篇（索引运算总结）</a></li>
+<li><a href="http://blog.jobbole.com/82459/">SQL Server调优系列基础篇（子查询运算总结）</a></li>
+</ul>
+<p>第二个进阶模块注重SQL Server执行T-SQL语句的时候一些内幕解析，共分为5篇文章完成，其中包括：查询优化器的运行方式、运行时几个优化指标值检测，统计信息、利用索引等一系列内容。通过这块内容让我们了解SQL Server为我们所写的T-SQL语句如何进行优化及运行的。</p>
+<ul>
+<li><a href="http://blog.jobbole.com/82467/">SQL Server调优系列进阶篇（查询优化器的运行方式）</a></li>
+<li><a href="http://blog.jobbole.com/82831/">SQL Server调优系列进阶篇（查询语句运行几个指标值监测）</a></li>
+<li><a href="http://blog.jobbole.com/82845/">SQL Server调优系列进阶篇（深入剖析统计信息）</a></li>
+<li><a href="http://blog.jobbole.com/83068/">SQL Server调优系列进阶篇（如何索引调优）</a></li>
+<li><a href="http://blog.jobbole.com/83346/">SQL Server调优系列进阶篇（如何维护数据库索引）</a></li>
+</ul>
+<p>第三个玩转模块重点跟进特定的问题进行特定的提示（Hints)，基于前两个模块进行的分析。</p>
+<p><a class="postTitle2" id="cb_post_title_url" href="http://blog.jobbole.com/83429/">SQL Server调优系列玩转篇（如何利用查询提示（Hint）引导语句运行）</a></p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-01-26-83496-58579500e.html" title="Previous Post: Proxygen：Facebook开源的 C++ HTTP 框架" data-instant>&laquo; Proxygen：Facebook开源的 C++ HTTP 框架</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-01-27-prml%25e8%25af%25bb%25e4%25b9%25a6%25e4%25bc%259a%25e7%25ac%25ac%25e4%25ba%2594%25e7%25ab%25a0-neural-networks-ba4f5a2ec.html" title="Next Post: PRML读书会第五章  Neural Networks" data-instant>PRML读书会第五章  Neural Networks &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>21 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-21-82467-53e038f55.html">SQL Server调优系列进阶篇（查询优化器的运行方式）</a></li>
+
+      <li><span>21 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-21-82459-896aaf6f8.html">SQL Server调优系列基础篇（子查询运算总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

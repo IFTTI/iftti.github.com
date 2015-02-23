@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>spark streaming 和 spark sql 结合示例</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-02-13-spark-streaming-sql-d9299745e.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>spark streaming 和 spark sql 结合示例</h1>
+    <p class="meta"><span class="time">Feb 13, 2015</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2015/02/13/spark-streaming-sql" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+  <div style="background-color: #FFF;">
+    <p>之前在博客上演示过如果在 spark 里读取 elasticsearch 中的数据。自然往下一步想，是不是可以把一些原先需要定期请求 elasticsearch 的监控内容挪到 spark 里完成？这次就是探讨一下 spark streaming 环境上如何快速统计各维度的数据。期望目标是，可以实现对流数据的异常模式过滤。平常只需要简单调整模式即可。</p>
+<h2 id="spark-">spark 基础预备</h2>
+<p>之前作为示例，都是直接在 spark-shell 交互式命令行里完成的。这次说说在正式的情况下怎么做。</p>
+<p>spark 是用 scala 写的，scala 的打包工具叫 sbt。首先通过 <code>sudo port install sbt</code> 安装好。然后创建目录：</p>
+<pre><code>mkdir -p ./logstash/src/main/scala/
+</code></pre>
+
+<p>sbt 打包的配置文件则放在 <code>./logstash/logstash.sbt</code> 位置。内容如下(注意之间的空行是必须的)：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">name</span> <span class="o">:=</span> <span class="s">"LogStash Project"</span>
+<span class="n">version</span> <span class="o">:=</span> <span class="s">"1.0"</span>
+<span class="n">scalaVersion</span> <span class="o">:=</span> <span class="s">"2.10.4"</span>
+<span class="n">libraryDependencies</span> <span class="o">+=</span> <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-core"</span> <span class="o">%</span> <span class="s">"1.2.0"</span>
+<span class="n">libraryDependencies</span> <span class="o">+=</span> <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-streaming"</span> <span class="o">%</span> <span class="s">"1.2.0"</span>
+<span class="n">libraryDependencies</span> <span class="o">+=</span> <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-sql"</span> <span class="o">%</span> <span class="s">"1.2.0"</span></code></pre>
+</div>
+<p>然后是程序主文件 <code>./logstash/src/main/scala/LogStash.scala</code>，先来一个最简单的，从 logstash/output/tcp 收数据并解析出来。注意，因为 spark 只能用 pull 方式获取数据，所以 logstash/output/tcp 必须以 <code>mode =&gt; 'server'</code> 方式运行。 </p>
+<pre><code>output {
+    tcp {
+        codec =&gt; json_lines
+        mode  =&gt; 'server'
+        port  =&gt; 8888
+    }
+}
+</code></pre>
+
+<h2 id="spark-streaming-">spark streaming 基础示例</h2>
+<p>编辑主文件如下：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.SparkConf</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext._</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.</span><span class="o">{</span><span class="n">Seconds</span><span class="o">,</span> <span class="n">StreamingContext</span><span class="o">}</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.StreamingContext._</span>
+<span class="kn">import</span> <span class="nn">scala.util.parsing.json.JSON</span>
+<span class="n">object</span> <span class="n">LogStash</span> <span class="o">{</span>
+  <span class="n">def</span> <span class="nf">main</span><span class="o">(</span><span class="nl">args:</span> <span class="n">Array</span><span class="o">[</span><span class="n">String</span><span class="o">])</span> <span class="o">{</span>
+    <span class="n">val</span> <span class="n">sparkConf</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkConf</span><span class="o">().</span><span class="na">setMaster</span><span class="o">(</span><span class="s">"local[2]"</span><span class="o">).</span><span class="na">setAppName</span><span class="o">(</span><span class="s">"LogStash"</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">sc</span>  <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkContext</span><span class="o">(</span><span class="n">sparkConf</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">ssc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">StreamingContext</span><span class="o">(</span><span class="n">sc</span><span class="o">,</span> <span class="n">Seconds</span><span class="o">(</span><span class="mi">10</span><span class="o">))</span>
+    <span class="n">val</span> <span class="n">lines</span> <span class="o">=</span> <span class="n">ssc</span><span class="o">.</span><span class="na">socketTextStream</span><span class="o">(</span><span class="s">"localhost"</span><span class="o">,</span> <span class="mi">8888</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">jsonf</span> <span class="o">=</span> <span class="n">lines</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">JSON</span><span class="o">.</span><span class="na">parseFull</span><span class="o">(</span><span class="n">_</span><span class="o">)).</span><span class="na">map</span><span class="o">(</span><span class="n">_</span><span class="o">.</span><span class="na">get</span><span class="o">.</span><span class="na">asInstanceOf</span><span class="o">[</span><span class="n">scala</span><span class="o">.</span><span class="na">collection</span><span class="o">.</span><span class="na">immutable</span><span class="o">.</span><span class="na">Map</span><span class="o">[</span><span class="n">String</span><span class="o">,</span> <span class="n">Any</span><span class="o">]])</span>
+    <span class="n">jsonf</span><span class="o">.</span><span class="na">filter</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="n">l</span><span class="o">(</span><span class="s">"lineno"</span><span class="o">)==</span><span class="mi">75</span><span class="o">).</span><span class="na">window</span><span class="o">(</span><span class="n">Seconds</span><span class="o">(</span><span class="mi">30</span><span class="o">)).</span><span class="na">foreachRDD</span><span class="o">(</span> <span class="n">rdd</span> <span class="o">=&gt;</span> <span class="o">{</span>
+      <span class="n">rdd</span><span class="o">.</span><span class="na">foreach</span><span class="o">(</span> <span class="n">r</span> <span class="o">=&gt;</span> <span class="o">{</span>
+        <span class="n">println</span><span class="o">(</span><span class="n">r</span><span class="o">(</span><span class="s">"path"</span><span class="o">))</span>
+      <span class="o">})</span>
+    <span class="o">})</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span>
+  <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+<p>非常一目了然，每 10 秒挪动一次 window，window 宽度是 30 秒，把 JSON 数据解析出来以后，做过滤和循环输出。这里需要提示一下的是 <code>.foreachRDD</code> 方法。这是一个 output 方法。spark streaming 里对 input 收到的 DStream 一定要有 output 处理，那么最常见的就是用 foreachRDD 把 DStream 里的 RDDs 循环一遍，做 save 啊，print 啊等等后续。</p>
+<p>然后用 sbt 工具编译后就可以运行了：</p>
+<pre><code>sbt package &amp;&amp; ./spark-1.2.0-bin-hadoop2.4/bin/spark-submit --class "LogStash" --master local[2] target/scala-2.10/logstash-project_2.10-1.0.jar
+</code></pre>
+
+<h2 id="sql-">进阶：数据映射和 SQL 处理</h2>
+<p>下面看如何在 spark streaming 上使用 spark SQL。前面通过解析 JSON，得到的是 Map 类型的数据，这个无法直接被 SQL 使用。通常的做法是，通过预定的 scala 里的 <code>cast class</code>，来转换成 spark SQL 支持的表类型。主文件改成这样：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.SparkConf</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext._</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.</span><span class="o">{</span><span class="n">Seconds</span><span class="o">,</span> <span class="n">StreamingContext</span><span class="o">}</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.StreamingContext._</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.sql.SQLContext</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.sql._</span>
+<span class="kn">import</span> <span class="nn">scala.util.parsing.json.JSON</span>
+<span class="n">object</span> <span class="n">LogStash</span> <span class="o">{</span>
+  <span class="k">case</span> <span class="kd">class</span> <span class="nf">LogStashV1</span><span class="o">(</span><span class="nl">message:</span><span class="n">String</span><span class="o">,</span> <span class="nl">path:</span><span class="n">String</span><span class="o">,</span> <span class="nl">host:</span><span class="n">String</span><span class="o">,</span> <span class="nl">lineno:</span><span class="n">Double</span><span class="o">,</span> <span class="nl">timestamp:</span><span class="n">String</span><span class="o">)</span>
+  <span class="k">case</span> <span class="kd">class</span> <span class="nf">AlertMsg</span><span class="o">(</span><span class="nl">host:</span><span class="n">String</span><span class="o">,</span> <span class="nl">count:</span><span class="n">Int</span><span class="o">,</span> <span class="nl">value:</span><span class="n">Double</span><span class="o">)</span>
+  <span class="n">def</span> <span class="nf">main</span><span class="o">(</span><span class="nl">args:</span> <span class="n">Array</span><span class="o">[</span><span class="n">String</span><span class="o">])</span> <span class="o">{</span>
+    <span class="n">val</span> <span class="n">sparkConf</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkConf</span><span class="o">().</span><span class="na">setMaster</span><span class="o">(</span><span class="s">"local[2]"</span><span class="o">).</span><span class="na">setAppName</span><span class="o">(</span><span class="s">"LogStash"</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">sc</span>  <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkContext</span><span class="o">(</span><span class="n">sparkConf</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">ssc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">StreamingContext</span><span class="o">(</span><span class="n">sc</span><span class="o">,</span> <span class="n">Seconds</span><span class="o">(</span><span class="mi">10</span><span class="o">))</span>
+    <span class="n">val</span> <span class="n">sqc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SQLContext</span><span class="o">(</span><span class="n">sc</span><span class="o">)</span>
+    <span class="kn">import</span> <span class="nn">sqc._</span>
+    <span class="n">val</span> <span class="n">lines</span> <span class="o">=</span> <span class="n">ssc</span><span class="o">.</span><span class="na">socketTextStream</span><span class="o">(</span><span class="s">"localhost"</span><span class="o">,</span> <span class="mi">8888</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">jsonf</span> <span class="o">=</span> <span class="n">lines</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">JSON</span><span class="o">.</span><span class="na">parseFull</span><span class="o">(</span><span class="n">_</span><span class="o">)).</span><span class="na">map</span><span class="o">(</span><span class="n">_</span><span class="o">.</span><span class="na">get</span><span class="o">.</span><span class="na">asInstanceOf</span><span class="o">[</span><span class="n">scala</span><span class="o">.</span><span class="na">collection</span><span class="o">.</span><span class="na">immutable</span><span class="o">.</span><span class="na">Map</span><span class="o">[</span><span class="n">String</span><span class="o">,</span> <span class="n">Any</span><span class="o">]])</span>
+    <span class="n">val</span> <span class="n">logs</span> <span class="o">=</span> <span class="n">jsonf</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">data</span> <span class="o">=&gt;</span> <span class="n">LogStashV1</span><span class="o">(</span><span class="n">data</span><span class="o">(</span><span class="s">"message"</span><span class="o">).</span><span class="na">toString</span><span class="o">,</span> <span class="n">data</span><span class="o">(</span><span class="s">"path"</span><span class="o">).</span><span class="na">toString</span><span class="o">,</span> <span class="n">data</span><span class="o">(</span><span class="s">"host"</span><span class="o">).</span><span class="na">toString</span><span class="o">,</span> <span class="n">data</span><span class="o">(</span><span class="s">"lineno"</span><span class="o">).</span><span class="na">toString</span><span class="o">.</span><span class="na">toDouble</span><span class="o">,</span> <span class="n">data</span><span class="o">(</span><span class="s">"@timestamp"</span><span class="o">).</span><span class="na">toString</span><span class="o">))</span>
+    <span class="n">logs</span><span class="o">.</span><span class="na">foreachRDD</span><span class="o">(</span> <span class="n">rdd</span> <span class="o">=&gt;</span> <span class="o">{</span>
+      <span class="n">rdd</span><span class="o">.</span><span class="na">registerAsTable</span><span class="o">(</span><span class="s">"logstash"</span><span class="o">)</span>
+      <span class="n">val</span> <span class="n">sqlreport</span> <span class="o">=</span> <span class="n">sqc</span><span class="o">.</span><span class="na">sql</span><span class="o">(</span><span class="s">"SELECT message, COUNT(message) AS host_c, SUM(lineno) AS line_a FROM logstash WHERE path = '/var/log/system.log' AND lineno &gt; 70 GROUP BY message ORDER BY host_c DESC LIMIT 100"</span><span class="o">)</span>
+      <span class="n">sqlreport</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">t</span> <span class="o">=&gt;</span> <span class="n">AlertMsg</span><span class="o">(</span><span class="n">t</span><span class="o">(</span><span class="mi">0</span><span class="o">).</span><span class="na">toString</span><span class="o">,</span> <span class="n">t</span><span class="o">(</span><span class="mi">1</span><span class="o">).</span><span class="na">toString</span><span class="o">.</span><span class="na">toInt</span><span class="o">,</span> <span class="n">t</span><span class="o">(</span><span class="mi">2</span><span class="o">).</span><span class="na">toString</span><span class="o">.</span><span class="na">toDouble</span><span class="o">)).</span><span class="na">collect</span><span class="o">().</span><span class="na">foreach</span><span class="o">(</span><span class="n">println</span><span class="o">)</span>
+    <span class="o">})</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span>
+  <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+<p>通过加载 SQLContext，就可以把 RDD 转换成 table，然后通过 SQL 方式写请求了。这里有一个地方需要注意的是，因为最开始转换 JSON 的时候，键值对的 value 类型是 Any(因为要兼容复杂结构)，所以后面赋值的时候需要具体转换成合适的类型。于是悲催的就有了 <code>.toString.toInt</code> 这样的写法。。。</p>
+<h2 id="sql--1">同样效果的非 SQL 实现</h2>
+<p>不用 spark SQL 当然也能做到，而且如果需要复杂处理的时候，还少不了自己写。如果把上例中那段 foreachRDD 替换成下面这样，效果是完全一样的：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">val</span> <span class="n">r</span> <span class="o">=</span> <span class="n">logs</span><span class="o">.</span><span class="na">filter</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">path</span><span class="o">.</span><span class="na">equals</span><span class="o">(</span><span class="s">"/var/log/system.log"</span><span class="o">)).</span><span class="na">filter</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">lineno</span> <span class="o">&gt;</span> <span class="mi">70</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">host_c</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">message</span> <span class="o">-&gt;</span> <span class="mi">1</span><span class="o">).</span><span class="na">reduceByKey</span><span class="o">(</span><span class="n">_</span><span class="o">+</span><span class="n">_</span><span class="o">).</span><span class="na">groupByKey</span><span class="o">()</span>
+    <span class="n">r</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">message</span> <span class="o">-&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">lineno</span><span class="o">).</span><span class="na">reduceByKey</span><span class="o">(</span><span class="n">_</span><span class="o">+</span><span class="n">_</span><span class="o">).</span><span class="na">groupByKey</span><span class="o">().</span><span class="na">join</span><span class="o">(</span><span class="n">host_c</span><span class="o">).</span><span class="na">foreachRDD</span><span class="o">(</span> <span class="n">rdd</span> <span class="o">=&gt;</span> <span class="o">{</span>
+        <span class="n">rdd</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">t</span> <span class="o">=&gt;</span> <span class="n">AlertMsg</span><span class="o">(</span><span class="n">t</span><span class="o">.</span><span class="na">_1</span><span class="o">,</span> <span class="n">t</span><span class="o">.</span><span class="na">_2</span><span class="o">.</span><span class="na">_2</span><span class="o">.</span><span class="na">head</span><span class="o">,</span> <span class="n">t</span><span class="o">.</span><span class="na">_2</span><span class="o">.</span><span class="na">_1</span><span class="o">.</span><span class="na">head</span><span class="o">)).</span><span class="na">collect</span><span class="o">().</span><span class="na">foreach</span><span class="o">(</span><span class="n">println</span><span class="o">)</span>
+    <span class="o">})</span></code></pre>
+</div>
+<p>这里面用到的 <code>.groupByKey</code> 和 <code>.reduceByKey</code> 方法，都是专门针对 PairsDStream 对象的，所以前面必须通过 <code>.map</code> 方法把普通 DStream 转换一下。</p>
+<p>这里还有一个很厉害的方法，叫 <code>.updatestateByKey</code> 。可以有一个 checkpoint 存上一个 window 的数据，具体示例稍后更新。</p>
+<h2 id="jsonrdd-">更简洁的 jsonRDD 方法</h2>
+<p>在简单需求的时候，可能还是觉得能用 SQL 就用 SQL 比较好。但是提前定义 cast class 真的比较麻烦。其实对于 JSON 数据，spark SQL 是有提供更简洁的处理接口的。可以直接写成这样：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.SparkConf</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext._</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.</span><span class="o">{</span><span class="n">Seconds</span><span class="o">,</span> <span class="n">StreamingContext</span><span class="o">}</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.StreamingContext._</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.sql.SQLContext</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.sql._</span>
+<span class="n">object</span> <span class="n">LogStash</span> <span class="o">{</span>
+  <span class="k">case</span> <span class="kd">class</span> <span class="nf">AlertMsg</span><span class="o">(</span><span class="nl">host:</span><span class="n">String</span><span class="o">,</span> <span class="nl">count:</span><span class="n">String</span><span class="o">,</span> <span class="nl">value:</span><span class="n">String</span><span class="o">)</span>
+  <span class="n">def</span> <span class="nf">main</span><span class="o">(</span><span class="nl">args:</span> <span class="n">Array</span><span class="o">[</span><span class="n">String</span><span class="o">])</span> <span class="o">{</span>
+    <span class="n">val</span> <span class="n">sparkConf</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkConf</span><span class="o">().</span><span class="na">setMaster</span><span class="o">(</span><span class="s">"local[2]"</span><span class="o">).</span><span class="na">setAppName</span><span class="o">(</span><span class="s">"LogStash"</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">sc</span>  <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkContext</span><span class="o">(</span><span class="n">sparkConf</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">ssc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">StreamingContext</span><span class="o">(</span><span class="n">sc</span><span class="o">,</span> <span class="n">Seconds</span><span class="o">(</span><span class="mi">10</span><span class="o">))</span>
+    <span class="n">val</span> <span class="n">sqc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SQLContext</span><span class="o">(</span><span class="n">sc</span><span class="o">)</span>
+    <span class="kn">import</span> <span class="nn">sqc._</span>
+    <span class="n">val</span> <span class="n">lines</span> <span class="o">=</span> <span class="n">ssc</span><span class="o">.</span><span class="na">socketTextStream</span><span class="o">(</span><span class="s">"localhost"</span><span class="o">,</span> <span class="mi">8888</span><span class="o">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="na">foreachRDD</span><span class="o">(</span> <span class="n">rdd</span> <span class="o">=&gt;</span> <span class="o">{</span>
+      <span class="k">if</span> <span class="o">(</span><span class="n">rdd</span><span class="o">.</span><span class="na">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">val</span> <span class="n">t</span> <span class="o">=</span> <span class="n">sqc</span><span class="o">.</span><span class="na">jsonRDD</span><span class="o">(</span><span class="n">rdd</span><span class="o">)</span>
+<span class="c1">//        t.printSchema()</span>
+        <span class="n">t</span><span class="o">.</span><span class="na">registerTempTable</span><span class="o">(</span><span class="s">"logstash"</span><span class="o">)</span>
+        <span class="n">val</span> <span class="n">sqlreport</span> <span class="o">=</span><span class="n">sqc</span><span class="o">.</span><span class="na">sql</span><span class="o">(</span><span class="s">"SELECT host, COUNT(host) AS host_c, AVG(lineno) AS line_a FROM logstash WHERE path = '/var/log/system.log' AND lineno &gt; 70 GROUP BY host ORDER BY host_c DESC LIMIT 100"</span><span class="o">)</span>
+        <span class="n">sqlreport</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">t</span><span class="o">=&gt;</span> <span class="n">AlertMsg</span><span class="o">(</span><span class="n">t</span><span class="o">(</span><span class="mi">0</span><span class="o">).</span><span class="na">toString</span><span class="o">,</span><span class="n">t</span><span class="o">(</span><span class="mi">1</span><span class="o">).</span><span class="na">toString</span><span class="o">,</span><span class="n">t</span><span class="o">(</span><span class="mi">2</span><span class="o">).</span><span class="na">toString</span><span class="o">)).</span><span class="na">collect</span><span class="o">().</span><span class="na">foreach</span><span class="o">(</span><span class="n">println</span><span class="o">)</span>
+      <span class="o">}</span>
+    <span class="o">})</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span>
+  <span class="o">}</span>
+<span class="o">}</span></code></pre>
+</div>
+<p>这样，不用自己解析 JSON，直接加载到 SQLContext 里。可以通过 <code>.printSchema</code> 方法查看到 JSON 被转换成了什么样的表结构。</p>
+<h2 id="todo">TODO</h2>
+<p>SQL 的方式可以很方便的做到对实时数据的阈值监控处理，但是 SQL 是建立在 RDD 上的如何利用 DStream 的上一个 window 的 state 状态实现比如环比变化处理，移动均线处理，还没找到途径。</p>
+<h2 id="see-also">See Also</h2>
+<p>spark 目前文档不多，尤其是 streaming 和 SQL 方面的。感谢下面两个网址，对我上手帮助颇多：</p>
+<ul>
+  <li><a href="http://apache-spark-user-list.1001560.n3.nabble.com/Spark-Streaming-Json-file-groupby-function-td9618.html">http://apache-spark-user-list.1001560.n3.nabble.com/Spark-Streaming-Json-file-groupby-function-td9618.html</a></li>
+  <li><a href="http://databricks.gitbooks.io/databricks-spark-reference-applications/content/logs_analyzer/chapter1/windows.html">http://databricks.gitbooks.io/databricks-spark-reference-applications/content/logs_analyzer/chapter1/windows.html</a></li>
+</ul>
+    <hr>
+
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-02-12-rsyslog-forwarder-testing-537b33082.html" title="Previous Post: rsyslog 的 TCP 转发性能测试" data-instant>&laquo; rsyslog 的 TCP 转发性能测试</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-02-14-spark-streaming-state-4e57fc126.html" title="Next Post: spark streaming 的 state 操作示例" data-instant>spark streaming 的 state 操作示例 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>14 Feb 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-02-14-spark-streaming-state-4e57fc126.html">spark streaming 的 state 操作示例</a></li>
+
+      <li><span>14 Feb 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-02-14-spark-streaming-transform-bb8b7f26e.html">spark streaming 的 transform 操作示例</a></li>
+
+      <li><span>04 Sep 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-09-04-spark-to-elasticsearch-b436fd476.html">用 Spark 处理数据导入 Elasticsearch</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
