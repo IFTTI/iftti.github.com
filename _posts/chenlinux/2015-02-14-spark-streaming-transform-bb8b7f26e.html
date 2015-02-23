@@ -1,0 +1,103 @@
+---
+layout: post
+title: 'spark streaming 的 transform 操作示例'
+time: 2015-02-14 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2015/02/14/spark-streaming-transform
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>前两篇，一篇说在 spark 里用 SQL 方便，一篇说 updatestateByKey 可以保留状态做推算。那么怎么综合起来呢？目前看到的 spark streaming 和 spark SQL 的示例全都是在 output 阶段的 <code>foreachRDD</code> 里才调用 SQL。实际在 output 之前，也是可以对 DStream 里的 RDD 做复杂的转换操作的，这就是 <code>transform</code> 方法。</p>
+<p>通过 <code>transform</code> 方法，可以做到 SQL 请求的结果依然是 DStream 数据，这样就可以使用 <code>updateStateByKey</code> 方法了。下面是示例：</p>
+<div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.SparkConf</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.sql._</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.sql.SQLContext</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.SparkContext._</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.</span><span class="o">{</span><span class="n">Seconds</span><span class="o">,</span> <span class="n">StreamingContext</span><span class="o">}</span>
+<span class="kn">import</span> <span class="nn">org.apache.spark.streaming.StreamingContext._</span>
+<span class="n">object</span> <span class="n">LogStash</span> <span class="o">{</span>
+  <span class="k">case</span> <span class="kd">class</span> <span class="nf">Status</span><span class="o">(</span><span class="nl">avg:</span><span class="n">Double</span> <span class="o">=</span> <span class="mf">0.0</span><span class="o">,</span> <span class="nl">count:</span><span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+    <span class="n">var</span> <span class="n">countTrend</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">var</span> <span class="n">avgTrend</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">def</span> <span class="o">%(</span><span class="nl">prev:</span><span class="n">Status</span><span class="o">):</span> <span class="n">Status</span> <span class="o">=</span> <span class="o">{</span>
+      <span class="k">if</span> <span class="o">(</span><span class="n">prev</span><span class="o">.</span><span class="na">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">this</span><span class="o">.</span><span class="na">countTrend</span> <span class="o">=</span> <span class="o">(</span><span class="k">this</span><span class="o">.</span><span class="na">count</span> <span class="o">-</span> <span class="n">prev</span><span class="o">.</span><span class="na">count</span><span class="o">).</span><span class="na">toDouble</span> <span class="o">/</span> <span class="n">prev</span><span class="o">.</span><span class="na">count</span>
+      <span class="o">}</span>
+      <span class="k">if</span> <span class="o">(</span><span class="n">prev</span><span class="o">.</span><span class="na">avg</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+        <span class="k">this</span><span class="o">.</span><span class="na">avgTrend</span> <span class="o">=</span> <span class="o">(</span><span class="k">this</span><span class="o">.</span><span class="na">avg</span> <span class="o">-</span> <span class="n">prev</span><span class="o">.</span><span class="na">avg</span><span class="o">)</span> <span class="o">/</span> <span class="n">prev</span><span class="o">.</span><span class="na">avg</span>
+      <span class="o">}</span>
+      <span class="k">this</span>
+    <span class="o">}</span>
+    <span class="n">override</span> <span class="n">def</span> <span class="n">toString</span> <span class="o">=</span> <span class="o">{</span>
+      <span class="n">s</span><span class="s">"Trend($avg, $count, $avgTrend, $countTrend)"</span>
+    <span class="o">}</span>
+  <span class="o">}</span>
+  <span class="n">def</span> <span class="nf">updatestatefunc</span><span class="o">(</span><span class="nl">newValue:</span> <span class="n">Seq</span><span class="o">[</span><span class="n">Status</span><span class="o">],</span> <span class="nl">oldValue:</span> <span class="n">Option</span><span class="o">[</span><span class="n">Status</span><span class="o">]):</span> <span class="n">Option</span><span class="o">[</span><span class="n">Status</span><span class="o">]</span> <span class="o">=</span> <span class="o">{</span>
+    <span class="n">val</span> <span class="n">prev</span> <span class="o">=</span> <span class="n">oldValue</span><span class="o">.</span><span class="na">getOrElse</span><span class="o">(</span><span class="n">Status</span><span class="o">())</span>
+    <span class="n">val</span> <span class="n">current</span> <span class="o">=</span> <span class="k">if</span> <span class="o">(</span><span class="n">newValue</span><span class="o">.</span><span class="na">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="o">)</span> <span class="n">newValue</span><span class="o">.</span><span class="na">last</span> <span class="o">%</span> <span class="n">prev</span> <span class="k">else</span> <span class="nf">Status</span><span class="o">()</span>
+    <span class="n">Some</span><span class="o">(</span><span class="n">current</span><span class="o">)</span>
+  <span class="o">}</span>
+  <span class="n">def</span> <span class="nf">main</span><span class="o">(</span><span class="nl">args:</span> <span class="n">Array</span><span class="o">[</span><span class="n">String</span><span class="o">])</span> <span class="o">{</span>
+    <span class="n">val</span> <span class="n">sparkConf</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkConf</span><span class="o">().</span><span class="na">setMaster</span><span class="o">(</span><span class="s">"local[2]"</span><span class="o">).</span><span class="na">setAppName</span><span class="o">(</span><span class="s">"LogStash"</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">sc</span>  <span class="o">=</span> <span class="k">new</span> <span class="nf">SparkContext</span><span class="o">(</span><span class="n">sparkConf</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">ssc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">StreamingContext</span><span class="o">(</span><span class="n">sc</span><span class="o">,</span> <span class="n">Seconds</span><span class="o">(</span><span class="mi">10</span><span class="o">))</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">checkpoint</span><span class="o">(</span><span class="s">"/tmp/spark-streaming-logstash"</span><span class="o">)</span>
+    <span class="n">val</span> <span class="n">sqc</span> <span class="o">=</span> <span class="k">new</span> <span class="nf">SQLContext</span><span class="o">(</span><span class="n">sc</span><span class="o">)</span>
+    <span class="kn">import</span> <span class="nn">sqc._</span>
+    <span class="n">val</span> <span class="n">lines</span> <span class="o">=</span> <span class="n">ssc</span><span class="o">.</span><span class="na">socketTextStream</span><span class="o">(</span><span class="s">"localhost"</span><span class="o">,</span> <span class="mi">8888</span><span class="o">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="na">transform</span><span class="o">(</span> <span class="n">rdd</span> <span class="o">=&gt;</span> <span class="o">{</span>
+      <span class="k">if</span> <span class="o">(</span><span class="n">rdd</span><span class="o">.</span><span class="na">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">sqc</span><span class="o">.</span><span class="na">jsonRDD</span><span class="o">(</span><span class="n">rdd</span><span class="o">).</span><span class="na">registerTempTable</span><span class="o">(</span><span class="s">"logstash"</span><span class="o">)</span>
+        <span class="n">val</span> <span class="n">sqlreport</span> <span class="o">=</span> <span class="n">sqc</span><span class="o">.</span><span class="na">sql</span><span class="o">(</span><span class="s">"SELECT message, COUNT(message) AS host_c, AVG(lineno) AS line_a FROM logstash WHERE path = '/var/log/system.log' AND lineno &gt; 70 GROUP BY message ORDER BY host_c DESC LIMIT 100"</span><span class="o">)</span>
+        <span class="n">sqlreport</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">r</span> <span class="o">=&gt;</span> <span class="o">(</span><span class="n">r</span><span class="o">(</span><span class="mi">0</span><span class="o">).</span><span class="na">toString</span> <span class="o">-&gt;</span> <span class="n">Status</span><span class="o">(</span><span class="n">r</span><span class="o">(</span><span class="mi">2</span><span class="o">).</span><span class="na">toString</span><span class="o">.</span><span class="na">toDouble</span><span class="o">,</span> <span class="n">r</span><span class="o">(</span><span class="mi">1</span><span class="o">).</span><span class="na">toString</span><span class="o">.</span><span class="na">toInt</span><span class="o">)))</span>
+      <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+        <span class="n">rdd</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="o">(</span><span class="s">""</span> <span class="o">-&gt;</span> <span class="n">Status</span><span class="o">()))</span>
+      <span class="o">}</span>
+    <span class="o">}).</span><span class="na">updateStateByKey</span><span class="o">(</span><span class="n">updatestatefunc</span><span class="o">).</span><span class="na">print</span><span class="o">()</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
+    <span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span>
+  <span class="o">}</span>
+<span class="o">}</span></code></pre></div>
+<p>这里有一点需要注意，也是耽误我时间最多的地方：<code>transform</code> 方法的参数和返回，代码里的定义是 <code>RDD[T]</code> 和 <code>RDD[U]</code>。我不懂 Java/Scala，以为是只要是 RDD 对象即可。实践证明，其实要任意场合下返回的 RDD 里的数据类型也保持一致。</p>
+<p>在上例中，就是 if 条件下返回的是 <code>RDD[(String, Status)]</code>，那么 else 条件下，也必须返回一个 <code>RDD[(String, Status)]</code>，如果直接返回原始的 rdd(也就是 <code>RDD[String]</code>)，就会报错。</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

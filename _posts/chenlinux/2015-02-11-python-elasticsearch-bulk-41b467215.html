@@ -1,0 +1,156 @@
+---
+layout: post
+title: 'Python 批量写入 Elasticsearch 脚本'
+time: 2015-02-11 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2015/02/11/python-elasticsearch-bulk
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>Elasticsearch 官方和社区提供了各种各样的客户端库，在之前的博客中，我陆陆续续提到和演示过 Perl 的，Javascript 的，Ruby 的。上周写了一版 Python 的，考虑到好像很难找到现成的示例，如何用 python 批量写数据进 Elasticsearch，今天一并贴上来。</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="c">#!/usr/bin/env pypy</span>
+<span class="c">#coding:utf-8</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">datetime</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">from</span> <span class="nn">elasticsearch</span> <span class="kn">import</span> <span class="n">Elasticsearch</span>
+<span class="kn">from</span> <span class="nn">elasticsearch</span> <span class="kn">import</span> <span class="n">helpers</span>
+<span class="kn">from</span> <span class="nn">elasticsearch</span> <span class="kn">import</span> <span class="n">ConnectionTimeout</span>
+<span class="n">es</span> <span class="o">=</span> <span class="n">Elasticsearch</span><span class="p">([</span><span class="s">'192.168.0.2'</span><span class="p">,</span> <span class="s">'192.168.0.3'</span><span class="p">],</span> <span class="n">sniff_on_start</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">sniff_on_connection_fail</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">max_retries</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">retry_on_timeout</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">basicConfig</span><span class="p">()</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s">'elasticsearch'</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">WARN</span><span class="p">)</span>
+<span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s">'urllib3'</span><span class="p">)</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">WARN</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">parse_www</span><span class="p">(</span><span class="n">logline</span><span class="p">):</span>
+	<span class="k">try</span><span class="p">:</span>
+		<span class="n">time_local</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">http_user_agent</span><span class="p">,</span> <span class="n">staTus</span><span class="p">,</span> <span class="n">remote_addr</span><span class="p">,</span> <span class="n">http_referer</span><span class="p">,</span> <span class="n">request_time</span><span class="p">,</span> <span class="n">body_bytes_sent</span><span class="p">,</span> <span class="n">http_x_forwarded_proto</span><span class="p">,</span> <span class="n">http_x_forwarded_for</span><span class="p">,</span> <span class="n">http_host</span><span class="p">,</span> <span class="n">http_cookie</span><span class="p">,</span> <span class="n">upstream_response_time</span> <span class="o">=</span> <span class="n">logline</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">'`'</span><span class="p">)</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">upstream_response_time</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">upstream_response_time</span><span class="p">)</span>
+		<span class="k">except</span><span class="p">:</span>
+			<span class="n">upstream_response_time</span> <span class="o">=</span> <span class="bp">None</span>
+		<span class="n">method</span><span class="p">,</span> <span class="n">uri</span><span class="p">,</span> <span class="n">verb</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">' '</span><span class="p">)</span>
+		<span class="n">arg</span> <span class="o">=</span> <span class="p">{}</span>
+		<span class="k">try</span><span class="p">:</span>
+			<span class="n">url_path</span><span class="p">,</span> <span class="n">url_args</span> <span class="o">=</span> <span class="n">uri</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">'?'</span><span class="p">)</span>
+			<span class="k">for</span> <span class="n">args</span> <span class="ow">in</span> <span class="n">url_args</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">'&amp;'</span><span class="p">):</span>
+				<span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">args</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">'='</span><span class="p">)</span>
+				<span class="n">arg</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+		<span class="k">except</span><span class="p">:</span>
+			<span class="n">url_path</span> <span class="o">=</span> <span class="n">uri</span>
+		<span class="c"># Why %z do not implement?</span>
+	        <span class="n">date</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">time_local</span><span class="p">,</span> <span class="s">'[</span><span class="si">%d</span><span class="s">/%b/%Y:%H:%M:%S +0800]'</span><span class="p">)</span>
+		<span class="n">ret</span> <span class="o">=</span> <span class="p">{</span>
+			<span class="s">"@timestamp"</span><span class="p">:</span> <span class="n">date</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s">'</span><span class="si">%F</span><span class="s">T%T+0800'</span><span class="p">),</span>
+			<span class="s">"host"</span><span class="p">:</span> <span class="s">"127.0.0.1"</span><span class="p">,</span>
+			<span class="s">"method"</span><span class="p">:</span> <span class="n">method</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(</span><span class="s">'"'</span><span class="p">),</span>
+			<span class="s">"url_path"</span><span class="p">:</span> <span class="n">url_path</span><span class="p">,</span>
+			<span class="s">"url_args"</span><span class="p">:</span> <span class="n">arg</span><span class="p">,</span>
+			<span class="s">"verb"</span><span class="p">:</span> <span class="n">verb</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">'"'</span><span class="p">),</span>
+			<span class="s">"http_user_agent"</span><span class="p">:</span> <span class="n">http_user_agent</span><span class="p">,</span>
+			<span class="s">"status"</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">staTus</span><span class="p">),</span>
+			<span class="s">"remote_addr"</span><span class="p">:</span> <span class="n">remote_addr</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s">'[]'</span><span class="p">),</span>
+			<span class="s">"http_referer"</span><span class="p">:</span> <span class="n">http_referer</span><span class="p">,</span>
+			<span class="s">"request_time"</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">request_time</span><span class="p">),</span>
+			<span class="s">"body_bytes_sent"</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">body_bytes_sent</span><span class="p">),</span>
+			<span class="s">"http_x_forwarded_proto"</span><span class="p">:</span> <span class="n">http_x_forwarded_proto</span><span class="p">,</span>
+			<span class="s">"http_x_forwarded_for"</span><span class="p">:</span> <span class="n">http_x_forwarded_for</span><span class="p">,</span>
+			<span class="s">"http_host"</span><span class="p">:</span> <span class="n">http_host</span><span class="p">,</span>
+			<span class="s">"http_cookie"</span><span class="p">:</span> <span class="n">http_cookie</span><span class="p">,</span>
+			<span class="s">"upstream_response_time"</span><span class="p">:</span> <span class="n">upstream_response_time</span>
+		<span class="p">}</span>
+		<span class="k">return</span> <span class="p">{</span><span class="s">"_index"</span><span class="p">:</span><span class="s">"logstash-mweibo-www-"</span><span class="o">+</span><span class="n">date</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s">'%Y.%m.</span><span class="si">%d</span><span class="s">'</span><span class="p">),</span> <span class="s">"_type"</span><span class="p">:</span><span class="s">"nginx"</span><span class="p">,</span><span class="s">"_source"</span><span class="p">:</span><span class="n">ret</span><span class="p">}</span>
+	<span class="k">except</span><span class="p">:</span>
+		<span class="k">return</span> <span class="p">{</span><span class="s">"_index"</span><span class="p">:</span><span class="s">"logstash-mweibo-www-"</span><span class="o">+</span><span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s">'%Y.%m.</span><span class="si">%d</span><span class="s">'</span><span class="p">),</span> <span class="s">"_type"</span><span class="p">:</span><span class="s">"nginx"</span><span class="p">,</span><span class="s">"_source"</span><span class="p">:{</span><span class="s">"message"</span><span class="p">:</span><span class="n">logline</span><span class="p">}}</span>
+<span class="k">def</span> <span class="nf">get_log</span><span class="p">():</span>
+    <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">log_buffer</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">helpers</span><span class="o">.</span><span class="n">bulk</span><span class="p">(</span><span class="n">es</span><span class="p">,</span> <span class="n">log_buffer</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">log_buffer</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="nb">len</span><span class="p">(</span><span class="n">log_buffer</span><span class="p">)]</span>
+            <span class="k">break</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">ret</span> <span class="o">=</span> <span class="n">parse_www</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">())</span>
+            <span class="n">log_buffer</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span>
+            <span class="k">while</span> <span class="p">(</span> <span class="nb">len</span><span class="p">(</span><span class="n">log_buffer</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2000</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">log_buffer</span><span class="p">)</span> <span class="o">%</span> <span class="mi">2000</span> <span class="o">==</span> <span class="mi">0</span> <span class="p">):</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">helpers</span><span class="o">.</span><span class="n">bulk</span><span class="p">(</span><span class="n">es</span><span class="p">,</span> <span class="n">log_buffer</span><span class="p">)</span>
+                <span class="k">except</span> <span class="n">ConnectionTimeout</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="s">"try again"</span><span class="p">)</span>
+                    <span class="k">continue</span>
+                <span class="k">del</span> <span class="n">log_buffer</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="nb">len</span><span class="p">(</span><span class="n">log_buffer</span><span class="p">)]</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">startime</span> <span class="o">&gt;</span> <span class="n">timeout</span> <span class="p">):</span>
+                <span class="n">helpers</span><span class="o">.</span><span class="n">bulk</span><span class="p">(</span><span class="n">es</span><span class="p">,</span> <span class="n">log_buffer</span><span class="p">)</span>
+                <span class="n">start_time</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+                <span class="k">del</span> <span class="n">log_buffer</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="nb">len</span><span class="p">(</span><span class="n">log_buffer</span><span class="p">)]</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">'__main__'</span><span class="p">:</span>
+    <span class="n">get_log</span><span class="p">()</span></code></pre></div>
+<p>和 Perl、Ruby 的客户端不同，Python 的客户端只支持两种 transport 方式，urllib3 或者 thrift。也就是说，木有像事件驱动啊之类的办法。</p>
+<p>测试一下，这个脚本如果不发送数据，一秒处理日志条数在15k，发送数据，一秒只有2k。确实比较让人失望，于是决定换成 pypy 试试——我司不少日志处理脚本都是用 pypy 运行的。</p>
+<p>服务器上使用 pypy ，是通过 EPEL 安装的，之前都只用核心模块，这次需要安装 elasticsearch 模块。所以需要先给 pypy 加上 pip：</p>
+<pre><code>wget https://raw.github.com/pypa/pip/master/contrib/get-pip.py
+pypy get-pip.py
+</code></pre>
+<p>网上大多说之前还要下载一个叫 distribute_setup.py 的脚本来运行，实测不需要，而且这个脚本的下载链接也失效了。</p>
+<p>然后通过 pip 安装 elasticsearch 包即可：</p>
+<pre><code>/usr/lib64/pypy-2.0.2/bin/pip install elasticsearch
+</code></pre>
+<p>测试，pypy 比 python 处理日志速度快一倍，写 ES 速度快一半。不过 3300eps 依然很慢就是了。</p>
+<h2 id="section">测试中碰到的其他问题</h2>
+<p>可以看到脚本里已经设置了多次重试和超时重连，不过依然会收到写入超时和失败的返回，原来 Elasticsearch 默认对每个 node 做 segment merge 的时候，有磁盘保护措施，速度上限限制在 20MB/s。这在压测的时候就容易触发。</p>
+<blockquote>
+  <p>[2015-01-10 09:41:51,273][INFO ][index.engine.internal ] [node1][logstash-2015.01.10][2] now throttling indexing: numMergesInFlight=6,maxNumMerges=5</p>
+</blockquote>
+<p>修改配置重启即可：</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="l-Scalar-Plain">indices.store.throttle.type：merge</span>
+<span class="l-Scalar-Plain">indices.store.throttle.max_bytes_per_sec：500mb</span></code></pre></div>
+<p>关于这个问题，ES 也有讨论：<a href="https://github.com/elasticsearch/elasticsearch/issues/6081">Should we lower the default merge IO throttle rate?</a>。或许未来会有更灵活的策略。</p>
+<p>更多 ES 性能测试和优化建议，参考：<a href="http://www.elasticsearch.org/guide/en/elasticsearch/guide/current/indexing-performance.html">http://www.elasticsearch.org/guide/en/elasticsearch/guide/current/indexing-performance.html</a></p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

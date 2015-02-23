@@ -1,0 +1,155 @@
+---
+layout: post
+title: '在回调和闭包中的内存泄漏'
+time: 2015-01-28
+site_name: php-oa.com
+source_url: http://www.php-oa.com/2015/01/28/callback-anyevent-event-memory-leaks.html
+---
+{% raw %}
+
+							<p><span id="more-5733"></span><!--more-->近来老见到人有内存泄漏的问题，自己写模块和例子的时候，也发现有内存泄漏的问题。。。学艺不精啊，所以特在这写一个文章来分享一下有关这方面的内容。</p>
+<p>因为回调和闭包在事件程序中最多，所以我很早以前就找过一个有关这个的文章 &lt;&lt;<a href="http://www.richardbucker.com/2011/11/anyevent-and-memory-leaks.html">AnyEvent and memory leaks</a> &gt;&gt; 这个文章的作者，见到了 kraih (Mojolicious 的作者) 放了一个  <a href="http://bit.ly/vX5Kag">gist link</a> 上面一个简单的内存泄漏的例子。这指出了，对于初学者来讲，写这种事件回调程序时最容易出的错的地方,  所以对于我们写 AnyEvent （Mojolicious 之类的应用）之类的程序员，了解这块非常非常有用，这样我们对可能造成的内存泄漏之类问题就知道怎么应对和处理 .</p>
+<h2>
+	闭包的内存泄漏实例</h2>
+<p>
+kraih 的例子如下:</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+# Very common leak
+my $foo;
+$foo = sub {
+  my ($i, $j) = @_;
+  return if $i &gt;= $j;
+  say $i++;
+  $foo-&gt;($i, $j);
+};
+$foo-&gt;(1, 10);
+</pre>
+<h2>
+	<br>
+	测试是否内存泄漏的方式</h2>
+<p>
+对于上面这个例子，是一定有内存泄漏的，这时我们要怎么样来测试内存泄漏啦？</p>
+<p>方法 1: 使用 Devel::Cycle 模块，来测试引用, 如上面的例子，我们可以在最后面加上</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+find_cycle $foo;
+
+</pre>
+<p>这样可以见到如下输出：</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+Cycle (1):
+                      $A variable $foo =&gt; \$B                           
+                                         $$B =&gt; \&amp;A
+
+</pre>
+<p>
+上面可以直接见到变量一直存在对自身的引用，内存所以不被释放。</p>
+<p>方法2：上面的方式太复杂是吧。。。因为有时是一个对象，有时你根本不知道什么地方出错，这时我们有个法子进行压力测试,这样来让问题暴露出来，我们还是拿上面的例子来看。</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+$0 = 'perl_MEM_TEST';
+
+while(1) {
+    {   
+        my $foo;
+        $foo = sub {
+            my ($i, $j) = @_;
+            return if $i &gt;= $j;
+            #say $i++;
+            $foo-&gt;($i, $j);
+        };  
+        $foo-&gt;(1, 10);
+    }   
+}
+
+</pre>
+<p>
+嗯，我们运维的思想， 这时只要 ps 来检查内存占用就好。因为 while 所以每秒的次数会非常非常高。一会问题就出来了。</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+# ps -eo pid,user,comm,args,%cpu,rss,vsz|grep TEST|grep -v grep
+10366 root     perl            perl_MEM_TEST                101 2094848 2310136
+</pre>
+<p>我们可以见到 rss，基本上几秒以后就快速的增长，然后接下来就简单了，一个个的注掉函数，不断的隔离函数，直到定位到出了问题的函数。</p>
+<h2>
+	内存泄漏的原因</h2>
+<p>
+kraih 例子中的 bug 是因为 $foo 声明是在闭包之外而引起的. 但在函数内部的代码访问了这个闭包的变量。 这时变量的引用计数器增加 了。基本上所有的内存泄漏都是这个原因。从上面 find_cycle 都是这样。</p>
+<p>在看一个例子，前几天我所犯下的错误，经 py 指正过的。我在 AnyEvent 的应用中的例子，我想使用 begin end 来做回调组的同步，例子的例如下:</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+  while(1) {
+
+    my $cv = AE::cv;
+
+    $cv-&gt;begin(sub{
+
+        $cv-&gt;send;
+
+    });
+
+    my $w = AE::timer 0, 0, sub {
+
+        $cv-&gt;end;
+
+    };
+
+    $cv-&gt;recv;
+
+}
+</pre>
+<p>也可以使用上面的方法 2 来进行内存泄漏的测试，也能见到内存快速的增长，但大家见到上面的错误了吗？ 嗯，这个错误很深，只是一个简单的错误。因为我在第一个 begin 中使用了 $cv ，但这个 $cv 是直接引用的外面的变量，所以让引用计数器在不断的增加。<br>
+其实作者也做了一样的的处理，这个时候，其实我们一定要使用传进来的 $cv 不要使用外部的 cv ，所以这个地方 $cv-&gt;send 必须要写成 shift-&gt;send 或者 $_[0]-&gt;send; 所以于对这种闭包的使用，我们最好都使用传参数的方式给所需要的函数引用传进去 。</p>
+<h2>
+	纠正内存泄漏</h2>
+<p>
+对于 kraih 的例子中，要纠正这个函数，方式是象下面一样，给要调用的函数本身通过传参的方式来传进去，这是 &lt;&lt;AnyEvent and memory leaks&gt;&gt; 中提供的方式.</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+my $foo;
+$foo = sub {
+    my ($foofoo, $i, $j) = @_;
+    return if $i &gt;= $j;
+    say $i++;
+    $foofoo-&gt;($foofoo, $i, $j);
+    undef $foofoo; #this line is optional
+};
+
+$foo-&gt;($foo, 1, 10);
+
+
+</pre>
+<p>
+我们使用传参的方式，给函数传进去后就一切正常了。但上面的方法并不是很好看和好懂，这种闭包多了，函数的层级也会非常多，比如 AnyEvent::HTTP 模块中，就大量使用了这种闭包。</p>
+<p>下面提供一种我认为很好的方式，其实我其它的文章中也提到过.</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+    {   
+        package T;
+        use Moo;
+        sub foo {
+            my $self = shift;
+            return sub {
+                my ($i, $j) = @_;
+                return if $i &gt;= $j;
+                say $i++;
+                $self-&gt;foo-&gt;($i, $j);
+            }   
+        };  
+        1;  
+    }   
+
+    my $t = T-&gt;new;
+    $t-&gt;foo-&gt;(1, 10);
+
+</pre>
+<p>给需要的东西，包成模块，然后给闭包这种难懂的东西，封装起来。当然可能不一定要使用闭包，只是自己调用自己的话，就可以不用这样，上面对于于象 AnyEvent::HTTP  中的回调 on_body 之类这种需要一个代码引用的时候，非常有用，因为 $self-&gt;foo 是返回一个代码引用。可以直接</p>
+<pre class="brush:perl;first-line:1;pad-line-numbers:true;highlight:null;collapse:false;">
+on_body =&gt; $self-&gt;foo;
+</pre>
+<p>
+这样很方便的使用，在需要大量回调的程序中，还不用给闭包堆得超级超级多，一层又一层。</p>
+
+			<!--[syntaxhighlighter]-->
+			<!--代码高亮，请勿编辑-->
+			
+
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shCoreDefault.css">
+			<link type="text/css" rel="stylesheet" href="http://www.php-oa.com/wp-content/plugins/ck-and-syntaxhighlighter/syntaxhighlighter/styles/shThemeDefault.css">
+			
+			<!--[/syntaxhighlighter]-->						
+{% endraw %}

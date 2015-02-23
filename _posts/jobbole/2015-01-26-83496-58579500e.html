@@ -1,0 +1,99 @@
+---
+layout: post
+title: 'Proxygen：Facebook开源的 C++ HTTP 框架'
+time: 2015-01-26 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/83496/
+images:
+  416c980cf0336e715fcdf7c762da078a: http://ww3.sinaimg.cn/mw690/7cc829d3gw1eom8mrj6h6j20go0a0aa5.jpg
+  0a8eeeba42b7442aefc1f9e57491c7bc: https://fbcdn-dragon-a.akamaihd.net/hphotos-ak-xap1/t39.2365-6/10734311_327087987470892_326577189_n.png
+  b08c91623786667ce9053369297def6d: http://blog.jobbole.com/wp-content/uploads/sites/2/userphoto/12864.thumbnail.png
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p>我们在这里激动的宣布开源我们的 <a href="https://code.facebook.com/projects/676603015770415/">Proxygen</a>，一个 C++ HTTP库的集合，连同一个简单易用的HTTP 服务器。除了HTTP/1.1之外，Proxygen还支持SPDY 3 和 SPDY/3.1，目前正在添加对HTTP/2的支持。</p>
+<p>Proxygen 的设计初衷并不是为了代替Apache 和nginx， 后两者都注重于使用C 语言提供一个极具弹性的HTTP 服务器，提供高的性能，但是配置工作非常复杂； 而我们则更关注构建一个高性能的C++ HTTP框架，该框架无论在服务器代码端还是客户代码端都配备了合理的预设值（默认不需要进行复杂配置），使其可以轻松嵌入到Facebook提供Web服务的现有应用中。 我们想帮助更多人构建和部署高性能的C++  HTTP服务器，我们相信Proxygen是一个很棒的框架。</p>
+<p><img alt="" src="/images/jobbole.com/416c980cf0336e715fcdf7c762da078a.jpg"></p>
+<h3><strong>背景</strong></h3>
+<p>Proxygen一开始是一个可自定义配置，高性能的的HTTP(S)反向代理和负载平衡产品， 我们最开始是打算把Proxygen打造为一个软件库用来代理，这也是名字的由来， 但是 Proxygen 慢慢演变，看到已经有很多相同功能的软件已经存在（Apache Nginx HAProxy varnish 等）我们走了其他的方向。</p>
+<p>为什么我们要打造自己的HTTP 技术堆栈</p>
+<ul>
+<li>能够与他们现有的基础设施和工具集成（Thrift、ODS），</li>
+<li>代码重用 , 创建一个可以供不同的内部项目（Haystack、HHVM和负载均衡器等）使用的事件驱动库,现在我们有很多内部的系统都是建立在Proxygen代码之上，包括  Haystack HHVM 我们的负载平衡器， 还有一些移动基础架构，Proxygen 提供了一个支持HTTP/2协议的平台</li>
+<li>扩展，我们尝试着使用其他已经存在的技术堆栈，但是它们已经存在很长时间了，一个已经积重难返的HTTP基础架构已经不能跟上我们的扩展迭代需求了</li>
+<li>
+<div>  一些既有的HTTP服务器还缺少很多特性，如：SPDY、WebSockets、HTTP/1.1 (keep-alive)、TLS false start和特定的负载调度算法</div>
+</li>
+</ul>
+<p>Proxygen项目发起于2011年，发起者一群对HTTP在Facebook的使用充满激情的工程师，从那时起，该项目就一直被一个三四个人的小组维护。在这个小组之外，还有很多内部的代码贡献者也加入到这个项目，自从项目开始以来，主要的里程碑包括：</p>
+<ul>
+<li>2011 –  Proxygen 开发部门开始谈论产品走的流量</li>
+<li>2012 –  加入了 SPDY/2的支持， 开始内部公开测试</li>
+<li>2013 – SPDY/3  开发测试迭代</li>
+<li>2014 –  完成  SPDY/3.1 rollout, 开始HTTP/2 的 开发</li>
+</ul>
+<p>还有其他的里程碑可以参考这里 <a href="https://www.facebook.com/l.php?u=https%3A%2F%2Fgithub.com%2Ffacebook%2Fproxygen&amp;h=9AQHXOkgL&amp;s=1" target="_blank" rel="nofollow">code</a></p>
+<p>在该项目演进并在生产环境中测试了数年之后，我们到了一个可以将它开源的时间了</p>
+<h3><strong>架构</strong></h3>
+<p>Proxygen用到了下列概念：transaction（事务）、session（会话）、codec（编解码器）和handler（处理器）。事务表示的是在客户端和服务器之间交换的请求-响应对。这类相关的事务所组成的序列就是一个会话。编解码器负责将来自线路上的字节解析为对象，并将其与事务关联起来。消息最终传递给处理器进行真正地处理。  这个设置允许我们不用重写代码而支持新的 协议像  SPDY 和 HTTP/2</p>
+<p>Proxygen 很是依赖最新的C++特新， 并且依赖 Thrift 和Folly 底层网络库和数据抽象， 我们使用了很多高级语法避免对大的对象像 body 缓存，和 header representations 进行多余拷贝，同时避免典型的一些坑像内存泄露， 另外，使用了 非阻塞IO和linux epoll技术，我们能够创建一个高效的服务器，</p>
+<h3><strong>HTTP 服务器</strong></h3>
+<p>如果你需要一个快速上手和事件驱动的服务器，那么我们的服务框架是一个很好的选择，只要一些很少的配置，你就可以使用了，参考这个demo:  <a href="https://www.facebook.com/l.php?u=https%3A%2F%2Fgithub.com%2Ffacebook%2Fproxygen%2Fblob%2Fmaster%2Fproxygen%2Fhttpserver%2Fsamples%2Fecho%2FEchoServer.cpp&amp;h=9AQHXOkgL&amp;s=1" target="_blank" rel="nofollow">echo server example</a> ，  我们进行了在 32 logical core Intel(R) Xeon(R) CPU E5-2670 @ 2.60GHz with 16 GiB of RAM,* *从一个到八个线程做了基准测试， 我们的测试结果：</p>
+<pre>    # Load test client parameters:
+    # Twice as many worker threads as server
+    # 400 connections open simultaneously
+    # 100 requests per connection
+    # 60 second test
+    # Results reported are the average of 10 runs for each test
+    # simple GETs, 245 bytes of request headers, 600 byte response (in memory)
+    # SPDY/3.1 allows 10 concurrent requests per connection</pre>
+<p><img alt="" src="/images/jobbole.com/0a8eeeba42b7442aefc1f9e57491c7bc.jpg"></p>
+<p>虽然 echo 服务器相对于真实的web 服务器来说很简单， 但是基准测试可以反映出解析一下二进制协议像SPDY 和HTTP/2 的效率指标，</p>
+<h3><strong>影响</strong></h3>
+<p>Proxygen 允许我们快速开发我们需要的特性并推出产品， 我们可以很快的看到结果， 举个例子，我们对升级 HPACK 编码压缩很是感兴趣， 但是我们还不知到有多少HTTP/2 客户端已经部署了， 并且HTTP/2 自己也在大幅度的开发中，  Proxygen允许我们自己实现HPACK，在SPDY上面使用，我们把它部署在移动客户端，和我们的服务器上进行模拟， 这个中真实的部署允许我们快速的理解性能和数据处理效率，其他的例子， 内部配置系统正一点一点变的更好，Proxygen 做的最积极的影响是给我们带来了快速迭代我们的HTTP 基础设施的能力</p>
+<h3><strong>开源</strong></h3>
+<p>Proxygen 现在正在快速的迭代中， 如果你对高性能网络代码，和现代C++感兴趣，我们欢迎你提交 pull requests</p>
+<p>我们欢迎并拥抱开源，一直寻求机会分享我们的经验开源我们的软件。目前流量小组已经开源了 <a href="https://code.facebook.com/projects/1410559149202582/fbthrift/">Thrift</a> 和 <a href="https://code.facebook.com/projects/676603015770415/">Proxygen</a>,  两个Facebook重要的基础网络架构组建。我们希望这些组件，能够构建其他的系统，并也希望这些新系统有一天也能开源出来<em><br>
+</em></p>
+
+        
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者： <a href="http://blog.jobbole.com/author/sunbiaobiao/">sunbiaobiao</a>
+	</h3>
+	<div class="alignleft">
+		<a href="http://blog.jobbole.com/author/sunbiaobiao/">
+			<img src="/images/jobbole.com/b08c91623786667ce9053369297def6d.jpg" alt="sunbiaobiao" width="50" height="50" class="photo">		</a>
+	</div>
+	<p>（新浪微博：<a href="http://weibo.com/u/3274148937">@sunbiao将军</a>）</p>
+	<p>
+		<a style="text-decoration: none;" href="http://blog.jobbole.com/author/sunbiaobiao/">查看sunbiaobiao的更多文章 &gt;&gt; </a>
+	</p>
+	<div class="clear"></div>
+	
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}
