@@ -1,0 +1,96 @@
+---
+layout: post
+title: 'CPU也可以有后门？'
+time: 2015-03-03 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/84604/
+images:
+  f4acea291a592aa36b88fdf1d5b3786d: http://ww4.sinaimg.cn/mw690/b254dc71gw1eprqeqhvucj20bo0c8abd.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p><strong>CPU的后门</strong></p>
+<p>人们普遍认为，任何一款软件都可以通过后门被破坏。举几个比较有代表性的例子如：<a href="http://en.wikipedia.org/wiki/Sony_BMG_copy_protection_rootkit_scandal">Sony/BMG的安装程序</a>，有个内置的后门禁止用户复制CD，这个后门也使得恶意的第三方能接管任何安装了该软件的机器；<a href="http://redmine.replicant.us/projects/replicant/wiki/SamsungGalaxyBackdoor">三星Galaxy</a>，它有个后门允许调制解调器访问设备的文件系统，这也就允许了任何<a href="https://www.youtube.com/watch?v=RXqQioV_bpo">一个假基站来访问设备上的文件</a>；以及<a href="http://www.cypherspace.org/adam/hacks/lotus-nsa-key.html">Lotus Notes</a>，它有个后门能使加密失败。</p>
+<p>尽管后门多见于<a href="http://www.cl.cam.ac.uk/~sps32/sec_news.html#Assurance">FPGA</a>和<a href="https://github.com/elvanderb/TCP-32764">网络设备</a>，但每当有人提起CPU上的后门程序是否可能的时候，大部分情况下大家都会断言这是<a href="https://news.ycombinator.com/item?id=6147767">不可能的</a>。我不会断言CPU后门程序是存在的，但我会断言，如果有正确的访问权限，实现就很容易了。</p>
+<p>比方说，你想制造出一个后门。你要怎么做呢？这要分三个环节：一个CPU后门能做什么，要怎样才能访问这个后门，需要什么样的让步才能安装该后门？</p>
+<p>从第一个环节开始，后门能做什么？这就有很多很多的可能。最简单的就是提升权限：使CPU<a href="http://en.wikipedia.org/wiki/Protection_ring">从ring3过渡到ring0或SMM</a>，给正在运行的进程的内核级别的权限。因为它是负责运行的CPU嘛，完全可以无视硬件和软件虚拟化。你可以做很多更微妙或更具侵略性的事情，但权限提升不仅够简单，而且够强大，所以我就不再打算讨论其他的选项。</p>
+<p>现在你知道了你想要借后门做什么，那么究竟应该如何触发后门呢？理想情况下，它应该既不会被人碰巧运行到，也无法通过暴力寻找到。即使有这样的限制，可能的触发状态空间仍旧是巨大的。</p>
+<p>让我们来看一个特定的指令，<code>fyl2x</code>[1]。在正常操作下，它需要两个浮点寄存器作为输入，给您<code>2*80=160</code>位（bits）来隐藏一个触发器。如果你通过一对特定值来触发一个后门，可能相对于随机筛选更安全些。如果你真的很担心后门被人意外发现或暴力破解掉，你也可以检查两个正常输入寄存器以外的值（毕竟，你控制着整个CPU啊）。</p>
+<p>这个触发器简单有效，但不足之处是要触发它很可能需要运行本机代码，但你其实不可能让Chrome或Firefox发出一个<code>fyl2x</code>指令。通过相对容易地令JavaScript引擎发出指令（像<code>fadd</code>），你可以尝试变通地去解决这个问题。与此相对的问题是，如果你想要patch一条add指令，并对它添加一些检查，它就会显著地变慢（尽管如此，如果你可以改写硬件，你应该能够无开销地完成它）。通过patch一个<a href="http://www.csc.depauw.edu/~bhoward/asmtut/asmtut7.html">rep字符串</a>指令，做一些事情来设置恰当的“key”,接在块拷贝(block copy)后面,或者<code>idiv</code>,也有可能可以创造一些难以检测并可以通过JavaScript来触发的后门。或者，如果你已经成功地得到了设计的副本，你也许可以想出一个办法，当任意一些JavaScript运行的时候，来使用调试逻辑触发器[2]或性能计数器去引发一个后门。</p>
+<p>好了，现在你已经有一个后门了。那么你怎么植入该后门呢？在软件方面，你可以编辑源代码或<a href="http://danluu.com/edit-binary/">二进制文件</a>。在硬件方面，如果你有机会到访问到源，你可以在跟在软件中一样容易进行编辑。对硬件重编译源代码，建物理芯片，有着极高的固定成本;如果你试图让你的更改编入源代码，你要么牺牲设计[3]，在一切被发送去生产之前就植入你的所有更改，要么牺牲生产过程，在最后一刻[4]偷偷植入你的更改。</p>
+<p>如果这听起来太难了，你可以尝试牺牲补丁机制。多数现代的CPU配备了一个内置的补丁机制，允许事后的bug修复。你使用的CPU可能早就已经被修补过，也许从第一天开始就是，以作为固件更新的一部分的名目。你CPU补丁机制的细节是严格保密的。这很有可能是CPU上被蚀刻了一个公共密钥，这样它就只能接受已经签署了正确私钥的补丁。</p>
+<p>这就是实际正在发生的事吗？我不知道。它可能发生吗？当然可能。有多大几率呢？唔，主要的挑战是非技术性的，所以我不是那个能给出这个问题答案的人。如果非要我猜的话，我会说不是，如果没有除了<a href="https://github.com/elvanderb/TCP-32764">容易破坏其它设备</a>以外的原因的话。</p>
+<p>我还没有讨论如何制作这样一个后门：即使有人能够访问你用来触发后门的软件，也还是很难发现它。这更难，但是一旦芯片开始使用内置<a href="http://en.wikipedia.org/wiki/Trusted_Platform_Module">TPM</a>的话，它就应该有可能了。</p>
+<p>如果你有兴趣听到更多关于CPU内部的工作原理，你可能会对<a href="http://danluu.com/new-cpu-features/">这篇关于过去35年内CPU的新功能的帖子</a>感兴趣。</p>
+<p><strong>更新</strong></p>
+<p>关于这个话题更多的讨论见<a href="https://twitter.com/danluu/status/562962211782815746">这条twitter主题</a>。那里有一些非常好的评论。我对其中的一部分进行了摘录和总结，不过该帖子的讨论仍在继续。</p>
+<p>因为有太多评论的缘故，我在此不一一指出哪些评论是谁的，尽管如此，以下是评论的作者们：@hackerfantastic, Arrigo Triulzi, David Kanter, @solardiz, @4Dgifts, Alfredo Ortega, Marsh Ray, 以及Russ Cox。当然，要是弄错了的话就怪我咯。</p>
+<p><a href="http://www.realworldtech.com/forum/?threadid=35566&amp;curpostid=35566">AMD的K7和K8对他们的微码(microcode)补丁机制作出了牺牲</a>，因此容许了本帖所提到的这种攻击。事实上，AMD并没有加密它的更新或者至少对它的checksum进行验证，这让你能轻松地更改它的更新，直到你得到一个能达成你目的的CPU。</p>
+<p>下面是由Alfredo Ortega<a href="http://es.slideshare.net/ortegaalfredo/deep-submicronbackdoorsortegasyscan2014slides">出于演示目的而创建的一个后门的例子</a>。</p>
+<p>对于没有硬件背景的亲们，<a href="http://media.ccc.de/browse/congress/2013/30C3_-_5443_-_en_-_saal_g_-_201312281830_-_introduction_to_processor_design_-_byterazor.html#video">这里有个不错的关于如何用VHDL实现一个CPU的谈话，里面还有个章节是关于如何实现后门的</a>。</p>
+<p>是否有可能通过提供恶意的随机结果来利用RDRAND制造后门？是的，有可能。我在本帖的第一稿提到过，但我后来删掉了这个方法。因为在我的印象中，人们不信任RDRAND而且结果中一般混合了其他熵(entropy)来源。这不会彻底使这个后门无效，但却也显著地降低了它的价值。</p>
+<p>有没有可能来存储和释放AES-NI键？要偷偷闪存内容到一个芯片上而不被任何人注意到，这大概不太可行，但是，现代芯片的逻辑分析仪能让你对数据进行存储和转储。尽管如此，对它们的访问是通过一些秘密的机制，目前还不清楚要如何访问二进制文件，才能允许你对它们进行逆向工程。与此形成鲜明对比的是K8逆向工程，它是可能的，因为微码(microcode)补丁被包括在固件更新中。</p>
+<p>要检查触发器的指令前缀是可能的。 x86允许你对指令添加多余（和矛盾）的前缀。使用过的前缀都被很好的定义过，所以你可以根据需要添加尽可能多（不超过前缀长度限制）的前缀，而不会造成任何问题。它的问题是，很难不牺牲该微码(microcode)补丁的性能，对前缀数目和长度的限制则意味着：若不跨指令追踪状态，你的有效密钥长度就会比较短，并且你只能通过本地代码来生成触发器。</p>
+<p>我们都知道，上文所述的一切都基于推测，其实并没有人见过真实世界里被应用的CPU后门。</p>
+<p><strong>致谢</strong></p>
+<p>感谢Leah Hanson大量的评注，Aleksey Shipilev的建议，以及众多参与者在上文所提到的twitter主题贴中的讨论。此外，感谢Markus Siemens注意到在一些RSS阅读器中引发问题的bug，并提供了解决方法。这不是仅仅局限于本帖，但它出现于此。</p>
+<p>[1]关于指令的选择是有点，但不是完全，武断的。你可能需要一个缓慢并且微编码过(microcoded)的指令，便于打一个微码补丁，而不会造成巨大的性能损失。本脚注的其余部分是关于对指令进行微编码(microcoded)到底意味着什么。这部分很长，而且并不是本帖的关键点，所以你可以跳过它。</p>
+<p>指令被微编码过(microcoded)与在硬件实现间差别多少，其实有点随意/难说。 CPU有一个需要实现的指令集，你可以把它想成公共API。但是在内部，他们其实可以执行不同的指令集，你可以把它想成私有API。</p>
+<p>在现代英特尔芯片上，转成四个（或更少）uops（私有API调用）的指令会由解码器直接译成uops。会引发更多uops的指令（从5到数百甚至数千）则由从CPU中小小的ROM或RAM的读取uops的微码引擎来解码。为什么是四而不是五？这个结果是出于权衡，而非基本真理。对此专用的术语尚未规范，但我认识的人会说，如果它的解码是由微码引擎完成的，那么指令是“微编码过的”(“microcoded”)，如果它的解码是由标准解码器来处理的，那么就说它是“硬件实现的”。微码引擎有点像自有的CPU，因为它必须能够完成类似，对架构上不可见的临时寄存器进行读取和写入操作，对内部RAM读写需要超过少量寄存器暂存空间的指令，对微码引擎获取和解码的微码指令进行条件微码分支，如此等等。</p>
+<p>实现细节往往变化无常（并且通常是机密）。但无论如何实现，你可以把微码引擎想象成CPU启动时加载写有微码(microcode)的RAM，之后从该RAM获取及解码出相应微码(microcode)指令的部件。通过打微码补丁来改变开机加载执行的微码就很容易了。</p>
+<p>为了更快的调试周转期，假设英特尔存在这样的机制：使得他们能迫使非微码(non-microcoded)的指令在微码RAM外执行，以使CPU能打微码补丁，是合理甚至可能的。但是，即使这不是这种情况，牺牲微码补丁机制来修改一个微代码指令应该也足够安装一个后门上去了。</p>
+<p>[2] 这里的大部分内容都未曾记载于官方文档，但是你可以得到一个高层次的概述：关于英特尔在他们几代前的芯片上制作什么样的调试触发器，于<a href="http://click.intel.com/the-tick-tock-beat-of-microprocessor-development-at-intel.html">《Intel Technology Journal》第128页，第4卷，第3期</a>。</p>
+<p>[3] 在过去的几年中，一直有关于大型企业是否受到了损害以及这可不可能的争论。在冷战期间，政府在各方面的机构受到了长时间不同程度的损害，尽管它能获得不向现在的任何企业开放的对策（外国公民避免，“强化审讯技术”等）。我不确定，我们是否永远都不会知道企业是否受到了损害，但危及当今的企业比起危及在冷战期间的政府机构来说肯定还是容易多了，并且这显然是可行的。</p>
+<p>[4]这又是一个关于minutia的超长注脚！特别是，它是关于制造过程的。你可能想要跳过它！如果你没有跳过的话，请别怪我没提醒你哦。</p>
+<p>事实证明，在制造完成之前修改芯片是比较容易的，从设计角度来说。要解释为什么的话，我们就得看看芯片是如何制成的。</p>
+<dl class="wp-caption alignnone" id="" style="width: 430px;">
+<dt class="wp-caption-dt"></dt>
+<dd class="wp-caption-dd">英特尔芯片的横截面，22纳米制作工艺</dd>
+</dl>
+<p><img alt="" src="/images/jobbole.com/f4acea291a592aa36b88fdf1d5b3786d.jpg"></p>
+<p>“英特尔芯片的横截面，22纳米制作工艺”</p>
+<p>当你观察一个<a href="http://www.intel.com/content/dam/www/public/us/en/documents/presentation/silicon-technology-leadership-presentation.pdf">芯片横截面</a>的时候，可以看到硅门在底部，形成类似<a href="http://www.nand2tetris.org/">与非门</a>的逻辑原语，在它以上有一系列（标记着M1到M8）的金属层，形成连接不同门的线路。制造过程的卡通模型类似于<a href="http://en.wikipedia.org/wiki/Lithography">传统的石版印刷</a>：芯片由底部向上，一次一层，每层通过沉积一些材料，然后使用掩模蚀刻出来。非卡通的版本则相当复杂的：<a href="https://www.youtube.com/watch?v=NGFhc8R_uO4">据Todd Fernendez估计，大约需要500个步骤来制造出“M1”下面的芯片层</a>。除此之外，所需精密程度之高使得用于蚀刻的光在设备上造成了太大的磨损。你通常可能不会认为透镜会因为被光线穿过而磨损，但在制作一个晶体管所需的数百个步骤要求的精度水平下，这就是一个严重的问题了。放心吧，你并不是唯一那个会对此觉得惊讶的人。上世纪90年代的<a href="http://www.itrs.net/">ITRS路线图</a>预测出，到2016年，我们在9纳米工艺（越小越好）上会达到接近30GHz（越高越好），芯片消耗将近300瓦。相反，现在5GHz就被认为相当快了，直至2016年初，任何非英特尔的厂商能在14纳米制作工艺上获得高产出都算是好运气了。制造芯片比任何人猜测的都更难。</p>
+<p>一个现代芯片要有足够的芯片层，它从制作开始到结束需要三个月左右的时间。这使bug的出现成为了非常糟糕的状况，因为要修复一个bug，就需要对最底下一个需要三个月来制造芯片层做改动。为了减少bug修复所用的周转时间，典型的做法是在硅片各处散布未使用的逻辑门，那么修复小的bug只需要修改几个接近顶部的芯片层就可以了。由于芯片制作是流水线工艺，在任何时间点，都有几批部分完成的芯片。如果你只需要修改顶部金属层中的一个，那么你可以改动这些半成品，使周转时间从几个月缩短到几周。</p>
+<p>由于芯片设计要求易于修改，如果有人能够在它被制造之前访问到芯片的设计（如制造商），那么他就可以使用相对较小的改动引发较大的变化。</p>
+
+        
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者： <a href="http://blog.jobbole.com/author/boisde/">boisde</a>
+	</h3>
+	<div class="alignleft">
+		<a href="http://blog.jobbole.com/author/boisde/">
+					</a>
+	</div>
+	<p></p>
+	<p>
+		<a style="text-decoration: none;" href="http://blog.jobbole.com/author/boisde/">查看boisde的更多文章 &gt;&gt; </a>
+	</p>
+	<div class="clear"></div>
+	
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}

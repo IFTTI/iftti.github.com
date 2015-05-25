@@ -1,0 +1,74 @@
+---
+layout: post
+title: 'MeetBSD CA: Performance Analysis of BSD'
+time: 2015-03-06 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2015-03-06/performance-analysis-bsd.html
+images:
+  7ae9f0ff258a895fd53d78382812c8a2: /Perf/freebsd_observability_tools.png
+  bae1fc11b197dde995700655836fa74c: /Perf/freebsd_pmc_groups.png
+---
+{% raw %}
+
+<p>System performance analysis is an enormous topic, and it's a challenge to know what can be analyzed and how. At the last <a href="https://www.meetbsd.com/">MeetBSD CA</a>, I gave a talk titled "Performance Analysis" where I discussed five key facets of this topic: observability tools, methodologies, benchmarking, profiling, and tracing. I'd recommend this talk for anyone working in the BSD family of operating systems.</p>
+
+<p>For the talk I created an observability tools diagram for FreeBSD:</p>
+
+<p></p>
+<center><a href="/Perf/freebsd_observability_tools.png"><img src="/images/brendangregg.com/7ae9f0ff258a895fd53d78382812c8a2.jpg" width="500" height="350"></a></center>
+
+<p>I have this, and my <a href="http://www.brendangregg.com/linuxperf.html">Linux</a> ones, printed out and hung up around my desk. It helps jog the memory, especially when I'm switching between operating systems.</p>
+
+<p>The slides for my talk are on <a href="http://www.slideshare.net/brendangregg/meetbsd2014-performance-analysis">slideshare</a>:</p>
+
+<p></p>
+<center><iframe src="http://www.slideshare.net/slideshow/embed_code/41022427" width="425" height="355" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" style="border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;" allowfullscreen> </iframe></center>
+
+<p>The talk was also videoed (thanks, iXsystems), which is on <a href="https://www.youtube.com/watch?v=uvKMptfXtdo">youtube</a>:</p>
+
+<p></p>
+<center><iframe width="560" height="315" src="https://www.youtube.com/embed/uvKMptfXtdo" frameborder="0" allowfullscreen></iframe></center>
+
+<p>Apart from the slide content, my talk included additional discussion and live demos of profiling the Netflix Open Connect Appliances (OCAs), which stream our content. I even did some cscope browsing of kernel source, to understand tracing targets.</p>
+
+<p>FreeBSD has the most advanced performance analysis toolset, which includes pmcstat(8) for CPU performance monitoring counter (PMC) analysis, and DTrace for static and dynamic tracing. On Linux I can get the same jobs done, but it sometimes feels like I can't get out of second gear. On FreeBSD, I can fly.</p>
+
+<p>For pmcstat(8), I came up with a neat diagram for the PMC groups:</p>
+
+<p></p>
+<center><a href="/Perf/freebsd_pmc_groups.png"><img src="/images/brendangregg.com/bae1fc11b197dde995700655836fa74c.jpg" width="500" height="350"></a></center>
+
+<p>I'm pretty happy with how this turned out. I do want to improve it next time I use it, and try to highlight frontend vs backend stall cycles, since that can be a useful approach for CPU analysis.</p>
+
+<p>This is also an example of how more developed performance analysis is on FreeBSD: I tried to create this diagram for Linux perf_events for my SCALE 13x talk, but it was lacking so many PMC groups that I didn't use it. Linux can get the job done, but more often you'll need to use the raw PMC counter specifications from the Intel manual. Stuck in second gear again.</p>
+
+<p>Just before the talk I published a collection of DTrace scripts (<a href="https://github.com/brendangregg/DTrace-tools">DTrace-tools</a>) which I wrote for the Netflix OCAs, and are installed by default. I'll find a better home for these (FreeBSD wiki or source).</p>
+
+<p>In the talk I said I should have written a script beforehand for measuring storage I/O size, without using the DTrace io provider, as there is a bug in its translator (involving struct types). Here's one way, by instrumenting GEOM using dynamic tracing:</p>
+
+<pre>
+# <b>dtrace -n 'fbt::g_disk_start:entry { @ = quantize(args[0]-&gt;bio_length); }'</b>
+dtrace: description 'fbt::g_disk_start:entry ' matched 1 probe
+^C
+
+           value  ------------- Distribution ------------- count    
+            2048 |                                         0        
+            4096 |@@                                       196      
+            8192 |@                                        147      
+           16384 |                                         4        
+           32768 |                                         1        
+           65536 |                                         32       
+          131072 |                                         0        
+          262144 |                                         0        
+          524288 |                                         0        
+         1048576 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@    4799     
+         2097152 |                                         0  
+</pre>
+
+<p>This histogram shows that most of the I/O fell into the 1-2 Mbyte bucket, which explains the 1 millisecond minimum latency from my demo. These Netflix OCAs are tuned for streaming workloads.</p>
+
+<p>I enjoyed meeting others in the BSD community at MeetBSD CA, and watching the talks. I was a little surprised at how welcoming, happy, and <em>relaxed</em> the BSD community is. I've been to Linux events recently (SCALE is an exception) where the mood felt a bit tense: hallway conversations were about Linus's attitude, and whether that's ok, and how much people hate or love systemd. Things are currently much more relaxed in BSD land!</p>
+
+<p>I hope you like my talk. Check out the <a href="https://www.youtube.com/playlist?list=PLb87fdKUIo8TijlK7TuBeRMgylGaN9Ec9">playlist</a> for other MeetBSD CA talks. The day after this talk, I gave another on FreeBSD flame graphs, which I'll describe in a follow up post.</p>
+
+{% endraw %}

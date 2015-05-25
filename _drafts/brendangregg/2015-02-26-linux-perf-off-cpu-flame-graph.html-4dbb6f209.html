@@ -1,0 +1,46 @@
+---
+layout: post
+title: 'Linux perf_events Off-CPU Time Flame Graph'
+time: 2015-02-26 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2015-02-26/linux-perf-off-cpu-flame-graph.html
+images:
+  961499d81ca73f9a4e69cde989e77084: /blog/images/2015/offcpu-perf.svg
+---
+{% raw %}
+
+<p>I've been asked how to do these several times, so here's a quick blog post.</p>
+
+<p><a href="http://www.brendangregg.com/FlameGraphs/cpuflamegraphs.html">CPU Flame Graphs</a> are great for understanding CPU usage, but what about performance issues of latency, when programs are blocked and not running on-CPU? There's a generic methodology to attack these, which I've called <a href="http://www.brendangregg.com/offcpuanalysis.html">Off-CPU Analysis</a>. This involves instrumenting call stacks and timestamps when the scheduler blocks a thread, and when it later wakes it up. There are even <a href="http://www.brendangregg.com/FlameGraphs/offcpuflamegraphs.html">Off-CPU Time Flame Graphs</a> to visualize this blocked time, which are the counterpart to on-CPU flame graphs.</p>
+
+<p>Off-CPU time flame graphs may solve (say) 60% of the issues, with the remainder requiring walking the thread wakeups to find root cause. I explained off-CPU time flame graphs, this wakeup issue, and additional work, in my LISA13 talk on flame graphs (<a href="http://www.slideshare.net/brendangregg/blazing-performance-with-flame-graphs/122">slides</a>, <a href="http://youtu.be/nZfNehCzGdw?t=1h11m52s">youtube</a>).</p>
+
+<p>Here I'll show one way to do off-CPU time flame graphs using Linux perf_events. Example (click to zoom):</p>
+
+<p><object data="/images/brendangregg.com/961499d81ca73f9a4e69cde989e77084.svg" type="image/svg+xml" width="720" height="261">
+<img src="/images/brendangregg.com/961499d81ca73f9a4e69cde989e77084.jpg" width="720" height="261">
+</object></p>
+
+<p>Unlike the CPU flame graph, in this graph the width spans the total duration that a code path was sleeping. A "sleep 1" command was caught, shown on the far right as having slept for 1,000 ms.</p>
+
+<p>I was discussing how to do these with Nicolas on <a href="https://github.com/brendangregg/FlameGraph/issues/47#issuecomment-76298637">github</a>, as he had found that perf_events could almost do this using the <tt>perf inject -s</tt> feature, when I noticed perf_events has added "-f period" to perf script (added in about 3.17). That simplifies things a bit, so the steps can be:</p>
+
+<pre>
+# <b>perf record -e sched:sched_stat_sleep -e sched:sched_switch \
+    -e sched:sched_process_exit -a -g -o perf.data.raw sleep 1</b>
+# <b>perf inject -v -s -i perf.data.raw -o perf.data</b>
+# <b>perf script -f comm,pid,tid,cpu,time,period,event,ip,sym,dso,trace | awk '
+    NF &gt; 4 { exec = $1; period_ms = int($5 / 1000000) }
+    NF &gt; 1 &amp;&amp; NF &lt;= 4 &amp;&amp; period_ms &gt; 0 { print $2 }
+    NF &lt; 2 &amp;&amp; period_ms &gt; 0 { printf "%s\n%d\n\n", exec, period_ms }' | \
+    ./stackcollapse.pl | \
+    ./flamegraph.pl --countname=ms --title="Off-CPU Time Flame Graph" --colors=io &gt; offcpu.svg</b>
+</pre>
+
+<p>The awk I'm using merely turns the perf script output into something stackcollapse.pl understands. This whole perf inject workflow strikes me as a bit weird, and this step could be skipped by doing your own processing of the perf script output (more awk!), to stitch together events. I'd do this if I were on older kernels, that lacked the perf script -f period.</p>
+
+<p>Warning: scheduler events can be very frequent, and the overhead of dumping them to the file system (perf.data) may be prohibitive in production environments. Test carefully. This is also why I put a "sleep 1" in the perf record (the dummy command that sets the duration), to start with a small amount of trace data. If I had to do this in production, I'd consider other tools that could summarize data in-kernel to reduce overhead, including perf_events once it supports more in-kernel programming (eBPF).</p>
+
+<p>There may be some scenarios where the current perf_events overhead is acceptable, especially if you match on a single PID of interest (in perf record, using "-p PID" instead of "-a").</p>
+
+{% endraw %}

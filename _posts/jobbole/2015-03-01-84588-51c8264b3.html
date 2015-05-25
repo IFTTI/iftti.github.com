@@ -1,0 +1,202 @@
+---
+layout: post
+title: 'C#中的Lambda表达式和表达式树'
+time: 2015-03-01 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/84588/
+images:
+  ec4049b9b014778e59b88cd636288f4d: http://images.cnitblog.com/blog/593627/201502/272211187839211.png
+  a101203cb01eaeb17d0ebabd2c3bdd2b: http://images.cnitblog.com/blog/593627/201502/272211206585138.png
+  06be3d89ce5525fb3c4d6e7db91ab527: http://images.cnitblog.com/blog/593627/201502/272211217529938.png
+  e40419ef1088db2e2683dd8ee851525e: http://images.cnitblog.com/blog/593627/201502/272211227999751.png
+  1dcb0ca67ec321239d5aa7a3cc4ed362: http://images.cnitblog.com/blog/593627/201502/272211242684737.png
+  23675a9db5b18dafb5dc77fcd5b66b8c: http://images.cnitblog.com/blog/593627/201502/272211254397279.png
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p>在C# 2.0中，通过方法组转换和匿名方法，使委托的实现得到了极大的简化。但是，匿名方法仍然有些臃肿，而且当代码中充满了匿名方法的时候，可读性可能就会受到影响。C# 3.0中出现的Lambda表达式在不牺牲可读性的前提下，进一步简化了委托。</p>
+<p>LINQ的基本功能就是创建操作管道，以及这些操作需要的任何状态。这些操作表示了各种关于数据的逻辑，例如数据筛选，数据排序等等。通常这些操作都是用委托来表示。Lambda表达式是对LINQ数据操作的一种符合语言习惯的表示方式。</p>
+<p><strong>Lambda表达式不仅可以用来创建委托实例，C#编译器也能够将他们转换成表达式树。 </strong></p>
+<p>下面我们就先看看Lambda表达式。</p>
+<h2>作为委托的Lambda表达式</h2>
+<p>Lambda表达式可以看作是C# 2.0的匿名方法的进一步演变，所以匿名方法能做的几乎一切事情都可以用Lambda表达式来完成（注意，匿名方法可以忽略参数，Lambda表达式不具备这个特性）。</p>
+<p>跟匿名方法类似，Lambda表达式有特殊的转换规则：表达式的类型本身并非委托类型，但它可以通过隐式或显式的发那个是转换为一个委托实例。匿名函数这个术语同时涵盖了匿名方法和Lambda表达式。</p>
+<p>下面看看使用Lambda表达式获得字符串长度的例子，通过Lambda将得到更见简洁、易读的代码：</p>
+<pre class="brush: csharp; gutter: true">static void Main(string[] args)
+{
+    //使用C# 2.0中的匿名方法获取字符串长度
+    Func&lt;string, int&gt; strLength = delegate(string str) { return str.Length; };
+    Console.WriteLine(strLength("Hello World!"));
+
+    //使用Lambda表达式
+    //（显式类型参数列表）=&gt; {语句}，lambda表达式最冗长版本
+    strLength = (string str) =&gt; { return str.Length; };
+    Console.WriteLine(strLength("Hello World!"));
+
+    //单一表达式作为主体
+    //（显式类型参数列表）=&gt; 表达式
+    strLength = (string str) =&gt; str.Length;
+    Console.WriteLine(strLength("Hello World!"));
+
+    //隐式类型的参数列表
+    //（隐式类型参数列表）=&gt; 表达式
+    strLength = (str) =&gt; str.Length;
+    Console.WriteLine(strLength("Hello World!"));
+
+    //单一参数的快捷语法
+    //参数名 =&gt; 表达式
+    strLength = str =&gt; str.Length;
+    Console.WriteLine(strLength("Hello World!"));
+}</pre>
+<p>“=&gt;”是C# 3.0新增的，告诉编译器我们正在使用Lambda表达式。”=&gt;”可以读作”goes to”，所以例子中的Lambda表达式可以读作”str goes to str.Length”。从例子中还可以看到，根据Lambda使用的特殊情况，我们可以进一步简化Lambda表达式。</p>
+<p>Lambda表达式大多数时候都是和一个返回非void的委托类型配合使用（例如Func&lt;TResult&gt;）。在C# 1.0中，委托一般用于事件，很少会返回什么结果。在LINQ中，委托通常被视为数据管道的一部分，接受输入并返回结果，或者判断某项是否符合当前的筛选 器等等。</p>
+<h3>Lambda表达式本质</h3>
+<p>通过ILSpy查看上面的例子，可以发现Lambda表达式就是匿名方法，是编译器帮我们进行了转换工作，使我们可以直接使用Lambda表达式来进一步简化创建委托实例的代码。</p>
+<p><img alt="" src="/images/jobbole.com/ec4049b9b014778e59b88cd636288f4d.jpg"></p>
+<h3>在List&lt;T&gt;中使用Lambda表达式</h3>
+<p>前面简单的介绍了什么是Lambda表达式，下面通过一个例子进一步了解Lambda表达式。</p>
+<p>在前面的文章中，我们也提到了一下List&lt;T&gt;的方法，例如FindAll方法，参数是Predicate&lt;T&gt;类型的 委托，返回结果是一个筛选后的新列表；Foreach方法获取一个Action&lt;T&gt;类型的委托，然后对每个元素设置行为。下面就看看在 List&lt;T&gt;中使用Lambda表达式：</p>
+<pre class="brush: csharp; gutter: true">public class Book
+{
+    public string Name { get; set; }
+    public int Year { get; set; }
+}
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var books = new List&lt;Book&gt;
+        {
+            new Book{Name="C# learning guide",Year=2005},
+            new Book{Name="C# step by step",Year=2005},
+            new Book{Name="Java learning guide",Year=2004},
+            new Book{Name="Java step by step",Year=2004},
+            new Book{Name="Python learning guide",Year=2003},
+            new Book{Name="C# in depth",Year=2012},
+            new Book{Name="Java in depth",Year=2014},
+            new Book{Name="Python in depth",Year=2013},
+        };
+
+        //创建一个委托实例来表示一个通用的操作
+        Action&lt;Book&gt; printer = book =&gt; Console.WriteLine("Name = {0}, Year = {1}", book.Name, book.Year);
+
+        books.ForEach(printer);
+
+        //使用Lambda表达式对List&lt;T&gt;进行筛选
+        books.FindAll(book =&gt; book.Year &gt; 2010).ForEach(printer);
+
+        books.FindAll(book =&gt; book.Name.Contains("C#")).ForEach(printer);
+
+        //使用Lambda表达式对List&lt;T&gt;进行排序
+        books.Sort((book1, book2) =&gt; book1.Name.CompareTo(book2.Name));
+        books.ForEach(printer);
+
+        Console.Read();
+    }
+}</pre>
+<p>从上面例子可以看到，当我们要经常使用一个操作的时候，我们最好创建一个委托实例，然后反复调用，而不是每次使用的时候都使用Lambda表达式（例如例子中的printer委托实例）。</p>
+<p>相比C# 1.0中的委托或者C# 2.0的匿名函数，结合Lambda表达式，对List&lt;T&gt;中的数据操作变得简单，易读。</p>
+<h2>表达式树</h2>
+<p><strong>表达式树也称表达式目录树，将代码以一种抽象的方式表示成一个对象树，树中每个节点本身都是一个表达式。表达式树不是可执行代码，它是一种数据结构。 </strong></p>
+<p>下面我们看看怎么通过C#代码建立一个表达式树。</p>
+<h3>构建表达式树</h3>
+<p>System.Linq.Expressions命名空间中包含了代表表达式的各个类，所有类都从Expression派生，我们可以通过这些类中的静态方法来创建表达式类的实例。Expression类包括两个重要属性：</p>
+<ul>
+<li>Type属性代表求值表达式的.NET类型，可以把它视为一个返回类型</li>
+<li>NodeType属性返回所代表的表达式的类型</li>
+</ul>
+<p>下面看一个构建表达式树的简单例子：</p>
+<pre class="brush: csharp; gutter: true">Expression numA = Expression.Constant(6);
+Console.WriteLine("NodeType: {0}, Type: {1}", numA.NodeType, numA.Type);
+Expression numB = Expression.Constant(3);
+Console.WriteLine("NodeType: {0}, Type: {1}", numB.NodeType, numB.Type);
+
+BinaryExpression add = Expression.Add(numA, numB);
+Console.WriteLine("NodeType: {0}, Type: {1}", add.NodeType, add.Type);
+
+Console.WriteLine(add);
+Console.Read();</pre>
+<p>代码的输出为：</p>
+<p><img alt="" src="/images/jobbole.com/a101203cb01eaeb17d0ebabd2c3bdd2b.jpg"></p>
+<p>通过例子可以看到，我们构建了一个(6+3)的表达式树，并且查看了各个节点的Type和NodeType属性。</p>
+<p>Expression有很多派生类，有很多节点类型。例如，BinaryExpression就代表了具有两个操作树的任意操作。这正是NodeType属性重要的地方，它能区分由相同的类表示的不同种类的表达式。其他的节点类型就不介绍了，有兴趣可以参考MSDN。</p>
+<p>对于上面的例子，可以用下图描述生成的表达式树，值得注意的是，”叶子”表达式在代码中是最先创建的，，表达式是自下而上构建的。表达式是不易变的，所有可以缓存和重用表达式。</p>
+<p><img alt="" src="/images/jobbole.com/06be3d89ce5525fb3c4d6e7db91ab527.jpg"></p>
+<h3>将表达式编译成委托</h3>
+<p>LambdaExpression是从Expression派生的类型之一。泛型类型Expression&lt;TDelegate&gt;又是从LambdaExpress派生的。</p>
+<p><img alt="" src="/images/jobbole.com/e40419ef1088db2e2683dd8ee851525e.jpg"></p>
+<p>Expression和Expression&lt;TDelegate&gt;的区别在于，<strong>泛型类以静态类型的方式标志了它是什么种类的表达式，也就是说，它确定了返回类型和参数</strong>。例如上面的加法例子，返回值是一个int类型，没有参数，所以我们可以使用签名Func&lt;int&gt;与之匹配，<strong>所以可以用Expression&lt;Func&lt;int&gt;&gt;以静态类型的方式来表示该表达式</strong>。</p>
+<p>这样做的目的在于，LambdaExpression有一个Compile方法，该方法能创建一个恰当类型的委托。 Expression&lt;TDelegate&gt;也有一个同名方法，该方法可以返回TDelegate类型的委托。获得了委托之后，我们就可以使 用普通委托实例调用的方式来执行这个表达式。</p>
+<p>接着上面加法的例子，我们把上面的加法表达式树转换成委托，然后执行委托：</p>
+<pre class="brush: csharp; gutter: true">Func&lt;int&gt; addDelegate = Expression.Lambda&lt;Func&lt;int&gt;&gt;(add).Compile();
+Console.WriteLine(addDelegate());</pre>
+<p>从这个例子中我们看到怎么构建一个表达式树，然后把这个对象树编译成真正的代码。在.NET 3.5中的表达式树只能是单一的表达式，不能表示完整的类、方法。这在.NET 4.0中得到了一定的改进，表达式树可以支持动态类型，我们可以创建块，为表达式赋值等等。</p>
+<h3>将Lambda表达式转换为表达式树</h3>
+<p>Lambda表达式不仅可以创建委托实例，C# 3.0对于将Lambda表达式转换成表达式树提供了内建的支持。我们可以通过编译器把Lambda表达式转换成一个表达式树，并创建一个Expression&lt;TDelegate&gt;的一个实例。</p>
+<p>下面的例子中我们将一个Lambda表达式转换成一个表达式树，并通过代码查看表达式树的各个部分：</p>
+<pre class="brush: csharp; gutter: true">static void Main(string[] args)
+{
+    //将Lambda表达式转换为类型Expression&lt;T&gt;的表达式树
+    //expression不是可执行代码
+    Expression&lt;Func&lt;int, int, int&gt;&gt; expression = (a, b) =&gt; a + b;
+
+    Console.WriteLine(expression);
+    //获取Lambda表达式的主体
+    BinaryExpression body = (BinaryExpression)expression.Body;
+    Console.WriteLine(expression.Body);
+    //获取Lambda表达式的参数
+    Console.WriteLine(" param1: {0}, param2: {1}", expression.Parameters[0], expression.Parameters[1]);
+    ParameterExpression left = (ParameterExpression)body.Left;
+    ParameterExpression right = (ParameterExpression)body.Right;
+    Console.WriteLine(" left body of expression: {0}{4} NodeType: {1}{4} right body of expression: {2}{4} Type: {3}{4}", left.Name, body.NodeType, right.Name, body.Type, Environment.NewLine);
+
+    //将表达式树转换成委托并执行
+    Func&lt;int, int, int&gt; addDelegate = expression.Compile();
+    Console.WriteLine(addDelegate(10, 16));
+    Console.Read();
+}</pre>
+<p>代码的输出为：</p>
+<p><img alt="" src="/images/jobbole.com/1dcb0ca67ec321239d5aa7a3cc4ed362.jpg"></p>
+<h3>表达式树的用途</h3>
+<p>前面看到，通过Expression的派生类中的各种节点类型，我们可以构建表达式树；然后可以把表达式树转换成相应的委托类型实例，最后执行委托实例的代码。但是，我们不会绕这么大的弯子来执行委托实例的代码。</p>
+<p>表达式树主要在LINQ to SQL中使用，我们需要将LINQ to SQL查询表达式（返回IQueryable类型）转换成表达式树。之所以需要转换是因为LINQ to SQL查询表达式不是在C#代码中执行的，LINQ to SQL查询表达式被转换成SQL，通过网络发送，最后在数据库服务器上执行。</p>
+<p>这里只做个简单的介绍，后续会介绍LINQ to SQL相关的内容。</p>
+<h2>编译器对Lambda表达式的处理</h2>
+<p>前面我们了解到，Lambda可以用来创建委托实例，也可以用来生成表达式树，这些都是编译器帮我们完成的。</p>
+<p>编译器如何决定生成可执行的IL还是一个表达式树：</p>
+<ul>
+<li>当Lambda表达式赋予一个委托类型的变量时，编译器生成与匿名方法同样的IL（可执行的委托实例）</li>
+<li>当Lambda表达式赋予一个Expression类型的变量时，编译器就将它转换成一个表达式树</li>
+</ul>
+<p>下图展示了LINQ to Object和LINQ to SQL中Lambda表达式的不同处理方式：</p>
+<p><img alt="" src="/images/jobbole.com/23675a9db5b18dafb5dc77fcd5b66b8c.jpg"></p>
+<h2>总结</h2>
+<p>本文中介绍了Lambda表达式，在匿名方法的基础上进一步简化了委托实例的创建，编写更加简洁、易读的代码。匿名函数不等于匿名方法，匿名函数包含了匿名方法和lambda表达式这两种概念</p>
+
+
+        
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

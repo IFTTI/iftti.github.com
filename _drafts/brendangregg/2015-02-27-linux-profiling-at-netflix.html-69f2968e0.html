@@ -1,0 +1,77 @@
+---
+layout: post
+title: 'SCALE13x: Linux Profiling at Netflix'
+time: 2015-02-27 00:00:00 +0800
+site_name: brendangregg.com
+source_url: http://www.brendangregg.com/blog/2015-02-27/linux-profiling-at-netflix.html
+images:
+  2a488510216cbe0b943b038582454f80: /perf_events/perf_events_map.png
+  46dce0f27057e53a044fb204f1036cdf: /FlameGraphs/cpu-mixedmode-vertx.svg
+---
+{% raw %}
+
+<p>At the Southern California Linux Expo (<a href="http://www.socallinuxexpo.org/scale/13x">SCALE 13x</a>) last weekend, I gave a talk on Linux Profiling at Netflix using perf_events (aka "perf"). I covered:</p>
+
+<ul>
+<li>How to get CPU profiling to work, including tricky targets like Java and Node.js.</li>
+<li>A tour of perf_events capabilities.</li>
+</ul>
+
+<p>Quick and complete CPU profiling is something everyone should be able to do. It turns out to be tricky, however, due to various gotchas I covered in the talk, including fixing stacks and symbols. </p>
+
+<p>I also included a new map to show the events perf can instrument:</p>
+
+<p></p>
+<center><img src="/images/brendangregg.com/2a488510216cbe0b943b038582454f80.jpg" width="500"></center>
+
+<p>The room for my talk was full, and some people couldn't get in. Fortunately it was recorded, by two cameras: the room <a href="https://www.youtube.com/watch?v=5iQmm8J6sxU">livestream</a> and one in the <a href="https://www.youtube.com/watch?v=_Ik8oiQvWgo">front row</a>:</p>
+
+<p></p>
+<center><iframe width="560" height="315" src="https://www.youtube.com/embed/_Ik8oiQvWgo" frameborder="0" allowfullscreen></iframe></center>
+
+<p>The slides for the talk are also on <a href="http://www.slideshare.net/brendangregg/scale2015-linux-perfprofiling">slideshare</a>:</p>
+
+<p></p>
+<center><iframe src="http://www.slideshare.net/slideshow/embed_code/44966387" width="425" height="355" frameborder="0" marginwidth="0" marginheight="0" scrolling="no" style="border:1px solid #CCC; border-width:1px; margin-bottom:5px; max-width: 100%;" allowfullscreen> </iframe></center>
+
+<p>There is material in this talk that I've shared for the first time: covering how to really get CPU profiling to work for Java. This is of particular importance at Netflix, since most of our application environment is Java.</p>
+
+<p>Linux perf_events is an excellent profiler, since it works asynchronously (no JVM safety point sampling issues), and it can inspect the full stack: JVM internals, system libraries, Java code, and the kernel. No matter where a CPU issue is, perf_events can find it.</p>
+
+<p>My highlight of the talk was a mixed-mode CPU flame graph of Java (slide 8), which I've included below as an embedded <a href="http://www.brendangregg.com/FlameGraphs/cpu-mixedmode-vertx.svg">SVG</a>:</p>
+
+<p><object data="/images/brendangregg.com/46dce0f27057e53a044fb204f1036cdf.svg" type="image/svg+xml" width="720" height="730">
+<img src="/images/brendangregg.com/46dce0f27057e53a044fb204f1036cdf.jpg" width="720">
+</object></p>
+
+<p>Click to zoom. Showing all CPU usage with Java context is amazing and useful. As I mentioned in the talk, we recently found an issue using these flame graphs where CPU time was mostly spent in the JVM compiler. This issue was invisible to other Java profilers, which only focus on the execution of Java code.</p>
+
+<p>As I covered in the talk, getting these full Java stack profiles to work is tricky, and currently involves patching OpenJDK to fix the frame pointer. My patch has been filed as <a href="https://bugs.openjdk.java.net/browse/JDK-8068945">JDK-8068945</a>, although I hope this becomes an option in both OpenJDK and OracleJDK (eg, -XX:MoreFramePointer). I also started a <a href="http://mail.openjdk.java.net/pipermail/hotspot-compiler-dev/2014-December/016477.html">thread</a> about this on the hotspot compiler dev mailing list.</p>
+
+<p>If you're not interested in Java profiling, I'd still recommend watching this talk. Java makes for an interesting use case for getting system profiling to work, and the same issues may be encountered in other runtimes.</p>
+
+<p>In the talk I included a crash course for perf_events, and many one-liners to tour its capabilities. These included one-liners for counting events, profiling, static tracing, and dynamic tracing. Some examples:</p>
+
+<pre>
+# Sample CPU stack traces for the specified PID, at 99 Hertz, for 10 seconds:
+<b>perf record -F 99 -p PID -g -- sleep 10</b>
+
+# Sample CPU stack traces for the entire system, at 99 Hertz, for 10 seconds:
+<b>perf record -F 99 -ag -- sleep 10</b>
+
+# Sample CPU stack traces, once every 10,000 Level 1 data cache misses, for 5 s:
+<b>perf record -e L1-dcache-load-misses -c 10000 -ag -- sleep 5</b>
+
+# Sample CPU stack traces, once every 100 last level cache misses, for 5 seconds:
+<b>perf record -e LLC-load-misses -c 100 -ag -- sleep 5 </b>
+
+# Sample on-CPU kernel instructions, for 5 seconds:
+<b>perf record -e cycles:k -a -- sleep 5 </b>
+...
+</pre>
+
+<p>For more about perf, see my <a href="http://www.brendangregg.com/perf.html">perf_events page</a> which has full lists of these one-liners, the <a href="https://perf.wiki.kernel.org/index.php/Main_Page">perf wiki</a>, and the documentation in the Linux source under tools/perf/Documentation.</p>
+
+<p>SCALE, as always, is a really good conference, and I had a great time meeting people and listing to what others are working on. My thanks to the volunteers who run SCALE, as well as <a href="http://www.beginningwithi.com/">Deirdré Straughan</a> for editing the video, and <a href="https://twitter.com/hkarmark">Harsh Karmarkar</a> from Apcera for running the camera.</p>
+
+{% endraw %}

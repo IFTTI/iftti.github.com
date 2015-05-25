@@ -1,0 +1,119 @@
+---
+layout: post
+title: '那些年我们一起追过的缓存写法(二)'
+time: 2015-03-04 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/84633/
+images:
+  49af2626975746a5675b0fa160186e9a: http://ww1.sinaimg.cn/mw690/6941baebgw1epthly2yw9j20gl096ab7.jpg
+  2ba6d6b33dc450d05ac59c21bd07d50c: http://ww2.sinaimg.cn/mw690/6941baebgw1epthlxpt9nj20bw0dnq3j.jpg
+  8ab7c2cde871eb45c7fd97aee7a5b5f8: http://ww4.sinaimg.cn/mw690/6941baebgw1epthlxcgsbj20dl02tq31.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p><a href="http://blog.jobbole.com/83439/" target="_blank">上次</a>主要讨论缓存读写这块各种代码实现。本篇是就上次的问题接着来，继续看那些年我们各种缓存用法。</p>
+<h1>一：缓存预热</h1>
+<p>上次有同学问过。在第一次加载时，我们的缓存都为空，怎么进行预热。</p>
+<h3>单机Web情况下，一般我们使用RunTimeCache。相对于这种情况下：</h3>
+<p>1：我们可以在启动事件里面刷新</p>
+<div>
+<pre class="brush: java; gutter: true">void Application_Start(object sender, EventArgs e)
+{
+       //刷新
+}</pre>
+</div>
+<p>2：单写个刷新缓存页面，上线后手动刷新下、或发布时自动调用刷新、或干脆由用户自行触发。</p>
+<h3>分布式缓存(Redis、memcached)情况下：</h3>
+<p>比如：在几十台服务器缓存时，单刷满缓存都需要不少一段时间。</p>
+<p>这种预热就复杂一些，有的会单写个应用程序去跑，也有的会单写套框架机制去处理(更智能化)。</p>
+<p>目的都是在上线之前：所有的缓存都预先加载完毕。</p>
+<h1>
+<a name="m3"></a>二：多级缓存</h1>
+<h3>
+<a name="m3.1"></a>2.1 介绍</h3>
+<p>我们晓得在CPU和内存之间一般都配有一级缓存、二级缓存来增加交换速度。</p>
+<p>这样当CPU调用大量数据时，就可避开内存直接从CPU缓存中调用，加快读取速度。</p>
+<p>根据CPU缓存得出多级缓存的特点：</p>
+<p>1：每一级缓存中储存的是下一级缓存的一部分。</p>
+<p>2：读取速度按级别依次递减，成本也依次递减，容量依次递增。</p>
+<p>3：当前级别未命中时，才会去下一级寻找。</p>
+<p>而在企业应用级开发中，使用多级缓存是同样的目的及设计，只是粒度更粗，更灵活。</p>
+<p>根据速度依次排列lv1-lv6的缓存类型图：</p>
+<p><img alt="" src="/images/jobbole.com/49af2626975746a5675b0fa160186e9a.jpg"></p>
+<p>3级缓存的命中流程图例子：</p>
+<p><img alt="" src="/images/jobbole.com/2ba6d6b33dc450d05ac59c21bd07d50c.jpg"></p>
+<h3>
+<a name="m3.2"></a>2.2 线程缓存</h3>
+<p>Web应用是天生的多线程开发。对于一些公共资源我们必须考虑线程安全，为止我们不得不通过锁来保证数据的完整性和正确性。</p>
+<p>在实际当中，一台web服务器至少也得处理成百上千的请求。想一想，在业务复杂的处理流程，函数每调用一次我们都得锁一下。</p>
+<p>对服务器也是个不小的浪费。而通过线程缓存，可以让当前处理用户请求的线程只拿自己需要的。</p>
+<div>
+<pre class="brush: java; gutter: true">public static ThreadLocal&lt;UserScore&gt; localUserInfo = new ThreadLocal&lt;UserScore&gt;();</pre>
+</div>
+<p>借助Net提供的线程本地变量，我们可以在请求入口去拉取当前用户的数据。</p>
+<p>在之后线程整个生命周期里面，我们的业务逻辑可以毫无顾虑的使用这些数据，不需要考虑线程安全。</p>
+<p>而且我们不用重新拿新数据，所以也不用担心数据撕裂的问题。</p>
+<p>因为当前线程周期里面的数据是完整无误的，而只有用户第二次发起请求才会重新去拿新数据。</p>
+<p>这样就能提高不少我们服务器吞吐量。注意要在线程出口销毁数据。</p>
+<h3>
+<a name="m3.3"></a>2.3 内存缓存</h3>
+<p>无论是远程数据库读取，还是缓存服务器读取。避免不了要跨进程，跨网络通信，有的还跨机房。</p>
+<p>而应用程序频繁读写，对Web、DB服务器都是个不小的消耗，速度相较内存也慢的多。</p>
+<p>代码上加锁、异步，甚至加服务器在内，都不是一个很好的办法。因为加载速度，对用户体验非常重要。</p>
+<hr>
+<p>所以在有要求的项目中使用本地内存做二级缓存，是非常有必要的。目的就是1：抗并发，2：加快读取速度。</p>
+<p>有个著名的缓存五分钟法则法则，就是说如果一个数据频繁被访问，那么就应该放内存中。</p>
+<p>举个例子：  有100并发过来，加锁会导致前端99线程等候，这个99线程等候着，其实是一直在消耗Web服务器资源。不加就是缓存雪崩。</p>
+<p>如果我们每分钟拉取一份缓存，缓存到内存，这样99线程等候时间极大缩短。</p>
+<h3>
+<a name="m3.4"></a>2.4 文件缓存</h3>
+<p>相对于内存，硬盘容量大，速度相较于走网络还更快。</p>
+<p>所以我们完全可以把一些不经常变更，放在内存又比较浪费的数据缓存到本地硬盘。</p>
+<p>比如使用sqlite一些文件数据库，我们很容易做到。</p>
+<h3>
+<a name="m3.5"></a>2.5 分布式缓存</h3>
+<p>基于内存缓存的redis、memcached等。</p>
+<p>基于文件nosql的Casssandra、mongodb等。</p>
+<p>redis、memcached是主流的分布式内存缓存，也是应用和DB中间最大的缓存层。</p>
+<p>nosql这类的其实不单单只是做缓存用了，完全用在一些非核心业务的DB层了。</p>
+<h3>
+<a name="m3.6"></a>2.6 DB缓存</h3>
+<p>这一层DB主要是缓存由原始数据计算出的结果。而避免由Web程序通过SQL或在使用中直接计算。</p>
+<p>当然我们也可以把计算好的数据，存储到redis做缓存。</p>
+<p><img alt="" src="/images/jobbole.com/8ab7c2cde871eb45c7fd97aee7a5b5f8.jpg"></p>
+<h1>
+<a name="m4"></a>三：多层缓存</h1>
+<p>多层缓存概念在很多地方都用到过：</p>
+<p>1：上面我们说的多级缓存就是一种，把内容根据读取频率等级，分不同的层次存储，频率越高就越近。</p>
+<p>2：还一种多层是缓存索引的做法，类B树查找，这样能提高检索效率。</p>
+<p>3：从架构上来说客户端缓存，CDN缓存，反向代理缓存，服务端缓存，也是多层缓存。</p>
+<h1>
+<a name="m5"></a>四：总结</h1>
+<p>在使用上，大家根据实际场景，进行各种组合搭配。本篇谈的比较理论些，很多内容细节没展开。</p>
+
+
+        
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

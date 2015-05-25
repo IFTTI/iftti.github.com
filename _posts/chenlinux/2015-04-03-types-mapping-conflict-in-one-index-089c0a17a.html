@@ -1,0 +1,117 @@
+---
+layout: post
+title: 'Elasticsearch 同一索引不同类型下同名字段的映射冲突实例'
+time: 2015-04-03 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2015/04/03/types-mapping-conflict-in-one-index
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>这个标题肯定绕晕很多人吧。具体说明一下场景就明白了：Nginx 和 Apache 的访问日志，因为都属于网站访问，所以写入到同一个索引的不同类型下，比方 <code>logstash-accesslog-2015.04.03/nginx</code> 和 <code>logstash-accesslog-2015.04.03/apache</code>。既然都是访问日志，肯定很多字段的内容含义是雷同的，比如 clientip, domain, urlpath 等等。其中 nginx 有一个变量叫 <code>$request_time</code>，apache 有一个变量叫 <code>%T</code>，乍看上去也是同义的，我就统一命名为 “requestTime” 了。这就是”同一索引(logstash-accesslog-YYYY.MM.DD)下不同类型(nginx,apache)的同名字段(requestTime)”。</p>
+<p>但事实上，这里有个问题：<strong>nginx 中的以秒为单位，是把毫秒算作小数；apache 中的以秒为单位，是真的只记秒钟整数位！</strong></p>
+<p>所以，这两个类型生成的映射在这个字段上是不一致的。nginx 类型的 requestTime 是 <strong>double</strong>，apache 类型的 requestTime 是 <strong>long</strong>。</p>
+<p>不过平常看起来似乎也没什么影响，写入数据都照常，查看数据的时候默认显示的 JSON 也各自无异。直到我准备用一把 scripted field 的时候，发现计算 <code>doc['requestTime'].value * 1000</code> 得到的数都大的吓人！</p>
+<p>因为类似计算之前在只有 nginx 日志入库的时候曾经正确运行过，所以只能是猜测 apache 日志对此造成了影响，但是即使我把请求修改成限定在 nginx 类型数据中进行，结果也没发生变化。</p>
+<p>仔细阅读 scripting module 的文档，其中提到了 <code>doc['fieldname'].value</code> 和 <code>_source.fieldname</code> 两种写法的区别：<strong>前者会利用内存中的数据，而后者强制读取磁盘上 <code>_source</code> 存储的 JSON 内容，从中释放出相应字段内容。</strong>莫非是 requestTime 字段跟 <code>_source</code> JSON 里存的数据确实不一样，而我们平常搜索查看的都是从 JSON 里释放出来的，所以才会如此？</p>
+<p>为了验证我的猜测，做了一个请求测试：</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># curl es.domain.com:9200/logstash-accesslog-2015.04.03/nginx/_search?q=_id:AUx-QvSBS-dhpiB8_1f1\&amp;pretty -d '{</span>
+    <span class="s2">"fields"</span>: <span class="o">[</span><span class="s2">"requestTime"</span>, <span class="s2">"bodySent"</span><span class="o">]</span>,
+    <span class="s2">"script_fields"</span> : <span class="o">{</span>
+        <span class="s2">"test1"</span> : <span class="o">{</span>
+            <span class="s2">"script"</span> : <span class="s2">"doc[\"requestTime\"].value"</span>
+        <span class="o">}</span>,
+        <span class="s2">"test3"</span> : <span class="o">{</span>
+            <span class="s2">"script"</span> : <span class="s2">"_source.bodySent / _source.requestTime"</span>
+        <span class="o">}</span>,
+        <span class="s2">"test2"</span> : <span class="o">{</span>
+            <span class="s2">"script"</span> : <span class="s2">"doc[\"requestTime\"].value * 1000"</span>
+        <span class="o">}</span>
+    <span class="o">}</span>
+<span class="o">}</span><span class="err">'</span></code></pre></div>
+<p>得到的结果如下：</p>
+<div class="highlight"><pre><code class="language-json" data-lang="json"><span class="p">{</span>
+  <span class="nt">"took"</span> <span class="p">:</span> <span class="mi">43</span><span class="p">,</span>
+  <span class="nt">"timed_out"</span> <span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+  <span class="nt">"_shards"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">56</span><span class="p">,</span>
+    <span class="nt">"successful"</span> <span class="p">:</span> <span class="mi">56</span><span class="p">,</span>
+    <span class="nt">"failed"</span> <span class="p">:</span> <span class="mi">0</span>
+  <span class="p">},</span>
+  <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">{</span>
+    <span class="nt">"total"</span> <span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="nt">"max_score"</span> <span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="nt">"hits"</span> <span class="p">:</span> <span class="p">[</span> <span class="p">{</span>
+      <span class="nt">"_index"</span> <span class="p">:</span> <span class="s2">"logstash-accesslog-2015.04.03"</span><span class="p">,</span>
+      <span class="nt">"_type"</span> <span class="p">:</span> <span class="s2">"nginx"</span><span class="p">,</span>
+      <span class="nt">"_id"</span> <span class="p">:</span> <span class="s2">"AUx-QvSBS-dhpiB8_1f1"</span><span class="p">,</span>
+      <span class="nt">"_score"</span> <span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+      <span class="nt">"fields"</span> <span class="p">:</span> <span class="p">{</span>
+        <span class="nt">"test1"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">4603039107142836552</span> <span class="p">],</span>
+        <span class="nt">"test2"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">-8646911284551352000</span> <span class="p">],</span>
+        <span class="nt">"requestTime"</span> <span class="p">:</span> <span class="p">[</span> <span class="mf">0.54</span> <span class="p">],</span>
+        <span class="nt">"test3"</span> <span class="p">:</span> <span class="p">[</span> <span class="mf">2444.4444444444443</span> <span class="p">],</span>
+        <span class="nt">"bodySent"</span> <span class="p">:</span> <span class="p">[</span> <span class="mi">1320</span> <span class="p">]</span>
+      <span class="p">}</span>
+    <span class="p">}</span> <span class="p">]</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre></div>
+<p>果然！直接读取的字段，以及采用 <code>_source.fieldname</code> 方式读取的内容，都是正确的；而采用 <code>doc['fieldname'].value</code> 获取的内存数据，就不对。（0.54 存成 long 型会变成 4603039107142836552。这个 460 还正好能跟 540 凑成 1000，应该是某种特定存法，不过这里我就没深究了）</p>
+<p>再作下一步验证。我们知道，ES 数据的映射是根据第一条数据的类型确定的，之后的数据如何类型跟已经成型的映射不统一，那么写入会失败。现在这个 nginx 和 apache 两个类型在 requestTime 字段上的映射是不一样的，但是内存里却并没有按照映射来处理。那么，我往一个类型下写入另一个类型映射要求的数据，会报错还是会通过呢？</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># curl -XPOST es.domain.com:9200/test/t1/1 -d '{"key":1}'</span>
+<span class="o">{</span><span class="s2">"_index"</span>:<span class="s2">"test"</span>,<span class="s2">"_type"</span>:<span class="s2">"t1"</span>,<span class="s2">"_id"</span>:<span class="s2">"1"</span>,<span class="s2">"_version"</span>:1,<span class="s2">"created"</span>:true<span class="o">}</span>
+<span class="c"># curl -XPOST es.domain.com:9200/test/t2/1 -d '{"key":2.2}'</span>
+<span class="o">{</span><span class="s2">"_index"</span>:<span class="s2">"test"</span>,<span class="s2">"_type"</span>:<span class="s2">"t2"</span>,<span class="s2">"_id"</span>:<span class="s2">"1"</span>,<span class="s2">"_version"</span>:1,<span class="s2">"created"</span>:true<span class="o">}</span>
+<span class="c"># curl -XPOST es.domain.com:9200/test/t1/2 -d '{"key":2.2}'</span>
+<span class="o">{</span><span class="s2">"_index"</span>:<span class="s2">"test"</span>,<span class="s2">"_type"</span>:<span class="s2">"t1"</span>,<span class="s2">"_id"</span>:<span class="s2">"2"</span>,<span class="s2">"_version"</span>:1,<span class="s2">"created"</span>:true<span class="o">}</span>
+<span class="c"># curl -XPOST es.domain.com:9200/test/t2/2 -d '{"key":1}'</span>
+<span class="o">{</span><span class="s2">"_index"</span>:<span class="s2">"test"</span>,<span class="s2">"_type"</span>:<span class="s2">"t2"</span>,<span class="s2">"_id"</span>:<span class="s2">"2"</span>,<span class="s2">"_version"</span>:1,<span class="s2">"created"</span>:true<span class="o">}</span>
+<span class="c"># curl -XPOST es.domain.com:9200/test/t1/3 -d '{"key":"1"}'</span>
+<span class="o">{</span><span class="s2">"_index"</span>:<span class="s2">"test"</span>,<span class="s2">"_type"</span>:<span class="s2">"t1"</span>,<span class="s2">"_id"</span>:<span class="s2">"3"</span>,<span class="s2">"_version"</span>:1,<span class="s2">"created"</span>:true<span class="o">}</span>
+<span class="c"># curl -XPOST es.domain.com:9200/test/t2/3 -d '{"key":"1"}'</span>
+<span class="o">{</span><span class="s2">"_index"</span>:<span class="s2">"test"</span>,<span class="s2">"_type"</span>:<span class="s2">"t2"</span>,<span class="s2">"_id"</span>:<span class="s2">"3"</span>,<span class="s2">"_version"</span>:1,<span class="s2">"created"</span>:true<span class="o">}</span>
+<span class="c"># curl -XPOST es.domain.com:9200/test/t2/4 -d '{"key":"abc"}'</span>
+<span class="o">{</span><span class="s2">"error"</span>:<span class="s2">"RemoteTransportException[[10.10.10.10][inet[/10.10.10.10:9300]][indices:data/write/index]]; nested: MapperParsingException[failed to parse [key]]; nested: NumberFormatException[For input string: \"abc\"]; "</span>,<span class="s2">"status"</span>:400<span class="o">}</span>
+<span class="c"># curl -XGET es.domain.com:9200/test/_mapping</span>
+<span class="o">{</span><span class="s2">"test"</span>:<span class="o">{</span><span class="s2">"mappings"</span>:<span class="o">{</span><span class="s2">"t1"</span>:<span class="o">{</span><span class="s2">"properties"</span>:<span class="o">{</span><span class="s2">"key"</span>:<span class="o">{</span><span class="s2">"type"</span>:<span class="s2">"long"</span><span class="o">}}}</span>,<span class="s2">"t2"</span>:<span class="o">{</span><span class="s2">"properties"</span>:<span class="o">{</span><span class="s2">"key"</span>:<span class="o">{</span><span class="s2">"type"</span>:<span class="s2">"double"</span><span class="o">}}}}}}</span></code></pre></div>
+<p>结果出来了，在映射相互冲突以后，实际数据只要是 numeric detect 能通过的，就都通过了！</p>
+<p>BTW: kibana 4 中，已经会对这种情况以黄色感叹号图标做出提示；而根据官方消息，ES 未来会在 2.0 版正式杜绝这种可能。</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

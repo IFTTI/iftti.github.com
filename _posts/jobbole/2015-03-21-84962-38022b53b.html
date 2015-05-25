@@ -1,0 +1,102 @@
+---
+layout: post
+title: 'SQL Server之旅（13）：对锁的初步认识'
+time: 2015-03-21 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/84962/
+images:
+  844a3d8f8cff39c01e705d6905706662: http://ww2.sinaimg.cn/mw690/6941baebgw1eq6eoq1alsj20h006cwg5.jpg
+  4da4c5769333a1039ef24ea7012b0ca6: http://ww1.sinaimg.cn/mw690/6941baebgw1eq6eoph4a3j20na0epq5z.jpg
+  8e52025c2a4c2b658f208c6d21cf0142: http://ww3.sinaimg.cn/mw690/6941baebgw1eq6eoowfnwj20kk0gbtf3.jpg
+  1465f0a5659f23f95fbf333882d286a4: http://ww3.sinaimg.cn/mw690/6941baebgw1eq6eoodk4lj20gt0enq7b.jpg
+  a8a9e8535f9c250affee2f099d07ad2c: http://ww3.sinaimg.cn/mw690/6941baebgw1eq6eonsyxxj20jt0gqdlh.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<ul>
+<li><a href="http://blog.jobbole.com/84919/" target="_blank">SQL Server之旅（1）：那些给我们带来福利的系统视图</a></li>
+<li><a href="http://blog.jobbole.com/84923/" target="_blank">SQL Server之旅（2）：理解万恶的表扫描</a></li>
+<li><a href="http://blog.jobbole.com/84925/" target="_blank">SQL Server之旅（3）：解惑那些背了多年聚集索引的人</a></li>
+<li><a href="http://blog.jobbole.com/84927/" target="_blank">SQL Server之旅（4）：你必须知道的非聚集索引扫描</a></li>
+<li><a href="http://blog.jobbole.com/84936/" target="_blank">SQL Server之旅（5）：确实不得不说的DBCC命令</a></li>
+<li><a href="http://blog.jobbole.com/84939/" target="_blank">SQL Server之旅（6）：使用winHex利器加深理解数据页</a></li>
+<li><a href="http://blog.jobbole.com/84942/" target="_blank">SQL Server之旅（7）：为什么都说状态少的字段不能建索引</a></li>
+<li><a href="http://blog.jobbole.com/84945/" target="_blank">SQL Server之旅（8）：复合索引和include索引到底有多大区别？</a></li>
+<li><a href="http://blog.jobbole.com/84948/" target="_blank">SQL Server之旅（9）：看公司这些DBA们设计的这些复合索引</a></li>
+<li><a href="http://blog.jobbole.com/84953/" target="_blank">SQL Server之旅（10）：看看DML操作对索引的影响</a></li>
+<li><a href="http://blog.jobbole.com/84956/" target="_blank">SQL Server之旅（11）：简单说说sqlserver的执行计划</a></li>
+<li><a href="http://blog.jobbole.com/84959/" target="_blank">SQL Server之旅（12）：sqltext的参数化处理</a></li>
+</ul>
+<p>终于这个系列快结束了，马上又要过年了，没什么心情写博客。。。作为一个开发人员，锁机制也是我们程序员必须掌握的东西，很久之前在学习锁的时候，都是教科书上怎么说，然后我怎么背，缺少一个工具让我们眼见为实。。。如果这样的话，学习一个东西就很容易忘记。。。因为这些都是你背诵过来的。。。这篇的话我就来分享一个工具来帮助我们学习锁。</p>
+<p>一：到底都有哪些锁</p>
+<p>学习锁之前，必须要知道锁大概有几种？？？通常情况下作为码农我们只需知道如下几个锁即可。。。</p>
+<p>1.S（Share）锁</p>
+<p>为了方便理解，我们可以直接这么认为，当在select的时候在表，数据页，记录上加上共享锁。</p>
+<p>2.X(Exclusive) 锁</p>
+<p>我们在delete数据的时候会在记录上附加X锁，我们知道X锁并不与其他的锁兼容。如果其他的锁与其遭遇，就会处于等待，后续我们再说。</p>
+<p>3.U(Update)锁</p>
+<p>顾名思义，我们在Update的时候，在寻找记录的过程中，会逐一的给记录附加U锁，如果找到了目标记录的话，则会将U锁转化为X锁。。。</p>
+<p>4.I （Intent）锁</p>
+<p>这个就是所谓的意向锁，一般都是给表和数据页附加的锁，好处就是防止被其他连接修改表结构。</p>
+<p>二：天下无敌的SqlServer Profile</p>
+<p>这个工具我想大家都明白，它的监视能力真的是无所不能。。。锁的痉挛状态也全在它的掌握之中。</p>
+<p>1. 首先我做一个Person表，Name字段设定4000字节，这样一个数据页可以容纳2条数据，如下图：</p>
+<div>
+<pre class="brush: sql; gutter: true">DROP TABLE dbo.Person
+CREATE TABLE Person(ID INT IDENTITY,NAME CHAR(4000) DEFAULT 'aaaaa')
+--插入6条，生成3个数据页
+INSERT INTO dbo.Person DEFAULT VALUES
+go 6</pre>
+</div>
+<p>2. 下面我们看看数据在数据页的分布情况。</p>
+<p><img alt="" src="/images/jobbole.com/844a3d8f8cff39c01e705d6905706662.jpg"></p>
+<p>3. 然后我们开启Profile，在“事件选择”的Events中选择”Lock:Acquired“和”Lock:Released“ ，然后运行，如下图：</p>
+<p><img alt="" src="/images/jobbole.com/4da4c5769333a1039ef24ea7012b0ca6.jpg"></p>
+<p>三：使用测试数据</p>
+<p>1. 首先我执行一个简单的 SELECT * FROM dbo.Person，看看表/数据页/记录的加锁情况。</p>
+<p><img alt="" src="/images/jobbole.com/8e52025c2a4c2b658f208c6d21cf0142.jpg"></p>
+<p>从图中可以看到，select执行的大概步骤如下：</p>
+<p>第一步：给表（Object）加上IS（意向共享锁）。</p>
+<p>第二步：先给1:78号数据页加IS锁，扫描78号数据页，然后释放IS锁。</p>
+<p>第三步：同样的道理扫描之后的数据页。</p>
+<p>第四步：最后释放表的IS锁，结束整个锁流程。</p>
+<p>看完上面的一系列的Lock:Acquired 和 Lock:Released的话，你有没有发现一个问题，不是说好给记录（RID）加上S锁么？？？这里没加，是因为引擎进入78号数据页的时候，未发现它存在IU锁或者IX锁。。。所以。。。这个属于锁的组合，后续会说。</p>
+<p>2. 接下来用UPDATE dbo.Person SET NAME=’bbbbb’ WHERE ID=3来看看update的整个过程，乍一看，Profile捕获到的记录还是比较多的，下面具体看图：</p>
+<p><img alt="" src="/images/jobbole.com/1465f0a5659f23f95fbf333882d286a4.jpg"></p>
+<p>第一步： 给表(Object)加上IX锁，</p>
+<p>第二步： 给数据页(1:78)数据页分配IU锁。然后开始逐一扫描78号数据页的RID记录，进入前就Acquired，退出后就Released，当扫</p>
+<p>描完78号数据页的所有RID后，再释放78号数据页的IU锁，进入下一个数据页。。。</p>
+<p>第三步： 我们发现ID=3是在89号数据页上，当引擎扫到该RID之后，我们观察到89号的数据页由IU锁变成了IX锁，并且把1:89:0（slot</p>
+<p>为0的记录）由U锁变成X锁，变成X锁后，就排斥了其他所有的锁，这时候就可以进行Update操作了。</p>
+<p>第四步： 后面就继续90号数据页，步骤类似，第二步和第三步。</p>
+<p>不知道细心的你有没有发现，在Released Object之前我们才释放1:89:0的X锁，然后释放89号数据页的IX锁，这说明什么？？？说明这个Update是贯穿于这个事务的，不像Select操作中，扫完一个数据页就释放一个数据页。</p>
+<p>3. 最后再看一个DELETE FROM dbo.Person WHERE ID=3 的操作。</p>
+<p><img alt="" src="/images/jobbole.com/a8a9e8535f9c250affee2f099d07ad2c.jpg"></p>
+<p>大概扫了一下上面的图，或许你感觉和Update操作大差不差，会扫描数据页中的每个记录并加上U锁。当在1:89:0槽位中找到了目标记录后，然后将U锁转化为X锁，具体可以参考Update。</p>
+
+
+        
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

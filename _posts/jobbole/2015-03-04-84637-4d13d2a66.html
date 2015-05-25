@@ -1,0 +1,159 @@
+---
+layout: post
+title: '那些年我们一起追过的缓存写法(三)'
+time: 2015-03-04 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/84637/
+images:
+  1c1d8df72863b7b4fcd0d49b389be227: http://ww4.sinaimg.cn/mw690/6941baebjw1epthormga0j20a1049wek.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p><a href="http://blog.jobbole.com/84633/" target="_blank">上次</a>我们说了多级缓存，本章详细介绍下内存缓存该如何设计。</p>
+<h1>一：分析设计</h1>
+<p>假设有个项目有一定并发量，要用到多级缓存，如下：</p>
+<p><img alt="" src="/images/jobbole.com/1c1d8df72863b7b4fcd0d49b389be227.jpg"></p>
+<p>在实际设计一个内存缓存前，我们需要考虑的问题：</p>
+<p>1：内存与Redis的数据置换，尽可能在内存中提高数据命中率，减少下一级的压力。</p>
+<p>2：内存容量的限制，需要控制缓存数量。</p>
+<p>3：热点数据更新不同，需要可配置单个key过期时间。</p>
+<p>4：良好的缓存过期删除策略。</p>
+<p>5：缓存数据结构的复杂度尽可能的低。</p>
+<p>关于置换及命中率：我们采用LRU算法，因为它实现简单，缓存key命中率也很好。</p>
+<p>LRU即是：把最近最少访问的数据给淘汰掉，经常被访问到即是热点数据。</p>
+<p>关于LRU数据结构：因为key优先级提升和key淘汰，所以需要顺序结构。我看到大多实现，都采用链表结构、</p>
+<p>即：新数据插入到链表头部、被命中时的数据移动到头部。 添加复杂度O(1)  移动和获取复杂度O(N)。</p>
+<p>有没复杂度更低的呢？ 有Dictionary，复杂度为O(1)，性能最好。 那如何保证缓存的优先级提升呢？</p>
+<h1>
+<a name="two"></a>二：O(1)LRU实现</h1>
+<p>我们定义个LRUCache&lt;TValue&gt;类，构造参数maxKeySize 来控制缓存最大数量。</p>
+<p>使用ConcurrentDictionary来作为我们的缓存容器，并能保证线程安全。</p>
+<div>
+<pre class="brush: java; gutter: true"> public class LRUCache&lt;TValue&gt; : IEnumerable&lt;KeyValuePair&lt;string, TValue&gt;&gt;
+    {
+        private long ageToDiscard = 0;  //淘汰的年龄起点
+        private long currentAge = 0;        //当前缓存最新年龄
+        private int maxSize = 0;          //缓存最大容量
+        private readonly ConcurrentDictionary&lt;string, TrackValue&gt; cache;
+        public LRUCache(int maxKeySize)
+        {
+            cache = new ConcurrentDictionary&lt;string, TrackValue&gt;();
+            maxSize = maxKeySize;
+        }
+    }</pre>
+</div>
+<p>上面定义了 ageToDiscard、currentAge 这2个自增值参数，作用是：标记缓存列表中各个key的新旧程度。</p>
+<p>核心实现步骤如下：</p>
+<h3>1：每次添加key时，currentAge自增并将currentAge值分配给这个缓存值的Age，currentAge始终增加。</h3>
+<div>
+<pre class="brush: java; gutter: true"> public void Add(string key, TValue value)
+        {
+            Adjust(key);
+            var result = new TrackValue(this, value);
+            cache.AddOrUpdate(key, result, (k, o) =&gt; result);
+        }
+        public class TrackValue
+        {
+            public readonly TValue Value;
+            public long Age;
+            public TrackValue(LRUCache&lt;TValue&gt; lv, TValue tv)
+            {
+                Age = Interlocked.Increment(ref lv.currentAge);
+                Value = tv;
+            }
+        }</pre>
+</div>
+<h3>2：在添加时，如超过最大数量。检查字典里是否有ageToDiscard年龄的key，如没有循环自增检查，有则删除、添加成功。</h3>
+<p>ageToDiscard+maxSize= currentAge ，这样设计就能在O(1)下保证可以淘汰旧数据，而不是使用链表移动。</p>
+<div>
+<pre class="brush: java; gutter: true">public void Adjust(string key)
+        {
+            while (cache.Count &gt;= maxSize)
+            {
+                long ageToDelete = Interlocked.Increment(ref ageToDiscard);
+                var toDiscard =
+                      cache.FirstOrDefault(p =&gt; p.Value.Age == ageToDelete);
+                if (toDiscard.Key == null)
+                    continue;
+                TrackValue old;
+                cache.TryRemove(toDiscard.Key, out old);
+            }
+        }</pre>
+</div>
+<h1>
+<a name="three"></a>过期删除策略</h1>
+<p>大多数情况下，LRU算法对热点数据命中率是很高的。 但如果突然大量偶发性的数据访问，会让内存中存放大量冷数据，也就是缓存污染。</p>
+<p>会引起LRU无法命中热点数据，导致缓存系统命中率急剧下降。也可以使用LRU-K、2Q、MQ等变种算法来提高命中率。</p>
+<h3>过期配置</h3>
+<p>1：我们通过设定、最大过期时间来尽量避免冷数据常驻内存。</p>
+<p>2：大多数情况每个缓存的时间要求不一致的，所以在增加单个key的过期时间。</p>
+<div>
+<pre class="brush: java; gutter: true"> private TimeSpan maxTime;
+ public LRUCache(int maxKeySize,TimeSpan maxExpireTime){}
+
+  //TrackValue增加创建时间和过期时间
+ public readonly DateTime CreateTime;
+ public readonly TimeSpan ExpireTime;</pre>
+</div>
+<h3>删除策略</h3>
+<p>1：关于key过期删除，最好使用定时删除了。 这样可以最快释放被占用的内存，但很明显，大量的定时器对CPU吃不消的。</p>
+<p>2：所以我们采用惰性删除、在获取key的时检查是否过期，过期直接删除。</p>
+<div>
+<pre class="brush: java; gutter: true">public Tuple&lt;TrackValue, bool&gt; CheckExpire(string key)
+        {
+            TrackValue result;
+            if (cache.TryGetValue(key, out result))
+            {
+                var age = DateTime.Now.Subtract(result.CreateTime);
+                if (age &gt;= maxTime || age &gt;= result.ExpireTime)
+                {
+                    TrackValue old;
+                    cache.TryRemove(key, out old);
+                    return Tuple.Create(default(TrackValue), false);
+                }
+            }
+            return Tuple.Create(result, true);
+        }</pre>
+</div>
+<p>3：惰性删除虽然性能最好，对于冷数据来说，还是没解决缓存污染问题。  所以我们还需定期清理。</p>
+<p>比如：开个线程，5分钟去遍历检查key一次。这个策略根据实际场景可配置。</p>
+<div>
+<pre class="brush: java; gutter: true">public void Inspection()
+        {
+            foreach (var item in this)
+            {
+                CheckExpire(item.Key);
+            }
+        }</pre>
+</div>
+<p>惰性删除+定期删除基本能满足我们需求了。</p>
+<h1>
+<a name="zong"></a>总结</h1>
+<p>如果继续完善下去，就是内存数据库的雏形，类似redis。</p>
+
+
+        
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

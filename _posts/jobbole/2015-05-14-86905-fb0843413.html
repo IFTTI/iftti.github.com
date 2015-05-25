@@ -1,0 +1,152 @@
+---
+layout: post
+title: '机器学习实战ByMatlab（2）：PCA算法'
+time: 2015-05-14 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/86905/
+images:
+  cdd0f2aaece4495958e61b71a963e808: http://ww4.sinaimg.cn/mw690/aa213e02jw1es3trlyynsj207e0auq32.jpg
+  5adae96b9ba8e9449789454301888ab7: http://ww2.sinaimg.cn/mw690/aa213e02jw1es3trllol6j20a90b474i.jpg
+  e680a80e1492c83636116d13d5366a51: http://ww3.sinaimg.cn/mw690/aa213e02jw1es3trksew5j20ah0auglm.jpg
+  bcbba1735d6ab95f8d3a4787b77ce45b: http://ww4.sinaimg.cn/mw690/aa213e02jw1es3trka0edj20ck038wec.jpg
+  d9eb0eb5570affd5426458635c15a277: http://ww3.sinaimg.cn/mw690/aa213e02jw1es3trj8xu0j20bx038q2t.jpg
+  4cd35fab8cb9de750e17674303fc13c8: http://ww4.sinaimg.cn/mw690/aa213e02jw1es3trimwxuj20l3038748.jpg
+  589dec0057c50c25e7ebf2df8ae51fe8: http://ww4.sinaimg.cn/mw690/aa213e02jw1es3tria98oj208203bmx0.jpg
+  95e0d97944d9ff9e767e7ede623d634e: http://ww3.sinaimg.cn/mw690/aa213e02jw1es3trhpy2uj20a509gt91.jpg
+  6a7bbc450bd8f32e2955f6da7e0c704c: http://ww3.sinaimg.cn/mw690/aa213e02jw1es3trh2ygpj20cv0btglj.jpg
+  7461f9957de1efb150c566f48278ef49: http://ww3.sinaimg.cn/mw690/aa213e02jw1es3trggs65j20j0092mx8.jpg
+  8ad78cbdf9776b16e8434493cc000fa1: http://ww1.sinaimg.cn/mw690/aa213e02jw1es3tqp2z1qj20wt05ijrb.jpg
+  3603b54626e1a064e4b2df656f4faeac: http://ww1.sinaimg.cn/mw690/aa213e02jw1es3tqo4lpgj217h05i0st.jpg
+  dcf4fed2c3649a97ad3a30fbe8e32cf0: http://ww1.sinaimg.cn/mw690/aa213e02jw1es3tqnc8qvj206o024t8h.jpg
+  f2ac481cf2d0803d45ff15a673f1aad2: http://ww1.sinaimg.cn/mw690/aa213e02jw1es3tqit1ncj2055024741.jpg
+  29244fbd9c9134880d2eb8c9d015544b: http://ww3.sinaimg.cn/mw690/aa213e02jw1es3tqhb9jvj20bs024a9u.jpg
+  db1b2e32d77b48b2a8c8f94d0adea341: http://ww1.sinaimg.cn/mw690/aa213e02jw1es3tz64690j20os024q2u.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p>PCA 算法也叫主成分分析（principal components analysis），主要是用于数据降维的。</p>
+<p>为什么要进行数据降维？因为实际情况中我们的训练数据会存在特征过多或者是特征累赘的问题，比如：</p>
+<ul>
+<li>一个关于汽车的样本数据，一个特征是”km/h的最大速度特征“，另一个是”英里每小时“的最大速度特征，很显然这两个特征具有很强的相关性</li>
+<li>拿到一个样本，特征非常多，样本缺很少，这样的数据用回归去你和将非常困难，很容易导致过度拟合</li>
+</ul>
+<p>PCA算法就是用来解决这种问题的，其核心思想就是将 n 维特征映射到 k 维上（k &lt; n），这 k 维是全新的正交特征。我们将这 k 维成为主元，是重新构造出来的 k 维特征，而不是简单地从 n 维特征中取出其余 n-k 维特征。</p>
+<p><strong>PCA 的计算过程</strong></p>
+<p>假设我们得到 2 维数据如下：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/cdd0f2aaece4495958e61b71a963e808.jpg" width="266" height="390"></p>
+<p>其中行代表样例，列代表特征，这里有10个样例，每个样例有2个特征，我们假设这两个特征是具有较强的相关性，需要我们对其进行降维的。</p>
+<p>第一步：分别求 x 和 y 的平均值，然后对所有的样例都减去对应的均值</p>
+<p>这里求得 x 的均值为 1.81 ， y 的均值为 1.91，减去均值后得到数据如下：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/5adae96b9ba8e9449789454301888ab7.jpg" width="369" height="400"></p>
+<p>注意，此时我们一般应该在对特征进行方差归一化，目的是让每个特征的权重都一样，但是由于我们的数据的值都比较接近，所以归一化这步可以忽略不做</p>
+<p>第一步的算法步骤如下：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/e680a80e1492c83636116d13d5366a51.jpg" width="377" height="390"></p>
+<p>本例中步骤3、4没有做。</p>
+<p>第二步：求特征协方差矩阵</p>
+<p>公式如下：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/bcbba1735d6ab95f8d3a4787b77ce45b.jpg" width="452" height="116"></p>
+<p>第三步：求解协方差矩阵的特征值和特征向量</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/d9eb0eb5570affd5426458635c15a277.jpg" width="429" height="116"></p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/4cd35fab8cb9de750e17674303fc13c8.jpg" width="690" height="105"><br>
+第四步：将特征值从大到小进行排序，选择其中最大的 k 个，然后将其对应的 k 个特征向量分别作为列向量组成特征矩阵</p>
+<p>这里的特征值只有两个，我们选择最大的那个，为： 1.28402771 ，其对应的特征向量为：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/589dec0057c50c25e7ebf2df8ae51fe8.jpg" width="290" height="119"></p>
+<p>注意：matlab 的 eig 函数求解协方差矩阵的时候，返回的特征值是一个特征值分布在对角线的对角矩阵，第 i 个特征值对应于第 i 列的特征向量</p>
+<p>第五步： 将样本点投影到选取的特征向量上</p>
+<p>假设样本列数为 m ，特征数为 n ，减去均值后的样本矩阵为 DataAdjust(m*n),协方差矩阵为 n*n ,选取 k 个特征向量组成后的矩阵为 EigenVectors(n*k)，则投影后的数据 FinalData 为：</p>
+<p>FinalData （m*k） = DataAdjust(m*n) X EigenVectors(n*k)</p>
+<p>得到的结果是：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/95e0d97944d9ff9e767e7ede623d634e.jpg" width="365" height="340"></p>
+<p>这样，我们就将 n 维特征降成了 k 维，这 k 维就是原始特征在 k 维上的投影。</p>
+<p>整个PCA的过程貌似很简单，就是求协方差的特征值和特征向量，然后做数据转换。但为什么协方差的特征向量就是最理想的 k 维向量？这个问题由PCA的理论基础来解释。</p>
+<p><strong>PCA 的理论基础</strong></p>
+<p>关于为什么协方差的特征向量就是 k 维理想特征，有3个理论，分别是：</p>
+<ol>
+<li>最大方差理论</li>
+<li>最小错误理论</li>
+<li>坐标轴相关度理论</li>
+</ol>
+<p>这里简单描述下最大方差理论：</p>
+<p><strong>最大方差理论</strong></p>
+<p>信号处理中认为信号具有较大的方差，噪声有较小的方差，信噪比就是信号与噪声的方差比，越大越好。因此我们认为，最好的 k 为特征既是将 n 维样本点转换为 k 维后，每一维上的样本方差都很大</p>
+<p>PCA 处理图解如下：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/6a7bbc450bd8f32e2955f6da7e0c704c.jpg" width="463" height="425"></p>
+<p>降维转换后：</p>
+<p><img class="aligncenter" alt="" src="/images/jobbole.com/7461f9957de1efb150c566f48278ef49.jpg" width="684" height="326"></p>
+<p>上图中的直线就是我们选取的特征向量，上面实例中PCA的过程就是将空间的2维的点投影到直线上。</p>
+<p>那么问题来了，两幅图都是PCA的结果，哪一幅图比较好呢？</p>
+<p>根据最大方差理论，答案是左边的图，其实也就是样本投影后间隔较大，容易区分。</p>
+<p>其实从另一个角度看，左边的图每个点直线上的距离绝对值之和比右边的每个点到直线距离绝对值之和小，是不是有点曲线回归的感觉？其实从这个角度看，这就是最小误差理论：选择投影后误差最小的直线。</p>
+<p>再回到上面的左图，也就是我们要求的最佳的 u ，前面说了，最佳的 u 也就是最佳的曲线，它能够使投影后的样本方差最大或者是误差最小。</p>
+<p>另外，由于我们前面PCA算法第一步的时候已经执行对样本数据的每一维求均值，并让每个数据减去均值的预处理了，所以每个特征现在的均值都为0，投影到特征向量上后，均值也为0.因此方差为：</p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/8ad78cbdf9776b16e8434493cc000fa1.jpg" width="690" height="116"></p>
+<p>最后的等式中中间的那部分其实就是样本方差的协方差矩阵（xi 的均值为 0）<br>
+<img class="alignnone" alt="" src="/images/jobbole.com/3603b54626e1a064e4b2df656f4faeac.jpg" width="690" height="87"></p>
+<p>由于 u 是单位向量，得到</p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/dcf4fed2c3649a97ad3a30fbe8e32cf0.jpg" width="240" height="76"></p>
+<p>上式两边痛乘以 u，得到：</p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/f2ac481cf2d0803d45ff15a673f1aad2.jpg" width="185" height="76"></p>
+<p><img class="alignnone" style="color: #333333;font-style: normal" alt="" src="/images/jobbole.com/29244fbd9c9134880d2eb8c9d015544b.jpg" width="424" height="76"></p>
+<p>于是我们得到</p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/db1b2e32d77b48b2a8c8f94d0adea341.jpg" width="690" height="59"></p>
+<p>最佳投影直线就是特征值 λ 最大是对应的特征向量，其次是 λ 第二大对应的特征向量（求解的到的特征向量都是正交的）。其中 λ 就是我们的方差，也对应了我们前面的最大方差理论，也就是找到能够使投影后方差最大的直线。</p>
+<p><strong>Matlab 实现</strong></p>
+<pre class="brush: python; gutter: true">function [lowData,reconMat] = PCA(data,K)
+[row , col] = size(data);
+meanValue = mean(data);
+%varData = var(data,1,1);
+normData = data - repmat(meanValue,[row,1]);
+covMat = cov(normData(:,1),normData(:,2));%求取协方差矩阵
+[eigVect,eigVal] = eig(covMat);%求取特征值和特征向量
+[sortMat, sortIX] = sort(eigVal,'descend');
+[B,IX] = sort(sortMat(1,:),'descend');
+len = min(K,length(IX));
+eigVect(:,IX(1:1:len));
+lowData = normData * eigVect(:,IX(1:1:len));
+reconMat = (lowData * eigVect(:,IX(1:1:len))') + repmat(meanValue,[row,1]); % 将降维后的数据转换到新空间
+end</pre>
+<p><strong>调用方式</strong></p>
+<pre class="brush: python; gutter: true">function testPCA
+%%
+clc
+clear
+close all
+%%
+filename = 'testSet.txt';
+K = 1;
+data = load(filename);
+[lowData,reconMat] = PCA(data,K);
+figure
+scatter(data(:,1),data(:,2),5,'r')
+hold on
+scatter(reconMat(:,1),reconMat(:,2),5)
+hold off
+end</pre>
+<p><strong>效果图</strong></p>
+
+
+        
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

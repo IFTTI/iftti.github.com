@@ -1,0 +1,71 @@
+---
+layout: post
+title: 'SSD阵列卡方案优化：考虑使用RAID 50替代RAID 10'
+time: 2015-03-16 07:46:00 +0800
+site_name: noops.me
+source_url: http://noops.me/?p=1805
+images:
+  b7a8f8186619a74d8ca16ffc5c982e7f: http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_01b.png
+  85140272ee47dbe53b7813bdd637bf4d: http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_02.png
+  7e4d9cce79f553ccab159d779f53c3e6: http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_03.png
+  03e74be5800b80634e0ecb27f6f24fff: http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_04.png
+  0d52479a1014c38911fdb7ed580ad820: http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_05.png
+---
+{% raw %}
+
+                <p>大家都知道SSD成本比较高，而不少用户在考虑可用性时都会选用RAID 10作阵列，这样无疑又增加了成本。然而RAID 10的可用性也并非百分百完美。为了能够平衡可用性和成本，因此最近一直在研究性价比更高的RAID 50，它提供了接近RAID 10的可用性并且接近RAID 5的成本，像是在高可用的RAID 10和低成本的RAID 5之间的取了一个平衡点。</p>
+<p> </p>
+<p>为了能够直观了解不同RAID类型下的故障可用性，我们首先做个简单的可用性分析（以8盘RAID 10的同等容量作对比）：</p>
+<p><span style="color: #ff1493;"><strong><em>RAID 50中：4块盘组成单组RAID 5，然后两组RAID 5再组成RAID 0最后得到8块盘的RAID 50</em></strong></span></p>
+<p><a href="http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_01b.png"><img class="alignnone size-full wp-image-1814" alt="ssd_r50_r10_01b" src="/images/noops.me/b7a8f8186619a74d8ca16ffc5c982e7f.jpg" width="459" height="167"></a></p>
+<p><strong>案例分析：</strong></p>
+<ul>
+<li>第1块盘的容错概率都是100%，可见磁盘阵列最基本的能力就是容错，然而不同级别的阵列能够提供的数据保护能力也是不同的；</li>
+<li>从第2块盘开始除了RAID 6能够提供100%的故障可用性以外，其他包括RAID 10在内都不能提供完美的解决方案。同时我们可以发现RAID 5的容错能力是四者中最差的，但是要达到同样容量所需要的盘数量也是最少的，如果故障运维较为及时的话RAID 5是一个性价比较高的方案，不然在第一块盘故障后至阵列修复期间如果发生第二块盘故障就会导整个阵列故障（数据全部丢失），这就是风险所在；</li>
+<li>RAID 6当然是较为可靠的方案，但是它要牺牲两块盘的容量并且性能也较差（后面有性能测试说明），所以要权衡性能和可用性；</li>
+<li>当然重点还是RAID 10和50：我们发现50在第二块盘故障时的可用概率和10比较接近，由于上述案例中只有两组RAID 5因此只能提供至最多两块盘的容错，如果RAID 5的组数量更多的话能够容错的盘数也将更多，且可用概率也会更高。</li>
+</ul>
+<p>我们以9块盘RAID 50（3组RAID 5）为例作分析（达到相同容量的RAID 10需要12块盘）：</p>
+<p><a href="http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_02.png"><img class="alignnone size-full wp-image-1815" alt="ssd_r50_r10_02" src="/images/noops.me/85140272ee47dbe53b7813bdd637bf4d.jpg" width="307" height="169"></a></p>
+<p>再以12块盘RAID 50（4组RAID 5）为例作分析（达到相同容量的RAID 10需要16块盘）：</p>
+<p><a href="http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_03.png"><img class="alignnone size-full wp-image-1816" alt="ssd_r50_r10_03" src="/images/noops.me/7e4d9cce79f553ccab159d779f53c3e6.jpg" width="307" height="169"></a><br>
+上面对比中RAID  50已经能够容忍第3甚至第4块盘的故障，只是可用性相比RAID 10低了些，但是两者都不能达到完美的100%，所以权衡可用性和成本RAID 50还是有相当大的优势。</p>
+<p> </p>
+<p>接下来看看性能，为了能够很好地分析性能，我们沿用了第一组对比方案的作性能分析：</p>
+<p><a href="http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_04.png"><img class="alignnone size-full wp-image-1817" alt="ssd_r50_r10_04" src="/images/noops.me/03e74be5800b80634e0ecb27f6f24fff.jpg" width="727" height="505"></a></p>
+<p><strong> 随机读分析：</strong></p>
+<ul>
+<li>理论上认为R10性能最好，真实测试数据显示4K、8K数据块下R5、R50、R6的性能都要优于R10；</li>
+<li>当数据块增大到16K、32K时，R10的多盘优势才被逐渐体现出来。</li>
+</ul>
+<p><strong>随机写分析：</strong></p>
+<ul>
+<li>4K由于R50、R5由于有大量校验计算一定程度上影响了性能，但随着数据块逐渐增大，盘数量的优势也显现出来。当数据块达到和超过8K时，R50性能全面超越了R10；</li>
+<li>R10由于存在R1的写同步问题，因此只有4块盘在支撑并发写，随着数据块的增大，R50和R5的多盘性能优势开始发挥。</li>
+</ul>
+<p><strong>混合随机读写分析：</strong></p>
+<ul>
+<li>得益多盘和无校验计算，混合读写R10领先；R50其次，和R10相差27%，性能也较为接近，R5和R50性能为线性关系，R6性能最差。</li>
+</ul>
+<p><strong>顺序读分析：</strong></p>
+<ul>
+<li>由于不存在校验计算，顺序读性能基本上由盘的数量决定；R50和R10性能也较为接近，同盘数的R6和R50性能相当，而盘数较少的R5性能相对前三者要弱一些，符合预期。至于为何R10性能无法线性增加，主要是因为阵列卡本身的性能限制。</li>
+</ul>
+<p><strong>顺序写分析：</strong></p>
+<ul>
+<li>顺序写R5被优化得最好；R50由于需要同时计算两次校验因此损失了一些性能，和R10性能相当，当数据块达到512K时，多盘优势进一步体现出来了，拉开了与R10的差距；R6由于校验和计算的实现较为复杂，顺序写性能也是最差的。</li>
+</ul>
+<p> </p>
+<p>再来看看这些阵列方案的性能和容错特性：</p>
+<p><a href="http://noops.me/wp-content/uploads/2015/03/ssd_r50_r10_05.png"><img class="alignnone size-full wp-image-1818" alt="ssd_r50_r10_05" src="/images/noops.me/0d52479a1014c38911fdb7ed580ad820.jpg" width="729" height="220"></a></p>
+<p><strong>性能测试结论：</strong></p>
+<ul>
+<li>性能测试显示，相同容量的R50和R10性能接近：其中小块文件的随机读R50要全面好于R10，随机写4K虽然R50和R10差距在28%，但是块增大后R50要全面优于R10。顺序读写方面，R50和R10十分接近。</li>
+<li>容错方面，R50接近R10：第二块盘容错率R50十分接近R10，两者相差30%。R10的优势主要是在有一定的概率提供第三、甚至第四块磁盘的容错率，但是考虑到并非100%容错，因此从容错角度来看R50虽然和R10有一些差距，但也已体现出较好的容错率，至少优于R5。而且R50搭配灵活，甚至可以指定3组R5以达到最大3块磁盘的容错；</li>
+<li>成本方面，R50有很大优势：按这个配置计算R50只有R10的3/4。</li>
+</ul>
+<p> </p>
+<p><strong>总结：</strong></p>
+<p>RAID 50提供了接近RAID 10性能、可用性以及接近RAID 5成本的特性，具有较好的整体性价比优势，所以考虑使用RAID 50替换RAID 10把！</p>
+            
+{% endraw %}

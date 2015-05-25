@@ -1,0 +1,211 @@
+---
+layout: post
+title: '机器学习实战ByMatlab（4）：二分K-means算法'
+time: 2015-05-14 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/86914/
+images:
+  92b34e4035fb7a24abf9d0a5c68defb9: http://ww2.sinaimg.cn/mw690/aa213e02jw1es3uf2v6ukj205f01gglf.jpg
+  27ab9f5dd4bf27992dbc7953e5ad2b9b: http://ww1.sinaimg.cn/mw690/aa213e02jw1es3uf27phrj20fk0bowee.jpg
+---
+{% raw %}
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		
+<p>前面我们在是实现K-means算法的时候，提到了它本身存在的缺陷：</p>
+<p>1.可能收敛到局部最小值<br>
+2.在大规模数据集上收敛较慢</p>
+<p>对于上一篇博文最后说的，当陷入局部最小值的时候，处理方法就是多运行几次K-means算法，然后选择畸变函数J较小的作为最佳聚类结果。这样的说法显然不能让我们接受，我们追求的应该是一次就能给出接近最优的聚类结果。</p>
+<p>其实K-means的缺点的根本原因就是：对K个质心的初始选取比较敏感。质心选取得不好很有可能就会陷入局部最小值。</p>
+<p>基于以上情况，有人提出了二分K-means算法来解决这种情况，也就是弱化初始质心的选取对最终聚类效果的影响。</p>
+<p><strong>二分K-means算法</strong></p>
+<p>在介绍二分K-means算法之前我们先说明一个定义：SSE（Sum of Squared Error）,也就是误差平方和，它是用来度量聚类效果的一个指标。其实SSE也就是我们在K-means算法中所说的畸变函数：</p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/92b34e4035fb7a24abf9d0a5c68defb9.jpg" width="195" height="52"></p>
+<p>SSE计算的就是一个cluster中的每个点到质心的平方差，它可以度量聚类的好坏。显然SSE越小，说明聚类效果越好。</p>
+<p><strong>二分K-means算法的主要思想：</strong><br>
+首先将所有点作为一个簇，然后将该簇一分为二。之后选择能最大程度降低聚类代价函数（也就是误差平方和）的簇划分为两个簇。以此进行下去，直到簇的数目等于用户给定的数目k为止。</p>
+<p><strong>二分k均值算法的伪代码如下：</strong></p>
+<p>将所有数据点看成一个簇</p>
+<p>当簇数目小于k时</p>
+<p>对每一个簇</p>
+<p>计算总误差</p>
+<p>在给定的簇上面进行k-均值聚类（k=2）</p>
+<p>计算将该簇一分为二后的总误差</p>
+<p>选择使得误差最小的那个簇进行划分操作</p>
+<p><strong>Matlab 实现</strong></p>
+<pre class="brush: python; gutter: true">function bikMeans
+%%
+clc
+clear
+close all
+%%
+biK = 4;
+biDataSet = load('testSet.txt');
+[row,col] = size(biDataSet);
+% 存储质心矩阵
+biCentSet = zeros(biK,col);
+% 初始化设定cluster数量为1
+numCluster = 1;
+%第一列存储每个点被分配的质心，第二列存储点到质心的距离
+biClusterAssume = zeros(row,2);
+%初始化质心
+biCentSet(1,:) = mean(biDataSet)
+for i = 1:row
+ biClusterAssume(i,1) = numCluster;
+ biClusterAssume(i,2) = distEclud(biDataSet(i,:),biCentSet(1,:));
+end
+while numCluster &lt; biK
+ minSSE = 10000;
+ %寻找对哪个cluster进行划分最好，也就是寻找SSE最小的那个cluster
+ for j = 1:numCluster
+ curCluster = biDataSet(find(biClusterAssume(:,1) == j),:);
+ [spiltCentSet,spiltClusterAssume] = kMeans(curCluster,2);
+ spiltSSE = sum(spiltClusterAssume(:,2));
+ noSpiltSSE = sum(biClusterAssume(find(biClusterAssume(:,1)~=j),2));
+ curSSE = spiltSSE + noSpiltSSE;
+ fprintf('第%d个cluster被划分后的误差为：%f \n' , [j, curSSE])
+ if (curSSE &lt; minSSE)
+ minSSE = curSSE;
+ bestClusterToSpilt = j;
+ bestClusterAssume = spiltClusterAssume;
+ bestCentSet = spiltCentSet;
+ end
+ end
+ bestClusterToSpilt
+ bestCentSet
+ %更新cluster的数目
+ numCluster = numCluster + 1;
+ bestClusterAssume(find(bestClusterAssume(:,1) == 1),1) = bestClusterToSpilt;
+ bestClusterAssume(find(bestClusterAssume(:,1) == 2),1) = numCluster;
+ % 更新和添加质心坐标
+ biCentSet(bestClusterToSpilt,:) = bestCentSet(1,:);
+ biCentSet(numCluster,:) = bestCentSet(2,:);
+ biCentSet
+ % 更新被划分的cluster的每个点的质心分配以及误差
+ biClusterAssume(find(biClusterAssume(:,1) == bestClusterToSpilt),:) = bestClusterAssume;
+end
+figure
+%scatter(dataSet(:,1),dataSet(:,2),5)
+for i = 1:biK
+ pointCluster = find(biClusterAssume(:,1) == i);
+ scatter(biDataSet(pointCluster,1),biDataSet(pointCluster,2),5)
+ hold on
+end
+%hold on
+scatter(biCentSet(:,1),biCentSet(:,2),300,'+')
+hold off
+end
+% 计算欧式距离
+function dist = distEclud(vecA,vecB)
+ dist = sum(power((vecA-vecB),2));
+end
+% K-means算法
+function [centSet,clusterAssment] = kMeans(dataSet,K)
+[row,col] = size(dataSet);
+% 存储质心矩阵
+centSet = zeros(K,col);
+% 随机初始化质心
+for i= 1:col
+ minV = min(dataSet(:,i));
+ rangV = max(dataSet(:,i)) - minV;
+ centSet(:,i) = repmat(minV,[K,1]) + rangV*rand(K,1);
+end
+% 用于存储每个点被分配的cluster以及到质心的距离
+clusterAssment = zeros(row,2);
+clusterChange = true;
+while clusterChange
+ clusterChange = false;
+ % 计算每个点应该被分配的cluster
+ for i = 1:row
+ % 这部分可能可以优化
+ minDist = 10000;
+ minIndex = 0;
+ for j = 1:K
+ distCal = distEclud(dataSet(i,:) , centSet(j,:));
+ if (distCal &lt; minDist)
+ minDist = distCal;
+ minIndex = j;
+ end
+ end
+ if minIndex ~= clusterAssment(i,1) 
+ clusterChange = true;
+ end
+ clusterAssment(i,1) = minIndex;
+ clusterAssment(i,2) = minDist;
+ end
+% 更新每个cluster 的质心
+ for j = 1:K
+ simpleCluster = find(clusterAssment(:,1) == j);
+ centSet(j,:) = mean(dataSet(simpleCluster',:));
+ end
+end
+end</pre>
+<p>算法迭代过程如下</p>
+<p>biCentSet =</p>
+<p>-0.1036   0.0543<br>
+0   0<br>
+0   0<br>
+0   0</p>
+<p>第1个cluster被划分后的误差为：792.916857</p>
+<p>bestClusterToSpilt =</p>
+<p>1</p>
+<p>bestCentSet =</p>
+<p>-0.2897 -2.8394<br>
+0.0825 2.9480</p>
+<p>biCentSet =</p>
+<p>-0.2897   -2.8394<br>
+0.0825   2.9480<br>
+0   0<br>
+0   0</p>
+<p>第1个cluster被划分后的误差为：409.871545<br>
+第2个cluster被划分后的误差为：532.999616</p>
+<p>bestClusterToSpilt =</p>
+<p>1</p>
+<p>bestCentSet =</p>
+<p>-3.3824   -2.9473<br>
+2.8029   -2.7315</p>
+<p>biCentSet =</p>
+<p>-3.3824   -2.9473<br>
+0.0825   2.9480<br>
+2.8029   -2.7315<br>
+0   0</p>
+<p>第1个cluster被划分后的误差为：395.669052<br>
+第2个cluster被划分后的误差为：149.954305<br>
+第3个cluster被划分后的误差为：393.431098</p>
+<p>bestClusterToSpilt =</p>
+<p>2</p>
+<p>bestCentSet =</p>
+<p>2.6265   3.1087<br>
+-2.4615   2.7874</p>
+<p>biCentSet =</p>
+<p>-3.3824   -2.9473<br>
+2.6265   3.1087<br>
+2.8029   -2.7315<br>
+-2.4615   2.7874</p>
+<p><strong>最终效果图</strong></p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/27ab9f5dd4bf27992dbc7953e5ad2b9b.jpg" width="560" height="420"></p>
+
+
+        
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
