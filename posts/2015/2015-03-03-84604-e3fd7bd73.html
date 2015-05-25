@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>CPU也可以有后门？</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-03-03-84604-e3fd7bd73.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>CPU也可以有后门？</h1>
+    <p class="meta"><span class="time">Mar 3, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/84604/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<p><strong>CPU的后门</strong></p>
+<p>人们普遍认为，任何一款软件都可以通过后门被破坏。举几个比较有代表性的例子如：<a href="http://en.wikipedia.org/wiki/Sony_BMG_copy_protection_rootkit_scandal">Sony/BMG的安装程序</a>，有个内置的后门禁止用户复制CD，这个后门也使得恶意的第三方能接管任何安装了该软件的机器；<a href="http://redmine.replicant.us/projects/replicant/wiki/SamsungGalaxyBackdoor">三星Galaxy</a>，它有个后门允许调制解调器访问设备的文件系统，这也就允许了任何<a href="https://www.youtube.com/watch?v=RXqQioV_bpo">一个假基站来访问设备上的文件</a>；以及<a href="http://www.cypherspace.org/adam/hacks/lotus-nsa-key.html">Lotus Notes</a>，它有个后门能使加密失败。</p>
+<p>尽管后门多见于<a href="http://www.cl.cam.ac.uk/~sps32/sec_news.html#Assurance">FPGA</a>和<a href="https://github.com/elvanderb/TCP-32764">网络设备</a>，但每当有人提起CPU上的后门程序是否可能的时候，大部分情况下大家都会断言这是<a href="https://news.ycombinator.com/item?id=6147767">不可能的</a>。我不会断言CPU后门程序是存在的，但我会断言，如果有正确的访问权限，实现就很容易了。</p>
+<p>比方说，你想制造出一个后门。你要怎么做呢？这要分三个环节：一个CPU后门能做什么，要怎样才能访问这个后门，需要什么样的让步才能安装该后门？</p>
+<p>从第一个环节开始，后门能做什么？这就有很多很多的可能。最简单的就是提升权限：使CPU<a href="http://en.wikipedia.org/wiki/Protection_ring">从ring3过渡到ring0或SMM</a>，给正在运行的进程的内核级别的权限。因为它是负责运行的CPU嘛，完全可以无视硬件和软件虚拟化。你可以做很多更微妙或更具侵略性的事情，但权限提升不仅够简单，而且够强大，所以我就不再打算讨论其他的选项。</p>
+<p>现在你知道了你想要借后门做什么，那么究竟应该如何触发后门呢？理想情况下，它应该既不会被人碰巧运行到，也无法通过暴力寻找到。即使有这样的限制，可能的触发状态空间仍旧是巨大的。</p>
+<p>让我们来看一个特定的指令，<code>fyl2x</code>[1]。在正常操作下，它需要两个浮点寄存器作为输入，给您<code>2*80=160</code>位（bits）来隐藏一个触发器。如果你通过一对特定值来触发一个后门，可能相对于随机筛选更安全些。如果你真的很担心后门被人意外发现或暴力破解掉，你也可以检查两个正常输入寄存器以外的值（毕竟，你控制着整个CPU啊）。</p>
+<p>这个触发器简单有效，但不足之处是要触发它很可能需要运行本机代码，但你其实不可能让Chrome或Firefox发出一个<code>fyl2x</code>指令。通过相对容易地令JavaScript引擎发出指令（像<code>fadd</code>），你可以尝试变通地去解决这个问题。与此相对的问题是，如果你想要patch一条add指令，并对它添加一些检查，它就会显著地变慢（尽管如此，如果你可以改写硬件，你应该能够无开销地完成它）。通过patch一个<a href="http://www.csc.depauw.edu/~bhoward/asmtut/asmtut7.html">rep字符串</a>指令，做一些事情来设置恰当的“key”,接在块拷贝(block copy)后面,或者<code>idiv</code>,也有可能可以创造一些难以检测并可以通过JavaScript来触发的后门。或者，如果你已经成功地得到了设计的副本，你也许可以想出一个办法，当任意一些JavaScript运行的时候，来使用调试逻辑触发器[2]或性能计数器去引发一个后门。</p>
+<p>好了，现在你已经有一个后门了。那么你怎么植入该后门呢？在软件方面，你可以编辑源代码或<a href="http://danluu.com/edit-binary/">二进制文件</a>。在硬件方面，如果你有机会到访问到源，你可以在跟在软件中一样容易进行编辑。对硬件重编译源代码，建物理芯片，有着极高的固定成本;如果你试图让你的更改编入源代码，你要么牺牲设计[3]，在一切被发送去生产之前就植入你的所有更改，要么牺牲生产过程，在最后一刻[4]偷偷植入你的更改。</p>
+<p>如果这听起来太难了，你可以尝试牺牲补丁机制。多数现代的CPU配备了一个内置的补丁机制，允许事后的bug修复。你使用的CPU可能早就已经被修补过，也许从第一天开始就是，以作为固件更新的一部分的名目。你CPU补丁机制的细节是严格保密的。这很有可能是CPU上被蚀刻了一个公共密钥，这样它就只能接受已经签署了正确私钥的补丁。</p>
+<p>这就是实际正在发生的事吗？我不知道。它可能发生吗？当然可能。有多大几率呢？唔，主要的挑战是非技术性的，所以我不是那个能给出这个问题答案的人。如果非要我猜的话，我会说不是，如果没有除了<a href="https://github.com/elvanderb/TCP-32764">容易破坏其它设备</a>以外的原因的话。</p>
+<p>我还没有讨论如何制作这样一个后门：即使有人能够访问你用来触发后门的软件，也还是很难发现它。这更难，但是一旦芯片开始使用内置<a href="http://en.wikipedia.org/wiki/Trusted_Platform_Module">TPM</a>的话，它就应该有可能了。</p>
+<p>如果你有兴趣听到更多关于CPU内部的工作原理，你可能会对<a href="http://danluu.com/new-cpu-features/">这篇关于过去35年内CPU的新功能的帖子</a>感兴趣。</p>
+<p><strong>更新</strong></p>
+<p>关于这个话题更多的讨论见<a href="https://twitter.com/danluu/status/562962211782815746">这条twitter主题</a>。那里有一些非常好的评论。我对其中的一部分进行了摘录和总结，不过该帖子的讨论仍在继续。</p>
+<p>因为有太多评论的缘故，我在此不一一指出哪些评论是谁的，尽管如此，以下是评论的作者们：@hackerfantastic, Arrigo Triulzi, David Kanter, @solardiz, @4Dgifts, Alfredo Ortega, Marsh Ray, 以及Russ Cox。当然，要是弄错了的话就怪我咯。</p>
+<p><a href="http://www.realworldtech.com/forum/?threadid=35566&amp;curpostid=35566">AMD的K7和K8对他们的微码(microcode)补丁机制作出了牺牲</a>，因此容许了本帖所提到的这种攻击。事实上，AMD并没有加密它的更新或者至少对它的checksum进行验证，这让你能轻松地更改它的更新，直到你得到一个能达成你目的的CPU。</p>
+<p>下面是由Alfredo Ortega<a href="http://es.slideshare.net/ortegaalfredo/deep-submicronbackdoorsortegasyscan2014slides">出于演示目的而创建的一个后门的例子</a>。</p>
+<p>对于没有硬件背景的亲们，<a href="http://media.ccc.de/browse/congress/2013/30C3_-_5443_-_en_-_saal_g_-_201312281830_-_introduction_to_processor_design_-_byterazor.html#video">这里有个不错的关于如何用VHDL实现一个CPU的谈话，里面还有个章节是关于如何实现后门的</a>。</p>
+<p>是否有可能通过提供恶意的随机结果来利用RDRAND制造后门？是的，有可能。我在本帖的第一稿提到过，但我后来删掉了这个方法。因为在我的印象中，人们不信任RDRAND而且结果中一般混合了其他熵(entropy)来源。这不会彻底使这个后门无效，但却也显著地降低了它的价值。</p>
+<p>有没有可能来存储和释放AES-NI键？要偷偷闪存内容到一个芯片上而不被任何人注意到，这大概不太可行，但是，现代芯片的逻辑分析仪能让你对数据进行存储和转储。尽管如此，对它们的访问是通过一些秘密的机制，目前还不清楚要如何访问二进制文件，才能允许你对它们进行逆向工程。与此形成鲜明对比的是K8逆向工程，它是可能的，因为微码(microcode)补丁被包括在固件更新中。</p>
+<p>要检查触发器的指令前缀是可能的。 x86允许你对指令添加多余（和矛盾）的前缀。使用过的前缀都被很好的定义过，所以你可以根据需要添加尽可能多（不超过前缀长度限制）的前缀，而不会造成任何问题。它的问题是，很难不牺牲该微码(microcode)补丁的性能，对前缀数目和长度的限制则意味着：若不跨指令追踪状态，你的有效密钥长度就会比较短，并且你只能通过本地代码来生成触发器。</p>
+<p>我们都知道，上文所述的一切都基于推测，其实并没有人见过真实世界里被应用的CPU后门。</p>
+<p><strong>致谢</strong></p>
+<p>感谢Leah Hanson大量的评注，Aleksey Shipilev的建议，以及众多参与者在上文所提到的twitter主题贴中的讨论。此外，感谢Markus Siemens注意到在一些RSS阅读器中引发问题的bug，并提供了解决方法。这不是仅仅局限于本帖，但它出现于此。</p>
+<p>[1]关于指令的选择是有点，但不是完全，武断的。你可能需要一个缓慢并且微编码过(microcoded)的指令，便于打一个微码补丁，而不会造成巨大的性能损失。本脚注的其余部分是关于对指令进行微编码(microcoded)到底意味着什么。这部分很长，而且并不是本帖的关键点，所以你可以跳过它。</p>
+<p>指令被微编码过(microcoded)与在硬件实现间差别多少，其实有点随意/难说。 CPU有一个需要实现的指令集，你可以把它想成公共API。但是在内部，他们其实可以执行不同的指令集，你可以把它想成私有API。</p>
+<p>在现代英特尔芯片上，转成四个（或更少）uops（私有API调用）的指令会由解码器直接译成uops。会引发更多uops的指令（从5到数百甚至数千）则由从CPU中小小的ROM或RAM的读取uops的微码引擎来解码。为什么是四而不是五？这个结果是出于权衡，而非基本真理。对此专用的术语尚未规范，但我认识的人会说，如果它的解码是由微码引擎完成的，那么指令是“微编码过的”(“microcoded”)，如果它的解码是由标准解码器来处理的，那么就说它是“硬件实现的”。微码引擎有点像自有的CPU，因为它必须能够完成类似，对架构上不可见的临时寄存器进行读取和写入操作，对内部RAM读写需要超过少量寄存器暂存空间的指令，对微码引擎获取和解码的微码指令进行条件微码分支，如此等等。</p>
+<p>实现细节往往变化无常（并且通常是机密）。但无论如何实现，你可以把微码引擎想象成CPU启动时加载写有微码(microcode)的RAM，之后从该RAM获取及解码出相应微码(microcode)指令的部件。通过打微码补丁来改变开机加载执行的微码就很容易了。</p>
+<p>为了更快的调试周转期，假设英特尔存在这样的机制：使得他们能迫使非微码(non-microcoded)的指令在微码RAM外执行，以使CPU能打微码补丁，是合理甚至可能的。但是，即使这不是这种情况，牺牲微码补丁机制来修改一个微代码指令应该也足够安装一个后门上去了。</p>
+<p>[2] 这里的大部分内容都未曾记载于官方文档，但是你可以得到一个高层次的概述：关于英特尔在他们几代前的芯片上制作什么样的调试触发器，于<a href="http://click.intel.com/the-tick-tock-beat-of-microprocessor-development-at-intel.html">《Intel Technology Journal》第128页，第4卷，第3期</a>。</p>
+<p>[3] 在过去的几年中，一直有关于大型企业是否受到了损害以及这可不可能的争论。在冷战期间，政府在各方面的机构受到了长时间不同程度的损害，尽管它能获得不向现在的任何企业开放的对策（外国公民避免，“强化审讯技术”等）。我不确定，我们是否永远都不会知道企业是否受到了损害，但危及当今的企业比起危及在冷战期间的政府机构来说肯定还是容易多了，并且这显然是可行的。</p>
+<p>[4]这又是一个关于minutia的超长注脚！特别是，它是关于制造过程的。你可能想要跳过它！如果你没有跳过的话，请别怪我没提醒你哦。</p>
+<p>事实证明，在制造完成之前修改芯片是比较容易的，从设计角度来说。要解释为什么的话，我们就得看看芯片是如何制成的。</p>
+<dl class="wp-caption alignnone" id="" style="width: 430px;">
+<dt class="wp-caption-dt"></dt>
+<dd class="wp-caption-dd">英特尔芯片的横截面，22纳米制作工艺</dd>
+</dl>
+<p><img alt="" src="/images/jobbole.com/f4acea291a592aa36b88fdf1d5b3786d.jpg"></p>
+<p>“英特尔芯片的横截面，22纳米制作工艺”</p>
+<p>当你观察一个<a href="http://www.intel.com/content/dam/www/public/us/en/documents/presentation/silicon-technology-leadership-presentation.pdf">芯片横截面</a>的时候，可以看到硅门在底部，形成类似<a href="http://www.nand2tetris.org/">与非门</a>的逻辑原语，在它以上有一系列（标记着M1到M8）的金属层，形成连接不同门的线路。制造过程的卡通模型类似于<a href="http://en.wikipedia.org/wiki/Lithography">传统的石版印刷</a>：芯片由底部向上，一次一层，每层通过沉积一些材料，然后使用掩模蚀刻出来。非卡通的版本则相当复杂的：<a href="https://www.youtube.com/watch?v=NGFhc8R_uO4">据Todd Fernendez估计，大约需要500个步骤来制造出“M1”下面的芯片层</a>。除此之外，所需精密程度之高使得用于蚀刻的光在设备上造成了太大的磨损。你通常可能不会认为透镜会因为被光线穿过而磨损，但在制作一个晶体管所需的数百个步骤要求的精度水平下，这就是一个严重的问题了。放心吧，你并不是唯一那个会对此觉得惊讶的人。上世纪90年代的<a href="http://www.itrs.net/">ITRS路线图</a>预测出，到2016年，我们在9纳米工艺（越小越好）上会达到接近30GHz（越高越好），芯片消耗将近300瓦。相反，现在5GHz就被认为相当快了，直至2016年初，任何非英特尔的厂商能在14纳米制作工艺上获得高产出都算是好运气了。制造芯片比任何人猜测的都更难。</p>
+<p>一个现代芯片要有足够的芯片层，它从制作开始到结束需要三个月左右的时间。这使bug的出现成为了非常糟糕的状况，因为要修复一个bug，就需要对最底下一个需要三个月来制造芯片层做改动。为了减少bug修复所用的周转时间，典型的做法是在硅片各处散布未使用的逻辑门，那么修复小的bug只需要修改几个接近顶部的芯片层就可以了。由于芯片制作是流水线工艺，在任何时间点，都有几批部分完成的芯片。如果你只需要修改顶部金属层中的一个，那么你可以改动这些半成品，使周转时间从几个月缩短到几周。</p>
+<p>由于芯片设计要求易于修改，如果有人能够在它被制造之前访问到芯片的设计（如制造商），那么他就可以使用相对较小的改动引发较大的变化。</p>
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+
+	<h3 class="widget-title">
+	关于作者： <a href="http://blog.jobbole.com/author/boisde/">boisde</a>
+	</h3>
+	<div class="alignleft">
+		<a href="http://blog.jobbole.com/author/boisde/">
+					</a>
+	</div>
+	<p></p>
+	<p>
+		<a style="text-decoration: none;" href="http://blog.jobbole.com/author/boisde/">查看boisde的更多文章 &gt;&gt; </a>
+	</p>
+	<div class="clear"></div>
+
+</div>
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-03-01-84595-725b7cec1.html" title="Previous Post: 关于大型网站技术演进的思考（十六）--网站静态化处理—前后端分离—下（8）" data-instant>&laquo; 关于大型网站技术演进的思考（十六）--网站静态化处理—前后端分离—下（8）</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-03-04-84633-932b36510.html" title="Next Post: 那些年我们一起追过的缓存写法(二)" data-instant>那些年我们一起追过的缓存写法(二) &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>22 May 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-05-22-86960-8358d0dfa.html">八岁小孩的数学：少儿图论</a></li>
+
+      <li><span>09 Mar 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-03-09-84619-bda8e5d5a.html">如何在Hadoop 2.0上实现深度学习？</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

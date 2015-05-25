@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Kibana 3 源码解析</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-03-14-kibana3-source-code-analysis-6b906535c.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>Kibana 3 源码解析</h1>
+    <p class="meta"><span class="time">Mar 14, 2015</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2015/03/14/kibana3-source-code-analysis" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+  <div style="background-color: #FFF;">
+    <p>本文之前已经拆分成章节发布在我的 <a href="http://kibana.logstash.es/">《Kibana 权威指南》电子书</a>上。欢迎移步观看全书其他章节。</p>
+<hr>
+<p>Kibana 3 作为 ELKstack 风靡世界的最大推动力，其与优美的界面配套的简洁的代码同样功不可没。事实上，graphite 社区就通过移植 kibana 3 代码框架的方式，启动了 <a href="http://grafana.org/">grafana 项目</a>。至今你还能在 grafana 源码找到二十多处 “kbn” 字样。</p>
+<p><em>巧合的是，在 Kibana 重构 v4 版的同时，grafana 的 v2 版也到了 Alpha 阶段，从目前的预览效果看，主体 dashboard 沿用了 Kibana 3 的风格，不过添加了额外的菜单栏，供用户权限设置等使用 —— 这意味着 grafana 2 跟 kibana 4 一样需要一个单独的 server 端。</em></p>
+<p>笔者并非专业的前端工程师，对 angularjs 也处于一本入门指南都没看过的水准。所以本节内容，只会抽取一些个人经验中会有涉及到的地方提出一些”私货”。欢迎方家指正。</p>
+<h2 id="section">源码目录结构</h2>
+<p>下面是 kibana 源码的全部文件的 tree 图：</p>
+<pre><code>.
+├── app
+│   ├── app.js
+│   ├── components
+│   │   ├── extend-jquery.js
+│   │   ├── kbn.js
+│   │   ├── lodash.extended.js
+│   │   ├── require.config.js
+│   │   └── settings.js
+│   ├── controllers
+│   │   ├── all.js
+│   │   ├── dash.js
+│   │   ├── dashLoader.js
+│   │   ├── pulldown.js
+│   │   └── row.js
+│   ├── dashboards
+│   │   ├── blank.json
+│   │   ├── default.json
+│   │   ├── guided.json
+│   │   ├── logstash.js
+│   │   ├── logstash.json
+│   │   ├── noted.json
+│   │   ├── panel.js
+│   │   └── test.json
+│   ├── directives
+│   │   ├── addPanel.js
+│   │   ├── all.js
+│   │   ├── arrayJoin.js
+│   │   ├── configModal.js
+│   │   ├── confirmClick.js
+│   │   ├── dashUpload.js
+│   │   ├── esVersion.js
+│   │   ├── kibanaPanel.js
+│   │   ├── kibanaSimplePanel.js
+│   │   ├── ngBlur.js
+│   │   ├── ngModelOnBlur.js
+│   │   ├── resizable.js
+│   │   └── tip.js
+│   ├── factories
+│   │   └── store.js
+│   ├── filters
+│   │   └── all.js
+│   ├── panels
+│   │   ├── bettermap
+│   │   │   ├── editor.html
+│   │   │   ├── leaflet
+│   │   │   │   ├── images
+│   │   │   │   │   ├── layers-2x.png
+│   │   │   │   │   ├── layers.png
+│   │   │   │   │   ├── marker-icon-2x.png
+│   │   │   │   │   ├── marker-icon.png
+│   │   │   │   │   └── marker-shadow.png
+│   │   │   │   ├── leaflet-src.js
+│   │   │   │   ├── leaflet.css
+│   │   │   │   ├── leaflet.ie.css
+│   │   │   │   ├── leaflet.js
+│   │   │   │   ├── plugins.css
+│   │   │   │   ├── plugins.js
+│   │   │   │   └── providers.js
+│   │   │   ├── module.css
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── column
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   ├── module.js
+│   │   │   └── panelgeneral.html
+│   │   ├── dashcontrol
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── derivequeries
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── fields
+│   │   │   ├── editor.html
+│   │   │   ├── micropanel.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── filtering
+│   │   │   ├── editor.html
+│   │   │   ├── meta.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── force
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── goal
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── histogram
+│   │   │   ├── editor.html
+│   │   │   ├── interval.js
+│   │   │   ├── module.html
+│   │   │   ├── module.js
+│   │   │   ├── queriesEditor.html
+│   │   │   ├── styleEditor.html
+│   │   │   └── timeSeries.js
+│   │   ├── hits
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── map
+│   │   │   ├── editor.html
+│   │   │   ├── lib
+│   │   │   │   ├── jquery.jvectormap.min.js
+│   │   │   │   ├── map.cn.js
+│   │   │   │   ├── map.europe.js
+│   │   │   │   ├── map.usa.js
+│   │   │   │   └── map.world.js
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── multifieldhistogram
+│   │   │   ├── editor.html
+│   │   │   ├── interval.js
+│   │   │   ├── markersEditor.html
+│   │   │   ├── meta.html
+│   │   │   ├── module.html
+│   │   │   ├── module.js
+│   │   │   ├── styleEditor.html
+│   │   │   └── timeSeries.js
+│   │   ├── percentiles
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── query
+│   │   │   ├── editor.html
+│   │   │   ├── editors
+│   │   │   │   ├── lucene.html
+│   │   │   │   ├── regex.html
+│   │   │   │   └── topN.html
+│   │   │   ├── help
+│   │   │   │   ├── lucene.html
+│   │   │   │   ├── regex.html
+│   │   │   │   └── topN.html
+│   │   │   ├── helpModal.html
+│   │   │   ├── meta.html
+│   │   │   ├── module.html
+│   │   │   ├── module.js
+│   │   │   └── query.css
+│   │   ├── ranges
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── sparklines
+│   │   │   ├── editor.html
+│   │   │   ├── interval.js
+│   │   │   ├── module.html
+│   │   │   ├── module.js
+│   │   │   └── timeSeries.js
+│   │   ├── statisticstrend
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── stats
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── table
+│   │   │   ├── editor.html
+│   │   │   ├── export.html
+│   │   │   ├── micropanel.html
+│   │   │   ├── modal.html
+│   │   │   ├── module.html
+│   │   │   ├── module.js
+│   │   │   └── pagination.html
+│   │   ├── terms
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── text
+│   │   │   ├── editor.html
+│   │   │   ├── lib
+│   │   │   │   └── showdown.js
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   ├── timepicker
+│   │   │   ├── custom.html
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   ├── module.js
+│   │   │   └── refreshctrl.html
+│   │   ├── trends
+│   │   │   ├── editor.html
+│   │   │   ├── module.html
+│   │   │   └── module.js
+│   │   └── valuehistogram
+│   │       ├── editor.html
+│   │       ├── module.html
+│   │       ├── module.js
+│   │       ├── queriesEditor.html
+│   │       └── styleEditor.html
+│   ├── partials
+│   │   ├── connectionFailed.html
+│   │   ├── dashLoader.html
+│   │   ├── dashLoaderShare.html
+│   │   ├── dashboard.html
+│   │   ├── dasheditor.html
+│   │   ├── inspector.html
+│   │   ├── load.html
+│   │   ├── modal.html
+│   │   ├── paneladd.html
+│   │   ├── paneleditor.html
+│   │   ├── panelgeneral.html
+│   │   ├── querySelect.html
+│   │   └── roweditor.html
+│   └── services
+│       ├── alertSrv.js
+│       ├── all.js
+│       ├── dashboard.js
+│       ├── esVersion.js
+│       ├── fields.js
+│       ├── filterSrv.js
+│       ├── kbnIndex.js
+│       ├── monitor.js
+│       ├── panelMove.js
+│       ├── querySrv.js
+│       └── timer.js
+├── config.js
+├── css
+│   ├── angular-multi-select.css
+│   ├── animate.min.css
+│   ├── bootstrap-responsive.min.css
+│   ├── bootstrap.dark.min.css
+│   ├── bootstrap.light.min.css
+│   ├── font-awesome.min.css
+│   ├── jquery-ui.css
+│   ├── jquery.multiselect.css
+│   ├── normalize.min.css
+│   └── timepicker.css
+├── favicon.ico
+├── font
+│   ├── FontAwesome.otf
+│   ├── fontawesome-webfont.eot
+│   ├── fontawesome-webfont.svg
+│   ├── fontawesome-webfont.ttf
+│   └── fontawesome-webfont.woff
+├── img
+│   ├── annotation-icon.png
+│   ├── cubes.png
+│   ├── glyphicons-halflings-white.png
+│   ├── glyphicons-halflings.png
+│   ├── kibana.png
+│   ├── light.png
+│   ├── load.gif
+│   ├── load_big.gif
+│   ├── small.png
+│   └── ui-icons_222222_256x240.png
+├── index.html
+└── vendor
+    ├── LICENSE.json
+    ├── angular
+    │   ├── angular-animate.js
+    │   ├── angular-cookies.js
+    │   ├── angular-dragdrop.js
+    │   ├── angular-loader.js
+    │   ├── angular-resource.js
+    │   ├── angular-route.js
+    │   ├── angular-sanitize.js
+    │   ├── angular-scenario.js
+    │   ├── angular-strap.js
+    │   ├── angular.js
+    │   ├── bindonce.js
+    │   ├── datepicker.js
+    │   └── timepicker.js
+    ├── blob.js
+    ├── bootstrap
+    │   ├── bootstrap.js
+    │   └── less
+    │       ├── accordion.less
+    │       ├── alerts.less
+    │       ├── bak
+    │       │   ├── bootswatch.dark.less
+    │       │   └── variables.dark.less
+    │       ├── bootstrap.dark.less
+    │       ├── bootstrap.less
+    │       ├── bootstrap.light.less
+    │       ├── bootswatch.dark.less
+    │       ├── bootswatch.light.less
+    │       ├── breadcrumbs.less
+    │       ├── button-groups.less
+    │       ├── buttons.less
+    │       ├── carousel.less
+    │       ├── close.less
+    │       ├── code.less
+    │       ├── component-animations.less
+    │       ├── dropdowns.less
+    │       ├── forms.less
+    │       ├── grid.less
+    │       ├── hero-unit.less
+    │       ├── labels-badges.less
+    │       ├── layouts.less
+    │       ├── media.less
+    │       ├── mixins.less
+    │       ├── modals.less
+    │       ├── navbar.less
+    │       ├── navs.less
+    │       ├── overrides.less
+    │       ├── pager.less
+    │       ├── pagination.less
+    │       ├── popovers.less
+    │       ├── progress-bars.less
+    │       ├── reset.less
+    │       ├── responsive-1200px-min.less
+    │       ├── responsive-767px-max.less
+    │       ├── responsive-768px-979px.less
+    │       ├── responsive-navbar.less
+    │       ├── responsive-utilities.less
+    │       ├── responsive.less
+    │       ├── scaffolding.less
+    │       ├── sprites.less
+    │       ├── tables.less
+    │       ├── tests
+    │       │   ├── buttons.html
+    │       │   ├── css-tests.css
+    │       │   ├── css-tests.html
+    │       │   ├── forms-responsive.html
+    │       │   ├── forms.html
+    │       │   ├── navbar-fixed-top.html
+    │       │   ├── navbar-static-top.html
+    │       │   └── navbar.html
+    │       ├── thumbnails.less
+    │       ├── tooltip.less
+    │       ├── type.less
+    │       ├── utilities.less
+    │       ├── variables.dark.less
+    │       ├── variables.less
+    │       ├── variables.light.less
+    │       └── wells.less
+    ├── chromath.js
+    ├── elasticjs
+    │   ├── elastic-angular-client.js
+    │   └── elastic.js
+    ├── elasticsearch.angular.js
+    ├── filesaver.js
+    ├── jquery
+    │   ├── jquery-1.8.0.js
+    │   ├── jquery-ui-1.10.3.js
+    │   ├── jquery.flot.byte.js
+    │   ├── jquery.flot.events.js
+    │   ├── jquery.flot.js
+    │   ├── jquery.flot.pie.js
+    │   ├── jquery.flot.selection.js
+    │   ├── jquery.flot.stack.js
+    │   ├── jquery.flot.stackpercent.js
+    │   ├── jquery.flot.threshold.js
+    │   ├── jquery.flot.time.js
+    │   ├── jquery.multiselect.filter.js
+    │   └── jquery.multiselect.js
+    ├── jsonpath.js
+    ├── lodash.js
+    ├── modernizr-2.6.1.js
+    ├── moment.js
+    ├── numeral.js
+    ├── require
+    │   ├── css-build.js
+    │   ├── css.js
+    │   ├── require.js
+    │   ├── text.js
+    │   └── tmpl.js
+    ├── simple_statistics.js
+    ├── timezone.js
+    └── underscore.string.js
+</code></pre>
+
+<p>一目了然，我们可以归纳出下面几类主要文件：</p>
+<ul>
+  <li>入口：index.html</li>
+  <li>模块库：vendor/</li>
+  <li>程序入口：app/app.js</li>
+  <li>组件配置：app/components/</li>
+  <li>仪表板控制：app/controllers/</li>
+  <li>挂件页面：app/partials/</li>
+  <li>服务：app/services/</li>
+  <li>指令：app/directives/</li>
+  <li>图表：app/panels/</li>
+</ul>
+<h2 id="section-1">入口和模块依赖</h2>
+<p>这一部分是网页项目的基础。从 index.html 里就可以学到 angularjs 最基础的常用模板语法了。出现的指令有：<code>ng-repeat</code>, <code>ng-controller</code>, <code>ng-include</code>, <code>ng-view</code>, <code>ng-slow</code>, <code>ng-click</code>, <code>ng-href</code>，以及变量绑定的语法：``。</p>
+<p>index.html 中，需要注意 js 的加载次序，先 <code>require.js</code>，然后再 <code>require.config.js</code>，最后 <code>app</code>。整个 kibana 项目都是通过 <strong>requrie</strong> 方式加载的。而具体的模块，和模块的依赖关系，则定义在 <code>require.config.js</code> 里。这些全部加载完成后，才是启动 app 模块，也就是项目本身的代码。</p>
+<p>require.config.js 中，主要分成两部分配置，一个是 <code>paths</code>，一个是 <code>shim</code>。paths 用来指定依赖模块的导出名称和模块 js 文件的具体路径。而 shim 用来指定依赖模块之间的依赖关系。比方说：绘制图表的 js，kibana3 里用的是 jquery.flot 库。这个就首先依赖于 jquery 库。(通俗的说，就是原先普通的 HTML 写法里，要先加载 jquery.js 再加载 jquery.flot.js)</p>
+<p>在整个 paths 中，需要单独提一下的是 <code>elasticjs:'../vendor/elasticjs/elastic-angular-client'</code>。这是串联 elastic.js 和 angular.js 的文件。这里面实际是定义了一个 angular.module 的 factory，名叫 <code>ejsResource</code>。后续我们在 kibana 3 里用到的跟 Elasticsearch 交互的所有方法，都在这个 <code>ejsResource</code> 里了。</p>
+<p><em>factory 是 angular 的一个单例对象，创建之后会持续到你关闭浏览器。Kibana 3 就是通过这种方式来控制你所有的图表是从同一个 Elasticsearch 获取的数据</em></p>
+<p>app.js 中，定义了整个应用的 routes，加载了 controller, directives 和 filters 里的全部内容。就是在这里，加载了主页面 <code>app/partials/dashboard.html</code>。当然，这个页面其实没啥看头，因为里面就是提供 pulldown 和 row 的 div，然后绑定到对应的 controller 上。</p>
+<h2 id="controller--service">controller 和 service</h2>
+<p>controller 里没太多可讲的。kibana 3 里，pulldown 其实跟 row 差别不大，看这简单的几行代码里，最关键的就是几个注入：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">define</span><span class="p">([</span><span class="s1">'angular'</span><span class="p">,</span><span class="s1">'app'</span><span class="p">,</span><span class="s1">'lodash'</span><span class="p">],</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">angular</span><span class="p">,</span> <span class="nx">app</span><span class="p">,</span> <span class="nx">_</span><span class="p">)</span> <span class="p">{</span>
+  <span class="s1">'use strict'</span><span class="p">;</span>
+  <span class="nx">angular</span><span class="p">.</span><span class="nx">module</span><span class="p">(</span><span class="s1">'kibana.controllers'</span><span class="p">).</span><span class="nx">controller</span><span class="p">(</span><span class="s1">'RowCtrl'</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">$scope</span><span class="p">,</span> <span class="nx">$rootScope</span><span class="p">,</span> <span class="nx">$timeout</span><span class="p">,</span><span class="nx">ejsResource</span><span class="p">,</span> <span class="nx">querySrv</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">_d</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="nx">title</span><span class="o">:</span> <span class="s2">"Row"</span><span class="p">,</span>
+        <span class="nx">height</span><span class="o">:</span> <span class="s2">"150px"</span><span class="p">,</span>
+        <span class="nx">collapse</span><span class="o">:</span> <span class="kc">false</span><span class="p">,</span>
+        <span class="nx">collapsable</span><span class="o">:</span> <span class="kc">true</span><span class="p">,</span>
+        <span class="nx">editable</span><span class="o">:</span> <span class="kc">true</span><span class="p">,</span>
+        <span class="nx">panels</span><span class="o">:</span> <span class="p">[],</span>
+        <span class="nx">notice</span><span class="o">:</span> <span class="kc">false</span>
+      <span class="p">};</span>
+      <span class="nx">_</span><span class="p">.</span><span class="nx">defaults</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">row</span><span class="p">,</span><span class="nx">_d</span><span class="p">);</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">init</span> <span class="o">=</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+        <span class="nx">$scope</span><span class="p">.</span><span class="nx">querySrv</span> <span class="o">=</span> <span class="nx">querySrv</span><span class="p">;</span>
+        <span class="nx">$scope</span><span class="p">.</span><span class="nx">reset_panel</span><span class="p">();</span>
+      <span class="p">};</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">init</span><span class="p">();</span>
+    <span class="p">}</span>
+  <span class="p">);</span>
+<span class="p">});</span></code></pre>
+</div>
+<p>这里面，注入了 <code>$scope</code>, <code>ejsResource</code> 和 <code>querySrv</code>。<code>$scope</code> 是控制器作用域内的模型数据对象，这是 angular 提供的一个特殊变量。<code>ejsResource</code> 是一个 factory ，前面已经讲过。<code>querySrv</code> 是一个 service，下面说一下。</p>
+<p>service 跟 factory 的概念非常类似，一般来说，可能 factory 偏向用来共享一个类，而 service 用来共享一组函数功能。</p>
+<p>kibana 3 里，比较有用和常用的 services 包括：</p>
+<h3 id="dashboard">dashboard</h3>
+<p>dashboard.js 里提供了关于 Kibana 3 仪表板的读写操作。其中主要的几个是提供了三种读取仪表板布局纲要的方式，也就是读取文件，读取存在 <code>.kibana-int</code> 索引里的数据，读取 js 脚本。下面是读取 js 脚本的相关函数：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="k">this</span><span class="p">.</span><span class="nx">script_load</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">file</span><span class="p">)</span> <span class="p">{</span>
+      <span class="k">return</span> <span class="nx">$http</span><span class="p">({</span>
+        <span class="nx">url</span><span class="o">:</span> <span class="s2">"app/dashboards/"</span><span class="o">+</span><span class="nx">file</span><span class="p">.</span><span class="nx">replace</span><span class="p">(</span><span class="sr">/\.(?!js)/</span><span class="p">,</span><span class="s2">"/"</span><span class="p">),</span>
+        <span class="nx">method</span><span class="o">:</span> <span class="s2">"GET"</span><span class="p">,</span>
+        <span class="nx">transformResponse</span><span class="o">:</span> <span class="kd">function</span><span class="p">(</span><span class="nx">response</span><span class="p">)</span> <span class="p">{</span>
+          <span class="cm">/*jshint -W054 */</span>
+          <span class="kd">var</span> <span class="nx">_f</span> <span class="o">=</span> <span class="k">new</span> <span class="nb">Function</span><span class="p">(</span><span class="s1">'ARGS'</span><span class="p">,</span><span class="s1">'kbn'</span><span class="p">,</span><span class="s1">'_'</span><span class="p">,</span><span class="s1">'moment'</span><span class="p">,</span><span class="s1">'window'</span><span class="p">,</span><span class="s1">'document'</span><span class="p">,</span><span class="s1">'angular'</span><span class="p">,</span><span class="s1">'require'</span><span class="p">,</span><span class="s1">'define'</span><span class="p">,</span><span class="s1">'$'</span><span class="p">,</span><span class="s1">'jQuery'</span><span class="p">,</span><span class="nx">response</span><span class="p">);</span>
+          <span class="k">return</span> <span class="nx">_f</span><span class="p">(</span><span class="nx">$routeParams</span><span class="p">,</span><span class="nx">kbn</span><span class="p">,</span><span class="nx">_</span><span class="p">,</span><span class="nx">moment</span><span class="p">);</span>
+        <span class="p">}</span>
+      <span class="p">}).</span><span class="nx">then</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">result</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="nx">result</span><span class="p">)</span> <span class="p">{</span>
+          <span class="k">return</span> <span class="kc">false</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="nx">self</span><span class="p">.</span><span class="nx">dash_load</span><span class="p">(</span><span class="nx">dash_defaults</span><span class="p">(</span><span class="nx">result</span><span class="p">.</span><span class="nx">data</span><span class="p">));</span>
+        <span class="k">return</span> <span class="kc">true</span><span class="p">;</span>
+      <span class="p">},</span><span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+        <span class="nx">alertSrv</span><span class="p">.</span><span class="nx">set</span><span class="p">(</span><span class="s1">'Error'</span><span class="p">,</span>
+          <span class="s2">"Could not load &lt;i&gt;scripts/"</span><span class="o">+</span><span class="nx">file</span><span class="o">+</span><span class="s2">"&lt;/i&gt;. Please make sure it exists and returns a valid dashboard"</span> <span class="p">,</span>
+          <span class="s1">'error'</span><span class="p">);</span>
+        <span class="k">return</span> <span class="kc">false</span><span class="p">;</span>
+      <span class="p">});</span>
+    <span class="p">};</span></code></pre>
+</div>
+<p>可以看到，最关键的就是那个 <code>new Function</code>。知道这步传了哪些函数进去，也就知道你的 js 脚本里都可以调用哪些内容了~</p>
+<p>最后调用的 <code>dash_load</code> 方法也需要提一下。这个方法的最后，有几行这样的代码：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">self</span><span class="p">.</span><span class="nx">availablePanels</span> <span class="o">=</span> <span class="nx">_</span><span class="p">.</span><span class="nx">difference</span><span class="p">(</span><span class="nx">config</span><span class="p">.</span><span class="nx">panel_names</span><span class="p">,</span>
+        <span class="nx">_</span><span class="p">.</span><span class="nx">pluck</span><span class="p">(</span><span class="nx">_</span><span class="p">.</span><span class="nx">union</span><span class="p">(</span><span class="nx">self</span><span class="p">.</span><span class="nx">current</span><span class="p">.</span><span class="nx">nav</span><span class="p">,</span><span class="nx">self</span><span class="p">.</span><span class="nx">current</span><span class="p">.</span><span class="nx">pulldowns</span><span class="p">),</span><span class="s1">'type'</span><span class="p">));</span>
+      <span class="nx">self</span><span class="p">.</span><span class="nx">availablePanels</span> <span class="o">=</span> <span class="nx">_</span><span class="p">.</span><span class="nx">difference</span><span class="p">(</span><span class="nx">self</span><span class="p">.</span><span class="nx">availablePanels</span><span class="p">,</span><span class="nx">config</span><span class="p">.</span><span class="nx">hidden_panels</span><span class="p">);</span></code></pre>
+</div>
+<p>从最外层的 <code>config.js</code> 里读取了 <code>panel_names</code> 数组，然后取出了 nav 和 pulldown 用过的 panel，剩下就是我们能在 row 里添加的 panel 类型了。</p>
+<h3 id="querysrv">querySrv</h3>
+<p>querySrv.js 里定义了跟 query 框相关的函数和属性。主要有几个值得注意的。</p>
+<ul>
+  <li>一个是 <code>color</code> 列表；</li>
+  <li>一个是 <code>queryTypes</code>，尤其是里么的 <code>topN</code>，可以看到 topN 方式其实就是先请求了一次 termsFacet，然后把结果 map 成一组普通的 query。</li>
+  <li>一个是 <code>ids</code> 和 <code>idsByMode</code>。之后图表的绑定具体 query 的时候，就是通过这个函数来选择的。</li>
+</ul>
+<h3 id="filtersrv">filterSrv</h3>
+<p>filterSrv.js 跟 querySrv 相似。特殊的是两个函数。</p>
+<ul>
+  <li>一个是 <code>toEjsObjs</code>。根据不同的 filter 类型调用不同的 ejs 方法。</li>
+  <li>一个是 <code>timeRange</code>。因为在 histogram panel 上拖拽，会生成好多个 range 过滤器，都是时间。这个方法会选择最后一个类型为 time 的 filter，作为实际要用的 filter。这样保证请求 ES 的是最后一次拖拽选定的时间段。</li>
+</ul>
+<h3 id="fields">fields</h3>
+<p>fields.js 里最重要的作用就是通过 mapping 接口获取索引的字段列表，存在 <code>fields.list</code> 里。这个数组后来在每个 panel 的编辑页里，都以 <code>bs-typeahead="fields.list"</code> 的形式作为文本输入时的自动补全提示。在 table panel 里，则是左侧栏的显示来源。</p>
+<h3 id="esversion">esVersion</h3>
+<p>esVersion.js 里提供了对 ES 版本号的对比函数。之所以专门提供这么个 service，一来是因为不同版本的 ES 接口有变化，比如我自己开发的 percentile panel 里，就用 esVersion 判断了两次版本。因为 percentile 接口是 1.0 版之后才有，而从 1.3 版以后返回数据的结构又发生了一次变动。二来 ES 的版本号格式比较复杂，又有点又有字母。</p>
+<h2 id="panel-">panel 相关指令</h2>
+<h3 id="panel">添加 panel</h3>
+<p>前面在讲 <code>app/services/dashboard.js</code> 的时候，已经说到能添加的 panel 列表是怎么获取的。那么panel 是怎么加上的呢？</p>
+<p>同样是之前讲过的 <code>app/partials/dashaboard.html</code> 里，加载了 <code>partials/roweditor.html</code> 页面。这里有一段：</p>
+<div class="highlight"><pre><code class="language-html" data-lang="html"><span class="nt">&lt;form</span> <span class="na">class=</span><span class="s">"form-inline"</span><span class="nt">&gt;</span>
+      <span class="nt">&lt;select</span> <span class="na">class=</span><span class="s">"input-medium"</span> <span class="na">ng-model=</span><span class="s">"panel.type"</span> <span class="na">ng-options=</span><span class="s">"panelType for panelType in dashboard.availablePanels|stringSort"</span><span class="nt">&gt;&lt;/select&gt;</span>
+      <span class="nt">&lt;small</span> <span class="na">ng-show=</span><span class="s">"rowSpan(row) &gt; 11"</span><span class="nt">&gt;</span>
+        Note: This row is full, new panels will wrap to a new line. You should add another row.
+      <span class="nt">&lt;/small&gt;</span>
+    <span class="nt">&lt;/form&gt;</span>
+    <span class="nt">&lt;div</span> <span class="na">ng-show=</span><span class="s">"!(_.isUndefined(panel.type))"</span><span class="nt">&gt;</span>
+      <span class="nt">&lt;div</span> <span class="na">add-panel=</span><span class="s">""</span><span class="nt">&gt;&lt;/div&gt;</span>
+    <span class="nt">&lt;/div&gt;</span></code></pre>
+</div>
+<p>这个 <code>add-panel</code> 指令，是有 <code>app/directives/addPanel.js</code> 提供的。方法如下：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">$scope</span><span class="p">.</span><span class="nx">$watch</span><span class="p">(</span><span class="s1">'panel.type'</span><span class="p">,</span> <span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+            <span class="kd">var</span> <span class="nx">_type</span> <span class="o">=</span> <span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">type</span><span class="p">;</span>
+            <span class="nx">$scope</span><span class="p">.</span><span class="nx">reset_panel</span><span class="p">(</span><span class="nx">_type</span><span class="p">);</span>
+            <span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="nx">_</span><span class="p">.</span><span class="nx">isUndefined</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">type</span><span class="p">))</span> <span class="p">{</span>
+              <span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">loadingEditor</span> <span class="o">=</span> <span class="kc">true</span><span class="p">;</span>
+              <span class="nx">$scope</span><span class="p">.</span><span class="nx">require</span><span class="p">([</span><span class="s1">'panels/'</span><span class="o">+</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">type</span><span class="p">.</span><span class="nx">replace</span><span class="p">(</span><span class="s2">"."</span><span class="p">,</span><span class="s2">"/"</span><span class="p">)</span> <span class="o">+</span><span class="s1">'/module'</span><span class="p">],</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+                <span class="kd">var</span> <span class="nx">template</span> <span class="o">=</span> <span class="s1">'&lt;div ng-controller="'</span><span class="o">+</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">type</span><span class="o">+</span><span class="s1">'" ng-include="\'app/partials/paneladd.html\'"&gt;&lt;/div&gt;'</span><span class="p">;</span>
+                <span class="nx">elem</span><span class="p">.</span><span class="nx">html</span><span class="p">(</span><span class="nx">$compile</span><span class="p">(</span><span class="nx">angular</span><span class="p">.</span><span class="nx">element</span><span class="p">(</span><span class="nx">template</span><span class="p">))(</span><span class="nx">$scope</span><span class="p">));</span>
+                <span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">loadingEditor</span> <span class="o">=</span> <span class="kc">false</span><span class="p">;</span>
+              <span class="p">});</span>
+            <span class="p">}</span>
+          <span class="p">});</span></code></pre>
+</div>
+<p>可以看到，其实就是 require 了对应的 <code>panels/xxx/module.js</code>，然后动态生成一个 div，绑定到对应的 controller 上。</p>
+<h3 id="panel-1">展示 panel</h3>
+<p>还是在 <code>app/partials/dashaboard.html</code> 里，用到了另一个指令 <code>kibana-panel</code>：</p>
+<div class="highlight"><pre><code class="language-html" data-lang="html"><span class="nt">&lt;div</span>
+              <span class="na">ng-repeat=</span><span class="s">"(name, panel) in row.panels|filter:isPanel"</span>
+              <span class="na">ng-cloak</span> <span class="na">ng-hide=</span><span class="s">"panel.hide"</span>
+              <span class="na">kibana-panel</span> <span class="na">type=</span><span class="s">'panel.type'</span> <span class="na">resizable</span>
+              <span class="na">class=</span><span class="s">"panel nospace"</span> <span class="na">ng-class=</span><span class="s">"{'dragInProgress':dashboard.panelDragging}"</span>
+              <span class="na">style=</span><span class="s">"position:relative"</span>  <span class="na">ng-style=</span><span class="s">"{'width':!panel.span?'100%':((panel.span/1.2)*10)+'%'}"</span>
+              <span class="na">data-drop=</span><span class="s">"true"</span> <span class="na">ng-model=</span><span class="s">"row.panels"</span> <span class="na">data-jqyoui-options</span>
+              <span class="na">jqyoui-droppable=</span><span class="s">"{index:$index,mutate:false,onDrop:'panelMoveDrop',onOver:'panelMoveOver(true)',onOut:'panelMoveOut'}"</span><span class="nt">&gt;</span>
+            <span class="nt">&lt;/div&gt;</span></code></pre>
+</div>
+<p>当然，这里面还有 <code>resizable</code> 指令也是自己实现的，不过一般我们用不着关心这个的代码实现。</p>
+<p>下面看 <code>app/directives/kibanaPanel.js</code> 里的实现。</p>
+<p>这个里面大多数逻辑跟 addPanel.js 是一样的，都是为了实现一个指令嘛。对于我们来说，关注点在前面那一大段 HTML 字符串，也就是变量 <code>panelHeader</code>。这个就是我们看到的实际效果中，kibana 3 每个 panel 顶部那个小图标工具栏。仔细阅读一下，可以发现除了每个 panel 都一致的那些 span 以外，还有一段是：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="s1">'&lt;span ng-repeat="task in panelMeta.modals" class="row-button extra" ng-show="task.show"&gt;'</span> <span class="o">+</span>
+              <span class="s1">'&lt;span bs-modal="task.partial" class="pointer"&gt;&lt;i '</span> <span class="o">+</span>
+                <span class="s1">'bs-tooltip="task.description" ng-class="task.icon" class="pointer"&gt;&lt;/i&gt;&lt;/span&gt;'</span><span class="o">+</span>
+            <span class="s1">'&lt;/span&gt;'</span></code></pre>
+</div>
+<p>也就是说，每个 panel 可以在自己的 panelMeta.modals 数组里，定义不同的小图标，弹出不同的对话浮层。我个人给 table panel 二次开发加入的 exportAsCsv 功能，图标就是在这里加入的。</p>
+<h2 id="panel--1">panel 内部实现</h2>
+<p>终于说到最后了。大家进入到 <code>app/panels/</code> 下，每个目录都是一种 panel。原因前一节已经分析过了，因为 addPanel.js 里就是直接这样拼接的。入口都是固定的：module.js。</p>
+<p>下面以 stats panel 为例。(因为我最开始就是抄的 stats 做的 percentile，只有表格没有图形，最简单)</p>
+<p>每个目录下都会有至少一下三个文件：</p>
+<h3 id="modulejs">module.js</h3>
+<p>module.js 就是一个 controller。跟前面讲过的 controller 写法其实是一致的。在 <code>$scope</code> 对象上，有几个属性是 panel 实现时一般都会有的：</p>
+<ul>
+  <li>
+<code>$scope.panelMeta</code>: 这个前面说到过，其中的 modals 用来定义 panelHeader。</li>
+  <li>
+<code>$scope.panel</code>: 用来定义 panel 的属性。一般实现上，会有一个 default 值预定义好。你会发现这个 <code>$scope.panel</code> 其实就是仪表板纲要里面说的每个 panel 的可设置值！</li>
+</ul>
+<p>然后一般 <code>$scope.init()</code> 都是这样的：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">$scope</span><span class="p">.</span><span class="nx">init</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">ready</span> <span class="o">=</span> <span class="kc">false</span><span class="p">;</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">$on</span><span class="p">(</span><span class="s1">'refresh'</span><span class="p">,</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+        <span class="nx">$scope</span><span class="p">.</span><span class="nx">get_data</span><span class="p">();</span>
+      <span class="p">});</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">get_data</span><span class="p">();</span>
+    <span class="p">};</span></code></pre>
+</div>
+<p>也就是每次有刷新操作，就执行 <code>get_data()</code> 方法。这个方法就是获取 ES 数据，然后渲染效果的入口。</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">$scope</span><span class="p">.</span><span class="nx">get_data</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">()</span> <span class="p">{</span>
+      <span class="k">if</span><span class="p">(</span><span class="nx">dashboard</span><span class="p">.</span><span class="nx">indices</span><span class="p">.</span><span class="nx">length</span> <span class="o">===</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span><span class="p">;</span>
+      <span class="p">}</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">panelMeta</span><span class="p">.</span><span class="nx">loading</span> <span class="o">=</span> <span class="kc">true</span><span class="p">;</span>
+      <span class="kd">var</span> <span class="nx">request</span><span class="p">,</span>
+        <span class="nx">results</span><span class="p">,</span>
+        <span class="nx">boolQuery</span><span class="p">,</span>
+        <span class="nx">queries</span><span class="p">;</span>
+      <span class="nx">request</span> <span class="o">=</span> <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">Request</span><span class="p">();</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">queries</span><span class="p">.</span><span class="nx">ids</span> <span class="o">=</span> <span class="nx">querySrv</span><span class="p">.</span><span class="nx">idsByMode</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">queries</span><span class="p">);</span>
+      <span class="nx">queries</span> <span class="o">=</span> <span class="nx">querySrv</span><span class="p">.</span><span class="nx">getQueryObjs</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">queries</span><span class="p">.</span><span class="nx">ids</span><span class="p">);</span>
+      <span class="nx">boolQuery</span> <span class="o">=</span> <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">BoolQuery</span><span class="p">();</span>
+      <span class="nx">_</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">queries</span><span class="p">,</span><span class="kd">function</span><span class="p">(</span><span class="nx">q</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">boolQuery</span> <span class="o">=</span> <span class="nx">boolQuery</span><span class="p">.</span><span class="nx">should</span><span class="p">(</span><span class="nx">querySrv</span><span class="p">.</span><span class="nx">toEjsObj</span><span class="p">(</span><span class="nx">q</span><span class="p">));</span>
+      <span class="p">});</span>
+      <span class="nx">request</span> <span class="o">=</span> <span class="nx">request</span>
+        <span class="p">.</span><span class="nx">facet</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">StatisticalFacet</span><span class="p">(</span><span class="s1">'stats'</span><span class="p">)</span>
+          <span class="p">.</span><span class="nx">field</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">field</span><span class="p">)</span>
+          <span class="p">.</span><span class="nx">facetFilter</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">QueryFilter</span><span class="p">(</span>
+            <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">FilteredQuery</span><span class="p">(</span>
+              <span class="nx">boolQuery</span><span class="p">,</span>
+              <span class="nx">filterSrv</span><span class="p">.</span><span class="nx">getBoolFilter</span><span class="p">(</span><span class="nx">filterSrv</span><span class="p">.</span><span class="nx">ids</span><span class="p">())</span>
+              <span class="p">)))).</span><span class="nx">size</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span>
+      <span class="nx">_</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">queries</span><span class="p">,</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">q</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kd">var</span> <span class="nx">alias</span> <span class="o">=</span> <span class="nx">q</span><span class="p">.</span><span class="nx">alias</span> <span class="o">||</span> <span class="nx">q</span><span class="p">.</span><span class="nx">query</span><span class="p">;</span>
+        <span class="kd">var</span> <span class="nx">query</span> <span class="o">=</span> <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">BoolQuery</span><span class="p">();</span>
+        <span class="nx">query</span><span class="p">.</span><span class="nx">should</span><span class="p">(</span><span class="nx">querySrv</span><span class="p">.</span><span class="nx">toEjsObj</span><span class="p">(</span><span class="nx">q</span><span class="p">));</span>
+        <span class="nx">request</span><span class="p">.</span><span class="nx">facet</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">StatisticalFacet</span><span class="p">(</span><span class="s1">'stats_'</span><span class="o">+</span><span class="nx">alias</span><span class="p">)</span>
+          <span class="p">.</span><span class="nx">field</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">field</span><span class="p">)</span>
+          <span class="p">.</span><span class="nx">facetFilter</span><span class="p">(</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">QueryFilter</span><span class="p">(</span>
+            <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">FilteredQuery</span><span class="p">(</span>
+              <span class="nx">query</span><span class="p">,</span>
+              <span class="nx">filterSrv</span><span class="p">.</span><span class="nx">getBoolFilter</span><span class="p">(</span><span class="nx">filterSrv</span><span class="p">.</span><span class="nx">ids</span><span class="p">())</span>
+            <span class="p">)</span>
+          <span class="p">))</span>
+        <span class="p">);</span>
+      <span class="p">});</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">inspector</span> <span class="o">=</span> <span class="nx">request</span><span class="p">.</span><span class="nx">toJSON</span><span class="p">();</span>
+      <span class="nx">results</span> <span class="o">=</span> <span class="nx">$scope</span><span class="p">.</span><span class="nx">ejs</span><span class="p">.</span><span class="nx">doSearch</span><span class="p">(</span><span class="nx">dashboard</span><span class="p">.</span><span class="nx">indices</span><span class="p">,</span> <span class="nx">request</span><span class="p">);</span>
+      <span class="nx">results</span><span class="p">.</span><span class="nx">then</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">results</span><span class="p">)</span> <span class="p">{</span>
+        <span class="nx">$scope</span><span class="p">.</span><span class="nx">panelMeta</span><span class="p">.</span><span class="nx">loading</span> <span class="o">=</span> <span class="kc">false</span><span class="p">;</span>
+        <span class="kd">var</span> <span class="nx">value</span> <span class="o">=</span> <span class="nx">results</span><span class="p">.</span><span class="nx">facets</span><span class="p">.</span><span class="nx">stats</span><span class="p">[</span><span class="nx">$scope</span><span class="p">.</span><span class="nx">panel</span><span class="p">.</span><span class="nx">mode</span><span class="p">];</span>
+        <span class="kd">var</span> <span class="nx">rows</span> <span class="o">=</span> <span class="nx">queries</span><span class="p">.</span><span class="nx">map</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">q</span><span class="p">)</span> <span class="p">{</span>
+          <span class="kd">var</span> <span class="nx">alias</span> <span class="o">=</span> <span class="nx">q</span><span class="p">.</span><span class="nx">alias</span> <span class="o">||</span> <span class="nx">q</span><span class="p">.</span><span class="nx">query</span><span class="p">;</span>
+          <span class="kd">var</span> <span class="nx">obj</span> <span class="o">=</span> <span class="nx">_</span><span class="p">.</span><span class="nx">clone</span><span class="p">(</span><span class="nx">q</span><span class="p">);</span>
+          <span class="nx">obj</span><span class="p">.</span><span class="nx">label</span> <span class="o">=</span> <span class="nx">alias</span><span class="p">;</span>
+          <span class="nx">obj</span><span class="p">.</span><span class="nx">Label</span> <span class="o">=</span> <span class="nx">alias</span><span class="p">.</span><span class="nx">toLowerCase</span><span class="p">();</span> <span class="c1">//sort field</span>
+          <span class="nx">obj</span><span class="p">.</span><span class="nx">value</span> <span class="o">=</span> <span class="nx">results</span><span class="p">.</span><span class="nx">facets</span><span class="p">[</span><span class="s1">'stats_'</span><span class="o">+</span><span class="nx">alias</span><span class="p">];</span>
+          <span class="nx">obj</span><span class="p">.</span><span class="nx">Value</span> <span class="o">=</span> <span class="nx">results</span><span class="p">.</span><span class="nx">facets</span><span class="p">[</span><span class="s1">'stats_'</span><span class="o">+</span><span class="nx">alias</span><span class="p">];</span> <span class="c1">//sort field</span>
+          <span class="k">return</span> <span class="nx">obj</span><span class="p">;</span>
+        <span class="p">});</span>
+        <span class="nx">$scope</span><span class="p">.</span><span class="nx">data</span> <span class="o">=</span> <span class="p">{</span>
+          <span class="nx">value</span><span class="o">:</span> <span class="nx">value</span><span class="p">,</span>
+          <span class="nx">rows</span><span class="o">:</span> <span class="nx">rows</span>
+        <span class="p">};</span>
+        <span class="nx">$scope</span><span class="p">.</span><span class="nx">$emit</span><span class="p">(</span><span class="s1">'render'</span><span class="p">);</span>
+      <span class="p">});</span>
+    <span class="p">};</span></code></pre>
+</div>
+<p>stats panel 的这段函数几乎就跟基础示例一样了。</p>
+<ol>
+  <li>生成 Request 对象。</li>
+  <li>获取关联的 query 对象。</li>
+  <li>获取当前页的 filter 对象。</li>
+  <li>调用选定的 facets 方法，传入参数。</li>
+  <li>如果有多个 query，逐一构建 facets。</li>
+  <li>request 完成。生成一个 JSON 内容供 inspector 查看。</li>
+  <li>发送请求，等待异步回调。</li>
+  <li>回调处理数据成绑定在模板上的 <code>$scope.data</code>。</li>
+  <li>渲染页面。</li>
+</ol>
+<p>注：stats/module.js 后面还有一个 filter，terms/module.js 后面还有一个 directive，这些都是为了实际页面效果加的功能，跟 kibana 本身的 filter，directive 本质上是一样的。就不单独讲述了。</p>
+<h3 id="modulehtml">module.html</h3>
+<p>module.html 就是 panel 的具体页面内容。没有太多可说的。大概框架是：</p>
+<div class="highlight"><pre><code class="language-html" data-lang="html"><span class="nt">&lt;div</span> <span class="na">ng-controller=</span><span class="s">'stats'</span> <span class="na">ng-init=</span><span class="s">"init()"</span><span class="nt">&gt;</span>
+ <span class="nt">&lt;table</span> <span class="na">ng-style=</span><span class="s">"panel.style"</span> <span class="na">class=</span><span class="s">"table table-striped table-condensed"</span> <span class="na">ng-show=</span><span class="s">"panel.chart == 'table'"</span><span class="nt">&gt;</span>
+    <span class="nt">&lt;thead&gt;</span>
+      <span class="nt">&lt;th&gt;</span>Term<span class="nt">&lt;/th&gt;</span> <span class="nt">&lt;th&gt;&lt;/th&gt;</span> <span class="nt">&lt;th&gt;</span>Action<span class="nt">&lt;/th&gt;</span>
+    <span class="nt">&lt;/thead&gt;</span>
+    <span class="nt">&lt;tr</span> <span class="na">ng-repeat=</span><span class="s">"term in data"</span> <span class="na">ng-show=</span><span class="s">"showMeta(term)"</span><span class="nt">&gt;</span>
+      <span class="nt">&lt;td</span> <span class="na">class=</span><span class="s">"terms-legend-term"</span><span class="nt">&gt;&lt;/td&gt;</span>
+      <span class="nt">&lt;td&gt;&lt;/td&gt;</span>
+    <span class="nt">&lt;/tr&gt;</span>
+  <span class="nt">&lt;/table&gt;</span>
+<span class="nt">&lt;/div&gt;</span></code></pre>
+</div>
+<p>主要就是绑定要 controller 和 init 函数。对于示例的 stats，里面的 <code>data</code> 就是 module.js 最后生成的 <code>$scope.data</code>。</p>
+<h3 id="editorhtml">editor.html</h3>
+<p>editor.html 是 panel 参数的编辑页面主要内容，参数编辑还有一些共同的标签页，是在 kibana 的 <code>app/partials/</code> 里，就不讲了。</p>
+<p>editor.html 里，主要就是提供对 <code>$scope.panel</code> 里那些参数的修改保存操作。当然实际上并不是所有参数都暴露出来了。这也是 kibana 3 用户指南里，官方说采用仪表板纲要，比通过页面修改更灵活细腻的原因。</p>
+<p>editor.html 里需要注意的是，为了每次变更都能实时生效，所有的输入框都注册到了刷新事件。所以一般是这样子：</p>
+<div class="highlight"><pre><code class="language-html" data-lang="html"><span class="nt">&lt;select</span> <span class="na">ng-change=</span><span class="s">"set_refresh(true)"</span> <span class="na">class=</span><span class="s">"input-small"</span> <span class="na">ng-model=</span><span class="s">"panel.format"</span> <span class="na">ng-options=</span><span class="s">"f for f in ['number','float','money','bytes']"</span><span class="nt">&gt;&lt;/select&gt;</span></code></pre>
+</div>
+<p>这个 <code>set_refresh</code> 函数是在 <code>module.js</code> 里定义的：</p>
+<div class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="nx">$scope</span><span class="p">.</span><span class="nx">set_refresh</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">state</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nx">$scope</span><span class="p">.</span><span class="nx">refresh</span> <span class="o">=</span> <span class="nx">state</span><span class="p">;</span>
+    <span class="p">};</span></code></pre>
+</div>
+<h2 id="section-2">总结</h2>
+<p>kibana 3 源码的主体分析，就是这样了。怎么样，看完以后，大家有没有信心也做些二次开发，甚至跟 grafana 一样，替换掉 esResource，换上一个你自己的后端数据源呢？</p>
+    <hr>
+
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-03-09-84619-bda8e5d5a.html" title="Previous Post: 如何在Hadoop 2.0上实现深度学习？" data-instant>&laquo; 如何在Hadoop 2.0上实现深度学习？</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-03-14-spark-streaming-kafka-10a43f834.html" title="Next Post: spark streaming 接收 kafka 数据示例" data-instant>spark streaming 接收 kafka 数据示例 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>06 Jan 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-01-06-implement-script-field-for-kibana3-633adc088.html">给 Kibana3 添加脚本化字段支持</a></li>
+
+      <li><span>19 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-19-uniq-count-kibana-fb4d0c203.html">在 kibana 里实现去重计数</a></li>
+
+      <li><span>06 Mar 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-03-06-kibana4-for-slowlog-620efedbd.html">用 Kibana4 实现 PHP 慢日志函数堆栈分析</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

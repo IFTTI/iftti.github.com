@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL Server之旅（14）：深入的探讨锁机制</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-03-21-84965-cd13654ef.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL Server之旅（14）：深入的探讨锁机制</h1>
+    <p class="meta"><span class="time">Mar 21, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/84965/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<ul>
+<li><a href="http://blog.jobbole.com/84919/" target="_blank">SQL Server之旅（1）：那些给我们带来福利的系统视图</a></li>
+<li><a href="http://blog.jobbole.com/84923/" target="_blank">SQL Server之旅（2）：理解万恶的表扫描</a></li>
+<li><a href="http://blog.jobbole.com/84925/" target="_blank">SQL Server之旅（3）：解惑那些背了多年聚集索引的人</a></li>
+<li><a href="http://blog.jobbole.com/84927/" target="_blank">SQL Server之旅（4）：你必须知道的非聚集索引扫描</a></li>
+<li><a href="http://blog.jobbole.com/84936/" target="_blank">SQL Server之旅（5）：确实不得不说的DBCC命令</a></li>
+<li><a href="http://blog.jobbole.com/84939/" target="_blank">SQL Server之旅（6）：使用winHex利器加深理解数据页</a></li>
+<li><a href="http://blog.jobbole.com/84942/" target="_blank">SQL Server之旅（7）：为什么都说状态少的字段不能建索引</a></li>
+<li><a href="http://blog.jobbole.com/84945/" target="_blank">SQL Server之旅（8）：复合索引和include索引到底有多大区别？</a></li>
+<li><a href="http://blog.jobbole.com/84948/" target="_blank">SQL Server之旅（9）：看公司这些DBA们设计的这些复合索引</a></li>
+<li><a href="http://blog.jobbole.com/84953/" target="_blank">SQL Server之旅（10）：看看DML操作对索引的影响</a></li>
+<li><a href="http://blog.jobbole.com/84956/" target="_blank">SQL Server之旅（11）：简单说说sqlserver的执行计划</a></li>
+<li><a href="http://blog.jobbole.com/84959/" target="_blank">SQL Server之旅（12）：sqltext的参数化处理</a></li>
+<li><a href="http://blog.jobbole.com/84962/" target="_blank">SQL Server之旅（13）：对锁的初步认识</a></li>
+</ul>
+<p>上一篇我只是做了一个堆表让大家初步的认识到锁的痉挛状态，但是在现实世界上并没有这么简单的事情，起码我的表不会没有索引对吧，，，还有就是我的表一定会有很多的连接过来，10:1的读写，很多码农可能都会遇到类似神乎其神的死锁，卡住，读不出来，插不进入等等神仙的事情导致性能低下，这篇我们一起来探讨下。</p>
+<p>一： 当select遇到性能低下的update会怎么样？</p>
+<p>1. 还是使用原始的person表，插入6条数据，由于是4000字节，所以两条数据就是一个数据页，如下图：</p>
+<div>
+<pre class="brush: sql; gutter: true">DROP TABLE dbo.Person
+CREATE TABLE Person(ID INT IDENTITY,NAME CHAR(4000) DEFAULT 'aaaaa')
+--插入6条数据，刚好3个数据页
+INSERT INTO dbo.Person DEFAULT VALUES
+go 6</pre>
+
+</div>
+<p>2. 为了模拟性能低下的Update操作，我们开个显式事务来更新ID=4的记录，并且用profile看一下，如下图：</p>
+<div>
+<pre class="brush: sql; gutter: true">BEGIN TRAN
+UPDATE dbo.Person SET NAME='bbbbb' WHERE id=4</pre>
+
+</div>
+<p><img alt="" src="/images/jobbole.com/dc449317ca050a60e03c85c02f18d8ed.jpg"></p>
+<p>3. 然后我们开下另一个会话连接，读取ID=6的记录会是怎样？？？？好奇吗？？？？</p>
+<div>
+<pre class="brush: sql; gutter: true">SELECT * FROM Person WHERE ID=6</pre>
+
+</div>
+<p><img alt="" src="/images/jobbole.com/017f2bdb7cddf70bb40c0fd0c3e7c8ca.jpg"></p>
+<p>从上面流程你是否看到，当扫描到89号数据页的slot1槽位的时候卡住了。。。我想你应该知道update正好已经给这条记录加上了X锁。。。如果你够细心，你还会发现，给S锁附加记录的条件是在当引擎发现记录所在的数据页已经附加上了IX锁的情况下，才给该号数据页下的每条记录附加S锁，对吧。。。好了，既然在Profile上面看不到了，我还是有其他办法来判断到底select语句现在处于什么状态。</p>
+<p>4. 使用sys.dm_tran_locks来看当前各个连接持有锁的状态。</p>
+<div>
+<pre class="brush: sql; gutter: true">SELECT  l.request_session_id,
+        DB_NAME(l.resource_database_id),OBJECT_NAME(p.object_id),
+        l.resource_description,l.request_type,
+        l.request_status,request_mode 
+FROM sys.dm_tran_locks AS l
+LEFT JOIN sys.partitions AS p
+ON l.resource_associated_entity_id=p.hobt_id</pre>
+
+</div>
+<p><img alt="" src="/images/jobbole.com/507a2ec13444033b9ef28d04e9ba7a76.jpg"></p>
+<p>仔细观察上图可以看到，当前有51和52号会话，51号在1:89:1槽位上使用了X锁并且没有释放，52号此时也进入了1:89:1中，并且想给该</p>
+<p>RowID附加S锁，但是你也知道S和X锁是排斥的，所以很无奈的一直保持等待状态。</p>
+<p>二：使用索引或许可以帮你逃过一劫</p>
+<p>当你看完上面的讲叙，是不是有点害怕？？？要是在生产环境下出现了这种情况，那我们是不是死的很惨？？？那接下来使用索引是不是真的可以帮我们躲过一劫呢？？？下面跟我一起看一看。</p>
+<p>1. 新建索引index</p>
+<div>
+<pre class="brush: sql; gutter: true">-- 在ID列上建一个index
+CREATE INDEX idx_person ON dbo.Person(ID)</pre>
+
+</div>
+<p>2. 然后我们看下数据页的分布情况，可以看到下图中78,89,90是表数据页，93号为索引数据页。</p>
+<div>
+<pre class="brush: sql; gutter: true">DBCC TRACEON(2588,3604)
+DBCC IND(Ctrip,Person,-1)</pre>
+
+</div>
+<p><img alt="" src="/images/jobbole.com/ce867dc2a1d5883c33c476330534e726.jpg"></p>
+<p>3. 麻蛋的，继续执行上面的那个慢update</p>
+<div>
+<pre class="brush: sql; gutter: true">BEGIN TRAN
+UPDATE dbo.Person SET NAME='bbbbb' WHERE id=4</pre>
+
+</div>
+<p>4. 激动人心的时刻来了，由于数据太少，所以我这里强制让引擎执行我创建的索引，看看结果怎样？</p>
+<p><img alt="" src="/images/jobbole.com/97bd9599a8821e0ccb32c77a26931fda.jpg"></p>
+<p>居然没卡住？？？现在是不是有一股强烈的好奇心来了，狗狗狗。。。马上开启profile，看看到底都发生了什么？？？</p>
+<p><img alt="" src="/images/jobbole.com/0eece3c88582f3f431ede8e3ba9dec2d.jpg"></p>
+<p>仔细看完这个图，是不是觉得很有意思呢？？？具体步骤如下：</p>
+<p>第一步：给表（Object）加上IS锁。</p>
+<p>第二步：因为要走索引，给93号索引数据页加上IS锁。</p>
+<p>第三步：找到93号索引数据页的目标key，给这个key加上S锁，有人可能就会问了。。。这个key不就是6嘛，为什么这个key=(61005a25560e)，你要是太好奇我可以告诉你，年轻人说话不要太屌，每行索引记录都有一个散列值，这个值就是根据索引的几个字段散列出来的，好处就是防止你的索引长度过大，导致锁这个记录的时候太耗费锁空间了。。。。如果你还是不太相信的话，我用DBCC给你看一看。</p>
+<p><img alt="" src="/images/jobbole.com/a3d63c50e02e538eafd785d5df01bb3c.jpg"></p>
+<p>第四步：根据这个key直接跳到存放记录的90号数据页中，万幸的是update的记录刚好不在90号数据页中。。。。就这样躲过一劫了。。。然后select顺利的读取到了该读的记录，最后释放相关的IS锁。</p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-03-21-84962-38022b53b.html" title="Previous Post: SQL Server之旅（13）：对锁的初步认识" data-instant>&laquo; SQL Server之旅（13）：对锁的初步认识</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-03-21-84967-c981efbcb.html" title="Next Post: SQL Server之旅（15）：nolock引发的三级事件的一些思考" data-instant>SQL Server之旅（15）：nolock引发的三级事件的一些思考 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>21 Mar 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-03-21-84967-c981efbcb.html">SQL Server之旅（15）：nolock引发的三级事件的一些思考</a></li>
+
+      <li><span>21 Mar 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-03-21-84962-38022b53b.html">SQL Server之旅（13）：对锁的初步认识</a></li>
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

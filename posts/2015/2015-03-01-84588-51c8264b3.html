@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>C#中的Lambda表达式和表达式树</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-03-01-84588-51c8264b3.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>C#中的Lambda表达式和表达式树</h1>
+    <p class="meta"><span class="time">Mar 1, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/84588/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<p>在C# 2.0中，通过方法组转换和匿名方法，使委托的实现得到了极大的简化。但是，匿名方法仍然有些臃肿，而且当代码中充满了匿名方法的时候，可读性可能就会受到影响。C# 3.0中出现的Lambda表达式在不牺牲可读性的前提下，进一步简化了委托。</p>
+<p>LINQ的基本功能就是创建操作管道，以及这些操作需要的任何状态。这些操作表示了各种关于数据的逻辑，例如数据筛选，数据排序等等。通常这些操作都是用委托来表示。Lambda表达式是对LINQ数据操作的一种符合语言习惯的表示方式。</p>
+<p><strong>Lambda表达式不仅可以用来创建委托实例，C#编译器也能够将他们转换成表达式树。 </strong></p>
+<p>下面我们就先看看Lambda表达式。</p>
+<h2>作为委托的Lambda表达式</h2>
+<p>Lambda表达式可以看作是C# 2.0的匿名方法的进一步演变，所以匿名方法能做的几乎一切事情都可以用Lambda表达式来完成（注意，匿名方法可以忽略参数，Lambda表达式不具备这个特性）。</p>
+<p>跟匿名方法类似，Lambda表达式有特殊的转换规则：表达式的类型本身并非委托类型，但它可以通过隐式或显式的发那个是转换为一个委托实例。匿名函数这个术语同时涵盖了匿名方法和Lambda表达式。</p>
+<p>下面看看使用Lambda表达式获得字符串长度的例子，通过Lambda将得到更见简洁、易读的代码：</p>
+<pre class="brush: csharp; gutter: true">static void Main(string[] args)
+{
+    //使用C# 2.0中的匿名方法获取字符串长度
+    Func&lt;string, int&gt; strLength = delegate(string str) { return str.Length; };
+    Console.WriteLine(strLength("Hello World!"));
+
+    //使用Lambda表达式
+    //（显式类型参数列表）=&gt; {语句}，lambda表达式最冗长版本
+    strLength = (string str) =&gt; { return str.Length; };
+    Console.WriteLine(strLength("Hello World!"));
+
+    //单一表达式作为主体
+    //（显式类型参数列表）=&gt; 表达式
+    strLength = (string str) =&gt; str.Length;
+    Console.WriteLine(strLength("Hello World!"));
+
+    //隐式类型的参数列表
+    //（隐式类型参数列表）=&gt; 表达式
+    strLength = (str) =&gt; str.Length;
+    Console.WriteLine(strLength("Hello World!"));
+
+    //单一参数的快捷语法
+    //参数名 =&gt; 表达式
+    strLength = str =&gt; str.Length;
+    Console.WriteLine(strLength("Hello World!"));
+}</pre>
+
+<p>“=&gt;”是C# 3.0新增的，告诉编译器我们正在使用Lambda表达式。”=&gt;”可以读作”goes to”，所以例子中的Lambda表达式可以读作”str goes to str.Length”。从例子中还可以看到，根据Lambda使用的特殊情况，我们可以进一步简化Lambda表达式。</p>
+<p>Lambda表达式大多数时候都是和一个返回非void的委托类型配合使用（例如Func&lt;TResult&gt;）。在C# 1.0中，委托一般用于事件，很少会返回什么结果。在LINQ中，委托通常被视为数据管道的一部分，接受输入并返回结果，或者判断某项是否符合当前的筛选 器等等。</p>
+<h3>Lambda表达式本质</h3>
+<p>通过ILSpy查看上面的例子，可以发现Lambda表达式就是匿名方法，是编译器帮我们进行了转换工作，使我们可以直接使用Lambda表达式来进一步简化创建委托实例的代码。</p>
+<p><img alt="" src="/images/jobbole.com/ec4049b9b014778e59b88cd636288f4d.jpg"></p>
+<h3>在List&lt;T&gt;中使用Lambda表达式</h3>
+<p>前面简单的介绍了什么是Lambda表达式，下面通过一个例子进一步了解Lambda表达式。</p>
+<p>在前面的文章中，我们也提到了一下List&lt;T&gt;的方法，例如FindAll方法，参数是Predicate&lt;T&gt;类型的 委托，返回结果是一个筛选后的新列表；Foreach方法获取一个Action&lt;T&gt;类型的委托，然后对每个元素设置行为。下面就看看在 List&lt;T&gt;中使用Lambda表达式：</p>
+<pre class="brush: csharp; gutter: true">public class Book
+{
+    public string Name { get; set; }
+    public int Year { get; set; }
+}
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        var books = new List&lt;Book&gt;
+        {
+            new Book{Name="C# learning guide",Year=2005},
+            new Book{Name="C# step by step",Year=2005},
+            new Book{Name="Java learning guide",Year=2004},
+            new Book{Name="Java step by step",Year=2004},
+            new Book{Name="Python learning guide",Year=2003},
+            new Book{Name="C# in depth",Year=2012},
+            new Book{Name="Java in depth",Year=2014},
+            new Book{Name="Python in depth",Year=2013},
+        };
+
+        //创建一个委托实例来表示一个通用的操作
+        Action&lt;Book&gt; printer = book =&gt; Console.WriteLine("Name = {0}, Year = {1}", book.Name, book.Year);
+
+        books.ForEach(printer);
+
+        //使用Lambda表达式对List&lt;T&gt;进行筛选
+        books.FindAll(book =&gt; book.Year &gt; 2010).ForEach(printer);
+
+        books.FindAll(book =&gt; book.Name.Contains("C#")).ForEach(printer);
+
+        //使用Lambda表达式对List&lt;T&gt;进行排序
+        books.Sort((book1, book2) =&gt; book1.Name.CompareTo(book2.Name));
+        books.ForEach(printer);
+
+        Console.Read();
+    }
+}</pre>
+
+<p>从上面例子可以看到，当我们要经常使用一个操作的时候，我们最好创建一个委托实例，然后反复调用，而不是每次使用的时候都使用Lambda表达式（例如例子中的printer委托实例）。</p>
+<p>相比C# 1.0中的委托或者C# 2.0的匿名函数，结合Lambda表达式，对List&lt;T&gt;中的数据操作变得简单，易读。</p>
+<h2>表达式树</h2>
+<p><strong>表达式树也称表达式目录树，将代码以一种抽象的方式表示成一个对象树，树中每个节点本身都是一个表达式。表达式树不是可执行代码，它是一种数据结构。 </strong></p>
+<p>下面我们看看怎么通过C#代码建立一个表达式树。</p>
+<h3>构建表达式树</h3>
+<p>System.Linq.Expressions命名空间中包含了代表表达式的各个类，所有类都从Expression派生，我们可以通过这些类中的静态方法来创建表达式类的实例。Expression类包括两个重要属性：</p>
+<ul>
+<li>Type属性代表求值表达式的.NET类型，可以把它视为一个返回类型</li>
+<li>NodeType属性返回所代表的表达式的类型</li>
+</ul>
+<p>下面看一个构建表达式树的简单例子：</p>
+<pre class="brush: csharp; gutter: true">Expression numA = Expression.Constant(6);
+Console.WriteLine("NodeType: {0}, Type: {1}", numA.NodeType, numA.Type);
+Expression numB = Expression.Constant(3);
+Console.WriteLine("NodeType: {0}, Type: {1}", numB.NodeType, numB.Type);
+
+BinaryExpression add = Expression.Add(numA, numB);
+Console.WriteLine("NodeType: {0}, Type: {1}", add.NodeType, add.Type);
+
+Console.WriteLine(add);
+Console.Read();</pre>
+
+<p>代码的输出为：</p>
+<p><img alt="" src="/images/jobbole.com/a101203cb01eaeb17d0ebabd2c3bdd2b.jpg"></p>
+<p>通过例子可以看到，我们构建了一个(6+3)的表达式树，并且查看了各个节点的Type和NodeType属性。</p>
+<p>Expression有很多派生类，有很多节点类型。例如，BinaryExpression就代表了具有两个操作树的任意操作。这正是NodeType属性重要的地方，它能区分由相同的类表示的不同种类的表达式。其他的节点类型就不介绍了，有兴趣可以参考MSDN。</p>
+<p>对于上面的例子，可以用下图描述生成的表达式树，值得注意的是，”叶子”表达式在代码中是最先创建的，，表达式是自下而上构建的。表达式是不易变的，所有可以缓存和重用表达式。</p>
+<p><img alt="" src="/images/jobbole.com/06be3d89ce5525fb3c4d6e7db91ab527.jpg"></p>
+<h3>将表达式编译成委托</h3>
+<p>LambdaExpression是从Expression派生的类型之一。泛型类型Expression&lt;TDelegate&gt;又是从LambdaExpress派生的。</p>
+<p><img alt="" src="/images/jobbole.com/e40419ef1088db2e2683dd8ee851525e.jpg"></p>
+<p>Expression和Expression&lt;TDelegate&gt;的区别在于，<strong>泛型类以静态类型的方式标志了它是什么种类的表达式，也就是说，它确定了返回类型和参数</strong>。例如上面的加法例子，返回值是一个int类型，没有参数，所以我们可以使用签名Func&lt;int&gt;与之匹配，<strong>所以可以用Expression&lt;Func&lt;int&gt;&gt;以静态类型的方式来表示该表达式</strong>。</p>
+<p>这样做的目的在于，LambdaExpression有一个Compile方法，该方法能创建一个恰当类型的委托。 Expression&lt;TDelegate&gt;也有一个同名方法，该方法可以返回TDelegate类型的委托。获得了委托之后，我们就可以使 用普通委托实例调用的方式来执行这个表达式。</p>
+<p>接着上面加法的例子，我们把上面的加法表达式树转换成委托，然后执行委托：</p>
+<pre class="brush: csharp; gutter: true">Func&lt;int&gt; addDelegate = Expression.Lambda&lt;Func&lt;int&gt;&gt;(add).Compile();
+Console.WriteLine(addDelegate());</pre>
+
+<p>从这个例子中我们看到怎么构建一个表达式树，然后把这个对象树编译成真正的代码。在.NET 3.5中的表达式树只能是单一的表达式，不能表示完整的类、方法。这在.NET 4.0中得到了一定的改进，表达式树可以支持动态类型，我们可以创建块，为表达式赋值等等。</p>
+<h3>将Lambda表达式转换为表达式树</h3>
+<p>Lambda表达式不仅可以创建委托实例，C# 3.0对于将Lambda表达式转换成表达式树提供了内建的支持。我们可以通过编译器把Lambda表达式转换成一个表达式树，并创建一个Expression&lt;TDelegate&gt;的一个实例。</p>
+<p>下面的例子中我们将一个Lambda表达式转换成一个表达式树，并通过代码查看表达式树的各个部分：</p>
+<pre class="brush: csharp; gutter: true">static void Main(string[] args)
+{
+    //将Lambda表达式转换为类型Expression&lt;T&gt;的表达式树
+    //expression不是可执行代码
+    Expression&lt;Func&lt;int, int, int&gt;&gt; expression = (a, b) =&gt; a + b;
+
+    Console.WriteLine(expression);
+    //获取Lambda表达式的主体
+    BinaryExpression body = (BinaryExpression)expression.Body;
+    Console.WriteLine(expression.Body);
+    //获取Lambda表达式的参数
+    Console.WriteLine(" param1: {0}, param2: {1}", expression.Parameters[0], expression.Parameters[1]);
+    ParameterExpression left = (ParameterExpression)body.Left;
+    ParameterExpression right = (ParameterExpression)body.Right;
+    Console.WriteLine(" left body of expression: {0}{4} NodeType: {1}{4} right body of expression: {2}{4} Type: {3}{4}", left.Name, body.NodeType, right.Name, body.Type, Environment.NewLine);
+
+    //将表达式树转换成委托并执行
+    Func&lt;int, int, int&gt; addDelegate = expression.Compile();
+    Console.WriteLine(addDelegate(10, 16));
+    Console.Read();
+}</pre>
+
+<p>代码的输出为：</p>
+<p><img alt="" src="/images/jobbole.com/1dcb0ca67ec321239d5aa7a3cc4ed362.jpg"></p>
+<h3>表达式树的用途</h3>
+<p>前面看到，通过Expression的派生类中的各种节点类型，我们可以构建表达式树；然后可以把表达式树转换成相应的委托类型实例，最后执行委托实例的代码。但是，我们不会绕这么大的弯子来执行委托实例的代码。</p>
+<p>表达式树主要在LINQ to SQL中使用，我们需要将LINQ to SQL查询表达式（返回IQueryable类型）转换成表达式树。之所以需要转换是因为LINQ to SQL查询表达式不是在C#代码中执行的，LINQ to SQL查询表达式被转换成SQL，通过网络发送，最后在数据库服务器上执行。</p>
+<p>这里只做个简单的介绍，后续会介绍LINQ to SQL相关的内容。</p>
+<h2>编译器对Lambda表达式的处理</h2>
+<p>前面我们了解到，Lambda可以用来创建委托实例，也可以用来生成表达式树，这些都是编译器帮我们完成的。</p>
+<p>编译器如何决定生成可执行的IL还是一个表达式树：</p>
+<ul>
+<li>当Lambda表达式赋予一个委托类型的变量时，编译器生成与匿名方法同样的IL（可执行的委托实例）</li>
+<li>当Lambda表达式赋予一个Expression类型的变量时，编译器就将它转换成一个表达式树</li>
+</ul>
+<p>下图展示了LINQ to Object和LINQ to SQL中Lambda表达式的不同处理方式：</p>
+<p><img alt="" src="/images/jobbole.com/23675a9db5b18dafb5dc77fcd5b66b8c.jpg"></p>
+<h2>总结</h2>
+<p>本文中介绍了Lambda表达式，在匿名方法的基础上进一步简化了委托实例的创建，编写更加简洁、易读的代码。匿名函数不等于匿名方法，匿名函数包含了匿名方法和lambda表达式这两种概念</p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-02-25-kibana-aggregation-execution-order-and-you-c11c7a4d9.html" title="Previous Post: 【翻译】kibana 的聚合执行次序" data-instant>&laquo; 【翻译】kibana 的聚合执行次序</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-03-01-84590-85a0b4df5.html" title="Next Post: 关于大型网站技术演进的思考（十五）--网站静态化处理—前后端分离—中（7）" data-instant>关于大型网站技术演进的思考（十五）--网站静态化处理—前后端分离—中（7） &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>19 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-19-81676-eae58d6ae.html">MapReduce实例浅析</a></li>
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>05 Mar 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-03-05-84683-8a6fceeb3.html">一些不起眼但非常有用的 Vim 命令</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

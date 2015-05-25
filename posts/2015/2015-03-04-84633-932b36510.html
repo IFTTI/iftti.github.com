@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>那些年我们一起追过的缓存写法(二)</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-03-04-84633-932b36510.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>那些年我们一起追过的缓存写法(二)</h1>
+    <p class="meta"><span class="time">Mar 4, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/84633/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <!-- div style="margin-bottom: 10px;">
+            <script language=javascript>
+                var randomNumLuobo = Math.round(Math.random()*1);
+                var imageLuobo=new Array(2);
+                imageLuobo[0]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                imageLuobo[1]="http://jbcdn2.b0.upaiyun.com/2014/11/luobo-620x60.png";
+                var imageUrlLuobo=imageLuobo[randomNumLuobo];
+                var urlsLuobo=new Array(2);
+                urlsLuobo[0]="http://www.luobo360.com";
+                urlsLuobo[1]="http://www.luobo360.com";
+                var urlLuobo = urlsLuobo[randomNumLuobo];
+                var adHTML = "<a href='"+urlLuobo+"' target='_blank'><img src='"+imageUrlLuobo+"' border='0'></a>";
+                document.write(adHTML);
+            </script>
+        </div -->
+
+        <span style="display:block;margin-bottom:10px;"></span>
+
+<p><a href="http://blog.jobbole.com/83439/" target="_blank">上次</a>主要讨论缓存读写这块各种代码实现。本篇是就上次的问题接着来，继续看那些年我们各种缓存用法。</p>
+<h1>一：缓存预热</h1>
+<p>上次有同学问过。在第一次加载时，我们的缓存都为空，怎么进行预热。</p>
+<h3>单机Web情况下，一般我们使用RunTimeCache。相对于这种情况下：</h3>
+<p>1：我们可以在启动事件里面刷新</p>
+<div>
+<pre class="brush: java; gutter: true">void Application_Start(object sender, EventArgs e)
+{
+       //刷新
+}</pre>
+
+</div>
+<p>2：单写个刷新缓存页面，上线后手动刷新下、或发布时自动调用刷新、或干脆由用户自行触发。</p>
+<h3>分布式缓存(Redis、memcached)情况下：</h3>
+<p>比如：在几十台服务器缓存时，单刷满缓存都需要不少一段时间。</p>
+<p>这种预热就复杂一些，有的会单写个应用程序去跑，也有的会单写套框架机制去处理(更智能化)。</p>
+<p>目的都是在上线之前：所有的缓存都预先加载完毕。</p>
+<h1>
+<a name="m3"></a>二：多级缓存</h1>
+<h3>
+<a name="m3.1"></a>2.1 介绍</h3>
+<p>我们晓得在CPU和内存之间一般都配有一级缓存、二级缓存来增加交换速度。</p>
+<p>这样当CPU调用大量数据时，就可避开内存直接从CPU缓存中调用，加快读取速度。</p>
+<p>根据CPU缓存得出多级缓存的特点：</p>
+<p>1：每一级缓存中储存的是下一级缓存的一部分。</p>
+<p>2：读取速度按级别依次递减，成本也依次递减，容量依次递增。</p>
+<p>3：当前级别未命中时，才会去下一级寻找。</p>
+<p>而在企业应用级开发中，使用多级缓存是同样的目的及设计，只是粒度更粗，更灵活。</p>
+<p>根据速度依次排列lv1-lv6的缓存类型图：</p>
+<p><img alt="" src="/images/jobbole.com/49af2626975746a5675b0fa160186e9a.jpg"></p>
+<p>3级缓存的命中流程图例子：</p>
+<p><img alt="" src="/images/jobbole.com/2ba6d6b33dc450d05ac59c21bd07d50c.jpg"></p>
+<h3>
+<a name="m3.2"></a>2.2 线程缓存</h3>
+<p>Web应用是天生的多线程开发。对于一些公共资源我们必须考虑线程安全，为止我们不得不通过锁来保证数据的完整性和正确性。</p>
+<p>在实际当中，一台web服务器至少也得处理成百上千的请求。想一想，在业务复杂的处理流程，函数每调用一次我们都得锁一下。</p>
+<p>对服务器也是个不小的浪费。而通过线程缓存，可以让当前处理用户请求的线程只拿自己需要的。</p>
+<div>
+<pre class="brush: java; gutter: true">public static ThreadLocal&lt;UserScore&gt; localUserInfo = new ThreadLocal&lt;UserScore&gt;();</pre>
+
+</div>
+<p>借助Net提供的线程本地变量，我们可以在请求入口去拉取当前用户的数据。</p>
+<p>在之后线程整个生命周期里面，我们的业务逻辑可以毫无顾虑的使用这些数据，不需要考虑线程安全。</p>
+<p>而且我们不用重新拿新数据，所以也不用担心数据撕裂的问题。</p>
+<p>因为当前线程周期里面的数据是完整无误的，而只有用户第二次发起请求才会重新去拿新数据。</p>
+<p>这样就能提高不少我们服务器吞吐量。注意要在线程出口销毁数据。</p>
+<h3>
+<a name="m3.3"></a>2.3 内存缓存</h3>
+<p>无论是远程数据库读取，还是缓存服务器读取。避免不了要跨进程，跨网络通信，有的还跨机房。</p>
+<p>而应用程序频繁读写，对Web、DB服务器都是个不小的消耗，速度相较内存也慢的多。</p>
+<p>代码上加锁、异步，甚至加服务器在内，都不是一个很好的办法。因为加载速度，对用户体验非常重要。</p>
+<hr>
+<p>所以在有要求的项目中使用本地内存做二级缓存，是非常有必要的。目的就是1：抗并发，2：加快读取速度。</p>
+<p>有个著名的缓存五分钟法则法则，就是说如果一个数据频繁被访问，那么就应该放内存中。</p>
+<p>举个例子：  有100并发过来，加锁会导致前端99线程等候，这个99线程等候着，其实是一直在消耗Web服务器资源。不加就是缓存雪崩。</p>
+<p>如果我们每分钟拉取一份缓存，缓存到内存，这样99线程等候时间极大缩短。</p>
+<h3>
+<a name="m3.4"></a>2.4 文件缓存</h3>
+<p>相对于内存，硬盘容量大，速度相较于走网络还更快。</p>
+<p>所以我们完全可以把一些不经常变更，放在内存又比较浪费的数据缓存到本地硬盘。</p>
+<p>比如使用sqlite一些文件数据库，我们很容易做到。</p>
+<h3>
+<a name="m3.5"></a>2.5 分布式缓存</h3>
+<p>基于内存缓存的redis、memcached等。</p>
+<p>基于文件nosql的Casssandra、mongodb等。</p>
+<p>redis、memcached是主流的分布式内存缓存，也是应用和DB中间最大的缓存层。</p>
+<p>nosql这类的其实不单单只是做缓存用了，完全用在一些非核心业务的DB层了。</p>
+<h3>
+<a name="m3.6"></a>2.6 DB缓存</h3>
+<p>这一层DB主要是缓存由原始数据计算出的结果。而避免由Web程序通过SQL或在使用中直接计算。</p>
+<p>当然我们也可以把计算好的数据，存储到redis做缓存。</p>
+<p><img alt="" src="/images/jobbole.com/8ab7c2cde871eb45c7fd97aee7a5b5f8.jpg"></p>
+<h1>
+<a name="m4"></a>三：多层缓存</h1>
+<p>多层缓存概念在很多地方都用到过：</p>
+<p>1：上面我们说的多级缓存就是一种，把内容根据读取频率等级，分不同的层次存储，频率越高就越近。</p>
+<p>2：还一种多层是缓存索引的做法，类B树查找，这样能提高检索效率。</p>
+<p>3：从架构上来说客户端缓存，CDN缓存，反向代理缓存，服务端缓存，也是多层缓存。</p>
+<h1>
+<a name="m5"></a>四：总结</h1>
+<p>在使用上，大家根据实际场景，进行各种组合搭配。本篇谈的比较理论些，很多内容细节没展开。</p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-03-03-84604-e3fd7bd73.html" title="Previous Post: CPU也可以有后门？" data-instant>&laquo; CPU也可以有后门？</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-03-04-84637-4d13d2a66.html" title="Next Post: 那些年我们一起追过的缓存写法(三)" data-instant>那些年我们一起追过的缓存写法(三) &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>12 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-12-81182-05c6e8f15.html">SQL Server调优系列基础篇（常用运算符总结）</a></li>
+
+      <li><span>05 Mar 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-03-05-84683-8a6fceeb3.html">一些不起眼但非常有用的 Vim 命令</a></li>
+
+      <li><span>04 Mar 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-03-04-84637-4d13d2a66.html">那些年我们一起追过的缓存写法(三)</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
