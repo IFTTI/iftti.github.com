@@ -1,0 +1,115 @@
+---
+layout: post
+title: '我用 Go 语言做了一个红白机模拟器'
+time: 2015-05-28 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87068/
+images:
+  bae393881c2ab1e2a30102da727eb1b2: http://ww3.sinaimg.cn/large/7cc829d3gw1esk78ra0v8j20m60dwgtm.jpg
+  e37c04debfb4a37dfc1f83cca346f793: http://ww4.sinaimg.cn/mw690/6941baebgw1esfasqn0dgg20e80dcqv7.gif
+  4eb364704ef254c1a2b215517a69bebf: http://ww4.sinaimg.cn/mw690/6941baebgw1esfasog80xg20e80dc7wj.gif
+  185694862d0bd047747bf4423e0e6628: http://ww1.sinaimg.cn/mw690/6941baebgw1esfaslcj25j20db03caaw.jpg
+  46307fc1af8e2d1dbba3bcbb445f1043: http://ww2.sinaimg.cn/mw690/6941baebgw1esfasl50awg20e80dcu0x.gif
+  deb084b22d8e8a0c9b86a566aecf68e2: http://ww1.sinaimg.cn/mw690/6941baebgw1esfasinliwg20e80dcqv7.gif
+  ca44b272678408d3e2650ac448de62da: http://www.jobbole.com/wp-content/uploads/avatars/54482/fd11e56137fe6f574b86898cbc5ec624-bpfull.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p><span style="color: #888888;">译注：Family Computer（简称 FC）是任天堂（Nintendo）公司发行的家用游戏主机。日版 FC 机身以红色和白色为主，因此在华人圈中又有“红白机”的俗称；欧美版 FC 在欧美则称 Nintendo Entertainment System（简称 NES）。</span></p>
+<p style="text-align: center;"><img id="pic" alt="" src="/images/jobbole.com/bae393881c2ab1e2a30102da727eb1b2.jpg"></p>
+<p style="text-align: center;">（游戏截图）</p>
+<p>最近我编写了一个 <a title="FC 模拟器" href="https://github.com/fogleman/nes">FC 模拟器</a>。制作这样一个模拟器主要是出于兴趣以及为了从中学习 FC 的工作原理。在这个过程中我学到了很多有趣的知识，于是写下这篇文章同诸位分享我所学到的内容。由于相关的文档已经有很多了，所以这里我只打算讲述一些有趣的特性。请注意，接下来都将是些技术方面的内容。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/e37c04debfb4a37dfc1f83cca346f793.jpg"></p>
+<p style="text-align: center;">图1 我的模拟器可以将画面录制成 GIF。这是我正在玩《大金刚》（Donkey Kong）的画面。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">CPU</span></h2>
+<p>FC 使用 MOS 6502（主频1.79MHz）作为其CPU。6502 是一枚诞生于 1975 年（距今已有 40 年之久了）的 8位微处理器。在当时这款芯片非常流行，不仅应用于 FC，还被广泛应用于雅达利 2600 &amp; 800、Apple I &amp; II、Commodore 64、VIC-20、BBC Micro等机器上。事实上，直到今天6502的修订版（<a title="65C02" href="http://en.wikipedia.org/wiki/WDC_65C02">65C02</a>）还依然在生产。</p>
+<p>6502 的寄存器相对较少，只有寄存器 A、 X 和 Y ，而且它们都是专用寄存器。尽管如此，其指令却有多种寻址模式。这其中包括一种称为“零页”（Zero Page）的寻址模式，使开发人员可以访问内存中最初的256个字（$0000～ $00FF）。6502 的操作码占用的程序内存较少，执行时花费的 CPU 周期也较短。这样理解，<span style="color: #000000;"> 开发人员可以把零页上的 256 个存储单元看作是 256 个寄存器。</span></p>
+<p>6502 中没有乘法和除法指令，当然也没有浮点数运算指令。虽然有 BCD 码模式，但是在 FC 版的6502中，可能是由于专利问题该模式被禁用了。</p>
+<p><span style="color: #888888;">译注：Binary-Coded Decimal，简称BCD，中国大陆称BCD码或二-十进制编码，是一种十进制的数字编码形式。在这种编码下，每个十进制数字用一串单独的二进制比特来存储表示。通常 4 个二进制数表示 1 个十进制数。</span></p>
+<p>6502 还具有一块不带溢出检测的 256 字节的栈空间。</p>
+<p>6502 拥有 151 条指令（理论上有 256 条指令）。剩余的 105 条都是非法或没有文档的指令，多数会使导致处理器崩溃。但是其中也有一些可能会碰巧产生某种作用，于是大部分这样的指令也会有与其作用相应的名称。</p>
+<p>6502 至少有一个已知的硬件上的缺陷，例如间接跳转指令的缺陷在于，当 <code style="font-style: inherit;">JMP &lt;addr&gt;</code> 指令的操作数为形如 $xxFF 的地址时就无法正常工作。因为当从这样的地址读出 2 字节的数据时，该指令无法将低字节 FF 加 1 后（FF -&gt; 00）产生的进位加到高字节上。例如，当从 $10FF 读出2字节的数据时，读取的其实是 $10FF 和 $1000 中的数据，而不是 $10FF 和 $1100 中的数据。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">内存映射</span></h2>
+<p>6502 拥有 16 位地址空间，寻址能力为 64 KB。但是 FC 实际只有 2 KB的 RAM（Internal RAM），对应的地址范围是 $0000～$0799。而剩余的地址空间则用于访问 PPU、 APU、游戏卡以及输入设备等。</p>
+<p>6502 上有些地址总线的引脚并没有布线，所以有很大的一块内存空间实际上都映射到了之前的空间。例如 RAM 中的 $1000～$17FF 就映射到了 $0000～$07FF，这意味着向 $1000 写数据等价于向 $0000 写数据。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/4eb364704ef254c1a2b215517a69bebf.jpg"></p>
+<p style="text-align: center;">图2 “IT’S DANGEROUS TO GO ALONE! TAKE THIS.”（《塞尔达传说》中的游戏对白）</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">PPU（图形处理器）</span></h2>
+<p>PPU 为 FC 生成视频输出。与 CPU 不同，PPU 芯片是为 FC 定制的，其运行频率是 CPU 的 3 倍。渲染时 PPU 在每个周期输出1个像素。</p>
+<p>PPU 能够渲染游戏中的背景层和最多 64 个子画面（Sprite）。子画面可以由 8 x 8 或 8 x 16 像素构成。而背景则既可以延水平（X轴）方向卷动，又可以延竖直（Y轴）方向卷动。并且 PPU 还支持一种称为微调（Fine）的卷动模式，即每次只卷动 1 像素。<span style="color: #000000;">这种卷动模式在当年可是非常了不起的技术。</span></p>
+<p>背景和子画面都是由 8 x 8 像素的图形块（Tile）构成的，而图形块是定义在游戏卡 ROM 中的 Pattern Table 里的。Pattern Table 中的图形块仅指定了其所用颜色中的最后 2 比特，剩余的 2 比特来自 Attribute Table。Nametable 则指定了图形块在背景上的位置。总之，这一切看起来都要比今天的标准复杂得多，所以我不得不和合作者解释说“这不是简单的位图”。</p>
+<p>背景的分辨率为 32 x 30 = 960 像素，由 8 x 8 像素的图形块构成。背景卷动的实现方法是再额外渲染多幅 32 x 30 像素的背景，且每幅背景都加上一个偏移量。如果同时沿 X 轴和 Y 轴卷动背景，那么最多可以有 4 幅背景处于可见状态。但是 FC 只支持 2 幅背景，因此游戏中经常使用不同的镜像模式（Mirroring Mode）来实现水平镜像或竖直镜像。</p>
+<p>PPU 包含 256 字节的 OAM（Object Attribute Memory）用于存储全部 64 个子画面的属性。属性包括子画面的 X 和 Y 坐标、对应的图形块编号以及一组标志位。在这组标志位中，有 2 比特用于指定子画面的颜色，还有用于指定子画面是显示在背景层之前还是之后，是否允许沿水平和/或竖直方向翻转子画面的标志位。FC 支持 DMA 复制，可以快速地将 256 字节从 CPU 可寻址的某段内存<span style="color: #888888;">（译注：通常是 $0200 – $02FF）</span>填充到整个 OAM。像这样直接访问比手工逐字节拷贝大约快 3 倍左右。</p>
+<p>虽然 PPU 支持 64 个卡通图形，但是在一条扫描线（Scan Line）上只能显示 8 个子画面。当一条扫描线上有过多的子画面时，PPU 的溢出（Overflow）标志位将被置位，程序可以依此做出相应的处理。这也就是当画面中有很多的子画面时，这些子画面会发生闪烁的原因。另外，由于一个硬件上的缺陷，会导致溢出标志位有时不能正常工作。</p>
+<p>很多游戏会使用一种叫做 mid-frame 的技术，使 PPU 可以在屏幕的一部分做一件事而在另一部分做另一件事。这项技术经常用于分屏滚动画面或刷新分数条。这需要精确的时间掐算以及对每条指令所需 CPU 周期的详细了解。实现类似这样的功能将会加大编写模拟器的难度。</p>
+<p>PPU 具有一个原始形态的碰撞检测机制。如果第 1 个（编号为0的）子画面和背景相交，那么一个标志位将会被置位，表示“子画面0 发生了碰撞”。这种碰撞在每一帧只会发生一次。</p>
+<p>FC 具有一个内置的 54 色调色板，游戏只能使用这里面的颜色。这些颜色不是 RGB 颜色，基本上只会向电视输出特定的色度（Chroma）和亮度（Luminance）信号。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/185694862d0bd047747bf4423e0e6628.jpg"></p>
+<p style="text-align: center;">图3 FC的调色板。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">APU（音频处理器）</span></h2>
+<p>APU 支持 5 个声道，包括 2 个方波声道，1 个三角波声道，1 个噪声声道和 1 个增量调制声道（DMC）。</p>
+<p>游戏程序需要向指定的寄存器（已映射到内存）写入数据以驱动这些声道发出声音。</p>
+<p>方波声道支持对频率和时值的控制，以及频率扫描（Frequency Sweep）和音量包络（Volume Envelope）。</p>
+<p>噪声声道可以利用线性反馈移位（Linear Feedback Shift）寄存器生成伪随机的噪声。</p>
+<p>增量调制声道（DMC）可以播放内存中的声音样本。例如在《超级马里奥3》中金属鼓的敲击声以及《忍者神龟3》中的语音“cowabunga”使用的都是DMC。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/46307fc1af8e2d1dbba3bcbb445f1043.jpg"></p>
+<p style="text-align: center;">图4 打气球游戏</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">内存映射器</span></h2>
+<p>预留给游戏卡的地址空间是有限的，游戏卡的程序内存（Program Memory）被限制在 32 KB，角色内存（Character Memory）被限制在 8 KB。为了突破这种限制，人们发明了内存映射器（Mapper）。</p>
+<p>内存映射器是游戏卡中的一个硬件，具有存储体空间切换（Bank Switching）的功能，以将新的程序或角色内存引入到可寻址的内存空间。程序可以通过向指向内存映射器的特定的地址写入数据来控制存储体空间的切换。</p>
+<p>不同的游戏卡实现了不同的存储体空间切换方案，所以会有十几种不同的内存映射器。既然模拟器要模拟 FC 的硬件，也就必须能够模拟游戏卡的 内存映射器。尽管如此，实际上 90% 的 FC 游戏使用的都是六种最常见的内存映射器中的一种。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">ROM文件</span></h2>
+<p>一个扩展名为 .nes 的 ROM 文件包含游戏卡中的一个或多个程序内存 Bank 和角色内存 Bank。除此之外还有一个简单的头部用于说明游戏中使用了哪种 Mapper 和视频镜像模式，以及是否存在带蓄电池后备电源的 RAM。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">结尾</span></h2>
+<p>学习 FC 很有意思，当时的人们能够用如此有限的硬件完成这样一款游戏机给我留下了深刻的印象。接下来我都想开始编写一个 8 比特风格的游戏了。</p>
+<p>我用 Go 语言编写了我的模拟器，用 OpenGL 和 GLFW 处理视频，PortAudio 处理音频。模拟器的代码都放到了 GitHub 上，欢迎诸位下载：<a href="https://github.com/fogleman/nes">https://github.com/fogleman/nes</a></p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/deb084b22d8e8a0c9b86a566aecf68e2.jpg"></p>
+<p style="text-align: center;">图5 我的最爱：《超级马里奥3》</p>
+<h3>了解更多</h3>
+<ul>
+<li><a href="http://nesdev.com/NESDoc.pdf">NES Documentation (PDF)</a></li>
+<li><a href="http://wiki.nesdev.com/w/index.php/NES_reference_guide">NES Reference Guide (Wiki)</a></li>
+<li><a href="http://www.obelisk.demon.co.uk/6502/">6502 CPU Reference</a></li>
+</ul>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87068" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87068votetotal">4</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87068" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 1 收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i> 1 评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/jackalhu">JackalHu</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/jackalhu">
+			<img src="/images/jobbole.com/ca44b272678408d3e2650ac448de62da.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            热爱编程，关注设计模式，致力于提升软件开发的质量。新浪微博：@Jackal-Hu        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/jackalhu" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/jackalhu/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a> ·
+            <a title="声望值" target="_blank" href="http://www.jobbole.com/members/jackalhu/reputation/"><i class="fa fa-graduation-cap"></i> 11</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}

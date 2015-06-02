@@ -1,0 +1,98 @@
+---
+layout: post
+title: '实时处理日均50亿会话，解析Twitter Answers的架构'
+time: 2015-05-27 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87067/
+images:
+  0c1dc8a6fe083dcce2ac0a3f6ca51c24: http://ww3.sinaimg.cn/large/7cc829d3gw1esiitm2drzj20ff06pdgk.jpg
+  6556de24d546f0ebc4871ac2a50b3cc5: http://ww4.sinaimg.cn/large/7cc829d3gw1esiitmo4gsj20ff06pgmd.jpg
+  c58e27a2c6b407329238fb4092b7456f: http://ww1.sinaimg.cn/large/7cc829d3gw1esiitngndnj20ff06uwfb.jpg
+  e3329ed0c7e27980256a5b1f9a0eafbc: http://ww4.sinaimg.cn/large/7cc829d3gw1esiito1aatj20ff06f3za.jpg
+  9fe3c8c8276c57184f29d985068c7aeb: http://ww4.sinaimg.cn/large/7cc829d3gw1esiitotvlmj20ff099ab4.jpg
+  4d8ad0b6e65624d1c18aac0963063eaf: http://jbcdn2.b0.upaiyun.com/2015/04/8fbdaaa5ea6d3b49c8c1c825aafeb5d9.png
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>去年我们<a title="发布了Answers" href="http://www.crashlytics.com/blog/launching-answers-by-crashlytics/" target="_blank">发布了Answers</a>，至今移动社区产生了惊人的使用量，让我们感到兴奋不已。现在Answers每天处理50亿次会话，并且这个数量在持续增加。上亿设备每秒向Answers端点发送数以百万计的请求。在你已经阅读到此处的这段时间里，Answers后台收到并处理了一千万次分析事件。</p>
+<p>其中的挑战是如何利用这些信息向移动开发者提供可靠的、实时的、有实际价值的洞见（视角）去了解他们的移动应用。</p>
+<p>在高层，我们依靠 组件解耦、异步通信、在应对灾难性故障时优雅地服务降级等原则来帮助架构决策。我们使用Lambda架构将数据完整性和实时数据更新结合起来。</p>
+<p>在实践过程中，我们需要设计一个能够接收并保存事件、执行离线和实时计算且能将上述两种计算结果整合成相关信息的系统。这些行为全部都要以百万次每秒的规模执行。</p>
+<p>让我们从第一个挑战开始：接受并处理这些事件。</p>
+<p><strong></strong><strong>事件接收</strong></p>
+<p>在设计设备-服务器通信的时候，我们的目标是：减少对电池和网络使用的影响；确保数据的可靠性；接近实时地获取数据。为了减少对设备的影响，我们批量地发送分析数据并且在发送前对数据进行压缩。为了保证这些宝贵的数据始终能够到达我们的服务器，在传输失败随机退避后以及达到设备存储达到上限时，设备会进行重传。为了确保数据能够尽快到达服务器，我们设置来多个触发器来使设备尝试发送：当程序运行于前台的时候，事件触发器每分钟触发一次；一个消息数量触发器和程序转入后台触发器。</p>
+<p>这样的通信协议导致设备每秒发送来数以万计压缩过的有效载荷。每一个载荷都包含数十条事件。为了能够可靠的、易于线性伸缩的方式去处理载荷，接收事件的服务必须极度简单。</p>
+<p><img id="pic" alt="" src="/images/jobbole.com/0c1dc8a6fe083dcce2ac0a3f6ca51c24.jpg"></p>
+<p>这个服务使用GO语言编写，这个服务使用了亚马逊弹性负载均衡器（ELB），并将每一个消息负荷放入一个持久化的Kafka队列。</p>
+<p><strong></strong><strong>存储</strong></p>
+<p>Kafka是一个持久存储器，因为它把收到的消息写入磁盘并且每个消息都有多份冗余。因此一旦我们知道信息到了<a title="kafka" href="http://kafka.apache.org/" target="_blank">Kafka</a>队列，我们就可以通过延迟处理、再处理来容忍下游延迟和下游失败。然而，Kafka不是我们历史数据的永久真理之源——按照上文提到的速度，仅仅是几天的数据，我们也需要数以百计的box来存储。因此我们把Kafka集群配置为将消息只保留几个小时（这些时间足够我们处理不期而至的重大故障）并且将数据尽快地存入永久存储——亚马逊简易存储服务（Amazon S3）。</p>
+<p><img id="pic" alt="" src="/images/jobbole.com/6556de24d546f0ebc4871ac2a50b3cc5.jpg"></p>
+<p>我们广泛地使用<a title="storm" href="https://storm.apache.org/" target="_blank">Storm</a>来进行实时数据处理，第一个相关的Topology就是从Kafka读取信息并存储到Amazon S3上。</p>
+<p><strong></strong><strong>批量计算</strong></p>
+<p>一旦这些数据存到了S3上，我们可以使用亚马逊弹性MapReduce（Amazon EMR）来计算我们的数据能够计算的任何东西。这既包括要展示在客户的仪表盘上的数据，也包括我们为了开发新功能而开发的实验性的任务。</p>
+<p><img id="pic" alt="" src="/images/jobbole.com/c58e27a2c6b407329238fb4092b7456f.jpg"></p>
+<p>我们使用<a title="http://www.cascading.org/" href="http://www.cascading.org/" target="_blank">Cascading</a>框架编写、Amazon EMR执行MapReduce程序。 Amazon EMR将我们存储到S3上的数据作为输入，处理完毕后，再将结果存入S3。我们通过运行在Storm上的调度topology来探测程序执行完毕，并将结果灌入<a title="http://cassandra.apache.org/" href="http://cassandra.apache.org/" target="_blank">Cassandra</a>集群，这样结果就能用于亚秒级查询API。</p>
+<p><strong></strong><strong>实时计算</strong></p>
+<p>迄今，我们描述的是一个能够执行分析计算的持久的容错的框架。然而，存在一个显眼的问题——这个框架不是实时的。一些计算每小时计算一次，有的计算需要一整天的数据作为输入。计算时间从几分钟到几小时不等，把S3上的输出导入到服务层也需要这么多时间。因此，在最好情况下，我们的数据也总是拖后几个小时，显然不能满足实时和可操作的目标。</p>
+<p>为了达成实时的目标，数据涌入后进行存档的同时，我们对数据进行流式计算。</p>
+<p><img id="pic" alt="" src="/images/jobbole.com/e3329ed0c7e27980256a5b1f9a0eafbc.jpg"></p>
+<p>就像我们的存储Topology读取数据一样，一个独立的Storm Topology实时地从Kafka Topic中读取数据然后进行实时计算，计算的逻辑和MapReduce任务一样。这些实时计算的结果放在另一个独立的Cassandra集群里以供实时查询。</p>
+<p>为了弥补我们在时间以及在资源方面可能的不足，我们没有在批量处理层中而是在实时计算层中使用了一些概率算法，如布隆过滤器、HyperLogLog（也有一些自己开发的算法）。相对于那些蛮力替代品，这些算法在空间和时间复杂度上有数量级的优势，同时只有可忽略的精确度损失。</p>
+<p><strong></strong><strong>合并</strong></p>
+<p>现在我们拥有两个独立生产出的数据集（批处理和实时处理），我们怎么将二者合并才能得到一个一致的结果？</p>
+<p><img id="pic" alt="" src="/images/jobbole.com/9fe3c8c8276c57184f29d985068c7aeb.jpg"></p>
+<p>我们在API的逻辑中，根据特定的情况分别使用两个数据集然后合并它们。</p>
+<p>因为批量计算是可重现的，且相对于实时计算来说更容错，我们的API总是倾向于使用批量产生的数据。例如，API接到了一个三十天的时间序列的日活跃用户数量数据请求，它首先会到批量数据Cassandra集群里查询全范围的数据。如果这是一个历史数据检索，所有的数据都已经得到。然而，查询的请求更可能会包含当天，批量产生的数据填充了大部分结果，只有近一两天的数据会被实时数据填充。</p>
+<p><strong></strong><strong>错误处理</strong></p>
+<p>让我们来温习几个失效的场景，看一下这样的架构在处理错误的时候， 是如何避免宕机或者损失数据，取之以优雅地降级。</p>
+<p>我们在上文中已经讨论过设备上的回退重试策略。在设备端网络中断、服务器端短时无服务情况下，重试保证数据最终能够到达服务器。随机回退确保设备不会在某区域网络中断或者后端服务器短时间不可用之后，不会压垮（DDos攻击）服务器。</p>
+<p>当实时处理层失效时，会发生什么？我们待命的工程师会受到通知并去解决问题。因为实时处理层的输入是存储在持久化的Kafka集群里，所以没有数据会丢失；等实时处理恢复之后，它会赶上处理那些停机期间应该处理的数据。</p>
+<p>因为实时处理和批处理是完全解耦的，批处理层完全不会受到影响。因此唯一的影响就是实时处理层失效期间，对数据点实时更新的延迟。</p>
+<p>如果批处理层有问题或者严重延迟的话，会发生什么？我们的API会无缝地多获取实时处理的数据。一个时间序列数据的查询，可能先前只取一天的实时处理结果，现在就需要查询两到三天的实时处理结果。因为实时处理和批处理是完全解耦的，实时处理不受影响继续运行。同时，我们的待命工程师会得到消息并且解决批处理层的问题。一旦批处理层恢复正常，它会执行那些延迟的数据处理任务，API也会无缝切换到使用现在可以得到的批处理的结果。</p>
+<p>我们系统后端架构由四大组件构成：事件接收，事件存储，实时计算和批量计算。各个组件之间的持久化队列确保任意组件的失效不会扩散到其他组件，并且后续可以从中断中恢复。API可以在计算层延迟或者失效时无缝地优雅降级，在服务恢复后重新恢复；这些都是由API内部的检索逻辑来保证的。</p>
+<p>Answer的目标是创建一个仪表盘，这个仪表盘能够把了解你的用户群变得非常简单。因此你可以将时间花费在打造令人惊叹的用户体验上，而不是用来掘穿数据。从现在就开始，<a title="了解Answers" href="http://answers.io/?utm_source=twitter_eng_blog&amp;utm_medium=twitter_blog&amp;utm_campaign=answers_5B_sessions_2.17.2015&amp;utm_content=inline_cta" target="_blank">点击此处更多了解Answers</a>。</p>
+<p>非常感谢致力于将此架构实现（付诸现实）的Answers团队。还有<a title="Big Data" href="http://manning.com/marz/" target="_blank">《Big Data》</a>这本书的作者Nathan Marz。</p>
+<p><strong>贡献者</strong></p>
+<p><a href="https://twitter.com/ajorgensen">Andrew Jorgensen</a>, <a href="https://twitter.com/bswift">Brian Swift</a>, <a href="https://twitter.com/brianhatfield">Brian Hatfield</a>, <a href="https://twitter.com/mikefurtak">Michael Furtak</a>, <a href="https://twitter.com/marknic">Mark Pirri</a>, <a href="https://twitter.com/CoryDolphin">Cory Dolphin</a>, <a href="https://twitter.com/rothbutter">Jamie Rothfeder</a>, <a href="https://twitter.com/jeffseibert">Jeff Seibert</a>, <a href="https://twitter.com/sirstarry">Justin Starry</a>, <a href="https://twitter.com/krob">Kevin Robinson</a>, <a href="https://twitter.com/Kris10rht">Kristen Johnson</a>, <a href="https://twitter.com/marcrichards">Marc Richards</a>, <a href="https://twitter.com/patrickwmcgee">Patrick McGee</a>, <a href="https://twitter.com/richparet">Rich Paret</a>, <a href="https://twitter.com/wayne">Wayne Chang</a>.</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87067" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87067votetotal">2</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87067" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/mingyuan">刘志成</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/mingyuan">
+			<img src="/images/jobbole.com/4d8ad0b6e65624d1c18aac0963063eaf.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            新浪微博：@柳鸣渊        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/mingyuan" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/mingyuan/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a> ·
+            <a title="声望值" target="_blank" href="http://www.jobbole.com/members/mingyuan/reputation/"><i class="fa fa-graduation-cap"></i> 11</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}

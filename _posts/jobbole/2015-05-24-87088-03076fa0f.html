@@ -1,0 +1,246 @@
+---
+layout: post
+title: '探索C#之微型MapReduce'
+time: 2015-05-24 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87088/
+images:
+  5db7b9a192ea17c8b61f6aaa233f5604: http://ww1.sinaimg.cn/mw690/5e4d414cgw1esfmu07iqfj205f0e1q37.jpg
+  d6d4afb5f02ea24af4ce6304d06a32d1: http://ww2.sinaimg.cn/mw690/5e4d414cgw1esfmu0lz1vj20fn0e8dgm.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>MapReduce近几年比较热的分布式计算编程模型，以C#为例简单介绍下MapReduce分布式计算。</p>
+<p> </p>
+<h3><strong>阅读目录</strong></h3>
+<ol>
+<li>背景</li>
+<li>Map实现</li>
+<li>Reduce实现</li>
+<li>支持分布式</li>
+<li>总结</li>
+</ol>
+<p> </p>
+<h3><strong>背景</strong></h3>
+<p><strong></strong>某平行世界程序猿小张接到Boss一项任务，统计用户反馈内容中的单词出现次数，以便分析用户主要习惯。文本如下：</p>
+<pre class="brush: actionscript3; gutter: true">const string hamlet = @"Though yet of Hamlet our dear brother's death
+The memory be green, and that it us befitted
+To bear our hearts in grief and our whole kingdom
+To be contracted in one brow of woe,
+Yet so far hath discretion fought with nature
+That we with wisest sorrow think on him,
+Together with remembrance of ourselves.
+Therefore our sometime sister, now our queen,
+The imperial jointress to this warlike state,
+Have we, as 'twere with a defeated joy,--
+With an auspicious and a dropping eye,
+With mirth in funeral and with dirge in marriage,
+In equal scale weighing delight and dole,--
+Taken to wife: nor have we herein barr'd
+Your better wisdoms, which have freely gone
+With this affair along. For all, our thanks.
+Now follows, that you know, young Fortinbras,
+Holding a weak supposal of our worth,
+Or thinking by our late dear brother's death
+Our state to be disjoint and out of frame,
+Colleagued with the dream of his advantage,
+He hath not fail'd to pester us with message,
+Importing the surrender of those lands
+Lost by his father, with all bonds of law,
+To our most valiant brother. So much for him.
+Now for ourself and for this time of meeting:
+Thus much the business is: we have here writ
+To Norway, uncle of young Fortinbras,--
+Who, impotent and bed-rid, scarcely hears
+Of this his nephew's purpose,--to suppress
+His further gait herein; in that the levies,
+The lists and full proportions, are all made
+Out of his subject: and we here dispatch
+You, good Cornelius, and you, Voltimand,
+For bearers of this greeting to old Norway;
+Giving to you no further personal power
+To business with the king, more than the scope
+Of these delated articles allow.
+Farewell, and let your haste commend your duty.";</pre>
+<p>小张作为蓝翔高材生，很快就实现了：</p>
+<pre class="brush: csharp; gutter: true">var content = hamlet.Split(new[] { " ", Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            var wordcount=new Dictionary&lt;string,int&gt;();
+            foreach (var item in content)
+            {
+                if (wordcount.ContainsKey(item))
+                    wordcount[item] += 1;
+                else
+                    wordcount.Add(item, 1);
+            }</pre>
+<p>作为有上进心的青年，小张决心对算法进行抽象封装，并支持多节点计算。小张把这个统计次数程序分成两个大步骤：分解和计算。<br>
+第一步：先把文本以某维度分解映射成最小独立单元。 (段落、单词、字母维度)。<br>
+第二部：把最小单元重复的做合并计算。<br>
+小张参考MapReduce论文设计Map、Reduce如下：</p>
+<h3><strong>Map实现</strong></h3>
+<p><strong>Mapping</strong></p>
+<p>Mapping函数把文本分解映射key，value形式的最小单元，即&lt;单词，出现次数(1)&gt;、&lt;word,1&gt;。</p>
+<pre class="brush: csharp; gutter: true">public IEnumerable&lt;Tuple&lt;T, int&gt;&gt; Mapping(IEnumerable&lt;T&gt; list)
+        {
+            foreach (T sourceVal in list)
+                yield return Tuple.Create(sourceVal, 1);
+        }</pre>
+<p>使用，输出为(brow, 1), (brow, 1), (sorrow, 1), (sorrow, 1):</p>
+<pre class="brush: csharp; gutter: true"> var spit = hamlet.Split(new[] { " ", Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            var mp = new MicroMapReduce&lt;string&gt;(new Master&lt;string&gt;());
+            var result= mp.Mapping(spit);</pre>
+<p><strong>Combine</strong></p>
+<p>为了减少数据通信开销，mapping出的键值对数据在进入真正的reduce前，进行重复键合并。也相对于提前进行预计算一部分，加快总体计算速度。 输出格式为(brow, 2), (sorrow, 2):</p>
+<pre class="brush: csharp; gutter: true">public Dictionary&lt;T, int&gt; Combine(IEnumerable&lt;Tuple&lt;T, int&gt;&gt; list)
+        {
+            Dictionary&lt;T, int&gt; dt = new Dictionary&lt;T, int&gt;();
+            foreach (var val in list)
+            {
+                if (dt.ContainsKey(val.Item1))
+                    dt[val.Item1] += val.Item2;
+                else
+                    dt.Add(val.Item1, val.Item2);
+            }
+            return dt;
+        }</pre>
+<p><strong>Partitioner</strong></p>
+<p>Partitioner主要用来分组划分,把不同节点的统计数据按照key进行分组。<br>
+其输出格式为： (brow, {(brow,2)},(brow,3)), (sorrow, {(sorrow,10)},(brow,11)):</p>
+<pre class="brush: csharp; gutter: true">public IEnumerable&lt;Group&lt;T, int&gt;&gt; Partitioner(Dictionary&lt;T, int&gt; list)
+        {
+            var dict = new Dictionary&lt;T, Group&lt;T, int&gt;&gt;();
+            foreach (var val in list)
+            {
+                if (!dict.ContainsKey(val.Key))
+                    dict[val.Key] = new Group&lt;T, int&gt;(val.Key);
+                dict[val.Key].Values.Add(val.Value);
+            }
+            return dict.Values;
+        }</pre>
+<p>Group定义:</p>
+<pre class="brush: csharp; gutter: true">public class Group&lt;TKey, TValue&gt; : Tuple&lt;TKey, List&lt;TValue&gt;&gt;
+    {
+        public Group(TKey key)
+            : base(key, new List&lt;TValue&gt;())
+        {
+        }
+
+        public TKey Key
+        {
+            get
+            {
+                return base.Item1;
+            }
+        }
+
+        public List&lt;TValue&gt; Values
+        {
+            get
+            {
+                return base.Item2;
+            }
+        }
+    }</pre>
+<p> </p>
+<h3><strong>Reduce实现</strong></h3>
+<p>Reducing函数接收，分组后的数据进行最后的统计计算。</p>
+<pre class="brush: csharp; gutter: true">public Dictionary&lt;T, int&gt; Reducing(IEnumerable&lt;Group&lt;T, int&gt;&gt; groups)
+        {
+            Dictionary&lt;T, int&gt; result=new Dictionary&lt;T, int&gt;();
+            foreach (var sourceVal in groups)
+            {
+                result.Add(sourceVal.Key, sourceVal.Values.Sum());
+            }
+            return result;
+        }</pre>
+<p>封装调用如下：</p>
+<pre class="brush: csharp; gutter: true">public IEnumerable&lt;Group&lt;T, int&gt;&gt; Map(IEnumerable&lt;T&gt; list)
+        {
+            var step1 = Mapping(list);
+            var step2 = Combine(step1);
+            var step3 = Partitioner(step2);
+            return step3;
+        }
+
+  public Dictionary&lt;T, int&gt; Reduce(IEnumerable&lt;Group&lt;T, int&gt;&gt; groups)
+        {
+            var step1 = Reducing(groups);
+            return step1;
+        }</pre>
+<pre class="brush: csharp; gutter: true">public  Dictionary&lt;T, int&gt; MapReduce(IEnumerable&lt;T&gt; list)
+        {
+            var map = Map(list);
+            var reduce = Reduce(map);
+            return reduce;
+        }</pre>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/5db7b9a192ea17c8b61f6aaa233f5604.jpg" width="195" height="505"></p>
+<p> </p>
+<h3><strong>支持分布式</strong></h3>
+<p>小张抽象封装后，虽然复杂度上去了。但暴露给使用者是非常清晰的接口，满足MapReduce的数据格式要求，即可使用。</p>
+<pre class="brush: csharp; gutter: true">var spit = hamlet.Split(new[] { " ", Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            var mp = new MicroMapReduce&lt;string&gt;(new Master&lt;string&gt;());
+            var result1= mp.MapReduce(spit);</pre>
+<p>小张完成后脑洞大开，考虑到以后文本数据量超大。 所以fork了个分支，准备支持分布式计算，以后可以在多个服务器节点跑。</p>
+<p><strong>数据分片</strong></p>
+<p>数据分片就是把大量数据拆成一块一块的，分散到各个节点上，方便我们的mapReduce程序去计算。 分片主流的有mod、consistent hashing、vitual Buckets、Range Partition等方式。 关于consistent hashing上篇有介绍(探索c#之一致性Hash详解)。在Hadoop中Hdfs和mapreduce是相互关联配合的，一个存储和一个计算。如果自行实现的话还需要个统一的存储。所以这里的数据源可以是数据库也可以是文件。小张只是满足boss需求，通用计算框架的话可以直接用现成的。</p>
+<p>模拟分片</p>
+<pre class="brush: csharp; gutter: true">public List&lt;IEnumerable&lt;T&gt;&gt; Partition(IEnumerable&lt;T&gt; list)
+        {
+            var temp =new List&lt;IEnumerable&lt;T&gt;&gt;();
+            temp.Add(list);
+            temp.Add(list);
+            return temp;
+        }</pre>
+<p><strong>Worker节点</strong></p>
+<p>小张定义了Master，worker角色。 master负责汇集输出，即我们的主程序。 每一个worker我们用一个线程来模拟，最后输出到master汇总，master最后可以写到数据库或其他。</p>
+<pre class="brush: csharp; gutter: true">public void WorkerNode(IEnumerable&lt;T&gt; list)
+        {
+            new Thread(() =&gt;
+            {
+                var map = Map(list);
+                var reduce = Reduce(map);
+                master.Merge(reduce);
+            }).Start();
+        }</pre>
+<pre class="brush: csharp; gutter: true">public class Master&lt;T&gt;
+    {
+        public Dictionary&lt;T, int&gt; Result = new Dictionary&lt;T, int&gt;();
+        public  void Merge(Dictionary&lt;T, int&gt; list)
+        {
+            foreach (var item in list)
+            {
+                lock (this)
+                {
+                    if (Result.ContainsKey(item.Key))
+                        Result[item.Key] += item.Value;
+                    else
+                        Result.Add(item.Key, item.Value);
+                }
+            }
+        }
+    }</pre>
+<p>分布式计算步骤图：</p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/d6d4afb5f02ea24af4ce6304d06a32d1.jpg" width="563" height="512"></p>
+<p> </p>
+<h3><strong>总结</strong></h3>
+<p>MapReduce模型从性能速度来说并不是非常好的，它优势在于隐藏了分布式计算的细节、容灾错误、负载均衡及良好的编程API，包含HDFS、Hive等在内一整套大数据处理的生态框架体系。在数据量级不是很大的话，企业自行实现一套轻量级分布式计算会有很多优点，比如性能更好、可定制化、数据库也不需要导入导出。从成本上也节省不少，因为hadoop开发、运维、服务器都需要不少人力物力。</p>
+<p><a href="http://files.cnblogs.com/files/mushroom/mapReduce.zip" target="_blank">文中例子代码</a></p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87088" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87088votetotal"></h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87088" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

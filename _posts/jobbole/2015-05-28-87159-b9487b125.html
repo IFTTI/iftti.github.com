@@ -1,0 +1,80 @@
+---
+layout: post
+title: 'SQL on Hadoop 的真相（2）'
+time: 2015-05-28 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87159/
+images:
+  4d8ad0b6e65624d1c18aac0963063eaf: http://jbcdn2.b0.upaiyun.com/2015/04/8fbdaaa5ea6d3b49c8c1c825aafeb5d9.png
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>这是一组系列博客，目的是详尽介绍 SQL-on-Hadoop 。<a href="http://blog.jobbole.com/86710/" target="_blank">该系列的第一篇会介绍一些存储引擎和在线事务处理（简称 OLTP ）相关话题</a>，这一篇将介绍联机分析处理（简称 OLAP ），第三篇将介绍对 Hadoop 引擎改造以及在相关替代产品中如何选型等话题。</p>
+<h3>数据处理与联机分析处理 ( OLAP )</h3>
+<p>联机分析处理是那些为了支持商业智能，报表和数据挖掘与探索等业务而开展的工作。这类工作的例子有零售商按地区和季度两个维度计算门店销售额，银行按语言和月份两个维度计算手机银行装机量，设备制造商定位有哪些零部件的故障率比期望值高，以及医院研究有哪些事件会引起高危婴儿紧张等。</p>
+<p>如果原始数据来源于 OLTP 系统，典型的做法是将这些数据拷贝到 OLAP 数据库中，再进行这类“离线”分析任务的处理，这么做有很多原因，但考虑最多的还是性能因素。</p>
+<p>假设一下，如果一个实体店使用他们的事务处理系统来承担数据分析工作，这种情况下分析师提交的粗暴查询就可能会实实在在地影响并拉低门店对于那些已经记录在册等待结算的订单结算率。另外用于事务中的查询类型从根本上就不同于数据分析类查询。</p>
+<p>事务系统典型的查询是基于某个独立的实体，比如某一个客户或某一个用户。例如当一个在线零售网站创建一个交易订单状态页时，数据的查询是针对某一个客户已经提交的特定订单。然而在数据分析的用例中，分析师最感兴趣的却是那些根据时间维度划分查询本身已跨越了订单或用户数据的汇总信息。就如前面提到的那样，根据区域和季度两个维度统计的门店销售额会查询给定时间段内所有订单数据。</p>
+<p>行动之前还有最后一个注意要点，本篇中的数据库并不提供传统关系型数据库用户所期望的那类增删改操作。与事务系统不同的是，分析类型的查询主要是那些涉及到数百万甚至数亿行数据的 SELECT 查询。分析型数据库的优化也主要围绕着这类负载进行，而这些优化措施却会导致针对小批量数据的增删改操作执行起来代价昂贵。</p>
+<p>即便这类数据库在接口和语义方面都与关系型数据库不同，但他们也确实提供了增加行 （ INSERT ），更新行（ UPDATE ）和删除行（ DELETE ）操作的功能支持。有些读者或许正在问 Hive 系统里最近新增加的 “ ACID ” 相关的问题，容后详禀。</p>
+<p>在 Hive 系统的 “ACID” 功能之外，处理更新操作有两种方式可选，一种是使用数据所在的 HBase 系统本身提供的更新功能。尽管 HBase 经常主要用于 OLTP 业务，但有些 OLAP 系统会使用 HBase 来存储一些小表，典型的称为维度表，这类表需要周期性地更新。第二种处理更新操作的方式是执行一次合并操作。</p>
+<p>从一个 ETL 开发者角度出发，一个合并过程会引入额外工作量。因此有个问题一定会被问到，那就是既然 HBase 系统已经提供了更新功能，那这类合并工作就不是必须的，那为什么不直接都用 HBase 呢？原因是扫描查询的处理性能，如果要在基于尾部追加模式的 HDFS 文件系统提供随机更新的功能，HBase 就得在它读取每一行时都做少量的合并操作，这个架构决定了能提供较高的写和随机读性能，但与 HDFS 相比，只能提供较差的扫描查询和顺序读操作性能。这样一来 HBase 就只能用于存储那些需要频繁更新的小表场合；</p>
+<p>这个领域包含几个子目录：</p>
+<ul>
+<li>Apache Hive</li>
+<li>Dremel clones</li>
+<li>Spark SQL</li>
+</ul>
+<h3>Apache Hive</h3>
+<p>本项目最初由脸谱公司创建，Hive 是第一个基于 Hadoop 之上的 SQL 引擎，且至今仍是最成熟的。Hive 原先是构建在MapReduce之上的，也曾经被改造过以便运行在 Apache Tez 上，现在正在进行的是为适应 Apache Spark 而进行的改造，基于 Spark 的Hive 改造被称为是最后的工作，但不能与 Spark 项目上的其他 SQL 支持项目相互混淆，关于 Spark 上的其他 SQL 支持项目我会再找个合适时机进行讨论。</p>
+<p>到目前为止，Hive 拥有最完整的 SQL 功能支持，并且也是拥有最多贡献者的项目，几乎所有的 Hadoop 用户都会部署Hive，同时几乎 Hadoop 上其他 SQL 引擎使用者也都会部署 Hive ，事实上大多数 SQL 引擎都以这种或那种方式依赖于Hive 。</p>
+<p>大多数 Hadoop 赞助商，包括 Cloudera 和 Hortonworks，都一致认同 Hive 是唯一有能力处理大批量任务和集成多种非标准数据格式的组件。Hortonworks 与 Cloudera 意见相左的地方在于对 Hive 的性能评价，Clourdera 觉得 Hive 的性能简直不能与 Dremel clones 相比，而 Hortonworks 则觉得 Hive 可以和 Dremel Clones 一较高下。</p>
+<h3>Dremel Clones</h3>
+<p>就像开源界一样，谷歌内部也创立了多个 SQL 引擎，他们有一个类似于 Hive 的 SQL 引擎叫 Tenzing，还有另外一个系统叫 Dremel。Hive 的创立者 Facebook 公司也创建了一个 Dremel 的克隆版本叫 Presto。</p>
+<p>Cloudera Impala 和 Apache Drill 是最杰出的两个 Dremel 克隆版本，Cloudera 将 Impala 市场定位为最成熟的开源 Dremel 分支，Impala 在2013年年中发布 GA 版本，MapR 是 Drill 背后的主要赞助商，他把 Drill 的市场角色定位为最灵活的 Dremel 分支， Impala 能满足在 Hive 系统中存储元数据表的需求，而 Drill 可以直接查询 JSON 和自定义格式文件，比如 Apache Parquet 和 Avro 文件格式等。</p>
+<h3>Spark SQL</h3>
+<p>尽管有 Hadoop 上有其他多个 SQL 引擎，但 Spark SQL 却有着对其感兴趣的最广泛受众。Spark SQL 是 Spark 引擎上的榜眼，而状元是 Shark， Shark 因为顾及 Spark SQL 和 Hive on Spark 项目，Shark 目前已经终止开发，与 Shark 项目曾近是加州伯克利大学的一个研究项目不同，Spark SQL 和 Hive on Spark 已经在 Spark 赞助商们的支持下建立了各自的开源项目；</p>
+<p>基于 Spark 的 Hive 可以简单地说成是前端是 Hive 后端是 Spark ，基于 MR 或 Tez 的 Hive 既有用户可以在原系统与 Hive on Spark 系统之间轻松切换，切换工作仅仅只需要简单地修改下配置参数。</p>
+<p>Spark SQL 是一个完整的新引擎，今天的 Spark SQL 对那些希望把 SQL 嵌入到他们的 Scala，Java 或者 Python 程序的Spark 开发者而言是最有用的，但 Spark SQL 的主要赞助商 Databricks 对 Spark SQL 还有着更大的雄心，并指望将 Spark SQL 的使用范围扩展到非 Spark 开发者中去；</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87159" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87159votetotal"></h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87159" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/sunny4715">jerry</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/sunny4715">
+			<img src="/images/jobbole.com/4d8ad0b6e65624d1c18aac0963063eaf.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            西电通信工程本硕；熟悉监控设备SDK和流媒体服务器；原MySQL/NTSE内核组开发人员，熟悉MySQL内核与架构以及运维调优；现杭州某公司...        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/sunny4715" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/sunny4715/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a> ·
+            <a title="声望值" target="_blank" href="http://www.jobbole.com/members/sunny4715/reputation/"><i class="fa fa-graduation-cap"></i> 10</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}

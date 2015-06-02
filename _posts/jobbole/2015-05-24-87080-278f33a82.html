@@ -1,0 +1,147 @@
+---
+layout: post
+title: 'SQL Server自动化运维系列：监控跑批Job运行状态'
+time: 2015-05-24 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87080/
+images:
+  db555429528e5cf3ec115f721ed1a2aa: http://ww4.sinaimg.cn/mw690/6941baebgw1esfkbm17cfj20fd08twfr.jpg
+  7774a5b98b6664e616d557af7b6271c1: http://ww3.sinaimg.cn/mw690/6941baebgw1esfkbl02l6j20as04qdgx.jpg
+  67b43b8ef29818a6a852e722eb3b5761: http://ww1.sinaimg.cn/mw690/6941baebgw1esfkbkcn0uj20up07iq5d.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<ul>
+<li>《<a title="SQL Server自动化运维系列：监控性能指标脚本" href="http://blog.jobbole.com/85631/" target="_blank">SQL Server自动化运维系列：监控性能指标脚本</a>》</li>
+<li>《<a title="SQL Server自动化运维系列：监控磁盘剩余空间及SQL Server错误日志" href="http://blog.jobbole.com/85637/" target="_blank">SQL Server自动化运维系列：监控磁盘剩余空间及SQL Server错误日志</a>》</li>
+<li>《<a href="http://blog.jobbole.com/87077/" target="_blank">SQL Server自动化运维系列：关于邮件通知那点事</a>》</li>
+</ul>
+<p><strong>需求描述</strong></p>
+<p>在我们的生产环境中，大部分情况下需要有自己的运维体制，包括自己健康状态的检测等。如果发生异常，需要提前预警的，通知形式一般为发邮件告知。</p>
+<p>在上一篇文章中已经分析了SQL SERVER中关于邮件的基础配置，本篇将利用此功能对多台Server的跑批Job进行监控。</p>
+<p><strong>本篇实现</strong></p>
+<p>1、每天检查服务器中的SQL Server跑批Job的运行状态，如果跑批失败，则发邮件告诉管理员失败的明细</p>
+<p>2、解决多台服务器同时检查</p>
+<p><strong>监控脚本</strong></p>
+<p>首先我们来解决第二个问题，关于多台服务器的问题：</p>
+<p>&lt;1&gt;一般监控我们需要监控很多台服务器的JOb，所以对于服务器的量控制我们需要生成一个配置文件。</p>
+<div>
+<pre class="brush: xml; gutter: true">&lt;computernames&gt;
+        &lt;computername&gt;
+                wuxuelei-pc
+        &lt;/computername&gt;
+&lt;/computernames&gt;</pre>
+</div>
+<p>配置文件名字：computername.xml，这样就解决很多服务器的问题，只需要在配置文件中增加就可以，因为我在本地测试，所以就配置了我的本地电脑</p>
+<p>&lt;2&gt;利用Power Shell脚本，抓取出每台服务器的Job的状态，并且将Job的运行时间、运行状态、描述以及错误的步骤等信息整理，形成汇总邮件。</p>
+<p>脚本如下：</p>
+<div>
+<pre class="brush: sql; gutter: true">$server = "(local)"
+$uid = "sa"
+$db="master"
+$pwd="password"
+$mailprfname = "TestMail"
+$recipients = "787449667@qq.com"
+$subject = "老大，快去看看这些服务器的Job跑失败了！"
+$computernamexml = "F:\PowerShell\发送邮件\computername.xml"
+
+function GetServerName($xmlpath)
+{
+    $xml = [xml] (Get-Content $xmlpath)
+    $return = New-Object Collections.Generic.List[string]
+    for($i = 0;$i -lt $xml.computernames.ChildNodes.Count;$i++)
+    {
+        if ( $xml.computernames.ChildNodes.Count -eq 1)
+        {
+            $cp = [string]$xml.computernames.computername
+        }
+        else
+        {
+            $cp = [string]$xml.computernames.computername[$i]
+        }
+        $return.Add($cp.Trim())
+    }
+    $return
+}
+
+function GetAlterCounter($xmlpath)
+{
+    $xml = [xml] (Get-Content $xmlpath)
+    $return = New-Object Collections.Generic.List[string]
+    $list = $xml.counters.Counter
+}
+
+function CreateAlter($message)
+{
+    $SqlConnection = New-Object System.Data.SqlClient.SqlConnection 
+    $CnnString ="Server = $server; Database = $db;User Id = $uid; Password = $pwd" 
+    $SqlConnection.ConnectionString = $CnnString 
+    $CC = $SqlConnection.CreateCommand(); 
+    if (-not ($SqlConnection.State -like "Open")) { $SqlConnection.Open() } 
+
+    $cc.CommandText=
+            " EXEC msdb..sp_send_dbmail 
+             @profile_name  = '$mailprfname'
+            ,@recipients = '$recipients'
+            ,@body = '$message'
+            ,@subject = '$subject'
+            "
+    $cc.ExecuteNonQuery()|out-null 
+    $SqlConnection.Close();
+}
+
+$report = ""
+$item = New-Object Collections.Generic.List[string]
+$names = GetServerName($computernamexml)
+foreach($cp in $names)
+{
+$srv=New-Object "Microsoft.SqlServer.Management.Smo.Server" "(local)"
+$item=$srv.jobserver.jobs | where-object {$_.lastrunoutcome -eq "Failed" -and $_.isenabled -eq $TRUE} |  select OriginatingServer,name,Description,lastrunoutcome,lastrundate,JobSteps  
+#Write-Host $item.JobSteps.name 
+$report += " 服务器："+$item.OriginatingServer+"  Job名称："+$item.name+"  Job描述："+$item.Description +"  Job最后运行状态："+$item.lastrunoutcome  +"  Job最后运行时间："+$item.lastrundate +"  Job失败的步骤名称："+$item.JobSteps.name  + "`n"
+}
+#生产警告
+CreateAlter $report</pre>
+</div>
+<p>通过上述脚本，生成跑批任务，就可以定时监控多台服务器的Job了。</p>
+<p>当然，建议放在所有Job的运行完成之后，进行检测。</p>
+<p>上述代码中，有两个技术点：</p>
+<p>1、需要自己配置SQL Server邮件代理，具体方法参照我上一篇：<a href="http://blog.jobbole.com/87077/" target="_blank">点击此</a>；</p>
+<p>2、需要自己配置跑批计划，方法自己网上搜，很简单。</p>
+<p>本篇所监控的Job状态，利用的是上一篇我们创建的Job，跑批肯定失败的。</p>
+<p><img alt="" src="/images/jobbole.com/db555429528e5cf3ec115f721ed1a2aa.jpg"></p>
+<p><strong>效果图如下</strong></p>
+<p><img alt="" src="/images/jobbole.com/7774a5b98b6664e616d557af7b6271c1.jpg"></p>
+<p>点击来看一下邮件明细内容：</p>
+<p><img alt="" src="/images/jobbole.com/67b43b8ef29818a6a852e722eb3b5761.jpg"></p>
+<p>给出的失败信息还是挺详细的。</p>
+<p>另外，因为我只建立了一个失败的Job，所以邮件中只是发送一个条。</p>
+<p>其实关于此监控，还有一些状态是可以监控的：</p>
+<p>1、比如：可以指定服务器上的部分Job进行监控</p>
+<p>2、监控Job的状态：失败或者正常等</p>
+<p>以上内容，可以自己根据需要灵活配置。</p>
+<p><strong>结语</strong></p>
+<p>本篇就列举了一下利用PowerShell实现自动化运维和检测。算作抛砖引玉了吧，自己另有需求可以自己灵活实现。</p>
+<p>另外关于Job，一般除了SQL Server的Agent会存在，还有一部分是操作系统的计划任务也需要检测，我们后面的文章解决此问题。</p>
+<p>关于SQL Server自动化运维和检测的内容很广泛，其中很多都是从日常的经验中出发，一步步的从手动到自动的过程。</p>
+<p>后面的文章，我们将会更深入关于SQL Server的自动化优化运维进行分析。有兴趣的童鞋，可以提前关注。</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87080" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87080votetotal"></h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87080" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

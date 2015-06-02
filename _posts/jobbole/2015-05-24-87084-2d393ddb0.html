@@ -1,0 +1,115 @@
+---
+layout: post
+title: 'SQL Server自动化运维系列：关于数据收集'
+time: 2015-05-24 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87084/
+images:
+  809ea5d80a232935554818654eeb66eb: http://ww3.sinaimg.cn/mw690/6941baebgw1esfkidlsyoj20s30gfgq1.jpg
+  5c298df2e694798633813f0d81c386c8: http://ww4.sinaimg.cn/mw690/6941baebgw1esfkicw4m9j206b06tjs8.jpg
+  400fdcc5ab996cb46aeb27d40537ce98: http://ww2.sinaimg.cn/mw690/6941baebgw1esfkibyweoj20om0fw0u8.jpg
+  a8c6571228c7c15c509b597569d77de9: http://ww4.sinaimg.cn/mw690/6941baebgw1esfkiahldoj20m30fyjv2.jpg
+  b8a013d77bbe2c29d504f93f259fcb62: http://ww2.sinaimg.cn/mw690/6941baebgw1esfki9i9j1j20la0fwabk.jpg
+  8cf3a720933ac7c67ce73ab6e3243cc0: http://ww2.sinaimg.cn/mw690/6941baebgw1esfki8kpklj20nj09ignv.jpg
+  03f1ccf0221abb9b321d32cb8a472113: http://ww3.sinaimg.cn/mw690/6941baebgw1esfki7ksjxj207705vgm9.jpg
+  a8c9a21207ac11c080ae7c71adaba176: http://ww1.sinaimg.cn/mw690/6941baebgw1esfki6pjhkj209o08paca.jpg
+  040a2ee68c5de05ac0ea0c572b287116: http://ww2.sinaimg.cn/mw690/6941baebgw1esfki4ixdfj20n70iqtb7.jpg
+  5a569cf6c9693a6defdd063bd2f7d59c: http://ww1.sinaimg.cn/mw690/6941baebjw1esfkhy1fs8j20ql0e2jvs.jpg
+  9a89fda630429478279a353090551eb7: http://ww4.sinaimg.cn/mw690/6941baebjw1esfkhodnk2j20j80aeq6b.jpg
+  7b18a0c8340a109383f6af39cc77ae18: http://ww2.sinaimg.cn/mw690/6941baebjw1esfkhezdxvj20lf0fz40v.jpg
+  2de3321857fae631e91b3c2c2f032743: http://ww4.sinaimg.cn/mw690/6941baebjw1esfkh8oizhj20m70e80ug.jpg
+  604bf2cdefa83f6d2c8e94255c2cabcb: http://ww3.sinaimg.cn/mw690/6941baebjw1esfkh7kuuvj20no0g4gpa.jpg
+  231bf79fe23271710338fedc7acf2eb4: http://ww3.sinaimg.cn/mw690/6941baebjw1esfkh50hz7j20l50cnach.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<ul>
+<li>《<a title="SQL Server自动化运维系列：监控性能指标脚本" href="http://blog.jobbole.com/85631/" target="_blank">SQL Server自动化运维系列：监控性能指标脚本</a>》</li>
+<li>《<a title="SQL Server自动化运维系列：监控磁盘剩余空间及SQL Server错误日志" href="http://blog.jobbole.com/85637/" target="_blank">SQL Server自动化运维系列：监控磁盘剩余空间及SQL Server错误日志</a>》</li>
+<li>《<a title="SQL Server自动化运维系列：关于邮件通知那点事" href="http://blog.jobbole.com/87077/" target="_blank">SQL Server自动化运维系列：关于邮件通知那点事</a>》</li>
+<li>《<a title="SQL Server自动化运维系列：监控跑批Job运行状态" href="http://blog.jobbole.com/87080/" target="_blank">SQL Server自动化运维系列：监控跑批Job运行状态</a>》</li>
+<li>《<a title="SQL Server自动化运维系列：关于数据收集" href="http://blog.jobbole.com/87084/" target="_blank">SQL Server自动化运维系列：关于数据收集</a>》</li>
+</ul>
+<p><strong>需求描述</strong></p>
+<p>在生产环境中，很多情况下需要采集数据，用以定位问题或者形成基线。</p>
+<p>关于SQL Server中的数据采集有着很多种的解决思路，可以采用Trace、Profile、SQLdiag、扩展事件等诸多方案。</p>
+<p>几种方案各有利弊，其中从SQL Server2012版本开始，微软的开始各种整合这些采集方案，力推扩展事件。</p>
+<p>对于上述的数据采集只是一种实现手段，对于采集完数据的存储没有统一的规范，并且对于多服务器的数据采集及汇总没形成统一的规范。</p>
+<p><strong>本篇实现</strong></p>
+<p>1、通过SQL Server自带的数据采集器实现多服务器的性能采集</p>
+<p>2、利用SQL Server数据采集数据仓库（DW）形成运维报表</p>
+<p>3、通过灵活性的配置方式，实现不同服务器不同采集点的数据收集</p>
+<p><strong>&lt;1&gt;基础配置</strong></p>
+<p>以前，有个同事说SQL Server的自动化运维太弱了，并且定位问题也比较麻烦，需要记住各种系统的DMV….各种日志查找….你看看人家MySQL强大的图形化界面提示，让你一眼就能发现当前数据库所存在的问题。</p>
+<p>的确，来看看MySQL所提供的图形化的运维界面</p>
+<p><img alt="" src="/images/jobbole.com/809ea5d80a232935554818654eeb66eb.jpg"></p>
+<p>是他娘的帅气，把整体的平台给划分的很详细：网络、实例状态、存储状态。</p>
+<p>而且还有看上去很优雅的图形化展示界面。</p>
+<p>上述界面所反映的内容，对于问题的查找是相当便利的，在SQL SERVER中就找不到同样的模块。如果有经验的DBA会通过任务管理器、性能监视器、然后配合系统自带个一些个DMV…进行分析….看上去复杂并且很高深的样子。</p>
+<p>其实，在SQL SERVER中，也有类似的功能模块，并且更灵活的实现多台服务器共同采集，下面，我们来看一下详细的使用和配置流程。</p>
+<p><img alt="" src="/images/jobbole.com/5c298df2e694798633813f0d81c386c8.jpg"></p>
+<p>在数据收集上，右键选择“配置管理数据仓库”</p>
+<p><img alt="" src="/images/jobbole.com/400fdcc5ab996cb46aeb27d40537ce98.jpg"></p>
+<p>SQL SERVER为了能够支撑多台服务器的数据采集任务，鉴于数据量的庞大和用于数据分析的重要性，所以自己创建了一个用于数据分析的数据仓库（DW）</p>
+<p>这里选择好实例，创建好数据仓库就可以。</p>
+<p>提示：为了避免影响生产系统的性能，一般这里建议采用另外一台空闲的实例，专门用于数据采集和性能分析。</p>
+<p>我这里演示，就采用本地的实例进行配置，然后下一步：</p>
+<p><img alt="" src="/images/jobbole.com/a8c6571228c7c15c509b597569d77de9.jpg"></p>
+<p>到这一步是管理数据仓库的用户权限，可以配置用户权限，三种权限级别：管理员、可读、可写；</p>
+<p>很简单，配置完成直接下一步，然后就完成了该数据采集的数据仓库的搭建。</p>
+<p><strong>&lt;2&gt;基础配置</strong></p>
+<p>这一步就是设置数据收集了，简单点讲就是要配置收集的数据项有哪些。</p>
+<p>同样是，数据采集上右键，然后选择“设置数据采集”</p>
+<p><img alt="" src="/images/jobbole.com/b8a013d77bbe2c29d504f93f259fcb62.jpg"></p>
+<p>然后，下一步就是连接数据仓库，选择缓存目录</p>
+<p><img alt="" src="/images/jobbole.com/8cf3a720933ac7c67ce73ab6e3243cc0.jpg"></p>
+<p>然后，下一步就可以完成，这里SQL SERVER同样的内置了一套数据搜集的模板，会为你收集全部的基本信息，当然，也可以自定义，文章后面介绍。</p>
+<p>来看默认的数据采集的收集项</p>
+<p><img alt="" src="/images/jobbole.com/03f1ccf0221abb9b321d32cb8a472113.jpg"></p>
+<p>自带的默认模板中，分为了查询统计信息，其实这个就对应的实例状态、磁盘存储、服务器活动，除了这下还赠送了一个实用工具信息，这个是用来灵活配置其它几个收集项的。</p>
+<p><img alt="" src="/images/jobbole.com/a8c9a21207ac11c080ae7c71adaba176.jpg"></p>
+<p>可以随时的根据个人喜好启动、停止数据收集动作，酌情采用。</p>
+<p>并且，也可以自己配置收集动作的时间间隔或者状态值。</p>
+<p><img alt="" src="/images/jobbole.com/040a2ee68c5de05ac0ea0c572b287116.jpg"></p>
+<p>并且，SQL Server贴心的给内置了一下计划模板，基本涵盖了所有的应用场景。</p>
+<p><img alt="" src="/images/jobbole.com/5a569cf6c9693a6defdd063bd2f7d59c.jpg"></p>
+<p>然后，你就放心的让它自己去采集就可以了。不爽的时候随时停止就可以。</p>
+<p>剩下来的事就是查看采集数据了，鉴于MYSQL提供了如此精美的图像化展现方式，SQL SERVER同样也有。</p>
+<p><img alt="" src="/images/jobbole.com/9a89fda630429478279a353090551eb7.jpg"></p>
+<p>就是它了</p>
+<p><img alt="" src="/images/jobbole.com/7b18a0c8340a109383f6af39cc77ae18.jpg"></p>
+<p>看上去是不是也有那么点意思了，包括：CPU、内存、磁盘IO、网络…</p>
+<p>并且顺带着SQL server等待、SQL语句执行情况等</p>
+<p><img alt="" src="/images/jobbole.com/2de3321857fae631e91b3c2c2f032743.jpg"></p>
+<p>然后，针对性能调优的一些语句，也给出了排序包括CPU、运行时间、IO总数、物理读取、逻辑读取等</p>
+<p><img alt="" src="/images/jobbole.com/604bf2cdefa83f6d2c8e94255c2cabcb.jpg"></p>
+<p>当然，我本地的机器本身采集量就很少，并且运行的T-SQL语句就不多，所以图表工具显示的很空旷。</p>
+<p>来看看磁盘存储的</p>
+<p><img alt="" src="/images/jobbole.com/231bf79fe23271710338fedc7acf2eb4.jpg"></p>
+<p>上述内容大体就这些，自己用的时候再行挖掘吧，本篇提供思路。</p>
+<p>如果经验老道的DBA，我估计上述语句通过系统的DMV都可以查看的到，但是那仅限于有经验的，上述方案为小白降低了维护数据库的成本。</p>
+<p>并且可以在多台服务器中进行采集，集中处理问题。</p>
+<p><strong>结语</strong></p>
+<p>在本篇介绍利用SQL Server自带的数据收集工具进行数据库运维。关于自定义的数据收集项设置，后一篇介绍吧。</p>
+<p>另外关于数据收集的DW有很多很有用的内容，如果对于大型的平台性能运维，可以借此扩展，形成自己的运维平台。</p>
+<p>关于SQL Server自动化运维和检测的内容很广泛，其中很多都是从日常的经验中出发，一步步的从手动到自动的过程。</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87084" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87084votetotal"></h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87084" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

@@ -1,0 +1,162 @@
+---
+layout: post
+title: 'SQL Server自动化运维系列：关于邮件通知那点事'
+time: 2015-05-24 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87077/
+images:
+  efb28ca4c630f5a9b7fd5e16fcae84ba: http://ww1.sinaimg.cn/mw690/6941baebgw1esfk48r8kuj208809babf.jpg
+  fef7dc0d55a7bab0c78dab11352c329b: http://ww3.sinaimg.cn/mw690/6941baebgw1esfk47xedqj20l60cgjsn.jpg
+  e047ab67d6078fe3f1ef645fc1402b39: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk46vae3j20nb0icgnv.jpg
+  3156c3c64b9bbcee1a00f2924e87bfa7: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk45i0tyj20n109pdh7.jpg
+  e37d033a310b5715c64ce8c01833a369: http://ww4.sinaimg.cn/mw690/6941baebgw1esfk44td3fj20f7091myn.jpg
+  ddcb5264c5049ac8e9b4c38b73066c41: http://ww3.sinaimg.cn/mw690/6941baebgw1esfk42v0cxj20be05q75f.jpg
+  f0cd6c7f9e7ae96feae062cb48f670f0: http://www.cnblogs.com/Images/OutliningIndicators/None.gif
+  907ac88b5ec4522b097af61216ccf6eb: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk428ahpj20b00c9gq0.jpg
+  db111cae12f9d242003d16776fee5724: http://ww3.sinaimg.cn/mw690/6941baebgw1esfk40nsv6j20ai049q3h.jpg
+  32ef60f68b10e88019a33b89835f4943: http://ww1.sinaimg.cn/mw690/6941baebgw1esfk405d7dj20ss05rdi3.jpg
+  30ebed3a203c0aac3c36a208c569da8c: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk3zc3p1j20sz08ydji.jpg
+  f26c0c6b8fe1d02faf25b40fbe2e142f: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk3xe4hvj20nh0ij414.jpg
+  9cc80fad1fb8345fd926fdf2994a733a: http://ww1.sinaimg.cn/mw690/6941baebgw1esfk3wmrsmj20je0hl77i.jpg
+  99b17f5b02021a5b6015ba12f94cb755: http://ww4.sinaimg.cn/mw690/6941baebgw1esfk3viot8j20jl0hctay.jpg
+  450ba38deec902337ddd6c22bb0c9949: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk3uyg95j20j70hpjtk.jpg
+  3fc844ed93e8f7770d5f56c631fdf1ab: http://ww3.sinaimg.cn/mw690/6941baebgw1esfk3trwp0j20jj0hi77i.jpg
+  575a73c8467d0a966224134efc8a2dd0: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk3t6e7rj20j90hlac8.jpg
+  66fa1fafe2788492342943ec6d858429: http://ww1.sinaimg.cn/mw690/6941baebgw1esfk3shkc0j20jn0ar75v.jpg
+  fdcfdc725c5d8e0f07af9ae2f095ac65: http://ww3.sinaimg.cn/mw690/6941baebgw1esfk3rxju2j20ev08szlg.jpg
+  f0099605873839f87cde76f4418c4a5f: http://ww4.sinaimg.cn/mw690/6941baebgw1esfk3rc1i3j20b604wq41.jpg
+  1549c4e62005c38ce60d4ec55fd21163: http://ww2.sinaimg.cn/mw690/6941baebgw1esfk3qs12ej20m608g76v.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<ul>
+<li>《<a title="SQL Server自动化运维系列：监控性能指标脚本" href="http://blog.jobbole.com/85631/" target="_blank">SQL Server自动化运维系列：监控性能指标脚本</a>》</li>
+<li>《<a title="SQL Server自动化运维系列：监控磁盘剩余空间及SQL Server错误日志" href="http://blog.jobbole.com/85637/" target="_blank">SQL Server自动化运维系列：监控磁盘剩余空间及SQL Server错误日志</a>》</li>
+</ul>
+<p><strong>需求描述</strong></p>
+<p>在我们的生产环境中，大部分情况下需要有自己的运维体制，包括自己健康状态的检测等。如果发生异常，需要提前预警的，通知形式一般为发邮件告知。</p>
+<p>邮件作为一种非常便利的预警实现方式，在及时性和易用性方面也有着不可替代的优点。</p>
+<p>所以，在本篇中将详细的分析下在SQL Server中的邮件通知功能及使用方式等。</p>
+<p><strong>本篇实现</strong></p>
+<p>1、通过SQL Server自带的邮件功能实现运维的预警及检测</p>
+<p>2、利用数据库邮件组件代替传统的C#发送邮件的弊端</p>
+<p>3、实现Job任务运行状态的检测</p>
+<p>4、利用PowerShell实现Job任务计划的检测</p>
+<p><strong>&lt;1&gt;基础配置</strong></p>
+<p>首先，我们来配置下SQL Server中的邮件组件的基础服务项。SQL Server自从05版本起，邮件功能就不需要开启外配配置管理器了，它有着自己的组件，实现邮件发送的功能。</p>
+<p>如果，没使用过，可以按照以下步骤进行配置，步骤很简单。</p>
+<p><img alt="" src="/images/jobbole.com/efb28ca4c630f5a9b7fd5e16fcae84ba.jpg"></p>
+<p>右键，配置数据库邮件</p>
+<p><img alt="" src="/images/jobbole.com/fef7dc0d55a7bab0c78dab11352c329b.jpg"></p>
+<p>然后直接下一步就行，然后新建一个账户</p>
+<p><img alt="" src="/images/jobbole.com/e047ab67d6078fe3f1ef645fc1402b39.jpg"></p>
+<p>然后，下一步完成就可以，步骤很简单，这里面有几个概念需要理清楚，对于SQL Server的邮件账户是由权限控制的，目的是实现不同的人使用不同的邮件账户，比如大型数据库的管理一般有好几个DBA负责运维，分职责之后的运行，发送预警邮件也就产生了区分，总不能模块中出现了任何问题都发送给一个人。</p>
+<p>跟你一毛钱关系都没有的异常，天天给你发邮件，是不是很不爽？？….这种管理方式是灰常暴力的！</p>
+<p>为了解决上述问题，SQL Server对邮件的账户进行了分类：</p>
+<p><img alt="" src="/images/jobbole.com/3156c3c64b9bbcee1a00f2924e87bfa7.jpg"></p>
+<p>分为公共账户和专用账户。</p>
+<p>一般如果管理人员少，就配置一个公共账户就可以，有问题都发送到该邮箱就可以。</p>
+<p>至此，你已经完成了数据库邮件模块的配置，步骤很简单。这里可以发送一封测试邮件，来测试下邮件的连通性。</p>
+<p>提示：SQL Server邮件组件的运行需呀SQL Server Age运行执行，所以需要确保此服务正在运行。</p>
+<p>在“数据库邮件”上右键，发送测试电子邮件，输入目标邮箱的地址，然后单击发送就可以。</p>
+<p><img alt="" src="/images/jobbole.com/e37d033a310b5715c64ce8c01833a369.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/ddcb5264c5049ac8e9b4c38b73066c41.jpg"></p>
+<p>至此，你的SQL Server已经完成邮件组件的基础配置，然后剩下的工作就是如何利用该组件进行部分工作的完成了。</p>
+<p> </p>
+<p><strong>&lt;2&gt;c#调用数据库邮件组件进行邮件的发送</strong></p>
+<p>还记得当年刚毕业的时候，对于发送邮件这块功能当时是异常的痴迷，各种的研究和各种的调试。</p>
+<p>后来的终归在废了九牛二虎之力之后，终于在一个午夜梦回之时看到了我梦寐以求的测试邮件发送通知，想想一个字描述：草！</p>
+<p>大体我记得需要引用以下几个命名空间：<img alt="" src="/images/jobbole.com/f0cd6c7f9e7ae96feae062cb48f670f0.jpg" align="top">using System.Net;  using System.Net.Mail;</p>
+<p>然后利用C#提供的SmtpClient类进行组装成邮件实体，而后一个Send()方法，这其中的痛苦点在于各种编码规范等。</p>
+<p>我相信现在也有很多程序猿依然再采用着这种方式。</p>
+<p>今天提供另外一种灵活的实现方式，利用SQL Server数据库的邮件组件进行邮件的发送。</p>
+<p>关于上面第一个步骤提供的邮件组件的调用，其实在SQL Server中是提供系统自带的存储过程进行实现的。方法如下：</p>
+<p><img alt="" src="/images/jobbole.com/907ac88b5ec4522b097af61216ccf6eb.jpg"></p>
+<p>该存储过程提供了发送邮件的的各种参数，完全满足发送邮件的各种需求，比如：主题、内容、附件、CC、秘密CC….等等吧</p>
+<p>调用该存储过程的方法如下：</p>
+<div>
+<pre class="brush: sql; gutter: true">--存储过程调用发邮件
+    EXEC msdb.dbo.sp_send_dbmail
+    @profile_name = 'testMail',
+    @recipients = '787449667@qq.com',
+    @body = '这是测试邮件',
+    @subject = '我发的', 
+    @file_attachments='C:\temp\3-26-2015-16-20-21.png'</pre>
+</div>
+<p>上面一个简单的方法执行既可以实现，邮件的发送。<br>
+<img alt="" src="/images/jobbole.com/db111cae12f9d242003d16776fee5724.jpg"></p>
+<p>然后，你需要的就是c#调用该存储过程了。</p>
+<p>关于写C#代码通过Ado.net调用存储过程的过程这里就不赘述了，我相信这是入门级别的小白也能搞定的事情了。</p>
+<p>而后，这里捎带分析一下邮件组件的原理和性能问题。我相信这是很多人关心的，其实SQL Server的邮件发送时通过一个底层的JOB轮询执行的，所以根本不用担心其执行顺序和性能问题。</p>
+<p>并且SQL Server为此还提供了几个系统的视图来查看历史运行状态和当前邮件的队列状态：</p>
+<div>
+<pre class="brush: sql; gutter: true">--邮件内容
+SELECT * FROM msdb.dbo.sysmail_allitems</pre>
+</div>
+<p><img alt="" src="/images/jobbole.com/32ef60f68b10e88019a33b89835f4943.jpg"></p>
+<div>
+<pre class="brush: sql; gutter: true">--邮件发送日志
+SELECT * FROM msdb.dbo.sysmail_event_log</pre>
+</div>
+<p><img alt="" src="/images/jobbole.com/30ebed3a203c0aac3c36a208c569da8c.jpg"></p>
+<p>并且SQL Server提供了邮件重新发送的功能以及其它默认参数，具体设置参照此画面：</p>
+<p><img alt="" src="/images/jobbole.com/f26c0c6b8fe1d02faf25b40fbe2e142f.jpg"></p>
+<p>至此，已经完成了利用C#进行发送邮件的功能。</p>
+<p>我相信基本上用C#就会搭配微软自己的SQL Server数据库，而使用它之后就可以少量的代码实现邮件发送的功能。</p>
+<p><strong>&lt;3&gt;实现Job任务运行状态的检测</strong></p>
+<p>在我们使用SQL Server的时候，很多情况下都需要自定义Job进行部分功能的实现，而大部分时间是采取凌晨或者非业务期进行工作。</p>
+<p>而此Job的运行结果的检测便形成了一个需要跟踪的问题，比如有时候N个Job的运行，只有几个出现问题，并且不确定的此Job发生在那个机器上，所以自动化运维的重要性就不言而喻了。</p>
+<p>对于上面问题的解决，SQL Server提供了很简单的配置就可以实现。</p>
+<p>（1）首先，需要定义几个操作员，说到底就是几个人值班运维此数据库的</p>
+<p><img alt="" src="/images/jobbole.com/9cc80fad1fb8345fd926fdf2994a733a.jpg"></p>
+<p>上面，我就定义了一个人，其实可以定义多个人，几个运维人员几个…</p>
+<p>（2）其次，需要定义警报，说到底就是将产生的预警发送给上面的几个运维人员。</p>
+<p><img alt="" src="/images/jobbole.com/99b17f5b02021a5b6015ba12f94cb755.jpg"></p>
+<p>这里面的严重性选项其实是一个很重要的功能，一些简单的问题警告有时候是不需要及时关注的，或者说不需要暂时处理的。</p>
+<p>但是有些问题则需要里面去解决，比如服务器宕机….</p>
+<p>然后，我们来将此预警关联之操作员</p>
+<p><img alt="" src="/images/jobbole.com/450ba38deec902337ddd6c22bb0c9949.jpg"></p>
+<p>到此，我们已经完成了预警的检测配置，然后需要的就是关联下Job代理的任务属性值。</p>
+<p><img alt="" src="/images/jobbole.com/3fc844ed93e8f7770d5f56c631fdf1ab.jpg"></p>
+<p>经过上面的配置，任何我们自定义的Job工作状态都可以进行自动化检测了。</p>
+<p>比如：某个Job跑批成功了，某个Job跑批失败了。我们来新建一个自定义的Job来测试下：</p>
+<p><img alt="" src="/images/jobbole.com/575a73c8467d0a966224134efc8a2dd0.jpg"></p>
+<p>然后设置警告</p>
+<p><img alt="" src="/images/jobbole.com/66fa1fafe2788492342943ec6d858429.jpg"></p>
+<p>然后，在运行此Job出现异常的时候，就可以自动的报告到相应的运维人员了。</p>
+<p>这里我们就设置了一个运维人员，所以这里只发送给一个人。</p>
+<p>我们来手动运行下，来测试一下效果</p>
+<p><img alt="" src="/images/jobbole.com/fdcfdc725c5d8e0f07af9ae2f095ac65.jpg"></p>
+<p>嘿嘿，果然，发出了警报，看起来很贴心的样子</p>
+<p><img alt="" src="/images/jobbole.com/f0099605873839f87cde76f4418c4a5f.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/1549c4e62005c38ce60d4ec55fd21163.jpg"></p>
+<p>至此，此功能已经配置完成，自己可以灵活的实现。</p>
+<p><strong>&lt;4&gt;利用PowerShell实现Job任务计划的检测</strong></p>
+<p>关于Job的明细日志，请参照如下文章：</p>
+<p><a id="cb_post_title_url" href="http://blog.jobbole.com/87080/" target="_blank">SQL Server自动化运维系列——监控跑批Job运行状态（Power Shell）</a></p>
+<p><strong>结语</strong></p>
+<p>本来打算将利用Power Shell脚本检测的功能实现方式也加上的，但文章已经稍有点篇幅了，后续再完成吧。此篇的关于SQL Server的邮件功能算作抛砖引玉了，自己另有需求可以自己灵活实现。</p>
+<p>其实，在本篇所介绍的Job任务的检测在几台服务器上存在还问题不大，但是如果多台服务器，如果每台服务器上都有几个Job异常的话，每天早上打开邮件多的估计会令你头皮发麻，并且在自带的异常报警中，没有给出详细的错误信息，其实这是一个很不爽弊端。</p>
+<p>所以，为了优雅的进行自动化运维的工作，我们将会每次将我们所有检测的服务器Job运行状态进行扫描，而后将其汇总至一封邮件，然后按照重要性发送至固定的运维人员。</p>
+<p>听起来是不是还有点小激动的样子，下一篇我们来实现此功能。有兴趣的童鞋，可以提前关注。</p>
+<p>关于SQL Server自动化运维和检测的内容很广泛，其中很多都是从日常的经验中出发，一步步的从手动到自动的过程。</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87077" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87077votetotal"></h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87077" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
