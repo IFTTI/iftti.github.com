@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>我用 Go 语言做了一个红白机模拟器</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-05-28-87068-d4c8911d3.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>我用 Go 语言做了一个红白机模拟器</h1>
+    <p class="meta"><span class="time">May 28, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/87068/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p><span style="color: #888888;">译注：Family Computer（简称 FC）是任天堂（Nintendo）公司发行的家用游戏主机。日版 FC 机身以红色和白色为主，因此在华人圈中又有“红白机”的俗称；欧美版 FC 在欧美则称 Nintendo Entertainment System（简称 NES）。</span></p>
+<p style="text-align: center;"><img id="pic" alt="" src="/images/jobbole.com/bae393881c2ab1e2a30102da727eb1b2.jpg"></p>
+<p style="text-align: center;">（游戏截图）</p>
+<p>最近我编写了一个 <a title="FC 模拟器" href="https://github.com/fogleman/nes">FC 模拟器</a>。制作这样一个模拟器主要是出于兴趣以及为了从中学习 FC 的工作原理。在这个过程中我学到了很多有趣的知识，于是写下这篇文章同诸位分享我所学到的内容。由于相关的文档已经有很多了，所以这里我只打算讲述一些有趣的特性。请注意，接下来都将是些技术方面的内容。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/e37c04debfb4a37dfc1f83cca346f793.jpg"></p>
+<p style="text-align: center;">图1 我的模拟器可以将画面录制成 GIF。这是我正在玩《大金刚》（Donkey Kong）的画面。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">CPU</span></h2>
+<p>FC 使用 MOS 6502（主频1.79MHz）作为其CPU。6502 是一枚诞生于 1975 年（距今已有 40 年之久了）的 8位微处理器。在当时这款芯片非常流行，不仅应用于 FC，还被广泛应用于雅达利 2600 &amp; 800、Apple I &amp; II、Commodore 64、VIC-20、BBC Micro等机器上。事实上，直到今天6502的修订版（<a title="65C02" href="http://en.wikipedia.org/wiki/WDC_65C02">65C02</a>）还依然在生产。</p>
+<p>6502 的寄存器相对较少，只有寄存器 A、 X 和 Y ，而且它们都是专用寄存器。尽管如此，其指令却有多种寻址模式。这其中包括一种称为“零页”（Zero Page）的寻址模式，使开发人员可以访问内存中最初的256个字（$0000～ $00FF）。6502 的操作码占用的程序内存较少，执行时花费的 CPU 周期也较短。这样理解，<span style="color: #000000;"> 开发人员可以把零页上的 256 个存储单元看作是 256 个寄存器。</span></p>
+<p>6502 中没有乘法和除法指令，当然也没有浮点数运算指令。虽然有 BCD 码模式，但是在 FC 版的6502中，可能是由于专利问题该模式被禁用了。</p>
+<p><span style="color: #888888;">译注：Binary-Coded Decimal，简称BCD，中国大陆称BCD码或二-十进制编码，是一种十进制的数字编码形式。在这种编码下，每个十进制数字用一串单独的二进制比特来存储表示。通常 4 个二进制数表示 1 个十进制数。</span></p>
+<p>6502 还具有一块不带溢出检测的 256 字节的栈空间。</p>
+<p>6502 拥有 151 条指令（理论上有 256 条指令）。剩余的 105 条都是非法或没有文档的指令，多数会使导致处理器崩溃。但是其中也有一些可能会碰巧产生某种作用，于是大部分这样的指令也会有与其作用相应的名称。</p>
+<p>6502 至少有一个已知的硬件上的缺陷，例如间接跳转指令的缺陷在于，当 <code style="font-style: inherit;">JMP &lt;addr&gt;</code> 指令的操作数为形如 $xxFF 的地址时就无法正常工作。因为当从这样的地址读出 2 字节的数据时，该指令无法将低字节 FF 加 1 后（FF -&gt; 00）产生的进位加到高字节上。例如，当从 $10FF 读出2字节的数据时，读取的其实是 $10FF 和 $1000 中的数据，而不是 $10FF 和 $1100 中的数据。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">内存映射</span></h2>
+<p>6502 拥有 16 位地址空间，寻址能力为 64 KB。但是 FC 实际只有 2 KB的 RAM（Internal RAM），对应的地址范围是 $0000～$0799。而剩余的地址空间则用于访问 PPU、 APU、游戏卡以及输入设备等。</p>
+<p>6502 上有些地址总线的引脚并没有布线，所以有很大的一块内存空间实际上都映射到了之前的空间。例如 RAM 中的 $1000～$17FF 就映射到了 $0000～$07FF，这意味着向 $1000 写数据等价于向 $0000 写数据。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/4eb364704ef254c1a2b215517a69bebf.jpg"></p>
+<p style="text-align: center;">图2 “IT’S DANGEROUS TO GO ALONE! TAKE THIS.”（《塞尔达传说》中的游戏对白）</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">PPU（图形处理器）</span></h2>
+<p>PPU 为 FC 生成视频输出。与 CPU 不同，PPU 芯片是为 FC 定制的，其运行频率是 CPU 的 3 倍。渲染时 PPU 在每个周期输出1个像素。</p>
+<p>PPU 能够渲染游戏中的背景层和最多 64 个子画面（Sprite）。子画面可以由 8 x 8 或 8 x 16 像素构成。而背景则既可以延水平（X轴）方向卷动，又可以延竖直（Y轴）方向卷动。并且 PPU 还支持一种称为微调（Fine）的卷动模式，即每次只卷动 1 像素。<span style="color: #000000;">这种卷动模式在当年可是非常了不起的技术。</span></p>
+<p>背景和子画面都是由 8 x 8 像素的图形块（Tile）构成的，而图形块是定义在游戏卡 ROM 中的 Pattern Table 里的。Pattern Table 中的图形块仅指定了其所用颜色中的最后 2 比特，剩余的 2 比特来自 Attribute Table。Nametable 则指定了图形块在背景上的位置。总之，这一切看起来都要比今天的标准复杂得多，所以我不得不和合作者解释说“这不是简单的位图”。</p>
+<p>背景的分辨率为 32 x 30 = 960 像素，由 8 x 8 像素的图形块构成。背景卷动的实现方法是再额外渲染多幅 32 x 30 像素的背景，且每幅背景都加上一个偏移量。如果同时沿 X 轴和 Y 轴卷动背景，那么最多可以有 4 幅背景处于可见状态。但是 FC 只支持 2 幅背景，因此游戏中经常使用不同的镜像模式（Mirroring Mode）来实现水平镜像或竖直镜像。</p>
+<p>PPU 包含 256 字节的 OAM（Object Attribute Memory）用于存储全部 64 个子画面的属性。属性包括子画面的 X 和 Y 坐标、对应的图形块编号以及一组标志位。在这组标志位中，有 2 比特用于指定子画面的颜色，还有用于指定子画面是显示在背景层之前还是之后，是否允许沿水平和/或竖直方向翻转子画面的标志位。FC 支持 DMA 复制，可以快速地将 256 字节从 CPU 可寻址的某段内存<span style="color: #888888;">（译注：通常是 $0200 – $02FF）</span>填充到整个 OAM。像这样直接访问比手工逐字节拷贝大约快 3 倍左右。</p>
+<p>虽然 PPU 支持 64 个卡通图形，但是在一条扫描线（Scan Line）上只能显示 8 个子画面。当一条扫描线上有过多的子画面时，PPU 的溢出（Overflow）标志位将被置位，程序可以依此做出相应的处理。这也就是当画面中有很多的子画面时，这些子画面会发生闪烁的原因。另外，由于一个硬件上的缺陷，会导致溢出标志位有时不能正常工作。</p>
+<p>很多游戏会使用一种叫做 mid-frame 的技术，使 PPU 可以在屏幕的一部分做一件事而在另一部分做另一件事。这项技术经常用于分屏滚动画面或刷新分数条。这需要精确的时间掐算以及对每条指令所需 CPU 周期的详细了解。实现类似这样的功能将会加大编写模拟器的难度。</p>
+<p>PPU 具有一个原始形态的碰撞检测机制。如果第 1 个（编号为0的）子画面和背景相交，那么一个标志位将会被置位，表示“子画面0 发生了碰撞”。这种碰撞在每一帧只会发生一次。</p>
+<p>FC 具有一个内置的 54 色调色板，游戏只能使用这里面的颜色。这些颜色不是 RGB 颜色，基本上只会向电视输出特定的色度（Chroma）和亮度（Luminance）信号。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/185694862d0bd047747bf4423e0e6628.jpg"></p>
+<p style="text-align: center;">图3 FC的调色板。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">APU（音频处理器）</span></h2>
+<p>APU 支持 5 个声道，包括 2 个方波声道，1 个三角波声道，1 个噪声声道和 1 个增量调制声道（DMC）。</p>
+<p>游戏程序需要向指定的寄存器（已映射到内存）写入数据以驱动这些声道发出声音。</p>
+<p>方波声道支持对频率和时值的控制，以及频率扫描（Frequency Sweep）和音量包络（Volume Envelope）。</p>
+<p>噪声声道可以利用线性反馈移位（Linear Feedback Shift）寄存器生成伪随机的噪声。</p>
+<p>增量调制声道（DMC）可以播放内存中的声音样本。例如在《超级马里奥3》中金属鼓的敲击声以及《忍者神龟3》中的语音“cowabunga”使用的都是DMC。</p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/46307fc1af8e2d1dbba3bcbb445f1043.jpg"></p>
+<p style="text-align: center;">图4 打气球游戏</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">内存映射器</span></h2>
+<p>预留给游戏卡的地址空间是有限的，游戏卡的程序内存（Program Memory）被限制在 32 KB，角色内存（Character Memory）被限制在 8 KB。为了突破这种限制，人们发明了内存映射器（Mapper）。</p>
+<p>内存映射器是游戏卡中的一个硬件，具有存储体空间切换（Bank Switching）的功能，以将新的程序或角色内存引入到可寻址的内存空间。程序可以通过向指向内存映射器的特定的地址写入数据来控制存储体空间的切换。</p>
+<p>不同的游戏卡实现了不同的存储体空间切换方案，所以会有十几种不同的内存映射器。既然模拟器要模拟 FC 的硬件，也就必须能够模拟游戏卡的 内存映射器。尽管如此，实际上 90% 的 FC 游戏使用的都是六种最常见的内存映射器中的一种。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">ROM文件</span></h2>
+<p>一个扩展名为 .nes 的 ROM 文件包含游戏卡中的一个或多个程序内存 Bank 和角色内存 Bank。除此之外还有一个简单的头部用于说明游戏中使用了哪种 Mapper 和视频镜像模式，以及是否存在带蓄电池后备电源的 RAM。</p>
+<h2><span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 24px; font-style: normal; font-weight: bold; line-height: 36px;">结尾</span></h2>
+<p>学习 FC 很有意思，当时的人们能够用如此有限的硬件完成这样一款游戏机给我留下了深刻的印象。接下来我都想开始编写一个 8 比特风格的游戏了。</p>
+<p>我用 Go 语言编写了我的模拟器，用 OpenGL 和 GLFW 处理视频，PortAudio 处理音频。模拟器的代码都放到了 GitHub 上，欢迎诸位下载：<a href="https://github.com/fogleman/nes">https://github.com/fogleman/nes</a></p>
+<p style="text-align: center;"><img alt="" src="/images/jobbole.com/deb084b22d8e8a0c9b86a566aecf68e2.jpg"></p>
+<p style="text-align: center;">图5 我的最爱：《超级马里奥3》</p>
+<h3>了解更多</h3>
+<ul>
+<li><a href="http://nesdev.com/NESDoc.pdf">NES Documentation (PDF)</a></li>
+<li><a href="http://wiki.nesdev.com/w/index.php/NES_reference_guide">NES Reference Guide (Wiki)</a></li>
+<li><a href="http://www.obelisk.demon.co.uk/6502/">6502 CPU Reference</a></li>
+</ul>
+
+    <div class="post-adds">
+        <span data-post-id="87068" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87068votetotal">4</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87068" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 1 收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i> 1 评论</span></a>
+
+            </div>
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/jackalhu">JackalHu</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/jackalhu">
+			<img src="/images/jobbole.com/ca44b272678408d3e2650ac448de62da.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            热爱编程，关注设计模式，致力于提升软件开发的质量。新浪微博：@Jackal-Hu        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/jackalhu" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/jackalhu/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a> ·
+            <a title="声望值" target="_blank" href="http://www.jobbole.com/members/jackalhu/reputation/"><i class="fa fa-graduation-cap"></i> 11</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-05-27-87067-3e26d261e.html" title="Previous Post: 实时处理日均50亿会话，解析Twitter Answers的架构" data-instant>&laquo; 实时处理日均50亿会话，解析Twitter Answers的架构</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-05-28-87159-b9487b125.html" title="Next Post: SQL on Hadoop 的真相（2）" data-instant>SQL on Hadoop 的真相（2） &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>29 May 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-05-29-87158-45c4542f0.html">浅谈排队论</a></li>
+
+      <li><span>18 May 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-05-18-86799-7596a32e0.html">老鸟向新手讲解各种编程比赛</a></li>
+
+      <li><span>18 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-18-81106-2aba1c5c3.html">超酷算法：用四叉树和希尔伯特曲线做空间索引</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

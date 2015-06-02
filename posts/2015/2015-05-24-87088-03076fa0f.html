@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>探索C#之微型MapReduce</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-05-24-87088-03076fa0f.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>探索C#之微型MapReduce</h1>
+    <p class="meta"><span class="time">May 24, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/87088/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>MapReduce近几年比较热的分布式计算编程模型，以C#为例简单介绍下MapReduce分布式计算。</p>
+<p> </p>
+<h3><strong>阅读目录</strong></h3>
+<ol>
+<li>背景</li>
+<li>Map实现</li>
+<li>Reduce实现</li>
+<li>支持分布式</li>
+<li>总结</li>
+</ol>
+<p> </p>
+<h3><strong>背景</strong></h3>
+<p><strong></strong>某平行世界程序猿小张接到Boss一项任务，统计用户反馈内容中的单词出现次数，以便分析用户主要习惯。文本如下：</p>
+<pre class="brush: actionscript3; gutter: true">const string hamlet = @"Though yet of Hamlet our dear brother's death
+The memory be green, and that it us befitted
+To bear our hearts in grief and our whole kingdom
+To be contracted in one brow of woe,
+Yet so far hath discretion fought with nature
+That we with wisest sorrow think on him,
+Together with remembrance of ourselves.
+Therefore our sometime sister, now our queen,
+The imperial jointress to this warlike state,
+Have we, as 'twere with a defeated joy,--
+With an auspicious and a dropping eye,
+With mirth in funeral and with dirge in marriage,
+In equal scale weighing delight and dole,--
+Taken to wife: nor have we herein barr'd
+Your better wisdoms, which have freely gone
+With this affair along. For all, our thanks.
+Now follows, that you know, young Fortinbras,
+Holding a weak supposal of our worth,
+Or thinking by our late dear brother's death
+Our state to be disjoint and out of frame,
+Colleagued with the dream of his advantage,
+He hath not fail'd to pester us with message,
+Importing the surrender of those lands
+Lost by his father, with all bonds of law,
+To our most valiant brother. So much for him.
+Now for ourself and for this time of meeting:
+Thus much the business is: we have here writ
+To Norway, uncle of young Fortinbras,--
+Who, impotent and bed-rid, scarcely hears
+Of this his nephew's purpose,--to suppress
+His further gait herein; in that the levies,
+The lists and full proportions, are all made
+Out of his subject: and we here dispatch
+You, good Cornelius, and you, Voltimand,
+For bearers of this greeting to old Norway;
+Giving to you no further personal power
+To business with the king, more than the scope
+Of these delated articles allow.
+Farewell, and let your haste commend your duty.";</pre>
+
+<p>小张作为蓝翔高材生，很快就实现了：</p>
+<pre class="brush: csharp; gutter: true">var content = hamlet.Split(new[] { " ", Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            var wordcount=new Dictionary&lt;string,int&gt;();
+            foreach (var item in content)
+            {
+                if (wordcount.ContainsKey(item))
+                    wordcount[item] += 1;
+                else
+                    wordcount.Add(item, 1);
+            }</pre>
+
+<p>作为有上进心的青年，小张决心对算法进行抽象封装，并支持多节点计算。小张把这个统计次数程序分成两个大步骤：分解和计算。<br>
+第一步：先把文本以某维度分解映射成最小独立单元。 (段落、单词、字母维度)。<br>
+第二部：把最小单元重复的做合并计算。<br>
+小张参考MapReduce论文设计Map、Reduce如下：</p>
+<h3><strong>Map实现</strong></h3>
+<p><strong>Mapping</strong></p>
+<p>Mapping函数把文本分解映射key，value形式的最小单元，即&lt;单词，出现次数(1)&gt;、&lt;word,1&gt;。</p>
+<pre class="brush: csharp; gutter: true">public IEnumerable&lt;Tuple&lt;T, int&gt;&gt; Mapping(IEnumerable&lt;T&gt; list)
+        {
+            foreach (T sourceVal in list)
+                yield return Tuple.Create(sourceVal, 1);
+        }</pre>
+
+<p>使用，输出为(brow, 1), (brow, 1), (sorrow, 1), (sorrow, 1):</p>
+<pre class="brush: csharp; gutter: true"> var spit = hamlet.Split(new[] { " ", Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            var mp = new MicroMapReduce&lt;string&gt;(new Master&lt;string&gt;());
+            var result= mp.Mapping(spit);</pre>
+
+<p><strong>Combine</strong></p>
+<p>为了减少数据通信开销，mapping出的键值对数据在进入真正的reduce前，进行重复键合并。也相对于提前进行预计算一部分，加快总体计算速度。 输出格式为(brow, 2), (sorrow, 2):</p>
+<pre class="brush: csharp; gutter: true">public Dictionary&lt;T, int&gt; Combine(IEnumerable&lt;Tuple&lt;T, int&gt;&gt; list)
+        {
+            Dictionary&lt;T, int&gt; dt = new Dictionary&lt;T, int&gt;();
+            foreach (var val in list)
+            {
+                if (dt.ContainsKey(val.Item1))
+                    dt[val.Item1] += val.Item2;
+                else
+                    dt.Add(val.Item1, val.Item2);
+            }
+            return dt;
+        }</pre>
+
+<p><strong>Partitioner</strong></p>
+<p>Partitioner主要用来分组划分,把不同节点的统计数据按照key进行分组。<br>
+其输出格式为： (brow, {(brow,2)},(brow,3)), (sorrow, {(sorrow,10)},(brow,11)):</p>
+<pre class="brush: csharp; gutter: true">public IEnumerable&lt;Group&lt;T, int&gt;&gt; Partitioner(Dictionary&lt;T, int&gt; list)
+        {
+            var dict = new Dictionary&lt;T, Group&lt;T, int&gt;&gt;();
+            foreach (var val in list)
+            {
+                if (!dict.ContainsKey(val.Key))
+                    dict[val.Key] = new Group&lt;T, int&gt;(val.Key);
+                dict[val.Key].Values.Add(val.Value);
+            }
+            return dict.Values;
+        }</pre>
+
+<p>Group定义:</p>
+<pre class="brush: csharp; gutter: true">public class Group&lt;TKey, TValue&gt; : Tuple&lt;TKey, List&lt;TValue&gt;&gt;
+    {
+        public Group(TKey key)
+            : base(key, new List&lt;TValue&gt;())
+        {
+        }
+
+        public TKey Key
+        {
+            get
+            {
+                return base.Item1;
+            }
+        }
+
+        public List&lt;TValue&gt; Values
+        {
+            get
+            {
+                return base.Item2;
+            }
+        }
+    }</pre>
+
+<p> </p>
+<h3><strong>Reduce实现</strong></h3>
+<p>Reducing函数接收，分组后的数据进行最后的统计计算。</p>
+<pre class="brush: csharp; gutter: true">public Dictionary&lt;T, int&gt; Reducing(IEnumerable&lt;Group&lt;T, int&gt;&gt; groups)
+        {
+            Dictionary&lt;T, int&gt; result=new Dictionary&lt;T, int&gt;();
+            foreach (var sourceVal in groups)
+            {
+                result.Add(sourceVal.Key, sourceVal.Values.Sum());
+            }
+            return result;
+        }</pre>
+
+<p>封装调用如下：</p>
+<pre class="brush: csharp; gutter: true">public IEnumerable&lt;Group&lt;T, int&gt;&gt; Map(IEnumerable&lt;T&gt; list)
+        {
+            var step1 = Mapping(list);
+            var step2 = Combine(step1);
+            var step3 = Partitioner(step2);
+            return step3;
+        }
+
+  public Dictionary&lt;T, int&gt; Reduce(IEnumerable&lt;Group&lt;T, int&gt;&gt; groups)
+        {
+            var step1 = Reducing(groups);
+            return step1;
+        }</pre>
+
+<pre class="brush: csharp; gutter: true">public  Dictionary&lt;T, int&gt; MapReduce(IEnumerable&lt;T&gt; list)
+        {
+            var map = Map(list);
+            var reduce = Reduce(map);
+            return reduce;
+        }</pre>
+
+<p><img class="alignnone" alt="" src="/images/jobbole.com/5db7b9a192ea17c8b61f6aaa233f5604.jpg" width="195" height="505"></p>
+<p> </p>
+<h3><strong>支持分布式</strong></h3>
+<p>小张抽象封装后，虽然复杂度上去了。但暴露给使用者是非常清晰的接口，满足MapReduce的数据格式要求，即可使用。</p>
+<pre class="brush: csharp; gutter: true">var spit = hamlet.Split(new[] { " ", Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+            var mp = new MicroMapReduce&lt;string&gt;(new Master&lt;string&gt;());
+            var result1= mp.MapReduce(spit);</pre>
+
+<p>小张完成后脑洞大开，考虑到以后文本数据量超大。 所以fork了个分支，准备支持分布式计算，以后可以在多个服务器节点跑。</p>
+<p><strong>数据分片</strong></p>
+<p>数据分片就是把大量数据拆成一块一块的，分散到各个节点上，方便我们的mapReduce程序去计算。 分片主流的有mod、consistent hashing、vitual Buckets、Range Partition等方式。 关于consistent hashing上篇有介绍(探索c#之一致性Hash详解)。在Hadoop中Hdfs和mapreduce是相互关联配合的，一个存储和一个计算。如果自行实现的话还需要个统一的存储。所以这里的数据源可以是数据库也可以是文件。小张只是满足boss需求，通用计算框架的话可以直接用现成的。</p>
+<p>模拟分片</p>
+<pre class="brush: csharp; gutter: true">public List&lt;IEnumerable&lt;T&gt;&gt; Partition(IEnumerable&lt;T&gt; list)
+        {
+            var temp =new List&lt;IEnumerable&lt;T&gt;&gt;();
+            temp.Add(list);
+            temp.Add(list);
+            return temp;
+        }</pre>
+
+<p><strong>Worker节点</strong></p>
+<p>小张定义了Master，worker角色。 master负责汇集输出，即我们的主程序。 每一个worker我们用一个线程来模拟，最后输出到master汇总，master最后可以写到数据库或其他。</p>
+<pre class="brush: csharp; gutter: true">public void WorkerNode(IEnumerable&lt;T&gt; list)
+        {
+            new Thread(() =&gt;
+            {
+                var map = Map(list);
+                var reduce = Reduce(map);
+                master.Merge(reduce);
+            }).Start();
+        }</pre>
+
+<pre class="brush: csharp; gutter: true">public class Master&lt;T&gt;
+    {
+        public Dictionary&lt;T, int&gt; Result = new Dictionary&lt;T, int&gt;();
+        public  void Merge(Dictionary&lt;T, int&gt; list)
+        {
+            foreach (var item in list)
+            {
+                lock (this)
+                {
+                    if (Result.ContainsKey(item.Key))
+                        Result[item.Key] += item.Value;
+                    else
+                        Result.Add(item.Key, item.Value);
+                }
+            }
+        }
+    }</pre>
+
+<p>分布式计算步骤图：</p>
+<p><img class="alignnone" alt="" src="/images/jobbole.com/d6d4afb5f02ea24af4ce6304d06a32d1.jpg" width="563" height="512"></p>
+<p> </p>
+<h3><strong>总结</strong></h3>
+<p>MapReduce模型从性能速度来说并不是非常好的，它优势在于隐藏了分布式计算的细节、容灾错误、负载均衡及良好的编程API，包含HDFS、Hive等在内一整套大数据处理的生态框架体系。在数据量级不是很大的话，企业自行实现一套轻量级分布式计算会有很多优点，比如性能更好、可定制化、数据库也不需要导入导出。从成本上也节省不少，因为hadoop开发、运维、服务器都需要不少人力物力。</p>
+<p><a href="http://files.cnblogs.com/files/mushroom/mapReduce.zip" target="_blank">文中例子代码</a></p>
+
+    <div class="post-adds">
+        <span data-post-id="87088" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87088votetotal"></h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87088" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+
+            </div>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-05-24-87084-2d393ddb0.html" title="Previous Post: SQL Server自动化运维系列：关于数据收集" data-instant>&laquo; SQL Server自动化运维系列：关于数据收集</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-05-25-87058-e4ffd9ea5.html" title="Next Post: 如何安全地存储密码？" data-instant>如何安全地存储密码？ &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>07 Jul 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-07-07-72850-f8e0d7124.html">可视化对比十多种排序算法（C#版）</a></li>
+
+      <li><span>03 Nov 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-11-03-79305-ecaa57b9e.html">浅谈算法和数据结构（7）：二叉查找树</a></li>
+
+      <li><span>19 Dec 2014</span> &raquo; <a href="http://iftti.com/posts/2014/2014-12-19-81676-eae58d6ae.html">MapReduce实例浅析</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

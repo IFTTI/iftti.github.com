@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>SQL on Hadoop 的真相（2）</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-05-28-87159-b9487b125.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>SQL on Hadoop 的真相（2）</h1>
+    <p class="meta"><span class="time">May 28, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/87159/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>这是一组系列博客，目的是详尽介绍 SQL-on-Hadoop 。<a href="http://blog.jobbole.com/86710/" target="_blank">该系列的第一篇会介绍一些存储引擎和在线事务处理（简称 OLTP ）相关话题</a>，这一篇将介绍联机分析处理（简称 OLAP ），第三篇将介绍对 Hadoop 引擎改造以及在相关替代产品中如何选型等话题。</p>
+<h3>数据处理与联机分析处理 ( OLAP )</h3>
+<p>联机分析处理是那些为了支持商业智能，报表和数据挖掘与探索等业务而开展的工作。这类工作的例子有零售商按地区和季度两个维度计算门店销售额，银行按语言和月份两个维度计算手机银行装机量，设备制造商定位有哪些零部件的故障率比期望值高，以及医院研究有哪些事件会引起高危婴儿紧张等。</p>
+<p>如果原始数据来源于 OLTP 系统，典型的做法是将这些数据拷贝到 OLAP 数据库中，再进行这类“离线”分析任务的处理，这么做有很多原因，但考虑最多的还是性能因素。</p>
+<p>假设一下，如果一个实体店使用他们的事务处理系统来承担数据分析工作，这种情况下分析师提交的粗暴查询就可能会实实在在地影响并拉低门店对于那些已经记录在册等待结算的订单结算率。另外用于事务中的查询类型从根本上就不同于数据分析类查询。</p>
+<p>事务系统典型的查询是基于某个独立的实体，比如某一个客户或某一个用户。例如当一个在线零售网站创建一个交易订单状态页时，数据的查询是针对某一个客户已经提交的特定订单。然而在数据分析的用例中，分析师最感兴趣的却是那些根据时间维度划分查询本身已跨越了订单或用户数据的汇总信息。就如前面提到的那样，根据区域和季度两个维度统计的门店销售额会查询给定时间段内所有订单数据。</p>
+<p>行动之前还有最后一个注意要点，本篇中的数据库并不提供传统关系型数据库用户所期望的那类增删改操作。与事务系统不同的是，分析类型的查询主要是那些涉及到数百万甚至数亿行数据的 SELECT 查询。分析型数据库的优化也主要围绕着这类负载进行，而这些优化措施却会导致针对小批量数据的增删改操作执行起来代价昂贵。</p>
+<p>即便这类数据库在接口和语义方面都与关系型数据库不同，但他们也确实提供了增加行 （ INSERT ），更新行（ UPDATE ）和删除行（ DELETE ）操作的功能支持。有些读者或许正在问 Hive 系统里最近新增加的 “ ACID ” 相关的问题，容后详禀。</p>
+<p>在 Hive 系统的 “ACID” 功能之外，处理更新操作有两种方式可选，一种是使用数据所在的 HBase 系统本身提供的更新功能。尽管 HBase 经常主要用于 OLTP 业务，但有些 OLAP 系统会使用 HBase 来存储一些小表，典型的称为维度表，这类表需要周期性地更新。第二种处理更新操作的方式是执行一次合并操作。</p>
+<p>从一个 ETL 开发者角度出发，一个合并过程会引入额外工作量。因此有个问题一定会被问到，那就是既然 HBase 系统已经提供了更新功能，那这类合并工作就不是必须的，那为什么不直接都用 HBase 呢？原因是扫描查询的处理性能，如果要在基于尾部追加模式的 HDFS 文件系统提供随机更新的功能，HBase 就得在它读取每一行时都做少量的合并操作，这个架构决定了能提供较高的写和随机读性能，但与 HDFS 相比，只能提供较差的扫描查询和顺序读操作性能。这样一来 HBase 就只能用于存储那些需要频繁更新的小表场合；</p>
+<p>这个领域包含几个子目录：</p>
+<ul>
+<li>Apache Hive</li>
+<li>Dremel clones</li>
+<li>Spark SQL</li>
+</ul>
+<h3>Apache Hive</h3>
+<p>本项目最初由脸谱公司创建，Hive 是第一个基于 Hadoop 之上的 SQL 引擎，且至今仍是最成熟的。Hive 原先是构建在MapReduce之上的，也曾经被改造过以便运行在 Apache Tez 上，现在正在进行的是为适应 Apache Spark 而进行的改造，基于 Spark 的Hive 改造被称为是最后的工作，但不能与 Spark 项目上的其他 SQL 支持项目相互混淆，关于 Spark 上的其他 SQL 支持项目我会再找个合适时机进行讨论。</p>
+<p>到目前为止，Hive 拥有最完整的 SQL 功能支持，并且也是拥有最多贡献者的项目，几乎所有的 Hadoop 用户都会部署Hive，同时几乎 Hadoop 上其他 SQL 引擎使用者也都会部署 Hive ，事实上大多数 SQL 引擎都以这种或那种方式依赖于Hive 。</p>
+<p>大多数 Hadoop 赞助商，包括 Cloudera 和 Hortonworks，都一致认同 Hive 是唯一有能力处理大批量任务和集成多种非标准数据格式的组件。Hortonworks 与 Cloudera 意见相左的地方在于对 Hive 的性能评价，Clourdera 觉得 Hive 的性能简直不能与 Dremel clones 相比，而 Hortonworks 则觉得 Hive 可以和 Dremel Clones 一较高下。</p>
+<h3>Dremel Clones</h3>
+<p>就像开源界一样，谷歌内部也创立了多个 SQL 引擎，他们有一个类似于 Hive 的 SQL 引擎叫 Tenzing，还有另外一个系统叫 Dremel。Hive 的创立者 Facebook 公司也创建了一个 Dremel 的克隆版本叫 Presto。</p>
+<p>Cloudera Impala 和 Apache Drill 是最杰出的两个 Dremel 克隆版本，Cloudera 将 Impala 市场定位为最成熟的开源 Dremel 分支，Impala 在2013年年中发布 GA 版本，MapR 是 Drill 背后的主要赞助商，他把 Drill 的市场角色定位为最灵活的 Dremel 分支， Impala 能满足在 Hive 系统中存储元数据表的需求，而 Drill 可以直接查询 JSON 和自定义格式文件，比如 Apache Parquet 和 Avro 文件格式等。</p>
+<h3>Spark SQL</h3>
+<p>尽管有 Hadoop 上有其他多个 SQL 引擎，但 Spark SQL 却有着对其感兴趣的最广泛受众。Spark SQL 是 Spark 引擎上的榜眼，而状元是 Shark， Shark 因为顾及 Spark SQL 和 Hive on Spark 项目，Shark 目前已经终止开发，与 Shark 项目曾近是加州伯克利大学的一个研究项目不同，Spark SQL 和 Hive on Spark 已经在 Spark 赞助商们的支持下建立了各自的开源项目；</p>
+<p>基于 Spark 的 Hive 可以简单地说成是前端是 Hive 后端是 Spark ，基于 MR 或 Tez 的 Hive 既有用户可以在原系统与 Hive on Spark 系统之间轻松切换，切换工作仅仅只需要简单地修改下配置参数。</p>
+<p>Spark SQL 是一个完整的新引擎，今天的 Spark SQL 对那些希望把 SQL 嵌入到他们的 Scala，Java 或者 Python 程序的Spark 开发者而言是最有用的，但 Spark SQL 的主要赞助商 Databricks 对 Spark SQL 还有着更大的雄心，并指望将 Spark SQL 的使用范围扩展到非 Spark 开发者中去；</p>
+
+    <div class="post-adds">
+        <span data-post-id="87159" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87159votetotal"></h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87159" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+
+            </div>
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/sunny4715">jerry</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/sunny4715">
+			<img src="/images/jobbole.com/4d8ad0b6e65624d1c18aac0963063eaf.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            西电通信工程本硕；熟悉监控设备SDK和流媒体服务器；原MySQL/NTSE内核组开发人员，熟悉MySQL内核与架构以及运维调优；现杭州某公司...        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/sunny4715" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/sunny4715/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a> ·
+            <a title="声望值" target="_blank" href="http://www.jobbole.com/members/sunny4715/reputation/"><i class="fa fa-graduation-cap"></i> 10</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-05-28-87068-d4c8911d3.html" title="Previous Post: 我用 Go 语言做了一个红白机模拟器" data-instant>&laquo; 我用 Go 语言做了一个红白机模拟器</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-05-28-87194-29f8034d0.html" title="Next Post: 林仕鼎：系统架构领域的一些学习材料" data-instant>林仕鼎：系统架构领域的一些学习材料 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>25 May 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-05-25-87058-e4ffd9ea5.html">如何安全地存储密码？</a></li>
+
+      <li><span>29 May 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-05-29-87158-45c4542f0.html">浅谈排队论</a></li>
+
+      <li><span>13 Feb 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-02-13-spark-streaming-sql-d9299745e.html">spark streaming 和 spark sql 结合示例</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
