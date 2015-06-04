@@ -1,0 +1,352 @@
+---
+layout: post
+title: '我的MYSQL学习心得（9） ： 索引'
+time: 2015-06-04 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87348/
+images:
+  b303b083754eba03e0397a7714fb765d: http://ww3.sinaimg.cn/mw690/6941baebgw1esq1yg4enwj20nu04vab6.jpg
+  f43a17002244b0c7693125ac65e0e4ba: http://ww2.sinaimg.cn/mw690/6941baebgw1esq1yfjzh1j20ol01i0sx.jpg
+  e84c50cedafa28082e4ba63dcb8947be: http://ww4.sinaimg.cn/mw690/6941baebgw1esq1yewlggj209w03qq34.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<ul>
+<li><a href="http://blog.jobbole.com/87315/" target="_blank">我的MYSQL学习心得（1） ：简单语法</a></li>
+<li><a href="http://blog.jobbole.com/87318/" target="_blank">我的MYSQL学习心得（2） ：数据类型宽度</a></li>
+<li><a href="http://blog.jobbole.com/87322/" target="_blank">我的MYSQL学习心得（3） ： 查看字段长度</a></li>
+<li><a href="http://blog.jobbole.com/87324/" target="_blank">我的MYSQL学习心得（4） ： 数据类型</a></li>
+<li><a href="http://blog.jobbole.com/87327/" target="_blank">我的MYSQL学习心得（5） ： 运算符</a></li>
+<li><a href="http://blog.jobbole.com/87337/" target="_blank">我的MYSQL学习心得（6） ： 函数</a></li>
+<li><a href="http://blog.jobbole.com/87340/" target="_blank">我的MYSQL学习心得（7） ： 查询</a></li>
+<li><a href="http://blog.jobbole.com/87345/" target="_blank">我的MYSQL学习心得（8） ： 插入 更新 删除</a></li>
+</ul>
+<p>这一篇《我的MYSQL学习心得（九）》将会讲解MYSQL的索引</p>
+<p>索引是在存储引擎中实现的，因此每种存储引擎的索引都不一定完全相同，并且每种存储引擎也不一定支持所有索引类型。</p>
+<p>根据存储引擎定义每个表的最大索引数和最大索引长度。所有存储引擎支持每个表至少16个索引，总索引长度至少为256字节。</p>
+<p>大多数存储引擎有更高的限制。MYSQL中索引的存储类型有两种：BTREE和HASH，具体和表的存储引擎相关；</p>
+<p>MYISAM和InnoDB存储引擎只支持BTREE索引；MEMORY和HEAP存储引擎可以支持HASH和BTREE索引</p>
+<p>索引的优点：</p>
+<p>1、通过创建唯一索引，保证数据库表每行数据的唯一性</p>
+<p>2、大大加快数据查询速度</p>
+<p>3、在使用分组和排序进行数据查询时，可以显著减少查询中分组和排序的时间</p>
+<p>索引的缺点：</p>
+<p>1、维护索引需要耗费数据库资源</p>
+<p>2、索引需要占用磁盘空间，索引文件可能比数据文件更快达到最大文件尺寸</p>
+<p>3、当对表的数据进行增删改的时候，因为要维护索引，速度会受到影响</p>
+<p>索引的分类</p>
+<p><strong>1、普通索引和唯一索引</strong></p>
+<p>主键索引是一种特殊的唯一索引，不允许有空值</p>
+<p><strong>2、单列索引和复合索引</strong></p>
+<p>单列索引只包含单个列</p>
+<p>复合索引指多个字段上创建的索引，只有在查询条件中使用了创建索引时的第一个字段，索引才会被使用。使用复合索引时遵循最左前缀集合</p>
+<p><strong>3、全文索引</strong></p>
+<p>全文索引类型为FULLTEXT，在定义索引的列上支持值的全文查找，允许在这些索引列中插入重复值和空值。全文索引可以在</p>
+<p>CHAR、VARCHAR、TEXT类型列上创建。MYSQL只有MYISAM存储引擎支持全文索引</p>
+<p><strong>4、空间索引</strong></p>
+<p>空间索引是对空间数据类型的字段建立的索引，MYSQL中的空间数据类型有4种，</p>
+<p>分别是GEOMETRY、POINT、LINESTRING、POLYGON。</p>
+<p>MYSQL使用SPATIAL关键字进行扩展，使得能够用于创建正规索引类型的语法创建空间索引。创建空间索引的列，必须</p>
+<p>将其声明为NOT NULL，空间索引只能在存储引擎为MYISAM的表中创建</p>
+<p>以上的索引在<strong>SQLSERVER</strong>里都支持</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE table_name[col_name data type]
+[unique|fulltext|spatial][index|key][index_name](col_name[length])[asc|desc]</pre>
+<p>unique|fulltext|spatial为可选参数，分别表示唯一索引、全文索引和空间索引；</p>
+<p>index和key为同义词，两者作用相同，用来指定创建索引</p>
+<p>col_name为需要创建索引的字段列，该列必须从数据表中该定义的多个列中选择；</p>
+<p>index_name指定索引的名称，为可选参数，如果不指定，MYSQL默认col_name为索引值；</p>
+<p>length为可选参数，表示索引的长度，只有字符串类型的字段才能指定索引长度；</p>
+<p>asc或desc指定升序或降序的索引值存储</p>
+<hr>
+<p><strong>普通索引</strong></p>
+<pre class="brush: sql; gutter: true">CREATE TABLE book (
+  bookid INT NOT NULL,
+  bookname VARCHAR (255) NOT NULL,
+  AUTHORS VARCHAR (255) NOT NULL,
+  info VARCHAR (255) NULL,
+  COMMENT VARCHAR (255) NULL,
+  year_publication YEAR NOT NULL,
+  INDEX (year_publication)
+) ;</pre>
+<p>使用SHOW CREATE TABLE查看表结构</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE `book` (
+  `bookid` INT(11) NOT NULL,
+  `bookname` VARCHAR(255) NOT NULL,
+  `authors` VARCHAR(255) NOT NULL,
+  `info` VARCHAR(255) DEFAULT NULL,
+  `comment` VARCHAR(255) DEFAULT NULL,
+  `year_publication` YEAR(4) NOT NULL,
+  KEY `year_publication` (`year_publication`)
+) ENGINE=MYISAM DEFAULT CHARSET=latin1</pre>
+<p>可以发现，book表的year_publication字段成功建立了索引其索引名字为year_publication</p>
+<p>我们向表插入一条数据，然后使用EXPLAIN语句查看索引是否有在使用</p>
+<pre class="brush: sql; gutter: true">INSERT INTO BOOK VALUES(12,'NIHAO','NIHAO','文学','henhao',1990)
+
+EXPLAIN SELECT * FROM book WHERE year_publication=1990</pre>
+<p>因为语句比较简单，系统判断有可能会用到索引或者全文扫描</p>
+<p><img alt="" src="/images/jobbole.com/b303b083754eba03e0397a7714fb765d.jpg"></p>
+<p>EXPLAIN语句输出结果的各个行的解释如下：</p>
+<p><strong>select_type：</strong> 表示查询中每个select子句的类型（简单 OR复杂）</p>
+<p><strong>type：</strong>表示MySQL在表中找到所需行的方式，又称“访问类型”，常见类型如下：（从上至下，效果依次变好）</p>
+<p><strong>possible_keys</strong> ：指出MySQL能使用哪个索引在表中找到行，查询涉及到的字段上若存在索引，则该索引将被列出，但不一定被查询使用</p>
+<p><strong>key：</strong> 显示MySQL在查询中实际使用的索引，若没有使用索引，显示为NULL</p>
+<p><strong>key_len</strong> ：表示索引中使用的字节数，可通过该列计算查询中使用的索引的长度</p>
+<p><strong>ref</strong> ：表示上述表的连接匹配条件，即哪些列或常量被用于查找索引列上的值</p>
+<p><strong>rows</strong> ：表示MySQL根据表统计信息及索引选用情况，估算的找到所需的记录所需要读取的行数</p>
+<p><strong>Extra</strong> ：包含不适合在其他列中显示但十分重要的额外信息 如using where，using index</p>
+<p>参考：<a title="http://www.cnblogs.com/SQLSERVERZOUQI/p/3737199.html" href="http://www.cnblogs.com/SQLSERVERZOUQI/p/3737199.html" target="_blank">MySQL学习系列2–MySQL执行计划分析EXPLAIN</a></p>
+<hr>
+<p><strong>唯一索引</strong></p>
+<p>唯一索引列的值必须唯一，但允许有空值。如果是复合索引则列值的组合必须唯一</p>
+<p>建表</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE t1
+(
+ id INT NOT NULL,
+ NAME CHAR(30) NOT NULL,
+ UNIQUE INDEX UniqIdx(id)</pre>
+<p>SHOW CREATE TABLE t1 查看表结构</p>
+<pre class="brush: sql; gutter: true">SHOW CREATE TABLE t1</pre>
+<pre class="brush: sql; gutter: true"> CREATE TABLE `t1` (                                                                                                                        
+          `id` int(11) NOT NULL,                                                                                                                   
+          `name` char(30) NOT NULL,                                                                                                                
+          UNIQUE KEY `UniqIdx` (`id`)                                                                                                              
+        ) ENGINE=MyISAM DEFAULT CHARSET=utf8</pre>
+<p>可以看到id字段上已经成功建立了一个名为UniqIdx的唯一索引</p>
+<p>创建复合索引</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE t3 (
+  id INT NOT NULL,
+  NAME CHAR(30) NOT NULL,
+  age INT NOT NULL,
+  info VARCHAR (255),
+  INDEX MultiIdx (id, NAME, age (100))
+)</pre>
+<pre class="brush: sql; gutter: true">SHOW CREATE TABLE t3
+
+CREATE TABLE `t3` (                                                                                                                                                                                             
+          `id` int(11) NOT NULL,                                                                                                                                                                                        
+          `NAME` char(30) NOT NULL,                                                                                                                                                                                     
+          `age` int(11) NOT NULL,                                                                                                                                                                                       
+          `info` varchar(255) DEFAULT NULL,                                                                                                                                                                             
+          KEY `MultiIdx` (`id`,`NAME`,`age`)                                                                                                                                                                            
+        ) ENGINE=MyISAM DEFAULT CHARSET=utf8</pre>
+<p>由结果可以看到id,name,age字段上已经成功建立了一个名为MultiIdx的复合索引</p>
+<p>我们向表插入两条数据</p>
+<pre class="brush: sql; gutter: true">INSERT INTO t3(id ,NAME,age,info) VALUES(1,'小明',12,'nihao'),(2,'小芳',16,'nihao')</pre>
+<p>使用EXPLAIN语句查看索引使用情况</p>
+<pre class="brush: sql; gutter: true">EXPLAIN SELECT * FROM t3 WHERE id=1 AND NAME='小芳'</pre>
+<p>可以看到  <strong>possible_keys</strong>和 <strong>key</strong> 为MultiIdx证明使用了复合索引</p>
+<pre class="brush: sql; gutter: true">    id  select_type  table   type    possible_keys  key       key_len  ref            rows  Extra      
+------  -----------  ------  ------  -------------  --------  -------  -----------  ------  -----------
+     1  SIMPLE       t3      ref     MultiIdx       MultiIdx  94       const,const       1  Using where</pre>
+<p>如果我们只指定name而不指定id</p>
+<pre class="brush: sql; gutter: true">EXPLAIN SELECT * FROM t3 WHERE  NAME='小芳'</pre>
+<pre class="brush: sql; gutter: true">    id  select_type  table   type    possible_keys  key     key_len  ref       rows  Extra      
+------  -----------  ------  ------  -------------  ------  -------  ------  ------  -----------
+     1  SIMPLE       t3      ALL     (NULL)         (NULL)  (NULL)   (NULL)       2  Using where</pre>
+<p>结果跟SQLSERVER一样，也是不走索引， <strong>possible_keys</strong>和<strong>key</strong>都为NULL</p>
+<hr>
+<p><strong>全文索引</strong></p>
+<p>FULLTEXT索引可以用于全文搜索。只有MYISAM存储引擎支持FULLTEXT索引，并且只支持CHAR、VARCHAR和TEXT类型</p>
+<p>全文索引不支持过滤索引。</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE t4 (
+  id INT NOT NULL,
+  NAME CHAR(30) NOT NULL,
+  age INT NOT NULL,
+  info VARCHAR (255),
+  FULLTEXT INDEX FulltxtIdx (info)
+) ENGINE = MYISAM</pre>
+<p>由于MYSQL5.6默认存储引擎为InnoDB，这里创建表的时候要修改表的存储引擎为MYISAM，不然创建索引会出错</p>
+<pre class="brush: sql; gutter: true">SHOW CREATE TABLE t4</pre>
+<pre class="brush: sql; gutter: true">Table   Create Table                                                                                                                                                                                                    
+------  ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+t4      CREATE TABLE `t4` (                                                                                                                                                                                             
+          `id` int(11) NOT NULL,                                                                                                                                                                                        
+          `name` char(30) NOT NULL,                                                                                                                                                                                     
+          `age` int(11) NOT NULL,                                                                                                                                                                                       
+          `info` varchar(255) DEFAULT NULL,                                                                                                                                                                             
+          FULLTEXT KEY `FulltxtIdx` (`info`)                                                                                                                                                                            
+        ) ENGINE=MyISAM DEFAULT CHARSET=utf8</pre>
+<p>由结果可以看到，info字段上已经成功建立名为FulltxtIdx的FULLTEXT索引。</p>
+<p>全文索引非常适合大型数据集合</p>
+<p>在SQLSERVER里使用全文索引比MYSQL还要复杂</p>
+<p>详细可以参考下面两篇文章：</p>
+<p><a title="http://www.cnblogs.com/lyhabc/archive/2012/08/05/2623795.html" href="http://www.cnblogs.com/lyhabc/archive/2012/08/05/2623795.html" target="_blank">关于SQLSERVER的全文目录跟全文索引的区别</a></p>
+<p><a title="http://www.cnblogs.com/chegan/archive/2005/08/02/205756.html" href="http://www.cnblogs.com/chegan/archive/2005/08/02/205756.html" target="_blank">[SQLSERVER]SQL中的全文检索(转邹建)</a></p>
+<hr>
+<p><strong>空间索引</strong></p>
+<p>空间索引必须在 MYISAM类型的表中创建，而且空间类型的字段必须为<strong>非空</strong></p>
+<p>建表t5</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE t5
+(g GEOMETRY NOT NULL ,SPATIAL INDEX spatIdx(g))ENGINE=MYISAM</pre>
+<pre class="brush: sql; gutter: true">SHOW CREATE TABLE t5
+
+TABLE   CREATE TABLE                                                                                                   
+------  ---------------------------------------------------------------------------------------------------------------
+t5      CREATE TABLE `t5` (                                                                                            
+          `g` GEOMETRY NOT NULL,                                                                                       
+          SPATIAL KEY `spatIdx` (`g`)                                                                                  
+        ) ENGINE=MYISAM DEFAULT CHARSET=utf8</pre>
+<p>可以看到，t5表的g字段上创建了名称为spatIdx的空间索引。注意创建时指定空间类型字段值的非空约束</p>
+<p>并且表的存储引擎为MYISAM</p>
+<hr>
+<p><strong>已经存在的表上创建索引</strong></p>
+<p>在已经存在的表中创建索引，可以使用ALTER TABLE或者CREATE INDEX语句</p>
+<p>1、使用ALTER TABLE语句创建索引，语法如下</p>
+<p>ALTER TABLE table_name ADD [UNIQUE|FULLTEXT|SPATIAL][INDEX|KEY]</p>
+<p>[index_name](col_name[length],…)[ASC|DESC]</p>
+<p>与创建表时创建索引的语法不同，在这里使用了ALTER TABLE和ADD关键字，ADD表示向表中添加索引</p>
+<p>在t1表中的name字段上建立NameIdx普通索引</p>
+<pre class="brush: sql; gutter: true">ALTER TABLE t1 ADD INDEX NameIdx(NAME)</pre>
+<p>添加索引之后，使用SHOW INDEX语句查看指定表中创建的索引</p>
+<pre class="brush: sql; gutter: true">SHOW INDEX FROM t1
+
+TABLE   Non_unique  Key_name  Seq_in_index  Column_name  COLLATION  Cardinality  Sub_part  Packed  NULL    Index_type  COMMENT  Index_comment
+------  ----------  --------  ------------  -----------  ---------  -----------  --------  ------  ------  ----------  -------  -------------
+t1               0  UniqIdx              1  id           A                    0    (NULL)  (NULL)          BTREE                             
+t1               1  NameIdx              1  NAME         A               (NULL)    (NULL)  (NULL)          BTREE</pre>
+<p>各个参数的含义</p>
+<p>1、TABLE：要创建索引的表</p>
+<p>2、Non_unique：索引非唯一，1代表是非唯一索引，0代表唯一索引</p>
+<p>3、Key_name：索引的名称</p>
+<p>4、Seq_in_index：该字段在索引中的位置，单列索引该值为1，复合索引为每个字段在索引定义中的顺序</p>
+<p>5、Column_name：定义索引的列字段</p>
+<p>6、Sub_part：索引的长度</p>
+<p>7、NULL：该字段是否能为空值</p>
+<p>8、Index_type：索引类型</p>
+<p>可以看到，t1表已经存在了一个唯一索引</p>
+<p>在t3表的age和info字段上创建复合索引</p>
+<pre class="brush: sql; gutter: true">ALTER TABLE t3 ADD INDEX t3AgeAndInfo(age,info)</pre>
+<p>使用SHOW INDEX查看表中的索引</p>
+<pre class="brush: sql; gutter: true">SHOW INDEX FROM t3</pre>
+<pre class="brush: sql; gutter: true">Table   Non_unique  Key_name      Seq_in_index  Column_name  Collation  Cardinality  Sub_part  Packed  Null    Index_type  Comment  Index_comment
+------  ----------  ------------  ------------  -----------  ---------  -----------  --------  ------  ------  ----------  -------  -------------
+t3               1  MultiIdx                 1  id           A               (NULL)    (NULL)  (NULL)          BTREE                             
+t3               1  MultiIdx                 2  NAME         A               (NULL)    (NULL)  (NULL)          BTREE                             
+t3               1  MultiIdx                 3  age          A               (NULL)    (NULL)  (NULL)          BTREE                             
+t3               1  t3AgeAndInfo             1  age          A               (NULL)    (NULL)  (NULL)          BTREE                             
+t3               1  t3AgeAndInfo             2  info         A               (NULL)    (NULL)  (NULL)  YES     BTREE</pre>
+<p>可以看到表中的字段的顺序，第一个位置是age，第二个位置是info，info字段是可空字段</p>
+<p><img alt="" src="/images/jobbole.com/f43a17002244b0c7693125ac65e0e4ba.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/e84c50cedafa28082e4ba63dcb8947be.jpg"></p>
+<p>创建表t6，在t6表上创建全文索引</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE t6
+(
+  id INT NOT NULL,
+  info CHAR(255)
+)ENGINE= MYISAM;</pre>
+<p>注意修改ENGINE参数为MYISAM，MYSQL默认引擎InnoDB不支持全文索引</p>
+<p>使用ALTER TABLE语句在info字段上创建全文索引</p>
+<pre class="brush: sql; gutter: true">ALTER TABLE t6 ADD FULLTEXT INDEX infoFTIdx(info)</pre>
+<p>使用SHOW INDEX查看索引情况</p>
+<pre class="brush: sql; gutter: true">SHOW INDEX FROM t6</pre>
+<pre class="brush: sql; gutter: true">Table   Non_unique  Key_name   Seq_in_index  Column_name  Collation  Cardinality  Sub_part  Packed  Null    Index_type  Comment  Index_comment
+------  ----------  ---------  ------------  -----------  ---------  -----------  --------  ------  ------  ----------  -------  -------------
+t6               1  infoFTIdx             1  info         (NULL)          (NULL)    (NULL)  (NULL)  YES     FULLTEXT</pre>
+<p>创建表t7，并在空间数据类型字段g上创建名称为spatIdx的空间索引</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE t7(g GEOMETRY NOT NULL)ENGINE=MYISAM;</pre>
+<p>使用ALTER TABLE在表t7的g字段建立空间索引</p>
+<pre class="brush: sql; gutter: true">ALTER TABLE t7 ADD SPATIAL INDEX spatIdx(g)</pre>
+<p>使用SHOW INDEX查看索引情况</p>
+<pre class="brush: sql; gutter: true">SHOW INDEX FROM t7</pre>
+<pre class="brush: sql; gutter: true">Table   Non_unique  Key_name  Seq_in_index  Column_name  Collation  Cardinality  Sub_part  Packed  Null    Index_type  Comment  Index_comment
+------  ----------  --------  ------------  -----------  ---------  -----------  --------  ------  ------  ----------  -------  -------------
+t7               1  spatIdx              1  g            A               (NULL)        32  (NULL)          SPATIAL</pre>
+<p>2、使用CREATE INDEX语句创建索引，语法如下</p>
+<p>CREATE [UNIQUE|FULLTEXT|SPATIAL]  INDEX index_name</p>
+<p>ON table_name(col_name[length],…)  [ASC|DESC]</p>
+<p>可以看到CREATE INDEX语句和ALTER INDEX语句的基本语法一样，只是关键字不同。</p>
+<p>我们建立一个book表</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE book (
+  bookid INT NOT NULL,
+  bookname VARCHAR (255) NOT NULL,
+  AUTHORS VARCHAR (255) NOT NULL,
+  info VARCHAR (255) NULL,
+  COMMENT VARCHAR (255) NULL,
+  year_publication YEAR NOT NULL
+)</pre>
+<p>建立普通索引</p>
+<pre class="brush: sql; gutter: true">CREATE INDEX BkNameIdx ON book(bookname)</pre>
+<p>建立唯一索引</p>
+<pre class="brush: sql; gutter: true">CREATE UNIQUE INDEX UniqidIdx ON book(bookId)</pre>
+<p>建立复合索引</p>
+<pre class="brush: sql; gutter: true">CREATE INDEX BkAuAndInfoIdx ON book(AUTHORS(20),info(50))</pre>
+<p>建立全文索引，我们drop掉t6表，重新建立t6表</p>
+<pre class="brush: sql; gutter: true">DROP TABLE IF EXISTS t6
+
+CREATE TABLE t6
+(
+  id INT NOT NULL,
+  info CHAR(255)
+)ENGINE= MYISAM;
+
+CREATE FULLTEXT INDEX infoFTIdx ON t6(info);</pre>
+<p>建立空间索引，我们drop掉t7表，重新建立t7表</p>
+<pre class="brush: sql; gutter: true">DROP TABLE IF EXISTS t7
+
+CREATE TABLE t7(g GEOMETRY NOT NULL)ENGINE=MYISAM;
+
+CREATE SPATIAL INDEX spatIdx  ON t7(g)</pre>
+<hr>
+<p><strong>删除索引</strong></p>
+<p>MYSQL中使用ALTER TABLE或者DROP INDEX语句来删除索引，两者实现相同功能</p>
+<p>1、使用ALTER TABLE删除索引</p>
+<p>语法</p>
+<p>ALTER TABLE table_name DROP INDEX index_name</p>
+<pre class="brush: sql; gutter: true">ALTER TABLE book DROP INDEX UniqidIdx</pre>
+<pre class="brush: sql; gutter: true">SHOW CREATE TABLE book</pre>
+<pre class="brush: sql; gutter: true">Table   Create Table                                                                                                                                                                                                                                                                                                                                                      
+------  ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+book    CREATE TABLE `book` (                                                                                                                                                                                                                                                                                                                                             
+          `bookid` int(11) NOT NULL,                                                                                                                                                                                                                                                                                                                                      
+          `bookname` varchar(255) NOT NULL,                                                                                                                                                                                                                                                                                                                               
+          `authors` varchar(255) NOT NULL,                                                                                                                                                                                                                                                                                                                                
+          `info` varchar(255) DEFAULT NULL,                                                                                                                                                                                                                                                                                                                               
+          `comment` varchar(255) DEFAULT NULL,                                                                                                                                                                                                                                                                                                                            
+          `year_publication` year(4) NOT NULL,                                                                                                                                                                                                                                                                                                                            
+          KEY `BkNameIdx` (`bookname`),                                                                                                                                                                                                                                                                                                                                   
+          KEY `BkAuAndInfoIdx` (`authors`(20),`info`(50))                                                                                                                                                                                                                                                                                                                 
+        ) ENGINE=MyISAM DEFAULT CHARSET=utf8</pre>
+<p>可以看到，book表中已经没有名为UniqidIdx的唯一索引，删除索引成功</p>
+<p><strong>注意：AUTO_INCREMENT约束字段的唯一索引不能被删除！！</strong></p>
+<p>2、使用DROP INDEX 语句删除索引</p>
+<p>DROP INDEX index_name ON table_name</p>
+<pre class="brush: sql; gutter: true">DROP INDEX BkAuAndInfoIdx ON book</pre>
+<pre class="brush: sql; gutter: true">SHOW CREATE TABLE book;
+
+Table   Create Table                                                                                                                                                                                                                                                                                                   
+------  ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+book    CREATE TABLE `book` (                                                                                                                                                                                                                                                                                          
+          `bookid` int(11) NOT NULL,                                                                                                                                                                                                                                                                                   
+          `bookname` varchar(255) NOT NULL,                                                                                                                                                                                                                                                                            
+          `authors` varchar(255) NOT NULL,                                                                                                                                                                                                                                                                             
+          `info` varchar(255) DEFAULT NULL,                                                                                                                                                                                                                                                                            
+          `comment` varchar(255) DEFAULT NULL,                                                                                                                                                                                                                                                                         
+          `year_publication` year(4) NOT NULL,                                                                                                                                                                                                                                                                         
+          KEY `BkNameIdx` (`bookname`)                                                                                                                                                                                                                                                                                 
+        ) ENGINE=MyISAM DEFAULT CHARSET=utf8</pre>
+<p>可以看到，复合索引BkAuAndInfoIdx已经被删除了</p>
+<p>提示：删除表中的某列时，如果要删除的列为索引的组成部分，则该列也会从索引中删除。</p>
+<p>如果索引中的所有列都被删除，则整个索引将被删除！！</p>
+<hr>
+<p><strong>总结</strong></p>
+<p>这一节介绍了MYSQL中的索引，索引语句的创建和删除和一些简单用法，希望对大家有帮助</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87348" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87348votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87348" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

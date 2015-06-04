@@ -1,0 +1,212 @@
+---
+layout: post
+title: '我的MYSQL学习心得（1） ：简单语法'
+time: 2015-06-02 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87315/
+images:
+  073ad65b33de539089ece62792e25176: http://ww1.sinaimg.cn/mw690/6941baebgw1espz81quvjj208c070aa3.jpg
+  515d84a6bba4d40f338af9807bb2daa1: http://ww1.sinaimg.cn/mw690/6941baebgw1espz81bmw6j208603l0sr.jpg
+  2fc9236d72e5d7c2ac94176a5670c5c0: http://ww4.sinaimg.cn/mw690/6941baebgw1espz7zkqdpj20ln07hgn4.jpg
+  9c48f0e1001e302d594e264faf8ea316: http://ww2.sinaimg.cn/mw690/6941baebgw1espz7ynvz4j20ka0423zb.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>使用MYSQL有一段时间了，由于公司使用SQLSERVER和MYSQL，而且服务器数量和数据库数量都比较多</p>
+<p>管理起来比较吃力，在学习MYSQL期间我一直跟SQLSERVER进行对比</p>
+<p><img alt="" src="/images/jobbole.com/073ad65b33de539089ece62792e25176.jpg"></p>
+<p>第一期主要是学习MYSQL的基本语法，陆续还有第二、第三、第四期，大家敬请期待o(∩_∩)o</p>
+<hr>
+<p><strong>语法的差异</strong></p>
+<p>我这里主要说语法的不同</p>
+<p>1、默认约束</p>
+<p>区别：mysql里面DEFAULT关键字后面是不用加括号的</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+CREATE TABLE emp
+(
+id INT DEFAULT(12)
+)
+
+--mysql
+CREATE TABLE emp
+(
+id INT DEFAULT 12
+)</pre>
+<p>2、设置自增列</p>
+<p>MYSQL的自增列一定要是有索引的列，设置种子值要在表的后面设置</p>
+<pre class="brush: sql; gutter: true">--设置自增列
+--sqlserver
+CREATE TABLE emp
+    (
+      id INT IDENTITY(1, 1)
+    )
+
+--mysql
+-- 设置自增ID从N开始
+CREATE TABLE emp (
+ID INT  PRIMARY KEY AUTO_INCREMENT
+) AUTO_INCREMENT = 100 ; --（设置自增ID从100开始）</pre>
+<p><strong>设置自增列的步长，可以分为全局级别和会话级别</strong></p>
+<p><strong>如果是会话级别，那么当用户新建一个会话的时候，那么步长又回到了全局级别，所以mysql的步长跟sqlserver的步长有很大的不同</strong></p>
+<p><strong>mysql不能设置为表级别的步长！！</strong></p>
+<p>mysql服务器维护着2种mysql的系统参数（系统变量）：全局变量（global variables）和会话变量（session variables）。</p>
+<p>它们的含义与区别如其各占的名称所示，session variables是在session级别的，对其的变更只会影响到本session；global variables是系统级别的，</p>
+<p>对其的变更会影响所有新session（变更时已经存在session不受影响）至下次mysql server重启动。</p>
+<p>注意它的变更影响不能跨重启，要想再mysql server重启时也使用新的值，那么就只有通过在命令行指定变量选项或者更改选项文件来指定，</p>
+<p>而通过SET变更是达不到跨重启的。<br>
+每一个系统变量都有一个默认值，这个默认值是在编译mysql系统的时候确定的。</p>
+<p>对系统变量的指定，一般可以在server启动的时候在命令行指定选项或者通过选项文件来指定</p>
+<p>当然，大部分的系统变量，可以在系统的运行时，通过set命令指定其值。</p>
+<p>查看系统当前默认的自增列种子值和步长值</p>
+<pre class="brush: sql; gutter: true">SHOW GLOBAL VARIABLES LIKE 'auto_incre%'; -- 全局变量</pre>
+<p><img alt="" src="/images/jobbole.com/515d84a6bba4d40f338af9807bb2daa1.jpg"></p>
+<p>问：如果有一张表，里面有个字段为id的自增主键，当已经向表里面插入了10条数据之后，删除了id为8，9，10的数据，再把mysql重启，</p>
+<p>之后再插入一条数据，那么这条数据的id值应该是多少，是8，还是11？<br>
+答：如果表的类型为MyISAM，那么是11。如果表的类型为InnoDB，则id为8。<br>
+这是因为两种类型的存储引擎所存储的最大ID记录的方式不同，MyISAM表将最大的ID记录到了数据文件里，重启mysql自增主键的最大ID值也不会丢失；<br>
+而InnoDB则是把最大的ID值记录到了内存中，所以重启mysql或者对表进行了OPTIMIZE操作后，最大ID值将会丢失。</p>
+<p>顺便说一下MYSQL获取当前表的自增值的四种方法</p>
+<p>1、 SELECT MAX(id) FROM person   针对特定表</p>
+<p>2、 SELECT LAST_INSERT_ID()  函数   针对任何表</p>
+<p>3、 SELECT @@identity    针对任何表</p>
+<p>@@identity 是表示的是最近一次向具有identity属性(即自增列)的表插入数据时对应的自增列的值，是系统定义的全局变量。</p>
+<p>一般系统定义的全局变量都是以@@开头，用户自定义变量以@开头。</p>
+<p>使用@@identity的前提是在进行insert操作后，执行select @@identity的时候连接没有关闭，否则得到的将是NULL值。</p>
+<p>4.  SHOW TABLE STATUS LIKE ’person’</p>
+<p>如果针对特定表，建议使用这一种方法</p>
+<p>得出的结果里边对应表名记录中有个Auto_increment字段，里边有下一个自增ID的数值就是当前该表的最大自增ID.</p>
+<p>3、查看表定义</p>
+<p>SQLSERVER</p>
+<pre class="brush: sql; gutter: true">EXEC sp_help 'emp'</pre>
+<p><img alt="" src="/images/jobbole.com/2fc9236d72e5d7c2ac94176a5670c5c0.jpg"></p>
+<p>MYSQL</p>
+<pre class="brush: sql; gutter: true">DESC emp</pre>
+<p><img alt="" src="/images/jobbole.com/9c48f0e1001e302d594e264faf8ea316.jpg"></p>
+<p>4、修改表名</p>
+<p>修改表名也有差异，将表emp改为emp2</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+EXEC sys.[sp_rename] @objname = N'emp', -- nvarchar(1035)
+    @newname = 'emp2' -- sysname
+
+--mysql
+ALTER TABLE emp RENAME emp2</pre>
+<p>5、修改字段的数据类型</p>
+<p>将id字段的int类型改为bigint</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+ALTER TABLE [dbo].[emp2] ALTER COLUMN [ID] BIGINT
+
+--mysql
+ALTER TABLE emp2 MODIFY id BIGINT</pre>
+<p>6、修改字段名</p>
+<p>MYSQL里修改字段名的时候需要加上字段的数据类型否则会报错，而CHANGE也可以只修改数据类型，实现和MODIFY同样的效果</p>
+<p>方法是将SQL语句中的“新字段名”和“旧字段名”设置为相同的名称，只改变“数据类型”</p>
+<p>改变数据类型，例如刚才那个例子，将id列改为bigint数据类型</p>
+<pre class="brush: sql; gutter: true">ALTER TABLE emp2 CHANGE id id BIGINT</pre>
+<p>修改字段名</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+EXEC sys.[sp_rename] @objname = N'emp2.id', -- nvarchar(1035)
+    @newname = 'iid', -- sysname
+    @objtype = 'column' -- varchar(13)
+
+--mysql
+ALTER TABLE emp2 CHANGE id iid BIGINT</pre>
+<p>7、添加字段</p>
+<p>添加字段的语法差不多，但是MYSQL里可以使用<strong>FIRST</strong>和<strong>AFTER</strong>关键字指定添加的字段的位置</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+ALTER TABLE [dbo].[emp2] ADD NAME NVARCHAR(200) NULL 
+
+--mysql
+ALTER TABLE emp2 ADD NAME NVARCHAR(200)  NULL</pre>
+<p>8、删除字段</p>
+<p>MYSQL删除字段不需要添加COLUMN关键字的</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+ALTER TABLE [dbo].[emp2] DROP COLUMN NAME 
+
+--mysql
+ALTER TABLE emp2 DROP NAME</pre>
+<p>9、删除外键约束</p>
+<p>MYSQL跟SQLSERVER删除约束的方法也有很大的区别</p>
+<p>在SQLSERVER里面，无论是唯一约束，check约束还是外键约束都可以使用下面的SQL语句来删除掉</p>
+<pre class="brush: sql; gutter: true">ALTER TABLE 表名 DROP CONSTRAINT 约束名</pre>
+<p>但是MYSQL里面，如果是外键约束，需要使用 DROP FOREIGN KEY，如果是主键约束需要使用DROP PRIMARY KEY，有点麻烦</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+ALTER TABLE dbo.emp2 DROP CONSTRAINT fk_emp_dept
+
+--mysql
+--删除外键约束
+ALTER TABLE emp2 DROP FOREIGN KEY fk_emp_dept
+--删除主键约束
+ALTER TABLE emp2 DROP PRIMARY KEY pk_emp_dept</pre>
+<p>10、删除表</p>
+<p>删除表的语法两个都是一样的</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+DROP TABLE [dbo].[emp2]
+
+--mysql
+DROP TABLE emp2</pre>
+<p>但是如果要同时删除多个表或者删除之前要先判断一下，MYSQL就方便多了</p>
+<pre class="brush: sql; gutter: true">--sqlserver
+IF (OBJECT_ID('dbo.emp2') IS NOT NULL )
+DROP TABLE [dbo].[emp2]
+
+--mysql
+DROP TABLE IF EXISTS emp1 ,emp2</pre>
+<p>SQLSERVER需要一张一张表判断，然后一张一张表drop</p>
+<p>MYSQL就不一样，语法非常简洁： DROP TABLE IF EXISTS emp1 ,emp2</p>
+<hr>
+<p><strong>总结</strong></p>
+<p>这篇文章只是简单介绍了一下MYSQL跟SQLSERVER的<strong>语法方面的差异</strong></p>
+<p>以后会写更多关于MYSQL跟SQLERVER差异的文章，和我这段时间使用MYSQL期间的一些心得，大家敬请期待o(∩_∩)o</p>
+<p><strong>如有不对的地方，欢迎大家拍砖o(∩_∩)o </strong></p>
+<p><strong>2014-7-16补充</strong></p>
+<pre class="brush: sql; gutter: true">USE test;
+-- myisam引擎
+CREATE TABLE TEST(
+ID int unsigned not null auto_increment,
+name varchar(10) not null,
+  key(name,id))engine=MYISAM auto_increment=100
+;
+
+-- innodb引擎
+CREATE TABLE TESTIdentity(
+ID int unsigned   not null auto_increment,
+NID INT UNSIGNED ,
+name varchar(10) not null,
+  key(id))engine=INNODB auto_increment=100
+;
+
+--或者主键
+CREATE TABLE TESTIdentity(
+ID int unsigned   not null auto_increment,
+NID INT UNSIGNED ,
+name varchar(10) not null,
+  key(id))engine=INNODB auto_increment=100
+;
+
+[Database4]
+ErrorCode: -2147467259, Number: 1075
+ErrorMessage: Incorrect table definition; there can be only one auto column and it must be defined as a key
+
+alter table TESTIdentity modify column nid int auto_increment;</pre>
+<p>无论<strong>innodb引擎还是MYISAM引擎</strong>的表中，只能有一个自增列，并且自增列一定是索引列，无论是二级索引还是主键索引</p>
+<p>这里跟SQLSERVER是不一样，SQLSERVER允许一张表有多个自增列，并且不需要在自增列上创建索引</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87315" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87315votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87315" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 1 收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
