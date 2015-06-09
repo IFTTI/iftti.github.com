@@ -1,0 +1,216 @@
+---
+layout: post
+title: '写一个支持键盘输入和屏幕输出的内核'
+time: 2015-06-05 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87399/
+images:
+  283d9c999c2132ae1d0dd43cc53f1dde: http://ww2.sinaimg.cn/mw690/6941baebgw1essg42t8h0j20di0czq4p.jpg
+  31d00e615655da085bfa71ad66deee79: http://ww3.sinaimg.cn/mw690/6941baebgw1essg43i38pj20dw07qjra.jpg
+  045abbad0c22fa44fd982fdd09f4a9ca: http://www.jobbole.com/wp-content/uploads/avatars/24996/407f586626f1a88a195d97606d43b7d2-bpthumb.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>在我之前的文章<a href="http://arjunsreedharan.org/post/82710718100/kernel-101-lets-write-a-kernel">让我们编写一个内核</a>，讲述了如何搭建一个初级的x86内核，该内核使用GRUB启动，运行于保护模式，能在屏幕上输出字符串。</p>
+<p>今天，我将为该内核添加键盘驱动，这样它能够获取键盘上a-z和0-9字符输入并且输出到屏幕。</p>
+<p>本文使用的源代码可以在我的<a href="http://github.com/arjun024/mkeykernel">GirHub仓库-mkeykernel</a>中获取。</p>
+<p><img alt="" src="/images/jobbole.com/283d9c999c2132ae1d0dd43cc53f1dde.jpg"></p>
+<p>我们使用I/O端口来与I/O设备交互。这些端口只是x86 I/O总线上的具体地址，仅此而已。对该端口的读/写操作通过处理器内建的特定指令完成。</p>
+<h1><strong style="font-style: normal;">端口读写</strong></h1>
+<pre class="brush: c; gutter: true">read_port:
+        mov edx, [esp + 4]
+        in al, dx      
+        ret
+
+write_port:
+        mov   edx, [esp + 4]    
+        mov   al, [esp + 4 + 4]  
+        out   dx, al  
+        ret</pre>
+<p>I/O端口的访问使用x86指令集中的in和out指令。</p>
+<p>在read_port中，端口号被视为参数。当编译器调用你的函数时，它将所有的参数压入栈中。参数使用栈指针复制到寄存器edx中。寄存器dx是edx的低16位。这里的in指令读取dx指定端口并将结果输出到al中。寄存器al是eax的低8位。如果你还记得大学课程，函数的返回值存放于eax寄存器中。因此，read_port可以读取I/O端口数据。</p>
+<p><code>write_port非常类似。这里有两个参数：端口号和待写入数据。out指令将数据写入端口中。</code></p>
+<h1><strong style="font-style: normal;">中断</strong></h1>
+<p>在我们开始编写任何设备驱动前，我们需要了解处理器是如何知道设备执行了一个事件。</p>
+<p>最简单的方法是<strong>轮询</strong>—始终保持对设备状态的监测。这样显然效率太低且不实用。因此<strong>中断</strong>机制被引入。中断是硬件或软件发送给处理器的一个信号，代表一个事件。使用中断，我们可以避免轮询，仅当我们关注的指定中断触发时才响应。</p>
+<p>可编程中断控制器（PIC）器件或芯片确保x86成为支持中断驱动的架构。该器件或芯片负责管理硬件中断并将中断发送至相应系统中断。</p>
+<p>当硬件设备上执行指定操作时，它会向与PIC芯片连接的指定中断引脚上发送一个<strong>中断请求（IRQ）</strong>脉冲。接着，PIC将接收到的IRQ转换成系统中断，并发送消息中止CPU当前执行的任何工作。接下来，由内核负责处理这些中断。</p>
+<p>如果没有PIC，我们就必须轮询系统中的所有设备来查看它们中是否有事件发生。</p>
+<p>下面以键盘为例。键盘依靠0×60和0×64 I/O端口工作。端口0×60输出数据（按了什么键），端口0×64输出状态。但是，你必须确切知道什么时候去读取这些端口。</p>
+<p>此处使用中断很简单。当按下一个键时，键盘会在IRQ1中断线上发送一个信号给PIC。PIC在初始化期间存储了一个偏移量。该设备将输入线号叠加偏移量就形成<strong>中断号</strong>。接着，处理器查询称为<strong>中断描述符表(IDT)</strong>的特定数据结构给出此中断号相对应的中断处理程序入口地址。</p>
+<p>接着，上述地址的事件处理代码会被执行。</p>
+<h1>
+<strong style="font-style: normal;">建立</strong><strong style="font-style: normal;">IDT</strong><strong style="font-style: normal;">表</strong>
+</h1>
+<pre class="brush: c; gutter: true">struct IDT_entry{
+	unsigned short int offset_lowerbits;
+	unsigned short int selector;
+	unsigned char zero;
+	unsigned char type_attr;
+	unsigned short int offset_higherbits;
+};
+
+struct IDT_entry IDT[IDT_SIZE];
+
+void idt_init(void)
+{
+	unsigned long keyboard_address;
+	unsigned long idt_address;
+	unsigned long idt_ptr[2];
+
+	/* populate IDT entry of keyboard's interrupt */
+	keyboard_address = (unsigned long)keyboard_handler; 
+	IDT[0x21].offset_lowerbits = keyboard_address &amp; 0xffff;
+	IDT[0x21].selector = 0x08; /* KERNEL_CODE_SEGMENT_OFFSET */
+	IDT[0x21].zero = 0;
+	IDT[0x21].type_attr = 0x8e; /* INTERRUPT_GATE */
+	IDT[0x21].offset_higherbits = (keyboard_address &amp; 0xffff0000) &gt;&gt; 16;
+
+	/*     Ports
+	*	 PIC1	PIC2
+	*Command 0x20	0xA0
+	*Data	 0x21	0xA1
+	*/
+
+	/* ICW1 - begin initialization */
+	write_port(0x20 , 0x11);
+	write_port(0xA0 , 0x11);
+
+	/* ICW2 - remap offset address of IDT */
+	/*
+	* In x86 protected mode, we have to remap the PICs beyond 0x20 because
+	* Intel have designated the first 32 interrupts as "reserved" for cpu exceptions
+	*/
+	write_port(0x21 , 0x20);
+	write_port(0xA1 , 0x28);
+
+	/* ICW3 - setup cascading */
+	write_port(0x21 , 0x00);  
+	write_port(0xA1 , 0x00);  
+
+	/* ICW4 - environment info */
+	write_port(0x21 , 0x01);
+	write_port(0xA1 , 0x01);
+	/* Initialization finished */
+
+	/* mask interrupts */
+	write_port(0x21 , 0xff);
+	write_port(0xA1 , 0xff);
+
+	/* fill the IDT descriptor */
+	idt_address = (unsigned long)IDT ;
+	idt_ptr[0] = (sizeof (struct IDT_entry) * IDT_SIZE) + ((idt_address &amp; 0xffff) &lt;&lt; 16);
+	idt_ptr[1] = idt_address &gt;&gt; 16 ;
+
+	load_idt(idt_ptr);
+}</pre>
+<p>IDT依靠IDT_entry组成的结构体数组实现。文章稍后会讨论键盘中断是如何映射到中断处理程序。首先，我们来了解PIC是如何工作的。</p>
+<p>现在的x86系统有2块PIC芯片，每一块有<strong>8条输入线</strong>。我们称其为PIC1和PIC2。PIC1接收IRQ0到IRQ7，PIC2接收IRQ8至IRQ15。PIC1使用0×20作为命令端口，0×21作为数据。PIC2使用0xA0作为命令端口，0xA1作为数据端口。</p>
+<p>PIC初始化使用8位命令字，该命令字叫做<strong>初始化命令字（ICW）</strong>。这些命令字的具体每一位语法参考<a href="http://stanislavs.org/helppc/8259.html">此链接</a>。</p>
+<p>在保护模式下，你需要发送给这两个PIC的第一条命令是初始化命令<strong>ICW1</strong>(0×11)。该指令让PIC等待数据端口的其他3条初始化字。</p>
+<p>这些指令告诉PIC以下信息：</p>
+<p style="padding-left: 30px;">*它的偏移向量。(ICW2)</p>
+<p style="padding-left: 30px;">*PIC是如何作为主/从设备的。(ICW3)</p>
+<p style="padding-left: 30px;">*给出环境相关的附加信息。(ICW4)</p>
+<p>第二条初始化指令是ICW2，该指令会被写入每一个PIC的数据端口。该指令设置PIC的偏移量。该偏移量和输入线的数据相加可以得到中断号。</p>
+<p>PIC允许彼此之间输出到输入的级联。级联的建立使用ICW3，每一位代表相应IRQ的级联状态。至于现在，我们不使用级联并且所有位均设为0。</p>
+<p>ICW4设置附加环境参数。我们仅设置大部分低位来告诉PIC我们运行于80×86模式。</p>
+<p>Tang ta dang!! PIC初始化完成。</p>
+<p>每一个PIC内部有一个8位寄存器叫做<strong>中断屏蔽寄存器(IMR)</strong>。该寄存器中存放进入PIC的IRQ线的位图。当一位被置位时，PIC会忽略相应的请求。这意味着我们可以通过设置IMR中的数值的第n位为0或1来启用和禁止第n跳IRQ线。从数据端口读取的数据返回值存放在IMR寄存器中，向其中写入可设置寄存器。此处我们的代码中，在PIC初始化后，我们设置所有位为1，因此所有IRQ线都被禁用。我们稍后会启用键盘中断对应的线。至于现在，我们禁用所有的中断！！</p>
+<p>假设IRQ线开启，PIC可以通过IRQ线接收信号，并叠加偏移量转换成中断号。现在，我们需要填写IDT，这样键盘的中断号才能映射到我们编写的键盘处理程序的地址。</p>
+<p>那么键盘处理函数地址应该与IDT中哪一个中断号映射？</p>
+<p style="padding-left: 30px;">键盘使用IRQ1。IRQ1是PIC1的输入线。我们已经将PIC1的偏移量初始化为0×20（参见ICW2）。为查找中断号，将1加上偏移量0×20，即0×21。所以在IDT中，键盘终端处理程序地址必须映射到0×21号中断。</p>
+<p>那么，接下来的任务就是填写IDT中的0×21中断。</p>
+<p>我们要将该中断映射到我们在汇编文件中编写的键盘处理函数。</p>
+<p>每一个IDT条目由64位组成。在IDT中断条目中，我们没有将中断处理程序地址作为一个整体存储。我们把它分成两个16位部分。低16位存储在IDT条目的前16位，高16位存储在IDT条目的最后16位。这样做的目的是为了保持与286兼容。你可以在很多地方看到Intel类似的巧妙设计！！</p>
+<p>在IDT条目中，我们还必须设置类型——这样做是为了捕获中断。我们还需给出内核代码段偏移量。GRUB引导为我们建立一个<a href="http://en.wikipedia.org/wiki/Global_Descriptor_Table" target="_blank">GDT</a>。每一项GDT条目占8个字节，内核代码描述符是第二个段；所以它的偏移量是0×08（更多相关描述对本文过于冗余）。中断门由0x8e表示。中间剩余8位必须全部填充为0。这样，我们就填充了与键盘中断相对应的IDT条目。</p>
+<p>一旦IDT中需要映射完成，我们需要告诉CPU IDT的位置。</p>
+<p>该操作通过lidt汇编指令完成。lidt指令有一个操作数。该操作数必须是一个指向描述IDT描述符结构的指针。</p>
+<p>该描述符十分简单。它包含了IDT的字节空间和地址。我使用了一个数组来打包该数值。你也可以使用一个结构体来填写该数值。</p>
+<p>我们在变量idt_ptr中存放了指针，然后使用load_idt()函数传递指针给lidt指令。</p>
+<pre class="brush: c; gutter: true">load_idt:
+	mov edx, [esp + 4]
+	lidt [edx]
+	sti
+	ret</pre>
+<p>此外，load_idt()函数使用sti指令启用中断。</p>
+<p>一旦IDT被建立并加载，我们可以使用前面讨论过的中断屏蔽启用键盘的IRQ线。</p>
+<pre class="brush: c; gutter: true">void kb_init(void)
+{
+	/* 0xFD is 11111101 - enables only IRQ1 (keyboard)*/
+	write_port(0x21 , 0xFD);
+}</pre>
+<h1><strong style="font-style: normal;">键盘终端处理函数</strong></h1>
+<p>既然我们已经通过IDT的0×21中断条目成功将键盘中断映射到键盘处理函数。</p>
+<p>那么，每次你按下键盘上的一个键，键盘处理函数必定会被调用。</p>
+<pre class="brush: c; gutter: true">keyboard_handler:                 
+	call    keyboard_handler_main
+	iretd</pre>
+<p><code>键盘处理函数仅仅是调用了另一个C函数并使用iret类指令返回。我们本可以在此处编写整个中断处理程序，但是相对汇编而言编写C代码要更容易——所以这里采用函数调用。</code></p>
+<p>当从中断处理程序返回中断之前的程序时，应该使用iret/iretd替换ret指令。这些指令会将中断调用前入栈的标志寄存器值出栈。</p>
+<pre class="brush: c; gutter: true">void keyboard_handler_main(void) {
+	unsigned char status;
+	char keycode;
+
+	/* write EOI */
+	write_port(0x20, 0x20);
+
+	status = read_port(KEYBOARD_STATUS_PORT);
+	/* Lowest bit of status will be set if buffer is not empty */
+	if (status &amp; 0x01) {
+		keycode = read_port(KEYBOARD_DATA_PORT);
+		if(keycode &lt; 0)
+			return;
+		vidptr[current_loc++] = keyboard_map[keycode];
+		vidptr[current_loc++] = 0x07;	
+	}
+}</pre>
+<p>首先，我们通过向PIC通用端口写入指令发送EOI信号。只有这样，PIC才允许更多的中断请求。这里我们必须读取两个端口——0×60数据端口和0×64命令/状态端口。</p>
+<p>我们首先读取0×64端口获取状态。如果状态的最低位是0，这意味着缓冲区是空的，没有可读取数据。否则，我们要读取0×60数据端口。该端口将给出我们按下的键盘键码。每一个键码对应于键盘上的一个按键。keyboard_map.h头中定义了一个简单的字符数组来完成键码到对应字符的映射。该字符在屏幕上的输出与之前那篇文章中使用的技术相同。</p>
+<p>在本篇文章中，为了简洁，我仅仅处理了小写字母a-z和数字0-9。你可以轻松扩展到其他特殊字符，ALT，SHIFT，CAPS LOCK。你可以根据状态端口输出知道按键是否被按下或释放，并执行所需操作。你也可以将任意按键组合映射到特定功能，例如关机等。</p>
+<p>你可以编译内核，在实际机器或虚拟机(QEMU)上运行，和<a href="http://arjunsreedharan.org/post/82710718100/kernel-101-lets-write-a-kernel">之前的文章</a>(<a href="http://github.com/arjun024/mkernel">内核仓库</a>)一样。</p>
+<p>开始输入！！</p>
+<p><img alt="" src="/images/jobbole.com/31d00e615655da085bfa71ad66deee79.jpg"></p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87399" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87399votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87399" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 1 收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/ashiontang">ashiontang</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/ashiontang">
+			<img src="/images/jobbole.com/045abbad0c22fa44fd982fdd09f4a9ca.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            （新浪微博：@ashiontang）        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/ashiontang" target="_blank"><i class="fa fa-user"></i> 个人主页</a> · 
+            <a href="http://blog.jobbole.com/author/ashiontang/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a>
+
+             · <a title="声望值" target="_blank" href="http://www.jobbole.com/members/ashiontang/reputation/"><i class="fa fa-graduation-cap"></i> 10</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}

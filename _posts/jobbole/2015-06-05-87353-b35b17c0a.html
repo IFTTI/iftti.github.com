@@ -1,0 +1,226 @@
+---
+layout: post
+title: '我的MYSQL学习心得（11） ： 视图'
+time: 2015-06-05 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87353/
+images:
+  1ff0817e3d251536ec4221101b73c94f: http://ww2.sinaimg.cn/mw690/6941baebgw1esq2bu0w2uj20a206at99.jpg
+  adae552d24b7270e73d3b2b369f25f1b: http://ww3.sinaimg.cn/mw690/6941baebgw1esq2btg9ouj20kt05wdgz.jpg
+  ced55d9d4ebf0284a349ec5a0140ddaa: http://ww2.sinaimg.cn/mw690/6941baebgw1esq2bt0erij205o05sdfz.jpg
+  8879d4d2cf049f8f34de18597c2a101f: http://ww2.sinaimg.cn/mw690/6941baebgw1esq2bsfiskj20jq051t9i.jpg
+  1c7b0cb195b4334ba6e7ced822b88f85: http://ww2.sinaimg.cn/mw690/6941baebgw1esq2brz40dj20j1053js7.jpg
+  70ac03f4d1176f87faf7c7533928ff61: http://ww1.sinaimg.cn/mw690/6941baebgw1esq2breqvgj20ak06djru.jpg
+  db46e7816796354001ec3cd13a74c838: http://ww3.sinaimg.cn/mw690/6941baebgw1esq2bqx56ij207f06ogm1.jpg
+  97873cb54ae68d572120708ccf303854: http://ww4.sinaimg.cn/mw690/6941baebgw1esq2bncspcj207r07w3yz.jpg
+  e87e01547e4ffaa8875f0a8e7432cc68: http://ww3.sinaimg.cn/mw690/6941baebgw1esq2bmpzgfj207407kjrv.jpg
+  446eb4c53a80203018760671df5d27ee: http://ww2.sinaimg.cn/mw690/6941baebgw1esq2bm6e0oj208307j3yy.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<ul>
+<li><a href="http://blog.jobbole.com/87315/" target="_blank">我的MYSQL学习心得（1） ：简单语法</a></li>
+<li><a href="http://blog.jobbole.com/87318/" target="_blank">我的MYSQL学习心得（2） ：数据类型宽度</a></li>
+<li><a href="http://blog.jobbole.com/87322/" target="_blank">我的MYSQL学习心得（3） ： 查看字段长度</a></li>
+<li><a href="http://blog.jobbole.com/87324/" target="_blank">我的MYSQL学习心得（4） ： 数据类型</a></li>
+<li><a href="http://blog.jobbole.com/87327/" target="_blank">我的MYSQL学习心得（5） ： 运算符</a></li>
+<li><a href="http://blog.jobbole.com/87337/" target="_blank">我的MYSQL学习心得（6） ： 函数</a></li>
+<li><a href="http://blog.jobbole.com/87340/" target="_blank">我的MYSQL学习心得（7） ： 查询</a></li>
+<li><a href="http://blog.jobbole.com/87345/" target="_blank">我的MYSQL学习心得（8） ： 插入 更新 删除</a></li>
+<li><a href="http://blog.jobbole.com/87348/" target="_blank">我的MYSQL学习心得（9） ： 索引</a></li>
+<li><a href="http://blog.jobbole.com/87351/" target="_blank">我的MYSQL学习心得（10） ： 自定义存储过程和函数</a></li>
+</ul>
+<p>这一篇《我的MYSQL学习心得（十一）》将会讲解MYSQL的视图</p>
+<p>使用视图的理由是什么？</p>
+<p>1、安全性：一般是这样做的:创建一个视图，定义好该视图所操作的数据。</p>
+<p>之后将用户权限与视图绑定，这样的方式是使用到了一个特性：grant语句可以针对视图进行授予权限。</p>
+<p>2、查询性能提高</p>
+<p>3、有灵活性的功能需求后，需要改动表的结构而导致工作量比较大，那么可以使用虚拟表的形式达到少修改的效果。</p>
+<p>这是在实际开发中比较有用的</p>
+<p>4、复杂的查询需求，可以进行问题分解，然后将创建多个视图获取数据。将视图联合起来就能得到需要的结果了。</p>
+<hr>
+<p><strong>创建视图</strong></p>
+<p>创建视图的语法</p>
+<pre class="brush: sql; gutter: true">CREATE [OR REPLACE] [ALGORITHM = {UNDEFINED | MERGE | TEMPTABLE}]
+    VIEW view_name [(column_list)]
+    AS select_statement
+    [WITH [CASCADED | LOCAL] CHECK OPTION]</pre>
+<p>其中，CREATE：表示新建视图；</p>
+<p>REPLACE：表示替换已有视图</p>
+<p>ALGORITHM ：表示视图选择算法</p>
+<p>view_name ：视图名</p>
+<p>column_list：属性列</p>
+<p>select_statement：表示select语句</p>
+<p>[WITH [CASCADED | LOCAL] CHECK OPTION]参数表示视图在更新时保证在视图的权限范围之内</p>
+<p>可选的ALGORITHM子句是对标准SQL的MySQL扩展。</p>
+<p>ALGORITHM可取三个值：MERGE、TEMPTABLE或UNDEFINED。</p>
+<p>如果没有ALGORITHM子句，<strong>默认算法是UNDEFINED（未定义的）</strong>。算法会影响MySQL处理视图的方式。</p>
+<p>对于MERGE，会将引用视图的语句的文本与视图定义合并起来，使得视图定义的某一部分取代语句的对应部分。</p>
+<p>对于TEMPTABLE，视图的结果将被置于临时表中，然后使用它执行语句。</p>
+<p>对于UNDEFINED，MySQL自己选择所要使用的算法。如果可能，它倾向于MERGE而不是TEMPTABLE，</p>
+<p>这是因为MERGE通常更有效，而且如果使用了临时表，视图是不可更新的。</p>
+<p>LOCAL和CASCADED为可选参数，决定了检查测试的范围，默认值为CASCADED。</p>
+<p>脚本 视图的数据来自于两个表</p>
+<pre class="brush: sql; gutter: true">CREATE TABLE student (stuno INT ,stuname NVARCHAR(60))
+
+CREATE TABLE stuinfo (stuno INT ,class NVARCHAR(60),city NVARCHAR(60))
+
+INSERT INTO student VALUES(1,'wanglin'),(2,'gaoli'),(3,'zhanghai')
+
+INSERT INTO stuinfo VALUES(1,'wuban','henan'),(2,'liuban','hebei'),(3,'qiban','shandong')
+
+-- 创建视图
+CREATE VIEW stu_class(id,NAME,glass) AS SELECT student.`stuno`,student.`stuname`,stuinfo.`class`
+FROM student ,stuinfo WHERE student.`stuno`=stuinfo.`stuno`
+
+SELECT * FROM stu_class</pre>
+<p><img alt="" src="/images/jobbole.com/1ff0817e3d251536ec4221101b73c94f.jpg"></p>
+<hr>
+<p><strong>查看视图</strong></p>
+<p>查看视图必须要有SHOW VIEW权限</p>
+<p>查看视图的方法包括：DESCRIBE、SHOW TABLE STATUS、SHOW CREATE VIEW</p>
+<p>DESCRIBE查看视图基本信息</p>
+<pre class="brush: sql; gutter: true">DESCRIBE 视图名
+DESCRIBE stu_class</pre>
+<p><img alt="" src="/images/jobbole.com/adae552d24b7270e73d3b2b369f25f1b.jpg"></p>
+<p>结果显示了视图的字段定义、字段的数据类型、是否为空、是否为主/外键、默认值和额外信息</p>
+<p>DESCRIBE一般都简写成DESC</p>
+<p>SHOW TABLE STATUS语句查看查看视图基本信息</p>
+<p>查看视图的信息可以通过SHOW TABLE STATUS的方法</p>
+<pre class="brush: sql; gutter: true">SHOW TABLE STATUS LIKE 'stu_class'</pre>
+<pre class="brush: sql; gutter: true">Name       Engine  Version  Row_format    Rows  Avg_row_length  Data_length  Max_data_length  Index_length  Data_free  Auto_increment  Create_time  Update_time  Check_time  Collation  Checksum  Create_options  Comment
+---------  ------  -------  ----------  ------  --------------  -----------  ---------------  ------------  ---------  --------------  -----------  -----------  ----------  ---------  --------  --------------  -------
+stu_class  (NULL)   (NULL)  (NULL)      (NULL)          (NULL)       (NULL)           (NULL)        (NULL)     (NULL)          (NULL)  (NULL)       (NULL)       (NULL)      (NULL)       (NULL)  (NULL)          VIEW</pre>
+<p>COMMENT的值为VIEW说明该表为视图，其他的信息为NULL说明这是一个虚表，如果是基表那么会基表的信息，这是基表和视图的区别</p>
+<p>SHOW CREATE VIEW语句查看视图详细信息</p>
+<pre class="brush: sql; gutter: true">SHOW CREATE VIEW stu_class</pre>
+<pre class="brush: sql; gutter: true">View       Create View                                                                                                                                                                                                                                                               character_set_client  collation_connection
+---------  ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------  --------------------  --------------------
+stu_class  CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW `stu_class` AS select `student`.`stuno` AS `id`,`student`.`stuname` AS `name`,`stuinfo`.`class` AS `class` from (`student` join `stuinfo`) where (`student`.`stuno` = `stuinfo`.`stuno`)  utf8                  utf8_general_ci</pre>
+<p>执行结果显示视图的名称、创建视图的语句等信息</p>
+<p>在VIEWS表中查看视图的详细信息</p>
+<p>在MYSQL中，INFORMATION_SCHEMA VIEWS表存储了关于数据库中的视图的信息</p>
+<p>通过对VIEWS表的查询可以查看数据库中所有视图的详细信息</p>
+<pre class="brush: sql; gutter: true">SELECT * FROM `information_schema`.`VIEWS`</pre>
+<pre class="brush: sql; gutter: true">TABLE_CATALOG  TABLE_SCHEMA  TABLE_NAME  VIEW_DEFINITION                                                                                                                                                                                                                         CHECK_OPTION  IS_UPDATABLE  DEFINER         SECURITY_TYPE  CHARACTER_SET_CLIENT  COLLATION_CONNECTION
+-------------  ------------  ----------  --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------  ------------  ------------  --------------  -------------  --------------------  --------------------
+def            school        stu_class   select `school`.`student`.`stuno` AS `id`,`school`.`student`.`stuname` AS `name`,`school`.`stuinfo`.`class` AS `class` from `school`.`student` join `school`.`stuinfo` where (`school`.`student`.`stuno` = `school`.`stuinfo`.`stuno`)  NONE          YES           root@localhost  DEFINER        utf8                  utf8_general_ci</pre>
+<p>当前实例下只有一个视图stu_class</p>
+<p><img alt="" src="/images/jobbole.com/ced55d9d4ebf0284a349ec5a0140ddaa.jpg"></p>
+<hr>
+<p><strong>修改视图</strong></p>
+<p>修改视图是指修改数据库中存在的视图，当基本表的某些字段发生变化时，可以通过修改视图来保持与基本表的一致性。</p>
+<p>MYSQL中通过CREATE OR REPLACE VIEW 语句和ALTER语句来修改视图</p>
+<p>语法如下：</p>
+<pre class="brush: sql; gutter: true">ALTER OR REPLACE [ALGORITHM = {UNDEFINED | MERGE | TEMPTABLE}]
+VIEW view_name [(column_list)]
+AS select_statement
+[WITH [CASCADED | LOCAL] CHECK OPTION]</pre>
+<p>该语句用于更改已有视图的定义。其语法与CREATE VIEW类似。当视图不存在时创建，存在时进行修改</p>
+<p>修改视图</p>
+<pre class="brush: sql; gutter: true">DELIMITER <span class="MathJax_Preview">\(
+
+CREATE OR REPLACE VIEW `stu_class` AS 
+SELECT
+  `student`.`stuno`   AS `id`
+FROM (`student` JOIN `stuinfo`)
+WHERE (`student`.`stuno` = `stuinfo`.`stuno`)\)</span>
+
+DELIMITER ;</pre>
+<p>通过DESC来查看更改之后的视图定义</p>
+<pre class="brush: sql; gutter: true">DESC stu_class</pre>
+<p><img alt="" src="/images/jobbole.com/8879d4d2cf049f8f34de18597c2a101f.jpg"></p>
+<p>可以看到只查询一个字段</p>
+<p>ALTER语句修改视图</p>
+<pre class="brush: sql; gutter: true">ALTER [ALGORITHM = {UNDEFINED | MERGE | TEMPTABLE}]
+VIEW view_name [(column_list)]
+AS select_statement
+[WITH [CASCADED | LOCAL] CHECK OPTION]</pre>
+<p>这里关键字跟前面的一样，这里不做介绍</p>
+<p>使用ALTER语句修改视图 stu_class</p>
+<pre class="brush: sql; gutter: true">ALTER VIEW  stu_class AS SELECT stuno FROM student;</pre>
+<p>使用DESC查看</p>
+<pre class="brush: sql; gutter: true">DESC stu_class</pre>
+<p><img alt="" src="/images/jobbole.com/1c7b0cb195b4334ba6e7ced822b88f85.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/70ac03f4d1176f87faf7c7533928ff61.jpg"></p>
+<hr>
+<p><strong>更新视图</strong></p>
+<p>更新视图是指通过视图来插入、更新、删除表数据，因为视图是虚表，其中没有数据。</p>
+<p>通过视图更新的时候都是转到基表进行更新，如果对视图增加或者删除记录，实际上是对基表增加或删除记录</p>
+<p>我们先修改一下视图定义</p>
+<pre class="brush: sql; gutter: true">ALTER VIEW  stu_class AS SELECT stuno,stuname FROM student;</pre>
+<p>查询视图数据</p>
+<p><img alt="" src="/images/jobbole.com/db46e7816796354001ec3cd13a74c838.jpg"></p>
+<p><strong>UPDATE</strong></p>
+<pre class="brush: sql; gutter: true">UPDATE stu_class SET stuname='xiaofang' WHERE stuno=2</pre>
+<p>查询视图数据</p>
+<p><img alt="" src="/images/jobbole.com/97873cb54ae68d572120708ccf303854.jpg"></p>
+<p>更新成功</p>
+<p><strong>INSERT</strong></p>
+<pre class="brush: sql; gutter: true">INSERT INTO stu_class VALUES(6,'haojie')</pre>
+<p><img alt="" src="/images/jobbole.com/e87e01547e4ffaa8875f0a8e7432cc68.jpg"></p>
+<p>插入成功</p>
+<p><strong>DELETE</strong></p>
+<pre class="brush: sql; gutter: true">DELETE FROM stu_class WHERE stuno=1</pre>
+<p><img alt="" src="/images/jobbole.com/446eb4c53a80203018760671df5d27ee.jpg"></p>
+<p>删除成功</p>
+<p>当视图中包含如下内容的时候，视图的更新操作将不能被执行</p>
+<p>（1）视图中包含基本中被定义为非空的列</p>
+<p>（2）定义视图的SELECT语句后的字段列表中使用了数学表达式</p>
+<p>（3）定义视图的SELECT语句后的字段列表中使用聚合函数</p>
+<p>（4）定义视图的SELECT语句中使用了DISTINCT、UNION、TOP、GROUP BY 、HAVING子句</p>
+<hr>
+<p><strong>删除视图</strong></p>
+<p>删除视图使用DROP VIEW语法</p>
+<pre class="brush: sql; gutter: true">DROP VIEW [IF EXISTS]
+view_name [, view_name] ...
+[RESTRICT | CASCADE]</pre>
+<p>DROP VIEW能够删除1个或多个视图。必须在每个视图上拥有DROP权限</p>
+<p>可以使用关键字IF EXISTS来防止因不存在的视图而出错</p>
+<p>删除stu_class视图</p>
+<pre class="brush: sql; gutter: true">DROP VIEW IF EXISTS stu_class</pre>
+<p>如果名称为 stu_class 的视图存在则删除</p>
+<p>使用SHOW CREATE VIEW语句查看结果</p>
+<pre class="brush: sql; gutter: true">SHOW CREATE VIEW stu_class</pre>
+<pre class="brush: sql; gutter: true">Query: -- update stu_class set stuname='xiaofang' where stuno=2; -- delete from stu_class where stuno=1 -- select * from stu_class; -- ...
+
+Error Code: 1146
+Table 'school.stu_class' doesn't exist
+
+Execution Time : 0 sec
+Transfer Time  : 0 sec
+Total Time     : 0.004 sec
+---------------------------------------------------</pre>
+<p>该视图不存在，删除成功</p>
+<hr>
+<p><strong>总结</strong></p>
+<p><strong>SQLSERVER</strong>里实际上跟<strong>MYSQL</strong>一样，也是有信息架构视图的</p>
+<p><a title="http://technet.microsoft.com/zh-cn/library/ms186778.aspx" href="http://technet.microsoft.com/zh-cn/library/ms186778.aspx" target="_blank">信息架构视图 (Transact-SQL)</a></p>
+<p>信息架构视图是 SQL Server 提供的几种获取元数据的方法之一。</p>
+<p>信息架构视图提供独立于系统表的内部 SQL Server 元数据视图。</p>
+<p>尽管已经对基础系统表进行了重要的修改，信息架构视图仍然可使应用程序正常工作。</p>
+<p>SQL Server 中包含的信息架构视图符合 ISO 标准中的信息架构定义。</p>
+<p>信息架构视图的数据是存放在系统数据库<a title="http://technet.microsoft.com/zh-cn/library/ms190940.aspx" href="http://technet.microsoft.com/zh-cn/library/ms190940.aspx" target="_blank">Resource 数据库</a>里面</p>
+<pre class="brush: sql; gutter: true">mssqlsystemresource.mdf</pre>
+<p><a title="http://social.msdn.microsoft.com/Forums/zh-CN/eb3805d6-7b78-4b00-9aba-b362223b1290/sql-?forum=sqlserverzhchs" href="http://social.msdn.microsoft.com/Forums/zh-CN/eb3805d6-7b78-4b00-9aba-b362223b1290/sql-?forum=sqlserverzhchs" target="_blank">利用INFORMATION_SCHEMA视图来拼接 SQL 语句</a></p>
+<p><strong>如有不对的地方，欢迎大家拍砖o(∩_∩)o </strong></p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87353" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87353votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87353" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

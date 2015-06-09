@@ -1,0 +1,169 @@
+---
+layout: post
+title: 'Git Rebase'
+time: 2015-06-07 00:00:00 +0800
+site_name: weizhifeng.net
+source_url: http://weizhifeng.net/git-rebase.html
+images:
+  6918da8ea368cc748bf9097ee81a401d: http://s0-weizhifeng-net.b0.upaiyun.com/images/tech/git.jpg
+---
+{% raw %}
+
+	
+	
+
+	<p><img src="/images/weizhifeng.net/6918da8ea368cc748bf9097ee81a401d.jpg" title="Git" alt="Git"></p>
+
+<p><code>git rebase</code>是个非常强大灵活的命令，它可以让你对commit进行修改、调整顺序、合并等操作、并能以线性的方式进行分支的合并与嫁接等。</p>
+
+<p>简单来说<code>rebase</code>就是把某个分支上的一部分commit嫁接到另一个commit后面，而在这个过程中这些commit的base（基）变了，所以这个操作叫做『变基』。</p>
+
+<p>比如我们有如下的提交历史，当前的分支是<code>topic</code>：</p>
+
+<pre><code>     A---B---C topic(HEAD)
+    /
+D---E---F---G master
+</code></pre>
+
+<p>我们执行了如下任何一个命令之后：</p>
+
+<pre><code>$ git rebase master
+$ git rebase master topic
+</code></pre>
+
+<p>提交历史将会变成如下这样：</p>
+
+<pre><code>              A'--B'--C' topic(HEAD)
+             /
+D---E---F---G master
+</code></pre>
+
+<p>可以看出git把<code>A---B---C</code>这段commit嫁接到了<code>G</code>之后，不过虽然这些新commit的内容是一样的，但是hash值是不同的（<code>A'--B'--C'</code>），原因将在后面解释。</p>
+
+<p>命令完整的形式如下：</p>
+
+<pre><code>$ git rebase &lt;upstream&gt; &lt;branch&gt;
+</code></pre>
+
+<p>其中<code>&lt;upstream&gt;</code>是新的base，如果你提供<code>&lt;branch&gt;</code>，那么首先会checkout到这个<code>&lt;branch&gt;</code>，然后再进行rebase操作。所以以下两种方式</p>
+
+<pre><code>$ git rebase master topic
+$ git rebase master
+</code></pre>
+
+<p>的区别是第一种形式会首先checkout到topic分支，然后再执行rebase的操作。</p>
+
+<p>那么rebase都做了什么事情呢？</p>
+
+<ol>
+<li><p>首先，git会对topic分支和<code>&lt;upstream&gt;</code>做一个差集，把不同的commit找出来，类似于执行<code>git log &lt;upstream&gt;..HEAD</code>，对于以上例子来说结果就是<code>A---B---C</code>，然后把这些commit存在一个临时的地方。</p></li>
+<li><p>其次，git会把当前分支reset到<code>&lt;upstream&gt;</code>上，类似于执行<code>git reset --hard &lt;upstream&gt;</code>命令。对于以上例子来说就是reset到<code>master</code>。</p></li>
+<li><p>最后，git把第一步中暂存的commit，按照顺序一个一个地应用到分支上，相当于一个一个重复提交，这就是为什么rebase之后commit的hash值变了。</p></li>
+</ol>
+
+
+<p>如果<upstream>中的一个commit进行了某项修改，而当前分支中也存在一个commit，这两个commit的修改的内容一样，那么当前分支中的commit将会被忽略。比如以下的<code>A</code>和<code>A'</code>就是这样两个commit。</upstream></p>
+
+<pre><code>          A---B---C topic
+         /
+    D---E---A'---F master
+</code></pre>
+
+<p>执行完git rebase master之后，结果如下：</p>
+
+<pre><code>               B'---C' topic
+              /
+D---E---A'---F master        
+</code></pre>
+
+<p>如果你想更灵活的进行commit嫁接，那么你需要<code>rebase --onto</code>，命令格式如下：</p>
+
+<pre><code>$ git rebase --onto &lt;newbase&gt; &lt;upstream&gt; &lt;branch&gt;
+</code></pre>
+
+<p>假设你有如下的branch tree：</p>
+
+<pre><code>o---o---o---o---o  master
+         \
+          o---o---o---o---o  next
+                           \
+                            o---o---o  topic
+</code></pre>
+
+<p>你想要得到如下的branch tree：</p>
+
+<pre><code>o---o---o---o---o  master
+        |            \
+        |             o'--o'--o'  topic
+         \
+          o---o---o---o---o  next
+</code></pre>
+
+<p>那我们需要如下操作：</p>
+
+<pre><code>$ git rebase --onto master next topic
+</code></pre>
+
+<p>这个操作会把从<code>next</code>开始的commit嫁接到<code>master</code>上。如果你提供<code>&lt;branch&gt;</code>，那么首先会checkout到这个<code>&lt;branch&gt;</code>，然后再进行rebase操作。</p>
+
+<p>我们再看一个例子，比如我们有如下的branch tree：</p>
+
+<pre><code>E---F---G---H---I---J  topicA
+</code></pre>
+
+<p>我们想要删除<code>F---G</code>这两个commit，那么通过<code>rebase --onto</code>就可以实现：</p>
+
+<pre><code>$ git rebase --onto topicA~5 topicA~3 topicA
+</code></pre>
+
+<p>执行结果是：</p>
+
+<pre><code>E---H'---I'---J'  topicA
+</code></pre>
+
+<p>同样，rebase也会产生冲突，当解决完冲突之后你可以继续rebase的进程：</p>
+
+<pre><code>$ git rebase --continue
+</code></pre>
+
+<p>或者取消此次rebase：</p>
+
+<pre><code>$ git rebase --abort
+</code></pre>
+
+<p>关于commit修改、顺序调整、合并等操作可以通过<code>rebase -i</code>来完成</p>
+
+<pre><code>$ git rebase -i &lt;upstream&gt;
+</code></pre>
+
+<p>chitsaou写的<a href="http://blog.yorkxin.org/posts/2011/07/29/git-rebase/">《Git-rebase 小筆記》</a>中有详细的介绍，可以自行查看。</p>
+
+<h2>参考</h2>
+
+<ul>
+<li><a href="http://git-scm.com/docs/git-rebase">http://git-scm.com/docs/git-rebase</a></li>
+<li><a href="http://blog.yorkxin.org/posts/2011/07/29/git-rebase/">http://blog.yorkxin.org/posts/2011/07/29/git-rebase/</a></li>
+</ul>
+
+
+	(完)
+
+	<div class="post-info">
+		07 Jun 2015  
+	
+		
+	
+		
+	</div>
+	
+	<!-- disqus start -->
+	
+	
+	
+	
+	<!-- disqus end -->
+
+	<!-- related start -->
+	
+	<!-- related end -->
+{% endraw %}

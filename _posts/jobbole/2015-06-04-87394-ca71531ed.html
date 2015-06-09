@@ -1,0 +1,114 @@
+---
+layout: post
+title: '超大 Cookie 拒绝服务攻击'
+time: 2015-06-04 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/87394/
+images:
+  1d76453a82e07056d1b3fbb84a4eaeaa: http://ww4.sinaimg.cn/mw690/6941baebgw1ess0rvbt24j20l30fejtg.jpg
+  c3cb6db1afeb2f17095586e767db6235: http://ww1.sinaimg.cn/mw690/6941baebgw1ess0rube7oj20lt0fb41m.jpg
+  0848d17a9884634733739f5070b3faa8: http://ww2.sinaimg.cn/mw690/6941baebgw1ess0ru3f8jj208m06omxi.jpg
+  464b82497f83ac7d5a430e13c47c61fb: http://ww3.sinaimg.cn/mw690/6941baebgw1ess0rt5zbpj20ba04gq3b.jpg
+  acb284a50aa9c890c025790063634959: http://ww2.sinaimg.cn/mw690/6941baebgw1ess0rsr8a6j20o60kvtcr.jpg
+  5417afd8357a7ad866fe5037ca39da6d: http://ww4.sinaimg.cn/mw690/6941baebgw1ess0rs1o8oj20o60hwmzd.jpg
+  5ecc5a0ac15459ea2523224aece9766a: http://ww2.sinaimg.cn/mw690/6941baebgw1ess0rrg275j20o60hwmzb.jpg
+  f3da75dbbbaaff76204d6aaeb35033d1: http://ww4.sinaimg.cn/mw690/6941baebgw1ess0rqugiej20o60hw42t.jpg
+  a302b7031390adbf52e526c54d9bf1fc: http://ww3.sinaimg.cn/mw690/6941baebgw1ess0rq90vcj20o60hwgnz.jpg
+---
+{% raw %}
+
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>有没有想过，如果网站的 Cookie 特别多特别大，会发生什么情况？</p>
+<p>不多说，马上来试验一下：</p>
+<pre class="brush: javascript; gutter: true">for (i = 0; i &lt; 20; i++)
+    document.cookie = i + '=' + 'X'.repeat(2000)</pre>
+<p>什么，网站居然报错了？</p>
+<p><img alt="" src="/images/jobbole.com/1d76453a82e07056d1b3fbb84a4eaeaa.jpg"></p>
+<p>众所周知，Cookie 是塞在请求头里的。如果 Cookie 太多，显然整个 HTTP 头也会被撑大。</p>
+<p>然而现实中，几乎所有的服务器都会对请求头长度做限制，避免畸形封包消耗服务器资源。</p>
+<p>那么有趣的事就来了 —— Cookie 是可以长期储存的，所以只要不过期，对应的站点就一直无法访问！</p>
+<p>不信？<a href="http://www.cnblogs.com/jsapp">点击这里试试</a> （<strong>警告：不会清 Cookie 的用户慎点</strong>）</p>
+<p>为什么会这样！因为博客园是支持自定义装扮的，用户可以嵌入自己的脚本。于是，一旦执行了恶作剧脚本，站点 Cookie 被污染，导致整个网站都无法访问了！</p>
+<h2>进阶</h2>
+<p>根据这个原理，我们继续挖掘 Cookie 的相关属性，让攻击效果变得更好。</p>
+<h3 id="expires">expires</h3>
+<p>Cookie 之所以能被持久储存，完全得益于 <code>expires 这个过期值。</code></p>
+<p>理论上，Cookie 的过期时间可以足够长。不过鉴于实际情况，最多也就几个月的时间。</p>
+<p>但对于互联网来说，这也非常长了，谁能容忍一个网站几个月没法用？</p>
+<p>所以，我们可以设置足够久的过期时间 —— 只要用户不主动清空 Cookie，相应的站点就一直没法访问！</p>
+<hr>
+<h3 id="domain">domain</h3>
+<p>例如博客园，所有用户都在 www.cnblogs.com 下。除了这个主站，能否将其他的子站服务也一起破坏呢？</p>
+<p>答案是可以！因为 Cookie 具有一个特殊的属性 <code>domain，它允许子站设置上级站点的 Cookie。甚至可以是根域！</code></p>
+<p>于是 www.cnblogs.com 的页面，就能写入超大 Cookie 到 cnblogs.com 域下了。</p>
+<p>未来，只要用户访问 *.cnblogs.com 的资源，统统变成 400 了。</p>
+<p><img alt="" src="/images/jobbole.com/c3cb6db1afeb2f17095586e767db6235.jpg"></p>
+<p>这个特征可被利用到 XSS 攻击上。只要某网站任何一个子站能够运行跨站脚本，攻击者就可以对该网站进行全站屏蔽了！（GFW：比我还狠~）</p>
+<hr>
+<h3 id="path">path</h3>
+<p>不过太霸道也是不好的。尤其是这年头大家都懂些网络知识，清缓存这样简单的事，不少小白用户都会尝试下。</p>
+<p>所以，为了低调起见，我们不对页面进行屏蔽，以免被过早被用户发现。</p>
+<p>我们只屏蔽特殊的 URL，例如 AJAX 请求接口。这样，页面仍能正常打开，只是后期的一些操作总是提示失败 —— 于是，用户大多会认为是网站出问题了，而不会怀疑是自己的原因。</p>
+<p>为了能更精确的控制 Cookie 粒度，<code>path 属性得利用起来。例如，我们只污染博客园的 /mvc/vote/VoteComment.aspx 页面：</code></p>
+<pre class="brush: javascript; gutter: true">for (i = 0; i &lt; 20; i++) {
+	document.cookie = i + '=' + 'X'.repeat(2000) + ';domain=cnblogs.com; path=/mvc/vote/VoteComment.aspx'</pre>
+<p>这样，页面仍能正常浏览，只是把『点赞』功能给屏蔽了：</p>
+<p><img alt="" src="/images/jobbole.com/0848d17a9884634733739f5070b3faa8.jpg"></p>
+<p>是不是很有趣：）</p>
+<p>这种局部屏蔽的效果，显然有更好的迷惑性。</p>
+<hr>
+<h3>协议</h3>
+<p>仔细回顾一遍 Cookie 属性，除了 <code>secure，再没和 URL Scheme 相关的属性了。</code></p>
+<p>这意味着，HTTP 和 HTTPS 的 Cookie 默认都是共享的。因此，我们可以在 HTTP 下屏蔽 HTTPS 站点了！</p>
+<p>不过 XSS 也不是也想有就能有的，但在特殊的条件下，任何站点都可以有 XSS —— 那就是流量被劫持的时候。</p>
+<p>当用户流量被劫持时，中间人可以模拟出任何 HTTP 站点，因此就能对任意站点设置 Cookie：</p>
+<p><img alt="" src="/images/jobbole.com/464b82497f83ac7d5a430e13c47c61fb.jpg"></p>
+<p>当用户打开任意 HTTP 页面时，往其中注入脚本。接着悄悄创建目标站点的隐藏框架页，中间人返回特定的页面内容，其中的脚本即可修改目标站点 Cookie 了。</p>
+<p>下面就来尝试一下吧。</p>
+<p>通过代理，我们模拟流量被劫持的场景。当打开任意页面时，开始对目标站点释放 DeBuff：</p>
+<p><img alt="" src="/images/jobbole.com/acb284a50aa9c890c025790063634959.jpg"></p>
+<p>主页面的实现：</p>
+<p><img alt="" src="/images/jobbole.com/5417afd8357a7ad866fe5037ca39da6d.jpg"></p>
+<p>目标框架页实现：</p>
+<p><img alt="" src="/images/jobbole.com/5ecc5a0ac15459ea2523224aece9766a.jpg"></p>
+<p>通过一堆框架页，即可批量对目标站点的 Cookie 进行修改。</p>
+<p>最后，切换回正常网络 —— 发现邪恶光环仍在生效：</p>
+<p><img alt="" src="/images/jobbole.com/f3da75dbbbaaff76204d6aaeb35033d1.jpg"></p>
+<p>更杯具的是，连加密传输的 HTTPS 站点也未能幸免：</p>
+<p><img alt="" src="/images/jobbole.com/a302b7031390adbf52e526c54d9bf1fc.jpg"></p>
+<p>中间人缓存攻击，又多了一种新玩法！</p>
+<h2>用途</h2>
+<p>或许你要说了，这除了恶作剧恶搞之外，有实际意义吗。</p>
+<p>不过，只要充分发挥想象，还是能玩出一些有趣的效果。例如配合 XSS：</p>
+<ul>
+<li>屏蔽资料修改页面，阻止用户改密码</li>
+<li>屏蔽注销接口，保持用户会话不过期</li>
+<li>屏蔽管理后台，让管理员暂时无法操作（XSS 盲打时，对管理员造成眩晕效果，持续时间视管理员 IQ 而定）</li>
+</ul>
+<p>或者流量劫持的场合：</p>
+<ul>
+<li>屏蔽前端检测脚本，降低用户安全性</li>
+<li>屏蔽程序、补丁的更新站点，等等</li>
+</ul>
+<h2>小结</h2>
+<p>当然，这种所谓的『拒绝服务』，只是本地自欺欺人而已，对真实服务器并没什么影响。</p>
+<p>虽然效果不及传统攻击，但这种方式显得更文明一些。只对部分人、甚至部分功能实施攻击，而完全不妨碍其他用户。</p>
+
+        
+        
+    <div class="post-adds">
+        <span data-post-id="87394" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87394votetotal">2</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87394" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+            </div>
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
