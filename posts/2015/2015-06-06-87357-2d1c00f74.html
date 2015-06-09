@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>我的MYSQL学习心得（13） ： 权限管理</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-06-06-87357-2d1c00f74.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>我的MYSQL学习心得（13） ： 权限管理</h1>
+    <p class="meta"><span class="time">Jun 6, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/87357/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<ul>
+<li><a href="http://blog.jobbole.com/87315/" target="_blank">我的MYSQL学习心得（1） ：简单语法</a></li>
+<li><a href="http://blog.jobbole.com/87318/" target="_blank">我的MYSQL学习心得（2） ：数据类型宽度</a></li>
+<li><a href="http://blog.jobbole.com/87322/" target="_blank">我的MYSQL学习心得（3） ： 查看字段长度</a></li>
+<li><a href="http://blog.jobbole.com/87324/" target="_blank">我的MYSQL学习心得（4） ： 数据类型</a></li>
+<li><a href="http://blog.jobbole.com/87327/" target="_blank">我的MYSQL学习心得（5） ： 运算符</a></li>
+<li><a href="http://blog.jobbole.com/87337/" target="_blank">我的MYSQL学习心得（6） ： 函数</a></li>
+<li><a href="http://blog.jobbole.com/87345/" target="_blank">我的MYSQL学习心得（7） ： 查询</a></li>
+<li><a href="http://blog.jobbole.com/87345/" target="_blank">我的MYSQL学习心得（8） ： 插入 更新 删除</a></li>
+<li><a href="http://blog.jobbole.com/87348/" target="_blank">我的MYSQL学习心得（9） ： 索引</a></li>
+<li><a href="http://blog.jobbole.com/87351/" target="_blank">我的MYSQL学习心得（10） ： 自定义存储过程和函数</a></li>
+<li><a href="http://blog.jobbole.com/87353/" target="_blank">我的MYSQL学习心得（11） ： 视图</a></li>
+<li><a href="http://blog.jobbole.com/87355/" target="_blank">我的MYSQL学习心得（12） ： 触发器</a></li>
+</ul>
+<p>这一篇《我的MYSQL学习心得（十三）》将会讲解MYSQL的用户管理</p>
+<p>在mysql数据库中，有mysql_install_db脚本初始化权限表，存储权限的表有：</p>
+<p>1、user表</p>
+<p>2、db表</p>
+<p>3、host表</p>
+<p>4、table_priv表</p>
+<p>5、columns_priv表</p>
+<p>6、proc_priv表</p>
+<p><strong>MySQL</strong>存取控制包含2个阶段：</p>
+<ul>
+<li>
+<strong>阶段1</strong>：服务器检查你是否允许连接。</li>
+<li>
+<strong>阶段2</strong>：假定你能连接，服务器检查你发出的每个请求。看你是否有足够的权限实施它。例如，如果你从数据库中一个表精选(select)行或从数据库抛弃一个表，服务器确定你对表有<strong>select</strong>权限或对数据库有<strong>drop</strong>权限。</li>
+</ul>
+<p>服务器在存取控制的两个阶段使用在<code>mysql</code>的数据库中的<code>user</code>、<code>db</code>和<code>host</code>表，在这些授权表中字段如下：</p>
+<table border="Privileges">
+<tbody>
+<tr>
+<td><strong>表名称</strong></td>
+<td><code>user</code></td>
+<td><code>db</code></td>
+<td><code>host</code></td>
+</tr>
+<tr>
+<td><strong>范围字段</strong></td>
+<td><code>Host</code></td>
+<td><code>Host</code></td>
+<td><code>Host</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>User</code></td>
+<td><code>Db</code></td>
+<td><code>Db</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Password</code></td>
+<td><code>User</code></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>权限字段</strong></td>
+<td><code>Select_priv</code></td>
+<td><code>Select_priv</code></td>
+<td><code>Select_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Insert_priv</code></td>
+<td><code>Insert_priv</code></td>
+<td><code>Insert_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Update_priv</code></td>
+<td><code>Update_priv</code></td>
+<td><code>Update_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Delete_priv</code></td>
+<td><code>Delete_priv</code></td>
+<td><code>Delete_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Index_priv</code></td>
+<td><code>Index_priv</code></td>
+<td><code>Index_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Alter_priv</code></td>
+<td><code>Alter_priv</code></td>
+<td><code>Alter_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Create_priv</code></td>
+<td><code>Create_priv</code></td>
+<td><code>Create_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Drop_priv</code></td>
+<td><code>Drop_priv</code></td>
+<td><code>Drop_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Grant_priv</code></td>
+<td><code>Grant_priv</code></td>
+<td><code>Grant_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Reload_priv</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Shutdown_priv</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Process_priv</code></td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td><code>File_priv</code></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>对存取控制的第二阶段(请求证实)，如果请求涉及表，服务器可以另外参考<code>tables_priv</code>和<code>columns_priv</code>表。这些表的字段如下：</p>
+<table border="Privileges">
+<tbody>
+<tr>
+<td><strong>表名称</strong></td>
+<td><code>tables_priv</code></td>
+<td><code>columns_priv</code></td>
+</tr>
+<tr>
+<td><strong>范围字段</strong></td>
+<td><code>Host</code></td>
+<td><code>Host</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Db</code></td>
+<td><code>Db</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>User</code></td>
+<td><code>User</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Table_name</code></td>
+<td><code>Table_name</code></td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td><code>Column_name</code></td>
+</tr>
+<tr>
+<td><strong>权限字段</strong></td>
+<td><code>Table_priv</code></td>
+<td><code>Column_priv</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Column_priv</code></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>其他字段</strong></td>
+<td><code>Timestamp</code></td>
+<td><code>Timestamp</code></td>
+</tr>
+<tr>
+<td></td>
+<td><code>Grantor</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>每个授权表包含范围字段和权限字段。</p>
+<p>user表主要分为：用户列、权限列、安全列、资源控制列</p>
+<p>host表主要分为：用户列、权限列</p>
+<p>这里美中不足的是<strong>mysql.user 没有一个列是保存用户创建时间的</strong></p>
+<blockquote>
+<p><strong>有时候排查用户问题的时候，比如某个客户在某个时间说连接不上数据库，我们在user表里只能查到是否存在那个用户</strong></p>
+</blockquote>
+<hr>
+<p><strong>帐户管理</strong></p>
+<p>MYSQL提供许多语句用来管理用户帐号，这些语句可以用来包括登录和退出MYSQL服务器、创建用户、删除用户、密码管理、权限管理</p>
+<p>MYSQL数据库的安全性，需要通过帐户管理来保证</p>
+<p>登录和退出MYSQL</p>
+<p>mysql命令的常用参数</p>
+<p>-h：主机名或ip，默认是localhost，最好指定-h参数</p>
+<p>-u：用户名</p>
+<p>-p：密码，注意：该参数后面的字符串和-p不能有空格</p>
+<p>-P：端口号，默认为3306</p>
+<p>数据库名：可以在命令最后指定数据库名</p>
+<p>-e：执行SQL语句，如果指定该参数，将在登录后执行-e后面的命令或sql语句并退出</p>
+<p><img alt="" src="/images/jobbole.com/39cdb37ec7ae448c4bb4870eea3e208f.jpg"></p>
+<p>命令执行完之后返回book表的结构，查询返回之后会自动退出MYSQL</p>
+<hr>
+<p><strong>用户</strong></p>
+<pre class="brush: sql; gutter: true">CREATE USER user [IDENTIFIED BY [PASSWORD] 'password']
+    [, user [IDENTIFIED BY [PASSWORD] 'password']]</pre>
+
+<p>新建普通用户</p>
+<pre class="brush: sql; gutter: true">CREATE USER 'jeffrey'@'localhost' identified BY 'mypass';</pre>
+
+<p>用户名部分为“jeffrey”，主机名默认为“%”（即对所有主机开放权限）</p>
+<p>如果指定用户登录不需要密码，则可以省略identified BY部分</p>
+<p>对于使用插件认证连接的用户，服务器调用指定名称的插件，客户端需要提供验证方法所需要的凭据。</p>
+<p>如果创建用户时或者连接服务器时，服务器找不到对应的插件，将返回一个错误</p>
+<p>identified with语法</p>
+<pre class="brush: sql; gutter: true">CREATE user 'jeffrey'@'localhost' identified with my_auth_plugin;</pre>
+
+<p>identified with只能在MYSQL5.5.7及以上版本使用。</p>
+<p>identified with和identified by是互斥的，所以对一个帐户来说只能使用一个验证方法。</p>
+<p>CREATE USER语句的操作会被记录到服务器日志文件或者操作历史文件中</p>
+<p>例如 ~/.mysql_history。这意味着对这些文件有读取权限的人，都可以读取到新添加用户的明文密码</p>
+<p><img alt="" src="/images/jobbole.com/d8a93dc6fa9210d0fe9726bc0ac05b20.jpg"></p>
+<p>一个办法就是新建用户的时候使用password关键字</p>
+<pre class="brush: sql; gutter: true">CREATE user 'tom'@'localhost' identified BY password'*6C8989366EAF75BB670AD8EA7A7FC1176A95CEF4';
+
+SELECT password('mypass');
+
+SELECT * FROM `mysql`.`user` WHERE `User` ='tom';</pre>
+
+<p>先查出你的密码的哈希值，然后在新建用户的时候输入哈希值</p>
+<p>那么在日志里面就只能看到哈希值</p>
+<p><img alt="" src="/images/jobbole.com/9dc3c5e3f9365eb4bba0d3524a19967c.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/69627e332de721e310aa1f32972367ec.jpg"></p>
+<hr>
+<p><strong>使用GRANT语句创建新用户</strong></p>
+<p>GRANT USER语句可以用来创建帐户，通过该语句可以在user表中添加一条新记录</p>
+<p>比起CREATE USER语句创建的新用户，还需要使用GRANT语句赋予用户权限</p>
+<p>使用GRANT语句创建新用户时必须有GRANT权限。</p>
+<p>语法</p>
+<pre class="brush: sql; gutter: true">GRANT priv_type [(column_list)] [, priv_type [(column_list)]] ...
+    ON [object_type] {tbl_name | * | *.* | db_name.*}
+    TO user [IDENTIFIED BY [PASSWORD] 'password']
+        [, user [IDENTIFIED BY [PASSWORD] 'password']] ...
+    [REQUIRE
+        NONE |
+        [{SSL| X509}]
+        [CIPHER 'cipher' [AND]]
+        [ISSUER 'issuer' [AND]]
+        [SUBJECT 'subject']]
+    [WITH with_option [with_option] ...]</pre>
+
+<p>使用GRANT语句创建一个新用户testUser，密码为testpwd，并授予用户对所有数据表的SELECT和UPDATE权限</p>
+<pre class="brush: sql; gutter: true">GRANT SELECT ,UPDATE ON *.* TO 'testUser'@'localhost' identified BY 'testpwd'</pre>
+
+<pre class="brush: sql; gutter: true">SELECT `Host` ,`User` ,`Select_priv` ,`Update_priv`  FROM mysql.user WHERE `User` ='testUser';</pre>
+
+<p>执行结果显示执行成功，使用SELECT语句查询用户testUser的权限</p>
+<p><img alt="" src="/images/jobbole.com/02166aa1523c59d3133c78767a2cc206.jpg"></p>
+<p>查询结果显示SELECT和UPDATE权限字段均为Y</p>
+<p>注意：User表中的user和host字段区分大小写，在查询的时候要指定正确的用户名或主机名</p>
+<hr>
+<p><strong>直接操作MYSQL用户表</strong></p>
+<p>不管是CREATE USER还是GRANT USER，在创建用户时，实际上都是在user表中添加一条新记录。</p>
+<p>使用INSERT语句向mysql.user表INSERT一条记录来创建一个新用户</p>
+<p>插入的时候必须要有INSERT权限</p>
+<pre class="brush: sql; gutter: true">INSERT INTO mysql.user(host,user,password,[privilegelist])
+VALUES ('host','username',password('password'),privilegevaluelist)</pre>
+
+<p>使用INSERT创建一个新用户，其用户名称为customer1，主机名为localhost，密码为customer1</p>
+<pre class="brush: sql; gutter: true">INSERT INTO mysql.user(host,user,password)
+VALUES ('localhost','customer1',password('customer1'))</pre>
+
+<p><img alt="" src="/images/jobbole.com/dc602a69eac29943d306c71864480fd7.jpg"></p>
+<p>语句执行失败，查看警告信息如下：</p>
+<pre class="brush: sql; gutter: true">show WARNINGS ;</pre>
+
+<p><img alt="" src="/images/jobbole.com/843da6a361c460138d5ae434411f9ba3.jpg"></p>
+<p>因为ssl_cipher这个字段在user表中没有定义默认值，所以在这里提示错误信息。</p>
+<p>影响insert语句的执行，使用SELECT语句查看user表中的记录</p>
+<p><img alt="" src="/images/jobbole.com/5c692447bf149b66650234635bb653a7.jpg"></p>
+<p>可以看到，插入失败</p>
+<hr>
+<p><strong>删除普通用户</strong></p>
+<p>使用DROP USER语句删除用户，也可以直接通过DELETE从mysql.user表中删除对应的记录来删除用户</p>
+<p>DROP USER语句用于删除一个或多个MYSQL帐户。要使用DROP USER，必须拥有MYSQL数据库的全局</p>
+<p>CREATE USER 权限或DELETE权限。</p>
+<p>删除testUser这个用户</p>
+<pre class="brush: sql; gutter: true">DROP user 'testUser'@'localhost';</pre>
+
+<p><img alt="" src="/images/jobbole.com/ab19bdc3347b462d21d694f9b0ac43cc.jpg"></p>
+<p><img alt="" src="/images/jobbole.com/eae772ebeac034f69ab73811d2d4b314.jpg"></p>
+<p>可以发现testUser这个用户已经删除了</p>
+<p>使用delete语句删除用户</p>
+<pre class="brush: sql; gutter: true">DELETE FROM mysql.user WHERE `Host`='localhost' and `User`='testUser'</pre>
+
+<hr>
+<p><strong>root用户修改自己的密码</strong></p>
+<p>修改root密码的方式有多种</p>
+<p>1、使用mysqladmin命令在命令行指定新密码</p>
+<pre class="brush: sql; gutter: true">mysqladmin -u root -p password"rootpwd"</pre>
+
+<p>2、修改mysql数据库的user表</p>
+<pre class="brush: sql; gutter: true">UPDATE mysql.user SET `Password` =password('rootpwd') WHERE `User`='root' and `Host`='localhost'</pre>
+
+<p>password(”)函数用来加密用户密码。执行update之后需要执行flush privileges语句重新加载用户权限</p>
+<p>3、使用SET语句修改root用户的密码</p>
+<p>SET PASSWORD语句可以用来重新设置其他用户的登录密码或者自己使用的帐户密码</p>
+<p>语法</p>
+<pre class="brush: sql; gutter: true">SET PASSWORD=PASSWORD("ROOTPWD")</pre>
+
+<p>新密码必须用PASSWORD函数加密</p>
+<p>使用root用户登录到mysql之后执行下面语句</p>
+<pre class="brush: sql; gutter: true">SET password=password('123456')</pre>
+
+<p>执行之后需要使用执行flush privileges语句或者重启MYSQL重新加载用户权限</p>
+<hr>
+<p><strong>root用户修改普通用户密码</strong></p>
+<p>1、使用SET语句修改普通用户的密码</p>
+<pre class="brush: sql; gutter: true">SET PASSWORD FOR 'USER'@'HOST' =PASSWORD("ROOTPWD")</pre>
+
+<p>2、使用update语句修改普通用户的密码</p>
+<pre class="brush: sql; gutter: true">UPDATE mysql.user SET `Password` =password('rootpwd') WHERE `User`='root' and `Host`='localhost'</pre>
+
+<p>执行完毕之后需要使用flush privileges语句或者重启MYSQL重新加载用户权限</p>
+<p>3、使用GRANT语句修改普通用户密码</p>
+<pre class="brush: sql; gutter: true">GRANT USAGE ON *.* TO 'someuser'@'%'  IDENTIFIED BY 'somepwd'</pre>
+
+<p>使用下面语句把testUser用户的密码改为123456</p>
+<pre class="brush: sql; gutter: true">grant USAGE ON *testUser*TO 'localhost' identified BY '123456';</pre>
+
+<p>注意：使用GRANT语句和MYSQLADMIN设置密码，他们均会加密密码，这种情况下，不需要使用PASSWORD()函数</p>
+<hr>
+<p><strong>普通用户修改密码</strong></p>
+<p>使用SET语句修改自己的密码</p>
+<pre class="brush: sql; gutter: true">SET password=password('newpassword');</pre>
+
+<p>比如修改testUser这个用户的密码，需要使用testUser这个用户登录到mysql，然后执行</p>
+<pre class="brush: sql; gutter: true">SET password=password('123456');</pre>
+
+<hr>
+<p><strong>root用户密码丢失的解决办法</strong></p>
+<p>使用–skip-grant-tables选项启动MYSQL服务</p>
+<p>使用–skip-grant-tables选项启动MYSQL时，服务器将不加载权限判断，任何用户都能访问数据库</p>
+<p><strong>LINUX下</strong></p>
+<p>使用mysqld_safe来启动MYSQL服务，也可以使用/etc/init.d/mysql命令来启动mysql</p>
+<pre class="brush: sql; gutter: true">mysqld_safe --skip-grant-tables user=mysql</pre>
+
+<p>或者</p>
+<pre class="brush: sql; gutter: true">/etc/init.d/mysql start-mysqld --skip-grant-tables</pre>
+
+<p>启动MYSQL服务后，就可以使用root用户登录了</p>
+<p><strong>Windows下</strong></p>
+<p>详细可以看一下这篇文章</p>
+<p><a title="http://www.cnblogs.com/MYSQLZOUQI/p/3539912.html" href="http://www.cnblogs.com/MYSQLZOUQI/p/3539912.html" target="_blank">Windows mysql提示：1045 access denied for user ‘root’@'localhost’ using password yes</a></p>
+<hr>
+<p><strong>权限管理</strong></p>
+<p>MYSQL中的各种权限</p>
+<p>对于GRANT和REVOKE语句，priv_type可以被指定为以下任何一种：</p>
+<table id="table7" border="1" cellpadding="0">
+<tbody>
+<tr>
+<td><strong>权限</strong></td>
+<td><strong>意义</strong></td>
+</tr>
+<tr>
+<td>ALL [PRIVILEGES]</td>
+<td>设置除GRANT OPTION之外的所有简单权限</td>
+</tr>
+<tr>
+<td>ALTER</td>
+<td>允许使用ALTER TABLE</td>
+</tr>
+<tr>
+<td>ALTER ROUTINE</td>
+<td>更改或取消已存储的子程序</td>
+</tr>
+<tr>
+<td>CREATE</td>
+<td>允许使用CREATE TABLE</td>
+</tr>
+<tr>
+<td>CREATE ROUTINE</td>
+<td>创建已存储的子程序</td>
+</tr>
+<tr>
+<td>CREATE TEMPORARY TABLES</td>
+<td>允许使用CREATE TEMPORARY TABLE</td>
+</tr>
+<tr>
+<td>CREATE USER</td>
+<td>允许使用CREATE USER, DROP USER, RENAME USER和REVOKE ALL PRIVILEGES。</td>
+</tr>
+<tr>
+<td>CREATE VIEW</td>
+<td>允许使用CREATE VIEW</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td>允许使用DELETE</td>
+</tr>
+<tr>
+<td>DROP</td>
+<td>允许使用DROP TABLE</td>
+</tr>
+<tr>
+<td>EXECUTE</td>
+<td>允许用户运行已存储的子程序</td>
+</tr>
+<tr>
+<td>FILE</td>
+<td>允许使用SELECT…INTO OUTFILE和LOAD DATA INFILE</td>
+</tr>
+<tr>
+<td>INDEX</td>
+<td>允许使用CREATE INDEX和DROP INDEX</td>
+</tr>
+<tr>
+<td>INSERT</td>
+<td>允许使用INSERT</td>
+</tr>
+<tr>
+<td>LOCK TABLES</td>
+<td>允许对您拥有SELECT权限的表使用LOCK TABLES</td>
+</tr>
+<tr>
+<td>PROCESS</td>
+<td>允许使用SHOW FULL PROCESSLIST</td>
+</tr>
+<tr>
+<td>REFERENCES</td>
+<td>未被实施</td>
+</tr>
+<tr>
+<td>RELOAD</td>
+<td>允许使用FLUSH</td>
+</tr>
+<tr>
+<td>REPLICATION CLIENT</td>
+<td>允许用户询问从属服务器或主服务器的地址</td>
+</tr>
+<tr>
+<td>REPLICATION SLAVE</td>
+<td>用于复制型从属服务器（从主服务器中读取二进制日志事件）</td>
+</tr>
+<tr>
+<td>SELECT</td>
+<td>允许使用SELECT</td>
+</tr>
+<tr>
+<td>SHOW DATABASES</td>
+<td>SHOW DATABASES显示所有数据库</td>
+</tr>
+<tr>
+<td>SHOW VIEW</td>
+<td>允许使用SHOW CREATE VIEW</td>
+</tr>
+<tr>
+<td>SHUTDOWN</td>
+<td>允许使用<strong>mysqladmin shutdown</strong>
+</td>
+</tr>
+<tr>
+<td>SUPER</td>
+<td>允许使用CHANGE MASTER, KILL, PURGE MASTER LOGS和SET GLOBAL语句，<strong>mysqladmin debug</strong>命令；允许您连接（一次），即使已达到max_connections。</td>
+</tr>
+<tr>
+<td>UPDATE</td>
+<td>允许使用UPDATE</td>
+</tr>
+<tr>
+<td>USAGE</td>
+<td>“无权限”的同义词</td>
+</tr>
+<tr>
+<td>GRANT OPTION</td>
+<td>允许授予权限</td>
+</tr>
+</tbody>
+</table>
+<p>当从旧版本的MySQL升级时，要使用EXECUTE, CREATE VIEW, SHOW VIEW, CREATE USER, CREATE ROUTINE和ALTER ROUTINE权限</p>
+<hr>
+<p><strong>授权</strong></p>
+<p>授权就是为某个用户授予权限</p>
+<p>授予的权限可以分为多个层级：</p>
+<p>·         <strong>全局层级</strong></p>
+<p>全局权限适用于一个给定服务器中的所有数据库。这些权限存储在mysql.user表中。GRANT ALL ON *.*和REVOKE ALL ON *.*只授予和撤销全局权限。</p>
+<p>·         <strong>数据库层级</strong></p>
+<p>数据库权限适用于一个给定数据库中的所有目标。这些权限存储在mysql.db和mysql.host表中。GRANT ALL ON<em>db_name</em>.*和REVOKE ALL ON <em>db_name</em>.*只授予和撤销数据库权限。</p>
+<p>·         <strong>表层级</strong></p>
+<p>表权限适用于一个给定表中的所有列。这些权限存储在mysql.talbes_priv表中。GRANT ALL ON <em>db_name.tbl_name</em>和REVOKE ALL ON <em>db_name.tbl_name</em>只授予和撤销表权限。</p>
+<p>·         <strong>列层级</strong></p>
+<p>列权限适用于一个给定表中的单一列。这些权限存储在mysql.columns_priv表中。当使用REVOKE时，您必须指定与被授权列相同的列。</p>
+<p>·         <strong>子程序层级</strong></p>
+<p>CREATE ROUTINE, ALTER ROUTINE, EXECUTE和GRANT权限适用于已存储的子程序。这些权限可以被授予为全局层级和数据库层级。而且，除了CREATE ROUTINE外，这些权限可以被授予为子程序层级，并存储在mysql.procs_priv表中。</p>
+<p>当后续目标是一个表、一个已存储的函数或一个已存储的过程时，<em>object_type</em>子句应被指定为TABLE、FUNCTION或PROCEDURE。当从旧版本的MySQL升级时，要使用本子句，您必须升级您的授权表</p>
+<p>使用GRANT语句创建一个新用户grantUser，密码为“grantpwd”</p>
+<p>用户对所有的数据有查询、插入权限，并授予GRANT权限</p>
+<pre class="brush: sql; gutter: true">GRANT SELECT ,INSERT ON *.*TO 'grantUser'@'localhost' identified BY '123456' WITH GRANT OPTION ;</pre>
+
+<p><img alt="" src="/images/jobbole.com/52d17ad152ac7939ee00f118ca7d42fc.jpg"></p>
+<p>查询显示grantUser被创建成功，并赋予了SELECT、INSERT、GRANT权限，其相应字段值为Y</p>
+<p>被授予GRANT权限的用户可以登录MYSQL并创建其他用户帐户，在这里是grantUser的用户</p>
+<hr>
+<p><strong>收回权限</strong></p>
+<p>收回权限就是取消已经赋予用户的某些权限。收回用户不必要的权限可以在一定程度上保证系统的安全性。</p>
+<p>使用REVOKE收回权限之后，用户帐户的记录将从db、host、tables_priv、columns_priv表中删除，但是用户帐号记录依然</p>
+<p>在user表中保存。</p>
+<p>语法</p>
+<pre class="brush: sql; gutter: true">REVOKE priv_type [(column_list)] [, priv_type [(column_list)]] ...
+    ON [object_type] {tbl_name | * | *.* | db_name.*}
+    FROM user [, user] ...
+
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM user [, user] ...</pre>
+
+<p>使用REVOKE语句，必须拥有mysql数据库的全局CREATE权限或UPDATE权限</p>
+<p>使用REVOKE语句取消用户grantUser的INSERT权限</p>
+<pre class="brush: sql; gutter: true">REVOKE INSERT ON *.* FROM 'grantUser'@'localhost';</pre>
+
+<p><img alt="" src="/images/jobbole.com/52722f7a1f8d4b7d4786570d926426c1.jpg"></p>
+<p>可以看到grantUser用户的INSERT权限已经被收回了</p>
+<blockquote>
+<p><strong>注意：当从旧版本的MYSQL升级时，如果要使用EXECUTE、CREATE VIEW、SHOW VIEW、CREATE USER、CREATE ROUTINE、ALTER ROUTINE</strong></p>
+</blockquote>
+<hr>
+<p><strong>查看权限</strong></p>
+<p>SHOW GRANT语句可以显示用户的权限信息</p>
+<p>语法</p>
+<pre class="brush: sql; gutter: true">show grants FOR 'user'@'host';</pre>
+
+<p>使用SHOW GRANT语句查询用户grantUser的权限信息</p>
+<pre class="brush: sql; gutter: true">show grants FOR 'grantUser'@'localhost';</pre>
+
+<p><img alt="" src="/images/jobbole.com/fa07f4a5ebedb03de9eda35da8846190.jpg"></p>
+<p>返回结果显示了user表中的帐户信息；接下来以为GRANT SELECT ON关键字开头，表示用户被授予了SELECT权限；</p>
+<p>*.*表示SELECT权限作用于所有数据库的所有数据表；</p>
+<p>IDENTIFIED BY 后面的为用户加密后的密码</p>
+<p>在这里，只是定义了个别的用户权限，GRANT可以显示更加详细的权限信息，包括全局级的和非全局级的权限</p>
+<p>如果表层级或者列层级的权限被授予用户的话，他们也能在结果中显示出来。</p>
+<hr>
+<p><strong>查看MYSQL里面匿名用户</strong></p>
+<p>如果有匿名用户，那么客户端就可以不用密码登录MYSQL数据库，这样就会存在安全隐患</p>
+<p>检查匿名用户的方法</p>
+<pre class="brush: sql; gutter: true">SELECT * FROM mysql.user WHERE `User`='';</pre>
+
+<p><img alt="" src="/images/jobbole.com/cd7e2cf488b2bde78295436346cbb0ad.jpg"></p>
+<p>如果查找到user字段值为空的那条记录，说明存在匿名用户，需要把这条记录删除</p>
+<p>如果用匿名用户登录MYSQL就可以看到用户名是空的</p>
+<p><img alt="" src="/images/jobbole.com/5b4e4d6734d7a4247920f79c559b8807.jpg"></p>
+<p>删除语句</p>
+<pre class="brush: sql; gutter: true">DELETE FROM mysql.user WHERE `User`='';
+
+SELECT * FROM mysql.user WHERE `User`='';</pre>
+
+<hr>
+<p><strong>总结</strong></p>
+<p>本文简单的阐述了MYSQL的用户管理和权限方面的内容，希望对大家有帮助</p>
+<p>如果大家想更深入学习MYSQL访问控制方面的知识</p>
+<p>可以参考这篇文章：<a title="http://www.searchdatabase.com.cn/showcontent_50461.htm" href="http://www.searchdatabase.com.cn/showcontent_50461.htm" target="_blank">MySQL权限的架构体系</a></p>
+<p>核心就是<strong>两个图</strong></p>
+<p>1、客户端连接请求认证阶段</p>
+<p><img alt="" src="/images/jobbole.com/7a4a298ec2d0f78562d03f74348a771c.jpg"></p>
+<p>2、客户端操作请求认证阶段</p>
+<p><img alt="" src="/images/jobbole.com/1e306800866cda91407b66397cc8273f.jpg"></p>
+<p>最最后说一下，我开了一个MYSQL走起的微博，希望大家支持一下o(∩_∩)o</p>
+<p>欢迎关注<strong>MYSQL官方微博</strong>：<a title="http://weibo.com/MYSQLZOUQI/home?topnav=1&amp;wvr=5#_rnd1405248126528" href="http://weibo.com/MYSQLZOUQI/home?topnav=1&amp;wvr=5#_rnd1405248126528" target="_blank">MYSQL走起</a></p>
+
+    <div class="post-adds">
+        <span data-post-id="87357" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87357votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87357" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+
+            </div>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-06-05-87399-101542266.html" title="Previous Post: 写一个支持键盘输入和屏幕输出的内核" data-instant>&laquo; 写一个支持键盘输入和屏幕输出的内核</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-06-06-87363-7da0a07c6.html" title="Next Post: 我的MYSQL学习心得（14） ： 备份和恢复" data-instant>我的MYSQL学习心得（14） ： 备份和恢复 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>06 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-06-87363-7da0a07c6.html">我的MYSQL学习心得（14） ： 备份和恢复</a></li>
+
+      <li><span>07 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-07-87369-741661838.html">我的MYSQL学习心得（17） ： 复制</a></li>
+
+      <li><span>06 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-06-87365-92f010d92.html">我的MYSQL学习心得（15） ： 日志</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

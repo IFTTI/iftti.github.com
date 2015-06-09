@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>运维角度浅谈MySQL数据库优化</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-06-08-87450-8c0cd12f5.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>运维角度浅谈MySQL数据库优化</h1>
+    <p class="meta"><span class="time">Jun 8, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/87450/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>一个成熟的数据库架构并不是一开始设计就具备高可用、高伸缩等特性的，它是随着用户量的增加，基础架构才逐渐完善。这篇博文主要谈MySQL数据库发展周期中所面临的问题及优化方案，暂且抛开前端应用不说，大致分为以下五个阶段：</p>
+<p> </p>
+<h3><strong>1、数据库表设计</strong></h3>
+<p>项目立项后，开发部根据产品部需求开发项目，开发工程师工作其中一部分就是对表结构设计。对于数据库来说，这点很重要，如果设计不当，会直接影响访问速度和用户体验。影响的因素很多，比如慢查询、低效的查询语句、没有适当建立索引、数据库堵塞（死锁）等。当然，有测试工程师的团队，会做压力测试，找bug。对于没有测试工程师的团队来说，大多数开发工程师初期不会太多考虑数据库设计是否合理，而是尽快完成功能实现和交付，等项目有一定访问量后，隐藏的问题就会暴露，这时再去修改就不是这么容易的事了。</p>
+<p> </p>
+<h3><strong>2、数据库部署</strong></h3>
+<p>该运维工程师出场了，项目初期访问量不会很大，所以单台部署足以应对在1500左右的QPS（每秒查询率）。考虑到高可用性，可采用MySQL主从复制+Keepalived做双击热备，常见集群软件有Keepalived、Heartbeat。<br>
+双机热备博文：http://lizhenliang.blog.51cto.com/7876557/1362313</p>
+<h3></h3>
+<h3><strong>3、数据库性能优化</strong></h3>
+<p>如果将MySQL部署到普通的X86服务器上，在不经过任何优化情况下，MySQL理论值正常可以处理2000左右QPS，经过优化后，有可能会提升到2500左右QPS，否则，访问量当达到1500左右并发连接时，数据库处理性能就会变慢，而且硬件资源还很富裕，这时就该考虑软件问题了。那么怎样让数据库最大化发挥性能呢？一方面可以单台运行多个MySQL实例让服务器性能发挥到最大化，另一方面是对数据库进行优化，往往操作系统和数据库默认配置都比较保守，会对数据库发挥有一定限制，可对这些配置进行适当的调整，尽可能的处理更多连接数。<br>
+具体优化有以下三个层面：</p>
+<p><strong> 3.1 数据库配置优化</strong></p>
+<p>MySQL常用有两种存储引擎，一个是MyISAM，不支持事务处理，读性能处理快，表级别锁。另一个是InnoDB，支持事务处理（ACID），设计目标是为处理大容量数据发挥最大化性能，行级别锁。</p>
+<ul>
+<li>表锁：开销小，锁定粒度大，发生死锁概率高，相对并发也低。</li>
+<li>行锁：开销大，锁定粒度小，发生死锁概率低，相对并发也高。</li>
+</ul>
+<p>为什么会出现表锁和行锁呢？主要是为了保证数据的完整性，举个例子，一个用户在操作一张表，其他用户也想操作这张表，那么就要等第一个用户操作完，其他用户才能操作，表锁和行锁就是这个作用。否则多个用户同时操作一张表，肯定会数据产生冲突或者异常。<br>
+根据以上看来，使用InnoDB存储引擎是最好的选择，也是MySQL5.5以后版本中默认存储引擎。每个存储引擎相关联参数比较多，以下列出主要影响数据库性能的参数。<br>
+公共参数默认值：</p>
+<pre class="brush: actionscript3; gutter: true">max_connections = 151
+#同时处理最大连接数，推荐设置最大连接数是上限连接数的80%左右
+sort_buffer_size = 2M
+#查询排序时缓冲区大小，只对order by和group by起作用，可增大此值为16M
+query_cache_limit = 1M
+#查询缓存限制，只有1M以下查询结果才会被缓存，以免结果数据较大把缓存池覆盖
+query_cache_size = 16M
+#查看缓冲区大小，用于缓存SELECT查询结果，下一次有同样SELECT查询将直接从缓存池返回结果，可适当成倍增加此值
+open_files_limit = 1024
+#打开文件数限制，如果show global status like 'open_files'查看的值等于或者大于open_files_limit值时，程序会无法连接数据库或卡死</pre>
+
+<p>MyISAM参数默认值：</p>
+<pre class="brush: actionscript3; gutter: true">key_buffer_size = 16M
+#索引缓存区大小，一般设置物理内存的30-40%
+read_buffer_size = 128K
+#读操作缓冲区大小，推荐设置16M或32M</pre>
+
+<p>InnoDB参数默认值：</p>
+<pre class="brush: actionscript3; gutter: true">innodb_buffer_pool_size = 128M
+#索引和数据缓冲区大小，一般设置物理内存的60%-70%
+innodb_buffer_pool_instances = 1
+#缓冲池实例个数，推荐设置4个或8个
+innodb_flush_log_at_trx_commit = 1
+#关键参数，0代表大约每秒写入到日志并同步到磁盘，数据库故障会丢失1秒左右事务数据。1为每执行一条SQL后写入到日志并同步到磁盘，I/O开销大，执行完SQL要等待日志读写，效率低。2代表只把日志写入到系统缓存区，再每秒同步到磁盘，效率很高，如果服务器故障，才会丢失事务数据。对数据安全性要求不是很高的推荐设置2，性能高，修改后效果明显。
+innodb_file_per_table = OFF
+#默认是共享表空间，共享表空间idbdata文件不断增大，影响一定的I/O性能。推荐开启独立表空间模式，每个表的索引和数据都存在自己独立的表空间中，可以实现单表在不同数据库中移动。
+innodb_log_buffer_size = 8M
+#日志缓冲区大小，由于日志最长每秒钟刷新一次，所以一般不用超过16M</pre>
+
+<p><strong> 3.2 系统内核优化</strong></p>
+<p>大多数MySQL都部署在linux系统上，所以操作系统的一些参数也会影响到MySQL性能，以下对linux内核进行适当优化。</p>
+<pre class="brush: actionscript3; gutter: true">net.ipv4.tcp_fin_timeout = 30
+#TIME_WAIT超时时间，默认是60s
+net.ipv4.tcp_tw_reuse = 1
+#1表示开启复用，允许TIME_WAIT socket重新用于新的TCP连接，0表示关闭
+net.ipv4.tcp_tw_recycle = 1
+#1表示开启TIME_WAIT socket快速回收，0表示关闭
+net.ipv4.tcp_max_tw_buckets = 4096
+#系统保持TIME_WAIT socket最大数量，如果超出这个数，系统将随机清除一些TIME_WAIT并打印警告信息
+net.ipv4.tcp_max_syn_backlog = 4096
+#进入SYN队列最大长度，加大队列长度可容纳更多的等待连接</pre>
+
+<p>在linux系统中，如果进程打开的文件句柄数量超过系统默认值1024，就会提示“too many files open”信息，所以要调整打开文件句柄限制。</p>
+<pre class="brush: actionscript3; gutter: true"># vi /etc/security/limits.conf #加入以下配置，*代表所有用户，也可以指定用户，重启系统生效
+* soft nofile 65535
+* hoft nofile 65535
+# ulimit -SHn 65535 #立刻生效</pre>
+
+<p><strong> 3.3 硬件配置</strong></p>
+<p>加大物理内存，提高文件系统性能。linux内核会从内存中分配出缓存区（系统缓存和数据缓存）来存放热数据，通过文件系统延迟写入机制，等满足条件时（如缓存区大小到达一定百分比或者执行sync命令）才会同步到磁盘。也就是说物理内存越大，分配缓存区越大，缓存数据越多。当然，服务器故障会丢失一定的缓存数据。<br>
+SSD硬盘代替SAS硬盘，将RAID级别调整为RAID1+0，相对于RAID1和RAID5有更好的读写性能（IOPS），毕竟数据库的压力主要来自磁盘I/O方面。</p>
+<p> </p>
+<h3><strong>4、数据库架构扩展</strong></h3>
+<p>随着业务量越来越大，单台数据库服务器性能已无法满足业务需求，该考虑加机器了，该做集群了~~~。主要思想是分解单台数据库负载，突破磁盘I/O性能，热数据存放缓存中，降低磁盘I/O访问频率。</p>
+<p><strong> 4.1 主从复制与读写分离</strong></p>
+<p>因为生产环境中，数据库大多都是读操作，所以部署一主多从架构，主数据库负责写操作，并做双击热备，多台从数据库做负载均衡，负责读操作，主流的负载均衡器有LVS、HAProxy、Nginx。怎么来实现读写分离呢？大多数企业是在代码层面实现读写分离，效率比较高。另一个种方式通过代理程序实现读写分离，企业中应用较少，常见代理程序有MySQL Proxy、Amoeba。在这样数据库集群架构中，大大增加数据库高并发能力，解决单台性能瓶颈问题。如果从数据库一台从库能处理2000 QPS，那么5台就能处理1w QPS，数据库横向扩展性也很容易。<br>
+有时，面对大量写操作的应用时，单台写性能达不到业务需求。如果做双主，就会遇到数据库数据不一致现象，产生这个原因是在应用程序不同的用户会有可能操作两台数据库，同时的更新操作造成两台数据库数据库数据发生冲突或者不一致。在单库时MySQL利用存储引擎机制表锁和行锁来保证数据完整性，怎样在多台主库时解决这个问题呢？有一套基于perl语言开发的主从复制管理工具，叫MySQL-MMM（Master-Master replication managerfor Mysql，Mysql主主复制管理器），这个工具最大的优点是在同一时间只提供一台数据库写操作，有效保证数据一致性。<br>
+主从复制博文：http://lizhenliang.blog.51cto.com/7876557/1290431<br>
+读写分离博文：http://lizhenliang.blog.51cto.com/7876557/1305083<br>
+MySQL-MMM博文：http://lizhenliang.blog.51cto.com/7876557/1354576</p>
+<p><strong> 4.2 增加缓存</strong></p>
+<p>给数据库增加缓存系统，把热数据缓存到内存中，如果内存缓存中有要请求的数据就不再去数据库中返回结果，提高读性能。缓存实现有本地缓存和分布式缓存，本地缓存是将数据缓存到本地服务器内存中或者文件中，速度快。分布式可以缓存海量数据，扩展容易，主流的分布式缓存系统有memcached、redis，memcached性能稳定，数据缓存在内存中，速度很快，QPS可达8w左右。如果想数据持久化那就用redis，性能不低于memcached。<br>
+工作过程：<br>
+<img alt="" src="/images/jobbole.com/9e725f12ca2b912d6ee41e23682956be.jpg"></p>
+<p><strong> 4.3 分库</strong></p>
+<p>分库是根据业务不同把相关的表切分到不同的数据库中，比如web、bbs、blog等库。如果业务量很大，还可将切分后的库做主从架构，进一步避免单个库压力过大。</p>
+<p><strong> 4.4 分表</strong></p>
+<p>数据量的日剧增加，数据库中某个表有几百万条数据，导致查询和插入耗时太长，怎么能解决单表压力呢？你就该考虑是否把这个表拆分成多个小表，来减轻单个表的压力，提高处理效率，此方式称为分表。<br>
+分表技术比较麻烦，要修改程序代码里的SQL语句，还要手动去创建其他表，也可以用merge存储引擎实现分表，相对简单许多。分表后，程序是对一个总表进行操作，这个总表不存放数据，只有一些分表的关系，以及更新数据的方式，总表会根据不同的查询，将压力分到不同的小表上，因此提高并发能力和磁盘I/O性能。<br>
+分表分为垂直拆分和水平拆分：<br>
+垂直拆分：把原来的一个很多字段的表拆分多个表，解决表的宽度问题。你可以把不常用的字段单独放到一个表中，也可以把大字段独立放一个表中，或者把关联密切的字段放一个表中。<br>
+水平拆分：把原来一个表拆分成多个表，每个表的结构都一样，解决单表数据量大的问题。</p>
+<p><strong> 4.5 分区</strong></p>
+<p>分区就是把一张表的数据分成多个区块，这些区块可以在一个磁盘上，也可以在不同的磁盘上，分区后，表面上还是一张表，但数据散列在多个位置，这样一来，多块硬盘同时处理不同的请求，从而提高磁盘I/O读写性能，实现比较简单。<br>
+注：增加缓存、分库、分表和分区主要由程序猿来实现。</p>
+<p> </p>
+<h3><strong>5、数据库维护</strong></h3>
+<p>数据库维护是运维工程师或者DBA主要工作，包括性能监控、性能分析、性能调优、数据库备份和恢复等。</p>
+<p><strong> 5.1 性能状态关键指标</strong></p>
+<p>QPS，Queries Per Second：每秒查询数，一台数据库每秒能够处理的查询次数<br>
+TPS，Transactions Per Second：每秒处理事务数<br>
+通过show status查看运行状态，会有300多条状态信息记录，其中有几个值帮可以我们计算出QPS和TPS，如下：<br>
+Uptime：服务器已经运行的实际，单位秒<br>
+Questions：已经发送给数据库查询数<br>
+Com_select：查询次数，实际操作数据库的<br>
+Com_insert：插入次数<br>
+Com_delete：删除次数<br>
+Com_update：更新次数<br>
+Com_commit：事务次数<br>
+Com_rollback：回滚次数<br>
+那么，计算方法来了，基于Questions计算出QPS：</p>
+<pre class="brush: actionscript3; gutter: true">mysql&gt; show global status like 'Questions';
+mysql&gt; show global status like 'Uptime';</pre>
+
+<p>QPS = Questions / Uptime<br>
+基于Com_commit和Com_rollback计算出TPS：</p>
+<pre class="brush: actionscript3; gutter: true">mysql&gt; show global status like 'Com_commit';
+mysql&gt; show global status like 'Com_rollback';
+mysql&gt; show global status like 'Uptime';
+TPS = (Com_commit + Com_rollback) / Uptime</pre>
+
+<p>另一计算方式：基于Com_select、Com_insert、Com_delete、Com_update计算出QPS</p>
+<pre class="brush: actionscript3; gutter: true">mysql&gt; show global status where Variable_name in('com_select','com_insert','com_delete','com_update');</pre>
+
+<p>等待1秒再执行，获取间隔差值，第二次每个变量值减去第一次对应的变量值，就是QPS<br>
+TPS计算方法：</p>
+<pre class="brush: actionscript3; gutter: true">mysql&gt; show global status where Variable_name in('com_insert','com_delete','com_update');</pre>
+
+<p>计算TPS，就不算查询操作了，计算出插入、删除、更新四个值即可。<br>
+经网友对这两个计算方式的测试得出，当数据库中myisam表比较多时，使用Questions计算比较准确。当数据库中innodb表比较多时，则以Com_*计算比较准确。</p>
+<p><strong> 5.2 开启慢查询日志</strong></p>
+<p>MySQL开启慢查询日志，分析出哪条SQL语句比较慢，使用set设置变量，重启服务失效，可以在my.cnf添加参数永久生效。</p>
+<pre class="brush: actionscript3; gutter: true">mysql&gt; set global slow-query-log=on #开启慢查询功能
+mysql&gt; set global slow_query_log_file='/var/log/mysql/mysql-slow.log'; #指定慢查询日志文件位置
+mysql&gt; set global log_queries_not_using_indexes=on; #记录没有使用索引的查询
+mysql&gt; set global long_query_time=1; #只记录处理时间1s以上的慢查询</pre>
+
+<p>分析慢查询日志，可以使用MySQL自带的mysqldumpslow工具，分析的日志较为简单。<br>
+# mysqldumpslow -t 3 /var/log/mysql/mysql-slow.log #查看最慢的前三个查询<br>
+也可以使用percona公司的pt-query-digest工具，日志分析功能全面，可分析slow log、binlog、general log。<br>
+分析慢查询日志：pt-query-digest /var/log/mysql/mysql-slow.log<br>
+分析binlog日志：mysqlbinlog mysql-bin.000001 &gt;mysql-bin.000001.sql<br>
+pt-query-digest –type=binlog mysql-bin.000001.sql<br>
+分析普通日志：pt-query-digest –type=genlog localhost.log</p>
+<p><strong> 5.3 数据库备份</strong></p>
+<p>备份数据库是最基本的工作，也是最重要的，否则后果很严重，你懂得！但由于数据库比较大，上百G，往往备份都很耗费时间，所以就该选择一个效率高的备份策略，对于数据量大的数据库，一般都采用增量备份。常用的备份工具有mysqldump、mysqlhotcopy、xtrabackup等，mysqldump比较适用于小的数据库，因为是逻辑备份，所以备份和恢复耗时都比较长。mysqlhotcopy和xtrabackup是物理备份，备份和恢复速度快，不影响数据库服务情况下进行热拷贝，建议使用xtrabackup，支持增量备份。<br>
+Xtrabackup备份工具使用博文：http://lizhenliang.blog.51cto.com/7876557/1612800</p>
+<p><strong> 5.4 数据库修复</strong></p>
+<p>有时候MySQL服务器突然断电、异常关闭，会导致表损坏，无法读取表数据。这时就可以用到MySQL自带的两个工具进行修复，myisamchk和mysqlcheck。<br>
+myisamchk：只能修复myisam表，需要停止数据库<br>
+常用参数：<br>
+-f –force 强制修复，覆盖老的临时文件，一般不使用<br>
+-r –recover 恢复模式<br>
+-q –quik 快速恢复<br>
+-a –analyze 分析表<br>
+-o –safe-recover 老的恢复模式，如果-r无法修复，可以使用此参数试试<br>
+-F –fast 只检查没有正常关闭的表<br>
+快速修复weibo数据库:<br>
+# cd /var/lib/mysql/weibo<br>
+# myisamchk -r -q *.MYI<br>
+mysqlcheck：myisam和innodb表都可以用，不需要停止数据库，如修复单个表，可在数据库后面添加表名，以空格分割<br>
+常用参数：<br>
+-a –all-databases 检查所有的库<br>
+-r –repair 修复表<br>
+-c –check 检查表，默认选项<br>
+-a –analyze 分析表<br>
+-o –optimize 优化表<br>
+-q –quik 最快检查或修复表<br>
+-F –fast 只检查没有正常关闭的表<br>
+快速修复weibo数据库:<br>
+mysqlcheck -r -q -uroot -p123 weibo</p>
+<p><strong> 5.5 另外，查看CPU和I/O性能方法</strong></p>
+<p>#查看CPU性能<br>
+<img alt="" src="/images/jobbole.com/b311e17361eac53a1b99e71479a1e6b1.jpg"></p>
+<p>#参数-P是显示CPU数，ALL为所有，也可以只显示第几颗<br>
+<img alt="" src="/images/jobbole.com/04ed2a4ce7940b586accd8d56c157ec7.jpg"></p>
+<p>#查看I/O性能<br>
+<img alt="" src="/images/jobbole.com/4758059cd4d930927dec740f1106aa3f.jpg"></p>
+<p>#参数-m是以M单位显示，默认K<br>
+#%util：当达到100%时，说明I/O很忙。<br>
+#await：请求在队列中等待时间，直接影响read时间。<br>
+I/O极限：IOPS（r/s+w/s）,一般在1200左右。（IOPS，每秒进行读写（I/O）操作次数）<br>
+I/O带宽：在顺序读写模式下SAS硬盘理论值在300M/s左右，SSD硬盘理论值在600M/s左右。</p>
+<p>以上是本人使用MySQL三年来总结的一些主要优化方案，能力有限，有些不太全面，但这些基本能够满足中小型企业数据库需求。由于关系型数据库初衷设计限制，一些BAT公司海量数据放到关系型数据库中，在海量数据查询和分析方面已经达不到更好的性能。因此NoSQL火起来了，非关系型数据库，大数据量，具有高性能，同时也弥补了关系型数据库某方面不足，渐渐大多数公司已经将部分业务数据库存放到NoSQL中，如MongoDB、HBase等。数据存储方面采用分布式文件系统，如HDFS、GFS等。海量数据计算分析采用Hadoop、Spark、Storm等。这些都是与运维相关的前沿技术，也是在存储方面主要学习对象，小伙伴们共同加油吧！哪位博友有更好的优化方案，欢迎交流哦。</p>
+
+    <div class="post-adds">
+        <span data-post-id="87450" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87450votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87450" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+
+            </div>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-06-08-87439-803dbf52b.html" title="Previous Post: 代码覆盖率工具 Istanbul 入门教程" data-instant>&laquo; 代码覆盖率工具 Istanbul 入门教程</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-06-09-87420-9e2943f54.html" title="Next Post: 数据挖掘历史中的重要里程碑" data-instant>数据挖掘历史中的重要里程碑 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>25 May 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-05-25-87107-fe468f89c.html">由浅入深探究 MySQL索引结构原理、性能分析与优化</a></li>
+
+      <li><span>07 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-07-87369-741661838.html">我的MYSQL学习心得（17） ： 复制</a></li>
+
+      <li><span>07 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-07-87367-302bea242.html">我的MYSQL学习心得（16） ： 优化</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

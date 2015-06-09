@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>写一个支持键盘输入和屏幕输出的内核</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-06-05-87399-101542266.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>写一个支持键盘输入和屏幕输出的内核</h1>
+    <p class="meta"><span class="time">Jun 5, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/87399/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>在我之前的文章<a href="http://arjunsreedharan.org/post/82710718100/kernel-101-lets-write-a-kernel">让我们编写一个内核</a>，讲述了如何搭建一个初级的x86内核，该内核使用GRUB启动，运行于保护模式，能在屏幕上输出字符串。</p>
+<p>今天，我将为该内核添加键盘驱动，这样它能够获取键盘上a-z和0-9字符输入并且输出到屏幕。</p>
+<p>本文使用的源代码可以在我的<a href="http://github.com/arjun024/mkeykernel">GirHub仓库-mkeykernel</a>中获取。</p>
+<p><img alt="" src="/images/jobbole.com/283d9c999c2132ae1d0dd43cc53f1dde.jpg"></p>
+<p>我们使用I/O端口来与I/O设备交互。这些端口只是x86 I/O总线上的具体地址，仅此而已。对该端口的读/写操作通过处理器内建的特定指令完成。</p>
+<h1><strong style="font-style: normal;">端口读写</strong></h1>
+<pre class="brush: c; gutter: true">read_port:
+        mov edx, [esp + 4]
+        in al, dx      
+        ret
+
+write_port:
+        mov   edx, [esp + 4]    
+        mov   al, [esp + 4 + 4]  
+        out   dx, al  
+        ret</pre>
+
+<p>I/O端口的访问使用x86指令集中的in和out指令。</p>
+<p>在read_port中，端口号被视为参数。当编译器调用你的函数时，它将所有的参数压入栈中。参数使用栈指针复制到寄存器edx中。寄存器dx是edx的低16位。这里的in指令读取dx指定端口并将结果输出到al中。寄存器al是eax的低8位。如果你还记得大学课程，函数的返回值存放于eax寄存器中。因此，read_port可以读取I/O端口数据。</p>
+<p><code>write_port非常类似。这里有两个参数：端口号和待写入数据。out指令将数据写入端口中。</code></p>
+<h1><strong style="font-style: normal;">中断</strong></h1>
+<p>在我们开始编写任何设备驱动前，我们需要了解处理器是如何知道设备执行了一个事件。</p>
+<p>最简单的方法是<strong>轮询</strong>—始终保持对设备状态的监测。这样显然效率太低且不实用。因此<strong>中断</strong>机制被引入。中断是硬件或软件发送给处理器的一个信号，代表一个事件。使用中断，我们可以避免轮询，仅当我们关注的指定中断触发时才响应。</p>
+<p>可编程中断控制器（PIC）器件或芯片确保x86成为支持中断驱动的架构。该器件或芯片负责管理硬件中断并将中断发送至相应系统中断。</p>
+<p>当硬件设备上执行指定操作时，它会向与PIC芯片连接的指定中断引脚上发送一个<strong>中断请求（IRQ）</strong>脉冲。接着，PIC将接收到的IRQ转换成系统中断，并发送消息中止CPU当前执行的任何工作。接下来，由内核负责处理这些中断。</p>
+<p>如果没有PIC，我们就必须轮询系统中的所有设备来查看它们中是否有事件发生。</p>
+<p>下面以键盘为例。键盘依靠0×60和0×64 I/O端口工作。端口0×60输出数据（按了什么键），端口0×64输出状态。但是，你必须确切知道什么时候去读取这些端口。</p>
+<p>此处使用中断很简单。当按下一个键时，键盘会在IRQ1中断线上发送一个信号给PIC。PIC在初始化期间存储了一个偏移量。该设备将输入线号叠加偏移量就形成<strong>中断号</strong>。接着，处理器查询称为<strong>中断描述符表(IDT)</strong>的特定数据结构给出此中断号相对应的中断处理程序入口地址。</p>
+<p>接着，上述地址的事件处理代码会被执行。</p>
+<h1>
+<strong style="font-style: normal;">建立</strong><strong style="font-style: normal;">IDT</strong><strong style="font-style: normal;">表</strong>
+</h1>
+<pre class="brush: c; gutter: true">struct IDT_entry{
+	unsigned short int offset_lowerbits;
+	unsigned short int selector;
+	unsigned char zero;
+	unsigned char type_attr;
+	unsigned short int offset_higherbits;
+};
+
+struct IDT_entry IDT[IDT_SIZE];
+
+void idt_init(void)
+{
+	unsigned long keyboard_address;
+	unsigned long idt_address;
+	unsigned long idt_ptr[2];
+
+	/* populate IDT entry of keyboard's interrupt */
+	keyboard_address = (unsigned long)keyboard_handler; 
+	IDT[0x21].offset_lowerbits = keyboard_address &amp; 0xffff;
+	IDT[0x21].selector = 0x08; /* KERNEL_CODE_SEGMENT_OFFSET */
+	IDT[0x21].zero = 0;
+	IDT[0x21].type_attr = 0x8e; /* INTERRUPT_GATE */
+	IDT[0x21].offset_higherbits = (keyboard_address &amp; 0xffff0000) &gt;&gt; 16;
+
+	/*     Ports
+	*	 PIC1	PIC2
+	*Command 0x20	0xA0
+	*Data	 0x21	0xA1
+	*/
+
+	/* ICW1 - begin initialization */
+	write_port(0x20 , 0x11);
+	write_port(0xA0 , 0x11);
+
+	/* ICW2 - remap offset address of IDT */
+	/*
+	* In x86 protected mode, we have to remap the PICs beyond 0x20 because
+	* Intel have designated the first 32 interrupts as "reserved" for cpu exceptions
+	*/
+	write_port(0x21 , 0x20);
+	write_port(0xA1 , 0x28);
+
+	/* ICW3 - setup cascading */
+	write_port(0x21 , 0x00);  
+	write_port(0xA1 , 0x00);  
+
+	/* ICW4 - environment info */
+	write_port(0x21 , 0x01);
+	write_port(0xA1 , 0x01);
+	/* Initialization finished */
+
+	/* mask interrupts */
+	write_port(0x21 , 0xff);
+	write_port(0xA1 , 0xff);
+
+	/* fill the IDT descriptor */
+	idt_address = (unsigned long)IDT ;
+	idt_ptr[0] = (sizeof (struct IDT_entry) * IDT_SIZE) + ((idt_address &amp; 0xffff) &lt;&lt; 16);
+	idt_ptr[1] = idt_address &gt;&gt; 16 ;
+
+	load_idt(idt_ptr);
+}</pre>
+
+<p>IDT依靠IDT_entry组成的结构体数组实现。文章稍后会讨论键盘中断是如何映射到中断处理程序。首先，我们来了解PIC是如何工作的。</p>
+<p>现在的x86系统有2块PIC芯片，每一块有<strong>8条输入线</strong>。我们称其为PIC1和PIC2。PIC1接收IRQ0到IRQ7，PIC2接收IRQ8至IRQ15。PIC1使用0×20作为命令端口，0×21作为数据。PIC2使用0xA0作为命令端口，0xA1作为数据端口。</p>
+<p>PIC初始化使用8位命令字，该命令字叫做<strong>初始化命令字（ICW）</strong>。这些命令字的具体每一位语法参考<a href="http://stanislavs.org/helppc/8259.html">此链接</a>。</p>
+<p>在保护模式下，你需要发送给这两个PIC的第一条命令是初始化命令<strong>ICW1</strong>(0×11)。该指令让PIC等待数据端口的其他3条初始化字。</p>
+<p>这些指令告诉PIC以下信息：</p>
+<p style="padding-left: 30px;">*它的偏移向量。(ICW2)</p>
+<p style="padding-left: 30px;">*PIC是如何作为主/从设备的。(ICW3)</p>
+<p style="padding-left: 30px;">*给出环境相关的附加信息。(ICW4)</p>
+<p>第二条初始化指令是ICW2，该指令会被写入每一个PIC的数据端口。该指令设置PIC的偏移量。该偏移量和输入线的数据相加可以得到中断号。</p>
+<p>PIC允许彼此之间输出到输入的级联。级联的建立使用ICW3，每一位代表相应IRQ的级联状态。至于现在，我们不使用级联并且所有位均设为0。</p>
+<p>ICW4设置附加环境参数。我们仅设置大部分低位来告诉PIC我们运行于80×86模式。</p>
+<p>Tang ta dang!! PIC初始化完成。</p>
+<p>每一个PIC内部有一个8位寄存器叫做<strong>中断屏蔽寄存器(IMR)</strong>。该寄存器中存放进入PIC的IRQ线的位图。当一位被置位时，PIC会忽略相应的请求。这意味着我们可以通过设置IMR中的数值的第n位为0或1来启用和禁止第n跳IRQ线。从数据端口读取的数据返回值存放在IMR寄存器中，向其中写入可设置寄存器。此处我们的代码中，在PIC初始化后，我们设置所有位为1，因此所有IRQ线都被禁用。我们稍后会启用键盘中断对应的线。至于现在，我们禁用所有的中断！！</p>
+<p>假设IRQ线开启，PIC可以通过IRQ线接收信号，并叠加偏移量转换成中断号。现在，我们需要填写IDT，这样键盘的中断号才能映射到我们编写的键盘处理程序的地址。</p>
+<p>那么键盘处理函数地址应该与IDT中哪一个中断号映射？</p>
+<p style="padding-left: 30px;">键盘使用IRQ1。IRQ1是PIC1的输入线。我们已经将PIC1的偏移量初始化为0×20（参见ICW2）。为查找中断号，将1加上偏移量0×20，即0×21。所以在IDT中，键盘终端处理程序地址必须映射到0×21号中断。</p>
+<p>那么，接下来的任务就是填写IDT中的0×21中断。</p>
+<p>我们要将该中断映射到我们在汇编文件中编写的键盘处理函数。</p>
+<p>每一个IDT条目由64位组成。在IDT中断条目中，我们没有将中断处理程序地址作为一个整体存储。我们把它分成两个16位部分。低16位存储在IDT条目的前16位，高16位存储在IDT条目的最后16位。这样做的目的是为了保持与286兼容。你可以在很多地方看到Intel类似的巧妙设计！！</p>
+<p>在IDT条目中，我们还必须设置类型——这样做是为了捕获中断。我们还需给出内核代码段偏移量。GRUB引导为我们建立一个<a href="http://en.wikipedia.org/wiki/Global_Descriptor_Table" target="_blank">GDT</a>。每一项GDT条目占8个字节，内核代码描述符是第二个段；所以它的偏移量是0×08（更多相关描述对本文过于冗余）。中断门由0x8e表示。中间剩余8位必须全部填充为0。这样，我们就填充了与键盘中断相对应的IDT条目。</p>
+<p>一旦IDT中需要映射完成，我们需要告诉CPU IDT的位置。</p>
+<p>该操作通过lidt汇编指令完成。lidt指令有一个操作数。该操作数必须是一个指向描述IDT描述符结构的指针。</p>
+<p>该描述符十分简单。它包含了IDT的字节空间和地址。我使用了一个数组来打包该数值。你也可以使用一个结构体来填写该数值。</p>
+<p>我们在变量idt_ptr中存放了指针，然后使用load_idt()函数传递指针给lidt指令。</p>
+<pre class="brush: c; gutter: true">load_idt:
+	mov edx, [esp + 4]
+	lidt [edx]
+	sti
+	ret</pre>
+
+<p>此外，load_idt()函数使用sti指令启用中断。</p>
+<p>一旦IDT被建立并加载，我们可以使用前面讨论过的中断屏蔽启用键盘的IRQ线。</p>
+<pre class="brush: c; gutter: true">void kb_init(void)
+{
+	/* 0xFD is 11111101 - enables only IRQ1 (keyboard)*/
+	write_port(0x21 , 0xFD);
+}</pre>
+
+<h1><strong style="font-style: normal;">键盘终端处理函数</strong></h1>
+<p>既然我们已经通过IDT的0×21中断条目成功将键盘中断映射到键盘处理函数。</p>
+<p>那么，每次你按下键盘上的一个键，键盘处理函数必定会被调用。</p>
+<pre class="brush: c; gutter: true">keyboard_handler:                 
+	call    keyboard_handler_main
+	iretd</pre>
+
+<p><code>键盘处理函数仅仅是调用了另一个C函数并使用iret类指令返回。我们本可以在此处编写整个中断处理程序，但是相对汇编而言编写C代码要更容易——所以这里采用函数调用。</code></p>
+<p>当从中断处理程序返回中断之前的程序时，应该使用iret/iretd替换ret指令。这些指令会将中断调用前入栈的标志寄存器值出栈。</p>
+<pre class="brush: c; gutter: true">void keyboard_handler_main(void) {
+	unsigned char status;
+	char keycode;
+
+	/* write EOI */
+	write_port(0x20, 0x20);
+
+	status = read_port(KEYBOARD_STATUS_PORT);
+	/* Lowest bit of status will be set if buffer is not empty */
+	if (status &amp; 0x01) {
+		keycode = read_port(KEYBOARD_DATA_PORT);
+		if(keycode &lt; 0)
+			return;
+		vidptr[current_loc++] = keyboard_map[keycode];
+		vidptr[current_loc++] = 0x07;	
+	}
+}</pre>
+
+<p>首先，我们通过向PIC通用端口写入指令发送EOI信号。只有这样，PIC才允许更多的中断请求。这里我们必须读取两个端口——0×60数据端口和0×64命令/状态端口。</p>
+<p>我们首先读取0×64端口获取状态。如果状态的最低位是0，这意味着缓冲区是空的，没有可读取数据。否则，我们要读取0×60数据端口。该端口将给出我们按下的键盘键码。每一个键码对应于键盘上的一个按键。keyboard_map.h头中定义了一个简单的字符数组来完成键码到对应字符的映射。该字符在屏幕上的输出与之前那篇文章中使用的技术相同。</p>
+<p>在本篇文章中，为了简洁，我仅仅处理了小写字母a-z和数字0-9。你可以轻松扩展到其他特殊字符，ALT，SHIFT，CAPS LOCK。你可以根据状态端口输出知道按键是否被按下或释放，并执行所需操作。你也可以将任意按键组合映射到特定功能，例如关机等。</p>
+<p>你可以编译内核，在实际机器或虚拟机(QEMU)上运行，和<a href="http://arjunsreedharan.org/post/82710718100/kernel-101-lets-write-a-kernel">之前的文章</a>(<a href="http://github.com/arjun024/mkernel">内核仓库</a>)一样。</p>
+<p>开始输入！！</p>
+<p><img alt="" src="/images/jobbole.com/31d00e615655da085bfa71ad66deee79.jpg"></p>
+
+    <div class="post-adds">
+        <span data-post-id="87399" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87399votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87399" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 1 收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+
+            </div>
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/ashiontang">ashiontang</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/ashiontang">
+			<img src="/images/jobbole.com/045abbad0c22fa44fd982fdd09f4a9ca.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            （新浪微博：@ashiontang）        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/ashiontang" target="_blank"><i class="fa fa-user"></i> 个人主页</a> · 
+            <a href="http://blog.jobbole.com/author/ashiontang/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a>
+
+             · <a title="声望值" target="_blank" href="http://www.jobbole.com/members/ashiontang/reputation/"><i class="fa fa-graduation-cap"></i> 10</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-06-05-87398-e26c53f40.html" title="Previous Post: TCP/IP 完全掌握了么？来看看 CloudFlare 的面试题" data-instant>&laquo; TCP/IP 完全掌握了么？来看看 CloudFlare 的面试题</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-06-06-87357-2d1c00f74.html" title="Next Post: 我的MYSQL学习心得（13） ： 权限管理" data-instant>我的MYSQL学习心得（13） ： 权限管理 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>06 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-06-87363-7da0a07c6.html">我的MYSQL学习心得（14） ： 备份和恢复</a></li>
+
+      <li><span>04 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-04-87400-6f2963676.html">Go并发编程基础</a></li>
+
+      <li><span>05 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-05-87351-b346f5dba.html">我的MYSQL学习心得（10） ： 自定义存储过程和函数</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
