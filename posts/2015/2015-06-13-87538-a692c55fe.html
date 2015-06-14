@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Nginx 服务器安装及配置文件详解</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-06-13-87538-a692c55fe.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>Nginx 服务器安装及配置文件详解</h1>
+    <p class="meta"><span class="time">Jun 13, 2015</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/87538/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        <span style="display:block;margin-bottom:10px;"></span>
+		<p>Nginx 在工作中已经有好几个环境在使用了，每次都是重新去网上找博客，各种编译配置，今天自己也整理一份安装文档和 nginx.conf 配置选项的说明，留作以后参考。</p>
+<h1 id="1-_安装nginx">1. 安装nginx</h1>
+<h2 id="1-1_选择稳定版本">1.1 选择稳定版本</h2>
+<p>我们编译安装nginx来定制自己的模块，机器CentOS 6.2 x86_64。首先安装缺少的依赖包：</p>
+<pre class="brush: bash; gutter: true"># yum -y install gcc gcc-c++ make libtool zlib zlib-devel openssl openssl-devel pcre pcre-devel</pre>
+
+<p>这些软件包如果yum上没有的话可以下载源码来编译安装，只是要注意编译时默认安装的目录，确保下面在安装nginx时能够找到这些动态库文件（ldconfig）。</p>
+<p>从 <a href="http://nginx.org/en/download.html" target="_blank" rel="external">http://nginx.org/en/download.html</a> 下载稳定版<code>nginx-1.6.3.tar.gz</code>到<code>/usr/local/src</code>下解压。</p>
+<p>为了后续准备我们另外下载2个插件模块：<a href="https://github.com/yaoweibin/nginx_upstream_check_module/releases" target="_blank" rel="external">nginx_upstream_check_module-0.3.0.tar.gz</a> —— 检查后端服务器的状态，<a href="https://bitbucket.org/nginx-goodies/nginx-sticky-module-ng/downloads" target="_blank" rel="external">nginx-goodies-nginx-sticky-module-ng-bd312d586752.tar.gz</a>（建议在/usr/local/src下解压后将目录重命名为<code>nginx-sticky-module-ng-1.2.5</code>） —— 后端做负载均衡解决session sticky问题（与upstream_check模块结合使用需要另外打补丁，请参考<a href="http://seanlook.com/2015/06/02/nginx-cache-check/" target="_blank" rel="external">nginx负载均衡配置实战</a>）。</p>
+<p>请注意插件与nginx的版本兼容问题，一般插件越新越好，nginx不用追新，稳定第一。nginx-1.4.7，nginx-sticky-module-1.1，nginx_upstream_check_module-0.2.0，这个搭配也没问题。sticky-1.1与nginx-1.6版本由于更新没跟上编译出错。（可以直接使用Tengine，默认就包括了这些模块）</p>
+<pre class="brush: bash; gutter: true">[root@cachets nginx-1.6.3]# pwd
+/usr/local/src/nginx-1.6.3
+[root@cachets nginx-1.6.3]# ./configure --prefix=/usr/local/nginx-1.6 --with-pcre \
+&gt; --with-http_stub_status_module --with-http_ssl_module \
+&gt; --with-http_gzip_static_module --with-http_realip_module \
+&gt; --add-module=../nginx_upstream_check_module-0.3.0
+ 
+[root@cachets nginx-1.6.3]# make &amp;&amp; make install</pre>
+
+<h2 id="1-2_常用编译选项说明">1.2 常用编译选项说明</h2>
+<p>nginx大部分常用模块，编译时<code>./configure --help</code>以<code>--without</code>开头的都默认安装。</p>
+<ul>
+<li>
+<code>--prefix=PATH</code> ： 指定nginx的安装目录。默认 <code>/usr/local/nginx</code>
+</li>
+<li>
+<code>--conf-path=PATH</code> ： 设置nginx.conf配置文件的路径。nginx允许使用不同的配置文件启动，通过命令行中的-c选项。默认为<em>prefix/conf/nginx.conf</em>
+</li>
+<li>
+<code>--user=name</code>： 设置nginx工作进程的用户。安装完成后，可以随时在nginx.conf配置文件更改user指令。默认的用户名是nobody。<code>--group=name</code>类似</li>
+<li>
+<code>--with-pcre</code> ： 设置PCRE库的源码路径，如果已通过yum方式安装，使用<code>--with-pcre</code>自动找到库文件。使用<code>--with-pcre=PATH</code>时，需要从PCRE网站下载pcre库的源码（版本4.4 – 8.30）并解压，剩下的就交给Nginx的<code>./configure</code>和<code>make</code>来完成。perl正则表达式使用在<code>location</code>指令和 <code>ngx_http_rewrite_module</code>模块中。</li>
+<li>
+<code>--with-zlib=PATH</code> ： 指定 zlib（版本1.1.3 – 1.2.5）的源码解压目录。在默认就启用的网络传输压缩模块<code>ngx_http_gzip_module</code>时需要使用zlib 。</li>
+<li>
+<code>--with-http_ssl_module</code> ： 使用https协议模块。默认情况下，该模块没有被构建。前提是openssl与openssl-devel已安装</li>
+<li>
+<code>--with-http_stub_status_module</code> ： 用来监控 Nginx 的当前状态</li>
+<li>
+<code>--with-http_realip_module</code> ： 通过这个模块允许我们改变客户端请求头中客户端IP地址值(例如X-Real-IP 或 X-Forwarded-For)，意义在于能够使得后台服务器记录原始客户端的IP地址</li>
+<li>
+<code>--add-module=PATH</code> ： 添加第三方外部模块，如nginx-sticky-module-ng或缓存模块。每次添加新的模块都要重新编译（Tengine可以在新加入module时无需重新编译）</li>
+</ul>
+<p><strong>再提供一种编译方案</strong>：</p>
+<pre class="brush: bash; gutter: true">./configure \
+&gt; --prefix=/usr \
+&gt; --sbin-path=/usr/sbin/nginx \
+&gt; --conf-path=/etc/nginx/nginx.conf \
+&gt; --error-log-path=/var/log/nginx/error.log \
+&gt; --http-log-path=/var/log/nginx/access.log \
+&gt; --pid-path=/var/run/nginx/nginx.pid \
+&gt; --lock-path=/var/lock/nginx.lock \
+&gt; --user=nginx \
+&gt; --group=nginx \
+&gt; --with-http_ssl_module \
+&gt; --with-http_stub_status_module \
+&gt; --with-http_gzip_static_module \
+&gt; --http-client-body-temp-path=/var/tmp/nginx/client/ \
+&gt; --http-proxy-temp-path=/var/tmp/nginx/proxy/ \
+&gt; --http-fastcgi-temp-path=/var/tmp/nginx/fcgi/ \
+&gt; --http-uwsgi-temp-path=/var/tmp/nginx/uwsgi \
+&gt; --with-pcre=../pcre-7.8
+&gt; --with-zlib=../zlib-1.2.3</pre>
+
+<h2 id="1-3_启动关闭nginx">1.3 启动关闭nginx</h2>
+<pre class="brush: text; gutter: true">## 检查配置文件是否正确
+# /usr/local/nginx-1.6/sbin/nginx -t
+# ./sbin/nginx -V # 可以看到编译选项
+ 
+## 启动、关闭
+# ./sbin/nginx # 默认配置文件 conf/nginx.conf，-c 指定
+# ./sbin/nginx -s stop
+或 pkill nginx
+ 
+## 重启，不会改变启动时指定的配置文件
+# ./sbin/nginx -s reload
+或 kill -HUP `cat /usr/local/nginx-1.6/logs/nginx.pid`</pre>
+
+<p>当然也可以将 nginx 作为系统服务管理，下载 <a href="http://sean-images.qiniudn.com/nginx" target="_blank" rel="external">nginx</a> 到<code>/etc/init.d/</code>，修改里面的路径然后赋予可执行权限。</p>
+<pre class="brush: bash; gutter: true"># service nginx {start|stop|status|restart|reload|configtest}</pre>
+
+<h2 id="1-4_yum安装">1.4 yum安装</h2>
+<p>—— 2015-05-22更新<br>
+yum安装rpm包会比编译安装简单很多，默认会安装许多模块，但缺点是如果你想以后安装第三方模块那就没办法了。</p>
+<pre class="brush: bash; gutter: true"># vi /etc/yum.repo.d/nginx.repo
+[nginx]
+name=nginx repo
+baseurl=http://nginx.org/packages/centos/$releasever/$basearch/
+gpgcheck=0
+enabled=1</pre>
+
+<p>剩下的就<code>yum install nginx</code>搞定，也可以<code>yum install nginx-1.6.3</code>安装指定版本（前提是你去packages里看到有对应的版本，默认是最新版稳定版）。</p>
+<h1 id="2-_nginx-conf配置文件">2. nginx.conf配置文件</h1>
+<p>Nginx配置文件主要分成四部分：main（全局设置）、server（主机设置）、upstream（上游服务器设置，主要为反向代理、负载均衡相关配置）和 location（URL匹配特定位置后的设置），每部分包含若干个指令。main部分设置的指令将影响其它所有部分的设置；server部分的指令主要用于指定虚拟主机域名、IP和端口；upstream的指令用于设置一系列的后端服务器，设置反向代理及后端服务器的负载均衡；location部分用于匹配网页位置（比如，根目录“/”,“/images”,等等）。他们之间的关系式：server继承main，location继承server；upstream既不会继承指令也不会被继承。它有自己的特殊指令，不需要在其他地方的应用。</p>
+<p>当前nginx支持的几个指令上下文：</p>
+<h2 id="2-1_通用">2.1 通用</h2>
+<p>下面的<code>nginx.conf</code>简单的实现nginx在前端做反向代理服务器的例子，处理js、png等静态文件，jsp等动态请求转发到其它服务器tomcat：</p>
+<pre class="brush: bash; gutter: true">user www www;
+worker_processes 2;
+ 
+error_log logs/error.log;
+#error_log logs/error.log notice;
+#error_log logs/error.log info;
+ 
+pid logs/nginx.pid;
+ 
+ 
+events {
+use epoll;
+worker_connections 2048;
+}
+ 
+ 
+http {
+include mime.types;
+default_type application/octet-stream;
+ 
+#log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+# '$status $body_bytes_sent "$http_referer" '
+# '"$http_user_agent" "$http_x_forwarded_for"';
+ 
+#access_log logs/access.log main;
+ 
+sendfile on;
+# tcp_nopush on;
+ 
+keepalive_timeout 65;
+ 
+# gzip压缩功能设置
+gzip on;
+gzip_min_length 1k;
+gzip_buffers 4 16k;
+gzip_http_version 1.0;
+gzip_comp_level 6;
+gzip_types text/html text/plain text/css text/javascript application/json application/javascript application/x-javascript application/xml;
+gzip_vary on;
+ 
+# http_proxy 设置
+client_max_body_size 10m;
+client_body_buffer_size 128k;
+proxy_connect_timeout 75;
+proxy_send_timeout 75;
+proxy_read_timeout 75;
+proxy_buffer_size 4k;
+proxy_buffers 4 32k;
+proxy_busy_buffers_size 64k;
+proxy_temp_file_write_size 64k;
+proxy_temp_path /usr/local/nginx/proxy_temp 1 2;
+ 
+# 设定负载均衡后台服务器列表
+upstream backend {
+#ip_hash;
+server 192.168.10.100:8080 max_fails=2 fail_timeout=30s ;
+server 192.168.10.101:8080 max_fails=2 fail_timeout=30s ;
+}
+ 
+# 很重要的虚拟主机配置
+server {
+listen 80;
+server_name itoatest.example.com;
+root /apps/oaapp;
+ 
+charset utf-8;
+access_log logs/host.access.log main;
+ 
+#对 / 所有做负载均衡+反向代理
+location / {
+root /apps/oaapp;
+index index.jsp index.html index.htm;
+ 
+proxy_pass http://backend;
+proxy_redirect off;
+# 后端的Web服务器可以通过X-Forwarded-For获取用户真实IP
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+ 
+}
+ 
+#静态文件，nginx自己处理，不去backend请求tomcat
+location ~* /download/ {
+root /apps/oa/fs;
+ 
+}
+location ~ .*\.(gif|jpg|jpeg|bmp|png|ico|txt|js|css)$
+{
+root /apps/oaapp;
+expires 7d;
+}
+location /nginx_status {
+stub_status on;
+access_log off;
+allow 192.168.10.0/24;
+deny all;
+}
+ 
+location ~ ^/(WEB-INF)/ {
+deny all;
+}
+#error_page 404 /404.html;
+ 
+# redirect server error pages to the static page /50x.html
+#
+error_page 500 502 503 504 /50x.html;
+location = /50x.html {
+root html;
+}
+}
+ 
+## 其它虚拟主机，server 指令开始
+}</pre>
+
+<h2 id="2-2_常用指令说明">2.2 常用指令说明</h2>
+<h3 id="2-2-1_main全局配置">2.2.1 main全局配置</h3>
+<p>nginx在运行时与具体业务功能（比如http服务或者email服务代理）无关的一些参数，比如工作进程数，运行的身份等。</p>
+<ul>
+<li>
+<code>woker_processes 2</code><br>
+在配置文件的顶级<em>main</em>部分，worker角色的工作进程的个数，master进程是接收并分配请求给worker处理。这个数值简单一点可以设置为cpu的核数<code>grep ^processor /proc/cpuinfo | wc -l</code>，也是 auto 值，如果开启了ssl和gzip更应该设置成与逻辑CPU数量一样甚至为2倍，可以减少I/O操作。如果nginx服务器还有其它服务，可以考虑适当减少。</li>
+<li>
+<code>worker_cpu_affinity</code><br>
+也是写在<em>main</em>部分。在高并发情况下，通过设置cpu粘性来降低由于多CPU核切换造成的寄存器等现场重建带来的性能损耗。如<code>worker_cpu_affinity 0001 0010 0100 1000;</code> （四核）。</li>
+<li>
+<code>worker_connections 2048</code><br>
+写在<em>events</em>部分。每一个worker进程能并发处理（发起）的最大连接数（包含与客户端或后端被代理服务器间等所有连接数）。nginx作为反向代理服务器，计算公式 <code>最大连接数 = worker_processes * worker_connections/4</code>，所以这里客户端最大连接数是1024，这个可以增到到8192都没关系，看情况而定，但不能超过后面的<code>worker_rlimit_nofile</code>。当nginx作为http服务器时，计算公式里面是除以2。</li>
+<li>
+<code>worker_rlimit_nofile 10240</code><br>
+写在<em>main</em>部分。默认是没有设置，可以限制为操作系统最大的限制65535。</li>
+<li>
+<code>use epoll</code><br>
+写在<code>events</code>部分。在Linux操作系统下，nginx默认使用epoll事件模型，得益于此，nginx在Linux操作系统下效率相当高。同时Nginx在OpenBSD或FreeBSD操作系统上采用类似于epoll的高效事件模型kqueue。在操作系统不支持这些高效模型时才使用select。</li>
+</ul>
+<h3 id="2-2-2_http服务器">2.2.2 http服务器</h3>
+<p>与提供http服务相关的一些配置参数。例如：是否使用keepalive啊，是否使用gzip进行压缩等。</p>
+<ul>
+<li>
+<code>sendfile on</code><br>
+开启高效文件传输模式，sendfile指令指定nginx是否调用sendfile函数来输出文件，减少用户空间到内核空间的上下文切换。对于普通应用设为 on，如果用来进行下载等应用磁盘IO重负载应用，可设置为off，以平衡磁盘与网络I/O处理速度，降低系统的负载。</li>
+<li>
+<code>keepalive_timeout 65</code> : 长连接超时时间，单位是秒，这个参数很敏感，涉及浏览器的种类、后端服务器的超时设置、操作系统的设置，可以另外起一片文章了。长连接请求大量小文件的时候，可以减少重建连接的开销，但假如有大文件上传，65s内没上传完成会导致失败。如果设置时间过长，用户又多，长时间保持连接会占用大量资源。</li>
+<li>
+<code>send_timeout</code> : 用于指定响应客户端的超时时间。这个超时仅限于两个连接活动之间的时间，如果超过这个时间，客户端没有任何活动，Nginx将会关闭连接。</li>
+<li>
+<code>client_max_body_size 10m</code><br>
+允许客户端请求的最大单文件字节数。如果有上传较大文件，请设置它的限制值</li>
+<li>
+<code>client_body_buffer_size 128k</code><br>
+缓冲区代理缓冲用户端请求的最大字节数</li>
+</ul>
+<p><strong>模块http_proxy：</strong><br>
+这个模块实现的是nginx作为反向代理服务器的功能，包括缓存功能（另见<a href="http://seanlook.com/2015/06/02/nginx-cache-check/" target="_blank" rel="external">文章</a>）</p>
+<ul>
+<li>
+<code>proxy_connect_timeout 60</code><br>
+nginx跟后端服务器连接超时时间(代理连接超时)</li>
+<li>
+<code>proxy_read_timeout 60</code><br>
+连接成功后，与后端服务器两个成功的响应操作之间超时时间(代理接收超时)</li>
+<li>
+<code>proxy_buffer_size 4k</code><br>
+设置代理服务器（nginx）从后端realserver读取并保存用户<strong>头</strong>信息的缓冲区大小，默认与proxy_buffers大小相同，其实可以将这个指令值设的小一点</li>
+<li>
+<code>proxy_buffers 4 32k</code><br>
+proxy_buffers缓冲区，nginx针对单个连接缓存来自后端realserver的<strong>响应</strong>，网页平均在32k以下的话，这样设置</li>
+<li>
+<code>proxy_busy_buffers_size 64k</code><br>
+高负荷下缓冲大小（proxy_buffers*2）</li>
+<li>
+<code>proxy_max_temp_file_size</code><br>
+当 proxy_buffers 放不下后端服务器的响应内容时，会将一部分保存到硬盘的临时文件中，这个值用来设置最大临时文件大小，默认1024M，它与 proxy_cache 没有关系。大于这个值，将从upstream服务器传回。设置为0禁用。</li>
+<li>
+<code>proxy_temp_file_write_size 64k</code><br>
+当缓存被代理的服务器响应到临时文件时，这个选项限制每次写临时文件的大小。<code>proxy_temp_path</code>（可以在编译的时候）指定写到哪那个目录。</li>
+</ul>
+<p>proxy_pass，proxy_redirect见 location 部分。</p>
+<p><strong>模块http_gzip：</strong></p>
+<ul>
+<li>
+<code>gzip on</code> : 开启gzip压缩输出，减少网络传输。
+<ul>
+<li>
+<code>gzip_min_length 1k</code> ： 设置允许压缩的页面最小字节数，页面字节数从header头得content-length中进行获取。默认值是20。建议设置成大于1k的字节数，小于1k可能会越压越大。</li>
+<li>
+<code>gzip_buffers 4 16k</code> ： 设置系统获取几个单位的缓存用于存储gzip的压缩结果数据流。4 16k代表以16k为单位，安装原始数据大小以16k为单位的4倍申请内存。</li>
+<li>
+<code>gzip_http_version 1.0</code> ： 用于识别 http 协议的版本，早期的浏览器不支持 Gzip 压缩，用户就会看到乱码，所以为了支持前期版本加上了这个选项，如果你用了 Nginx 的反向代理并期望也启用 Gzip 压缩的话，由于末端通信是 http/1.0，故请设置为 1.0。</li>
+<li>
+<code>gzip_comp_level 6</code> ： gzip压缩比，1压缩比最小处理速度最快，9压缩比最大但处理速度最慢(传输快但比较消耗cpu)</li>
+<li>
+<code>gzip_types</code> ：匹配mime类型进行压缩，无论是否指定,”text/html”类型总是会被压缩的。</li>
+<li>
+<code>gzip_proxied any</code> ： Nginx作为反向代理的时候启用，决定开启或者关闭后端服务器返回的结果是否压缩，匹配的前提是后端服务器必须要返回包含”Via”的 header头。</li>
+<li>
+<code>gzip_vary on</code> ： 和http头有关系，会在响应头加个 Vary: Accept-Encoding ，可以让前端的缓存服务器缓存经过gzip压缩的页面，例如，用Squid缓存经过Nginx压缩的数据。。</li>
+</ul>
+</li>
+</ul>
+<h3 id="2-2-3_server虚拟主机">2.2.3 server虚拟主机</h3>
+<p>http服务上支持若干虚拟主机。每个虚拟主机一个对应的server配置项，配置项里面包含该虚拟主机相关的配置。在提供mail服务的代理时，也可以建立若干server。每个server通过监听地址或端口来区分。</p>
+<ul>
+<li>
+<code>listen</code><br>
+监听端口，默认80，小于1024的要以root启动。可以为<code>listen *:80</code>、<code>listen 127.0.0.1:80</code>等形式。</li>
+<li>
+<code>server_name</code><br>
+服务器名，如<code>localhost</code>、<code>www.example.com</code>，可以通过正则匹配。</li>
+</ul>
+<p><strong>模块http_stream</strong><br>
+这个模块通过一个简单的调度算法来实现客户端IP到后端服务器的负载均衡，<code>upstream</code>后接负载均衡器的名字，后端realserver以 <code>host:port options;</code> 方式组织在 {} 中。如果后端被代理的只有一台，也可以直接写在 proxy_pass 。</p>
+<h3 id="2-2-4_location">2.2.4 location</h3>
+<p>http服务中，某些特定的URL对应的一系列配置项。</p>
+<ul>
+<li>
+<code>root /var/www/html</code><br>
+定义服务器的默认网站根目录位置。如果<code>location</code>URL匹配的是子目录或文件，<code>root</code>没什么作用，一般放在<code>server</code>指令里面或<code>/</code>下。</li>
+<li>
+<code>index index.jsp index.html index.htm</code><br>
+定义路径下默认访问的文件名，一般跟着<code>root</code>放</li>
+<li>
+<code>proxy_pass http:/backend</code><br>
+请求转向backend定义的服务器列表，即反向代理，对应<code>upstream</code>负载均衡器。也可以<code>proxy_pass http://ip:port</code>。</li>
+<li>
+<code>proxy_redirect off;</code><br>
+<code>proxy_set_header Host $host;</code><br>
+<code>proxy_set_header X-Real-IP $remote_addr;</code><br>
+<code>proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;</code><br>
+这四个暂且这样设，如果深究的话，每一个都涉及到很复杂的内容，也将通过另一篇文章来解读。</li>
+</ul>
+<p>关于location匹配规则的写法，可以说尤为关键且基础的，参考文章 <a href="http://seanlook.com/2015/05/17/nginx-location-rewrite/" target="_blank" rel="external">nginx配置location总结及rewrite规则写法</a>;</p>
+<h2 id="2-3_其它">2.3 其它</h2>
+<h3 id="2-3-1_访问控制_allow/deny">2.3.1 访问控制 allow/deny</h3>
+<p>Nginx 的访问控制模块默认就会安装，而且写法也非常简单，可以分别有多个allow,deny，允许或禁止某个ip或ip段访问，依次满足任何一个规则就停止往下匹配。如：</p>
+<pre class="brush: bash; gutter: true">location /nginx-status {
+stub_status on;
+access_log off;
+# auth_basic "NginxStatus";
+# auth_basic_user_file /usr/local/nginx-1.6/htpasswd;
+ 
+allow 192.168.10.100;
+allow 172.29.73.0/24;
+deny all;
+}</pre>
+
+<p>我们也常用 httpd-devel 工具的 htpasswd 来为访问的路径设置登录密码：</p>
+<pre class="brush: bash; gutter: true"># htpasswd -c htpasswd admin
+New passwd:
+Re-type new password:
+Adding password for user admin
+ 
+# htpasswd htpasswd admin //修改admin密码
+# htpasswd htpasswd sean //多添加一个认证用户</pre>
+
+<p>这样就生成了默认使用CRYPT加密的密码文件。打开上面nginx-status的两行注释，重启nginx生效。</p>
+<h3 id="2-3-2_列出目录_autoindex">2.3.2 列出目录 autoindex</h3>
+<p>Nginx默认是不允许列出整个目录的。如需此功能，打开nginx.conf文件，在location，server 或 http段中加入<code>autoindex on;</code>，另外两个参数最好也加上去:</p>
+<ul>
+<li>
+<code>autoindex_exact_size off;</code> 默认为on，显示出文件的确切大小，单位是bytes。改为off后，显示出文件的大概大小，单位是kB或者MB或者GB</li>
+<li>
+<code>autoindex_localtime on;</code><br>
+默认为off，显示的文件时间为GMT时间。改为on后，显示的文件时间为文件的服务器时间</li>
+</ul>
+<pre class="brush: bash; gutter: true">location /images {
+root /var/www/nginx-default/images;
+autoindex on;
+autoindex_exact_size off;
+autoindex_localtime on;
+}</pre>
+
+<p><strong>参考</strong></p>
+<ul>
+<li><a href="http://liuqunying.blog.51cto.com/3984207/1420556" target="_blank" rel="external">http://liuqunying.blog.51cto.com/3984207/1420556</a></li>
+<li><a href="http://nginx.org/en/docs/ngx_core_module.html#worker_cpu_affinity" target="_blank" rel="external">http://nginx.org/en/docs/ngx_core_module.html#worker_cpu_affinity</a></li>
+<li><a href="http://wiki.nginx.org/HttpCoreModule#sendfile" target="_blank" rel="external">http://wiki.nginx.org/HttpCoreModule#sendfile</a></li>
+</ul>
+
+    <div class="post-adds">
+        <span data-post-id="87538" class="btn-bluet href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="87538votetotal">2</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="87538" data-item-type="1" class="btn-bluet href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                <a href="#article-comment"><span class="btn-bluet href-style"><i class="fa fa-comments-o"></i>  评论</span></a>
+
+            </div>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2015/2015-06-12-87520-0d5054dd0.html" title="Previous Post: 比较全面的MySQL优化参考" data-instant>&laquo; 比较全面的MySQL优化参考</a>
+
+    <a class="basic-alignment right" href="/posts/2015/2015-06-14-87542-8e2d214cf.html" title="Next Post: Linux运维工程师入门须掌握的10个技术点" data-instant>Linux运维工程师入门须掌握的10个技术点 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>09 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-09-87465-919ec613e.html">Shell脚本编程初体验</a></li>
+
+      <li><span>07 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-07-87369-741661838.html">我的MYSQL学习心得（17） ： 复制</a></li>
+
+      <li><span>06 Jun 2015</span> &raquo; <a href="http://iftti.com/posts/2015/2015-06-06-87365-92f010d92.html">我的MYSQL学习心得（15） ： 日志</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
