@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>hapi.js 框架的认证授权插件示例</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2016/2016-07-07-hapi-auth-7cb319f35.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>hapi.js 框架的认证授权插件示例</h1>
+    <p class="meta"><span class="time">Jul 7, 2016</span><span class="source_url"> • 来自 chenlinux.com <a name="chenlinux.com" href="http://chenlinux.com/2016/07/07/hapi-auth/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+  <div style="background-color: #FFF;">
+    <p>Kibana 4.x 在服务器端采用了 hapi.js 框架开发。虽然目前依然没有认证和授权的插件出来（官方 Kibana 的 shield 插件应该只是做了一个认证，授权部分是由 ES 本身的 shield 插件完成的）。不过既然叫框架嘛，自然就是有不少扩展可用。本文简要介绍一下 hapi.js 框架的认证授权插件的用法。有兴趣的读者可以自己稍微改造一下，就能让 Kibana 也有认证授权功能了。</p>
+<p>首先准备一下环境：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>mkdir hapi-auth-simple
+cd hapi-auth-simple
+npm init
+npm install --save bcrypt
+npm install --save hapi
+npm install --save hapi-rbac
+npm install --save hapi-auth-cookie
+</code></pre>
+
+</div>
+<p>你就会发现目录底下多出来一个 <code class="highlighter-rouge">node_modules/</code> 目录和 <code class="highlighter-rouge">package.json</code> 配置定义文件。定义如下：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"hapi-auth-test"</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1.0.0"</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"main"</span><span class="p">:</span><span class="w"> </span><span class="s2">"index.js"</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"scripts"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"test"</span><span class="p">:</span><span class="w"> </span><span class="s2">"echo \"Error: no test specified\" &amp;&amp; exit 1"</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nt">"author"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"license"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ISC"</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"dependencies"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"bcrypt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"^0.8.7"</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"hapi"</span><span class="p">:</span><span class="w"> </span><span class="s2">"^13.5.0"</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"hapi-auth-cookie"</span><span class="p">:</span><span class="w"> </span><span class="s2">"^6.1.1"</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"hapi-rbac"</span><span class="p">:</span><span class="w"> </span><span class="s2">"^2.2.0"</span><span class="w">
+  </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre>
+
+</div>
+<p>然后开始写实际的 demo 代码啦。<code class="highlighter-rouge">index.js</code> 内容如下：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="s1">'use strict'</span><span class="p">;</span>
+<span class="kr">const</span> <span class="nx">Bcrypt</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'bcrypt'</span><span class="p">);</span>
+<span class="kr">const</span> <span class="nx">Hapi</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'hapi'</span><span class="p">);</span>
+<span class="kr">const</span> <span class="nx">Rbac</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'hapi-rbac'</span><span class="p">);</span>
+<span class="kr">const</span> <span class="nx">Cookie</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'hapi-auth-cookie'</span><span class="p">);</span>
+<span class="kr">const</span> <span class="nx">server</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Hapi</span><span class="p">.</span><span class="nx">Server</span><span class="p">();</span>
+<span class="nx">server</span><span class="p">.</span><span class="nx">connection</span><span class="p">({</span> <span class="na">port</span><span class="p">:</span> <span class="mi">3000</span>  <span class="p">});</span>
+<span class="kd">let</span> <span class="nx">uuid</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="kr">const</span> <span class="nx">users</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="na">john</span><span class="p">:</span> <span class="p">{</span>
+        <span class="na">username</span><span class="p">:</span> <span class="s1">'john'</span><span class="p">,</span>
+        <span class="na">password</span><span class="p">:</span> <span class="s1">'$2a$10$iqJSHD.BGr0E2IxQwYgJmeP3NvhPrXAeLSaGCj6IR/XU5QtjVu5Tm'</span><span class="p">,</span>   <span class="c1">// 'secret'</span>
+        <span class="na">name</span><span class="p">:</span> <span class="s1">'John Doe'</span><span class="p">,</span>
+        <span class="na">group</span><span class="p">:</span> <span class="p">[</span><span class="s1">'user'</span><span class="p">]</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+<span class="kr">const</span> <span class="nx">login</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">request</span><span class="p">,</span> <span class="nx">reply</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">request</span><span class="p">.</span><span class="nx">auth</span><span class="p">.</span><span class="nx">isAuthenticated</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">reply</span><span class="p">.</span><span class="nx">redirect</span><span class="p">(</span><span class="s1">'/'</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="kd">let</span> <span class="nx">message</span> <span class="o">=</span> <span class="s1">''</span><span class="p">;</span>
+    <span class="kd">let</span> <span class="nx">account</span> <span class="o">=</span> <span class="kc">null</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">request</span><span class="p">.</span><span class="nx">method</span> <span class="o">===</span> <span class="s1">'post'</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">request</span><span class="p">.</span><span class="nx">payload</span><span class="p">.</span><span class="nx">username</span> <span class="o">||</span>
+            <span class="o">!</span><span class="nx">request</span><span class="p">.</span><span class="nx">payload</span><span class="p">.</span><span class="nx">password</span><span class="p">)</span> <span class="p">{</span>
+                <span class="nx">message</span> <span class="o">=</span> <span class="s1">'Missing username or password'</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="k">else</span> <span class="p">{</span>
+            <span class="nx">account</span> <span class="o">=</span> <span class="nx">users</span><span class="p">[</span><span class="nx">request</span><span class="p">.</span><span class="nx">payload</span><span class="p">.</span><span class="nx">username</span><span class="p">];</span>
+            <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">account</span> <span class="o">||</span>
+                <span class="o">!</span><span class="nx">Bcrypt</span><span class="p">.</span><span class="nx">compareSync</span><span class="p">(</span><span class="nx">request</span><span class="p">.</span><span class="nx">payload</span><span class="p">.</span><span class="nx">password</span><span class="p">,</span> <span class="nx">account</span><span class="p">.</span><span class="nx">password</span><span class="p">))</span> <span class="p">{</span>
+                    <span class="nx">message</span> <span class="o">=</span> <span class="s1">'Invalid username or password'</span><span class="p">;</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">request</span><span class="p">.</span><span class="nx">method</span> <span class="o">===</span> <span class="s1">'get'</span> <span class="o">||</span> <span class="nx">message</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">reply</span><span class="p">(</span><span class="s1">'&lt;html&gt;&lt;head&gt;&lt;title&gt;Login page&lt;/title&gt;&lt;/head&gt;&lt;body&gt;'</span> <span class="o">+</span>
+            <span class="p">(</span><span class="nx">message</span> <span class="p">?</span> <span class="s1">'&lt;h3&gt;'</span> <span class="o">+</span> <span class="nx">message</span> <span class="o">+</span> <span class="s1">'&lt;/h3&gt;&lt;br/&gt;'</span> <span class="p">:</span> <span class="s1">''</span><span class="p">)</span> <span class="o">+</span>
+            <span class="s1">'&lt;form method="post" action="/login"&gt;'</span> <span class="o">+</span>
+            <span class="s1">'Username: &lt;input type="text" name="username"&gt;&lt;br&gt;'</span> <span class="o">+</span>
+            <span class="s1">'Password: &lt;input type="password" name="password"&gt;&lt;br/&gt;'</span> <span class="o">+</span>
+            <span class="s1">'&lt;input type="submit" value="Login"&gt;&lt;/form&gt;&lt;/body&gt;&lt;/html&gt;'</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="kr">const</span> <span class="nx">sid</span> <span class="o">=</span> <span class="nb">String</span><span class="p">(</span><span class="o">++</span><span class="nx">uuid</span><span class="p">);</span>
+    <span class="nx">request</span><span class="p">.</span><span class="nx">server</span><span class="p">.</span><span class="nx">app</span><span class="p">.</span><span class="nx">cache</span><span class="p">.</span><span class="nx">set</span><span class="p">(</span><span class="nx">sid</span><span class="p">,</span> <span class="p">{</span> <span class="na">account</span><span class="p">:</span> <span class="nx">account</span>  <span class="p">},</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="nx">err</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nx">err</span><span class="p">)</span> <span class="p">{</span>
+            <span class="nx">reply</span><span class="p">(</span><span class="nx">err</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="nx">request</span><span class="p">.</span><span class="nx">cookieAuth</span><span class="p">.</span><span class="nx">set</span><span class="p">({</span> <span class="na">sid</span><span class="p">:</span> <span class="nx">sid</span>  <span class="p">});</span>
+        <span class="k">return</span> <span class="nx">reply</span><span class="p">.</span><span class="nx">redirect</span><span class="p">(</span><span class="s1">'/'</span><span class="p">);</span>
+    <span class="p">});</span>
+<span class="p">};</span>
+<span class="nx">server</span><span class="p">.</span><span class="nx">register</span><span class="p">([</span><span class="nx">Cookie</span><span class="p">,</span> <span class="nx">Rbac</span><span class="p">],</span> <span class="p">(</span><span class="nx">err</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">err</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">throw</span> <span class="nx">err</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="kr">const</span> <span class="nx">cache</span> <span class="o">=</span> <span class="nx">server</span><span class="p">.</span><span class="nx">cache</span><span class="p">({</span>
+        <span class="na">segment</span><span class="p">:</span> <span class="s1">'sessions'</span><span class="p">,</span>
+        <span class="na">expiresIn</span><span class="p">:</span> <span class="mi">3</span> <span class="o">*</span> <span class="mi">24</span> <span class="o">*</span> <span class="mi">60</span> <span class="o">*</span> <span class="mi">60</span> <span class="o">*</span> <span class="mi">1000</span>
+    <span class="p">});</span>
+    <span class="nx">server</span><span class="p">.</span><span class="nx">app</span><span class="p">.</span><span class="nx">cache</span> <span class="o">=</span> <span class="nx">cache</span><span class="p">;</span>
+    <span class="nx">server</span><span class="p">.</span><span class="nx">auth</span><span class="p">.</span><span class="nx">strategy</span><span class="p">(</span><span class="s1">'session'</span><span class="p">,</span> <span class="s1">'cookie'</span><span class="p">,</span> <span class="s1">'required'</span><span class="p">,</span> <span class="p">{</span>
+        <span class="na">password</span><span class="p">:</span> <span class="s1">'password-should-be-32-characters'</span><span class="p">,</span>
+        <span class="na">cookie</span><span class="p">:</span> <span class="s1">'sid-example'</span><span class="p">,</span>
+        <span class="na">redirectTo</span><span class="p">:</span> <span class="s1">'/login'</span><span class="p">,</span>
+        <span class="na">isSecure</span><span class="p">:</span> <span class="kc">false</span><span class="p">,</span>
+        <span class="na">validateFunc</span><span class="p">:</span> <span class="p">(</span><span class="nx">request</span><span class="p">,</span> <span class="nx">session</span><span class="p">,</span> <span class="nx">callback</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+            <span class="nx">cache</span><span class="p">.</span><span class="nx">get</span><span class="p">(</span><span class="nx">session</span><span class="p">.</span><span class="nx">sid</span><span class="p">,</span> <span class="p">(</span><span class="nx">err</span><span class="p">,</span> <span class="nx">cached</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+                <span class="k">if</span> <span class="p">(</span><span class="nx">err</span><span class="p">)</span> <span class="p">{</span>
+                    <span class="k">return</span> <span class="nx">callback</span><span class="p">(</span><span class="nx">err</span><span class="p">,</span> <span class="kc">false</span><span class="p">);</span>
+                <span class="p">}</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="nx">cached</span><span class="p">)</span> <span class="p">{</span>
+                    <span class="k">return</span> <span class="nx">callback</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="kc">false</span><span class="p">);</span>
+                <span class="p">}</span>
+                <span class="k">return</span> <span class="nx">callback</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span> <span class="kc">true</span><span class="p">,</span> <span class="nx">cached</span><span class="p">.</span><span class="nx">account</span><span class="p">);</span>
+            <span class="p">});</span>
+        <span class="p">}</span>
+    <span class="p">});</span>
+    <span class="nx">server</span><span class="p">.</span><span class="nx">route</span><span class="p">([</span>
+        <span class="p">{</span>
+            <span class="na">method</span><span class="p">:</span> <span class="p">[</span><span class="s1">'GET'</span><span class="p">,</span> <span class="s1">'POST'</span><span class="p">],</span>
+            <span class="na">path</span><span class="p">:</span> <span class="s1">'/login'</span><span class="p">,</span>
+            <span class="na">config</span><span class="p">:</span> <span class="p">{</span>
+                <span class="na">handler</span><span class="p">:</span> <span class="nx">login</span><span class="p">,</span>
+                <span class="na">auth</span><span class="p">:</span> <span class="p">{</span> <span class="na">mode</span><span class="p">:</span> <span class="s1">'try'</span>  <span class="p">},</span>
+                <span class="na">plugins</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s1">'hapi-auth-cookie'</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="nl">redirectTo</span><span class="p">:</span> <span class="kc">false</span>
+                    <span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">},</span>
+        <span class="p">{</span>
+            <span class="na">method</span><span class="p">:</span> <span class="s1">'GET'</span><span class="p">,</span>
+            <span class="na">path</span><span class="p">:</span> <span class="s1">'/logout'</span><span class="p">,</span>
+            <span class="na">config</span><span class="p">:</span> <span class="p">{</span>
+                <span class="na">handler</span><span class="p">:</span> <span class="p">(</span><span class="nx">request</span><span class="p">,</span> <span class="nx">reply</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+                    <span class="nx">request</span><span class="p">.</span><span class="nx">cookieAuth</span><span class="p">.</span><span class="nx">clear</span><span class="p">();</span>
+                    <span class="k">return</span> <span class="nx">reply</span><span class="p">.</span><span class="nx">redirect</span><span class="p">(</span><span class="s1">'/'</span><span class="p">);</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">},</span>
+        <span class="p">{</span>
+            <span class="na">method</span><span class="p">:</span> <span class="s1">'GET'</span><span class="p">,</span>
+            <span class="na">path</span><span class="p">:</span> <span class="s1">'/'</span><span class="p">,</span>
+            <span class="na">config</span><span class="p">:</span> <span class="p">{</span>
+                <span class="na">handler</span><span class="p">:</span> <span class="p">(</span><span class="nx">request</span><span class="p">,</span> <span class="nx">reply</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+                    <span class="nx">reply</span><span class="p">(</span><span class="s1">'&lt;html&gt;&lt;head&gt;&lt;/head&gt;&lt;body&gt;Welcome: '</span> <span class="o">+</span>
+                      <span class="nx">request</span><span class="p">.</span><span class="nx">auth</span><span class="p">.</span><span class="nx">credentials</span><span class="p">.</span><span class="nx">name</span> <span class="o">+</span> 
+                      <span class="s1">'&lt;form method="get" action="/logout"&gt;'</span> <span class="o">+</span>
+                      <span class="s1">'&lt;input type="submit" value="Logout"&gt;'</span> <span class="o">+</span>
+                      <span class="s1">'&lt;/form&gt;&lt;/body&gt;&lt;/html&gt;'</span><span class="p">);</span>
+                <span class="p">},</span>
+                <span class="na">plugins</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="na">rbac</span><span class="p">:</span> <span class="p">{</span>
+                        <span class="na">target</span><span class="p">:</span> <span class="p">[</span>
+                            <span class="p">{</span>
+                                <span class="s1">'credentials:group'</span><span class="p">:</span> <span class="s1">'user'</span>
+                            <span class="p">},</span>
+                            <span class="p">{</span>
+                                <span class="s1">'credentials:group'</span><span class="p">:</span> <span class="s1">'admin'</span>
+                            <span class="p">}</span>
+                        <span class="p">],</span>
+                        <span class="na">apply</span><span class="p">:</span> <span class="s1">'permit-overrides'</span><span class="p">,</span>
+                        <span class="na">policies</span><span class="p">:</span> <span class="p">[</span>
+                            <span class="p">{</span>
+                                <span class="na">target</span><span class="p">:</span> <span class="p">{</span>
+                                    <span class="s1">'credentials:group'</span><span class="p">:</span> <span class="s1">'admin'</span>
+                                <span class="p">},</span>
+                                <span class="na">effect</span><span class="p">:</span> <span class="s1">'permit'</span>
+                            <span class="p">},</span>
+                            <span class="p">{</span>
+                                <span class="na">target</span><span class="p">:</span> <span class="p">{</span>
+                                    <span class="s1">'credentials:group'</span><span class="p">:</span> <span class="s1">'user'</span>
+                                <span class="p">},</span>
+                                <span class="na">apply</span><span class="p">:</span> <span class="s1">'permit-overrides'</span><span class="p">,</span>
+                                <span class="na">rules</span><span class="p">:</span> <span class="p">[</span>
+                                    <span class="p">{</span>
+                                        <span class="na">target</span><span class="p">:</span> <span class="p">{</span>
+                                            <span class="s1">'credentials:username'</span><span class="p">:</span> <span class="s1">'john'</span><span class="p">,</span>
+                                        <span class="p">},</span>
+                                        <span class="na">effect</span><span class="p">:</span> <span class="s1">'permit'</span>
+                                    <span class="p">},</span>
+                                    <span class="p">{</span>
+                                        <span class="na">effect</span><span class="p">:</span> <span class="s1">'deny'</span>
+                                    <span class="p">}</span>
+                                <span class="p">]</span>
+                            <span class="p">}</span>
+                        <span class="p">]</span>
+                    <span class="p">}</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">]);</span>
+    <span class="nx">server</span><span class="p">.</span><span class="nx">start</span><span class="p">((</span><span class="nx">err</span><span class="p">)</span> <span class="o">=&gt;</span> <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nx">err</span><span class="p">)</span> <span class="p">{</span>
+            <span class="k">throw</span> <span class="nx">err</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">'server running at: '</span> <span class="o">+</span> <span class="nx">server</span><span class="p">.</span><span class="nx">info</span><span class="p">.</span><span class="nx">uri</span><span class="p">);</span>
+    <span class="p">});</span>
+<span class="p">});</span>
+</code></pre>
+
+</div>
+<p>就这样，一个简单的认证授权页就完成了。运行 <code class="highlighter-rouge">node index.js</code> 命令，打开浏览器，输入 <code class="highlighter-rouge">127.0.0.1:3000</code> 即可验证效果。</p>
+<p>login 页面校验 bcrypt 加密的密码，添加 cookie 和 logout 页面删除 cookie 的过程很简单，就不说啥了。要点在于这个授权部分。这是 RBAC(基于角色的访问控制)系统，所以我这里特意演示了一个相对复杂的定义：</p>
+<ol>
+  <li>john 用户定义了自己的 group 为 user。</li>
+  <li>定义首页的授权目标(<code class="highlighter-rouge">target</code>)为：group 为 user <strong>或者</strong> admin 的用户。注意这里的写法是 <code class="highlighter-rouge">[{xxx},{yyy}]</code>。如果写法是 <code class="highlighter-rouge">[{xxx, yyy}]</code>，那含义就不是<strong>或者</strong>而是<strong>并且</strong>了。</li>
+  <li>
+<code class="highlighter-rouge">target</code> 里可以用以下对象：<code class="highlighter-rouge">credentials</code>, <code class="highlighter-rouge">connection</code>, <code class="highlighter-rouge">query</code>, <code class="highlighter-rouge">param</code>, <code class="highlighter-rouge">request</code>。注意这里引用 key 的写法是冒号(比如从 HTTP header 中获取主机名的写法为 <code class="highlighter-rouge">connection:host</code>)。</li>
+  <li>定义该目标的授权方式为 <code class="highlighter-rouge">apply</code>，即还需要后续判断。如果直接就授权，那应该写作 <code class="highlighter-rouge">effect</code>。</li>
+  <li>
+<code class="highlighter-rouge">apply</code> 方式定义为 <code class="highlighter-rouge">permit-overrides</code>。意即：后续条件只要满足一个就允许，否则拒绝。<code class="highlighter-rouge">deny-overrides</code> 反之亦然。</li>
+  <li>开始定义具体的 <code class="highlighter-rouge">policies</code> 集合。同样格式也是或的关系。这里如果没有复杂需求也可以直接开始 <code class="highlighter-rouge">rules</code> 定义。</li>
+  <li>每个小 policy 里也是一个完整的授权定义，也有自己的 <code class="highlighter-rouge">target</code> 等。</li>
+  <li>开始 <code class="highlighter-rouge">rules</code> 定义。<code class="highlighter-rouge">rules</code> 里的条件相当于是 if-else 关系。</li>
+</ol>
+<p>最终本文示例的意思就是：</p>
+<p><strong>首页只允许 admin 组全体用户加上 user 组里的 john 用户访问。</strong></p>
+<hr>
+<p>简单的 hello world 示意如此。再往深了走，可以把 user 定义、policy 定义都搬到数据库里。再再往深里走。可以把 Kibana 里所有的 route 都用这块做一个接管。就大功告成了。</p>
+<p>不过在 hapi.js 上动手，只是对后端接口做了授权控制，前端页面看起来还是都一样的。如果为了美观，就可以配合加上 <a href="https://github.com/plandem/angular-rbac">angular-rbac</a>，对前端页面也稍作修改，针对不同 user 展示不同内容。</p>
+    <hr>
+
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+<!-- UY END -->
+  </div>
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2016/2016-04-27-%25e8%25be%25be%25e8%25a7%2582%25e6%2595%25b0%25e6%258d%25ae%25e6%2590%259c%25e7%25b4%25a2%25e5%25bc%2595%25e6%2593%258e%25e7%259a%2584query%25e8%2587%25aa%25e5%258a%25a8%25e7%25ba%25a0%25e9%2594%2599%25e6%258a%2580%25e6%259c%25af%25e5%2592%258c%25e6%259e%25b6%25e6%259e%2584%25e8%25af%25a6%25e8%25a7%25a3-4cd118cbc.html" title="Previous Post: 达观数据搜索引擎的Query自动纠错技术和架构详解" data-instant>&laquo; 达观数据搜索引擎的Query自动纠错技术和架构详解</a>
+
+    <a class="basic-alignment right" href="/posts/2016/2016-07-18-event-pattern-a8113a95f.html" title="Next Post: 山寨一个 Splunk 的事件模式功能" data-instant>山寨一个 Splunk 的事件模式功能 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>14 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-14-109869-01f301eb4.html">每天一个 Linux 命令（35）： ln 命令</a></li>
+
+      <li><span>14 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-14-109861-ae883fd33.html">放弃测试优先式开发（TDD）</a></li>
+
+      <li><span>14 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-14-109803-153041876.html">如何用 OllyDbg 的跟踪功能分析虚拟机保护</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

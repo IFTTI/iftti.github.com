@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>MySQL 之 ROUND 函数四舍五入的陷阱</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2017/2017-01-09-109735-37964e8d2.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>MySQL 之 ROUND 函数四舍五入的陷阱</h1>
+    <p class="meta"><span class="time">Jan 9, 2017</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/109735/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        			<div class="textwidget">
+</div>
+
+		<p>在MySQL中，<code>ROUND</code>函数用于对查询结果进行四舍五入，不过最近使用ROUND函数四舍五入时意外发现并没有预期的那样，本文将这一问题记录下来，以免大家跟我一样犯同样的错误。</p>
+<h2 id="toc_0">问题描述</h2>
+<p>假如我们有如下一个数据表<code>test</code>，建表语句如下</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f4b3d6a7323352105" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+CREATE TABLE test (
+  id int(11) NOT NULL AUTO_INCREMENT,
+  field1 bigint(10) DEFAULT NULL,
+  field2 decimal(10,0) DEFAULT NULL,
+  field3 int(10) DEFAULT NULL,
+  field4 float(15,4) DEFAULT NULL,
+  field5 float(15,4) DEFAULT NULL,
+  field6 float(15,4) DEFAULT NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f4b3d6a7323352105-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6a7323352105-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6a7323352105-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6a7323352105-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6a7323352105-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6a7323352105-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6a7323352105-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6a7323352105-8">8</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6a7323352105-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6a7323352105-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f4b3d6a7323352105-1">
+<span class="crayon-e">CREATE </span><span class="crayon-e">TABLE </span><span class="crayon-e">test</span><span class="crayon-h"> </span><span class="crayon-sy">(</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6a7323352105-2">
+<span class="crayon-h">  </span><span class="crayon-e">id </span><span class="crayon-t">int</span><span class="crayon-sy">(</span><span class="crayon-cn">11</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">NOT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-h"> </span><span class="crayon-v">AUTO_INCREMENT</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6a7323352105-3">
+<span class="crayon-h">  </span><span class="crayon-e">field1 </span><span class="crayon-e">bigint</span><span class="crayon-sy">(</span><span class="crayon-cn">10</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6a7323352105-4">
+<span class="crayon-h">  </span><span class="crayon-e">field2 </span><span class="crayon-e">decimal</span><span class="crayon-sy">(</span><span class="crayon-cn">10</span><span class="crayon-sy">,</span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6a7323352105-5">
+<span class="crayon-h">  </span><span class="crayon-e">field3 </span><span class="crayon-t">int</span><span class="crayon-sy">(</span><span class="crayon-cn">10</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6a7323352105-6">
+<span class="crayon-h">  </span><span class="crayon-e">field4 </span><span class="crayon-t">float</span><span class="crayon-sy">(</span><span class="crayon-cn">15</span><span class="crayon-sy">,</span><span class="crayon-cn">4</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6a7323352105-7">
+<span class="crayon-h">  </span><span class="crayon-e">field5 </span><span class="crayon-t">float</span><span class="crayon-sy">(</span><span class="crayon-cn">15</span><span class="crayon-sy">,</span><span class="crayon-cn">4</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6a7323352105-8">
+<span class="crayon-h">  </span><span class="crayon-e">field6 </span><span class="crayon-t">float</span><span class="crayon-sy">(</span><span class="crayon-cn">15</span><span class="crayon-sy">,</span><span class="crayon-cn">4</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6a7323352105-9">
+<span class="crayon-h">  </span><span class="crayon-e">PRIMARY </span><span class="crayon-e">KEY</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">id</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6a7323352105-10">
+<span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">ENGINE</span><span class="crayon-o">=</span><span class="crayon-e">InnoDB </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-v">CHARSET</span><span class="crayon-o">=</span><span class="crayon-v">utf8</span><span class="crayon-sy">;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0024 seconds] -->
+<p>我们创建了一个名为<code>test</code>的表，出了<code>id</code>字段之外还包含了多个字段，拥有这不同的数据类型。我们向这个表中插入一条数据</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f4b3d6bf673141631" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+INSERT INTO test (field1, field2, field3, field4, field5, field6) VALUE (100, 100, 100, 1.005, 3.5, 2.5);</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-587a9f4b3d6bf673141631-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-587a9f4b3d6bf673141631-1">
+<span class="crayon-e">INSERT </span><span class="crayon-e">INTO </span><span class="crayon-e">test</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">field1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">field2</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">field3</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">field5</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">field6</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">VALUE</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">100</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">100</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">100</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">1.005</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">3.5</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">2.5</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0011 seconds] -->
+<p>插入之后表中的数据是这样的</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f4b3d6c3290614102" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+mysql&gt; select * from test;
++----+--------+--------+--------+--------+--------+--------+
+| id | field1 | field2 | field3 | field4 | field5 | field6 |
++----+--------+--------+--------+--------+--------+--------+
+|  1 |    100 |    100 |    100 | 1.0050 | 3.5000 | 2.5000 |
++----+--------+--------+--------+--------+--------+--------+
+1 row in set (0.00 sec)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c3290614102-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c3290614102-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c3290614102-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c3290614102-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c3290614102-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c3290614102-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c3290614102-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f4b3d6c3290614102-1">
+<span class="crayon-v">mysql</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-e ">select *</span><span class="crayon-h"> </span><span class="crayon-e">from </span><span class="crayon-v">test</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c3290614102-2">
+<span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6c3290614102-3">
+<span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">id</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">field1</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">field2</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">field3</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">field5</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">field6</span><span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c3290614102-4">
+<span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6c3290614102-5">
+<span class="crayon-o">|</span><span class="crayon-h">  </span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h">    </span><span class="crayon-cn">100</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h">    </span><span class="crayon-cn">100</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h">    </span><span class="crayon-cn">100</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">1.0050</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">3.5000</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">2.5000</span><span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c3290614102-6">
+<span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6c3290614102-7">
+<span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-e">row </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-e">set</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">0.00</span><span class="crayon-h"> </span><span class="crayon-v">sec</span><span class="crayon-sy">)</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0033 seconds] -->
+<p>如果现在我们执行下面这个SQL，你觉得结果会是什么样的呢？</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f4b3d6c7869091540" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+SELECT
+  round(field1 * field4),
+  round(field2 * field4),
+  round(field3 * field4),
+  round(field1 * 1.005),
+  round(field2 * 1.005),
+  round(field3 * 1.005),
+  round(field5),
+  round(field6)
+FROM test;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c7869091540-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c7869091540-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c7869091540-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c7869091540-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c7869091540-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c7869091540-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c7869091540-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c7869091540-8">8</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6c7869091540-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6c7869091540-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f4b3d6c7869091540-1"><span class="crayon-e">SELECT</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c7869091540-2">
+<span class="crayon-e">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field1 *</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6c7869091540-3">
+<span class="crayon-h">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field2 *</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c7869091540-4">
+<span class="crayon-h">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field3 *</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6c7869091540-5">
+<span class="crayon-h">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field1 *</span><span class="crayon-h"> </span><span class="crayon-cn">1.005</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c7869091540-6">
+<span class="crayon-h">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field2 *</span><span class="crayon-h"> </span><span class="crayon-cn">1.005</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6c7869091540-7">
+<span class="crayon-h">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field3 *</span><span class="crayon-h"> </span><span class="crayon-cn">1.005</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c7869091540-8">
+<span class="crayon-h">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-v">field5</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6c7869091540-9">
+<span class="crayon-h">  </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-v">field6</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6c7869091540-10">
+<span class="crayon-e">FROM </span><span class="crayon-v">test</span><span class="crayon-sy">;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0014 seconds] -->
+<p>最初一直以为这样的结果肯定是都是<strong>101</strong>，因为上面这六个取值结果都是对<code>100 * 1.005</code>进行四舍五入，结果肯定都是<code>101</code>才对，而后面两个肯定是<strong>4</strong>和<strong>3</strong>才对，但是最终的结果却是与设想的大相径庭</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f4b3d6cc781361111" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+*************************** 1. row ***************************
+round(field1 * field4): 100
+round(field2 * field4): 100
+round(field3 * field4): 100
+ round(field1 * 1.005): 101
+ round(field2 * 1.005): 101
+ round(field3 * 1.005): 101
+         round(field5): 4
+         round(field6): 2
+1 row in set (0.00 sec)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f4b3d6cc781361111-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6cc781361111-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6cc781361111-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6cc781361111-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6cc781361111-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6cc781361111-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6cc781361111-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6cc781361111-8">8</div>
+<div class="crayon-num" data-line="crayon-587a9f4b3d6cc781361111-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f4b3d6cc781361111-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f4b3d6cc781361111-1">
+<span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-cn">1.</span><span class="crayon-h"> </span><span class="crayon-e ">row *</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6cc781361111-2">
+<span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field1 *</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">100</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6cc781361111-3">
+<span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field2 *</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">100</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6cc781361111-4">
+<span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field3 *</span><span class="crayon-h"> </span><span class="crayon-v">field4</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">100</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6cc781361111-5">
+<span class="crayon-h"> </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field1 *</span><span class="crayon-h"> </span><span class="crayon-cn">1.005</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">101</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6cc781361111-6">
+<span class="crayon-h"> </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field2 *</span><span class="crayon-h"> </span><span class="crayon-cn">1.005</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">101</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6cc781361111-7">
+<span class="crayon-h"> </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-e ">field3 *</span><span class="crayon-h"> </span><span class="crayon-cn">1.005</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">101</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6cc781361111-8">
+<span class="crayon-h">         </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-v">field5</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f4b3d6cc781361111-9">
+<span class="crayon-h">         </span><span class="crayon-e">round</span><span class="crayon-sy">(</span><span class="crayon-v">field6</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f4b3d6cc781361111-10">
+<span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-e">row </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-e">set</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">0.00</span><span class="crayon-h"> </span><span class="crayon-v">sec</span><span class="crayon-sy">)</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0030 seconds] -->
+<p></p>
+<h2 id="toc_1">为什么会这样？</h2>
+<p>同样是100*1.005，为什么从数据库中的字段相乘得到的结果和直接字段与小数相乘得到的不一样呢？</p>
+<p>对这个问题百思不得其解，各种百度谷歌无果。。。没办法，还得靠自己，这个时候最有用的就是官网文档了，于是查询了mysql官方文档中关于ROUND函数的部分，其中包含下面两条规则</p>
+<ul>
+<li>For exact-value numbers, ROUND() uses the “round half up” rule（对于精确的数值，<code>ROUND</code>函数使用四舍五入）</li>
+<li>For approximate-value numbers, the result depends on the C library. On many systems, this means that ROUND() uses the “round to nearest even” rule: A value with any fractional part is rounded to the nearest even integer. （对于近似值，则依赖于底层的C函数库，在很多系统中<code>ROUND</code>函数会使用“取最近的偶数”的规则）</li>
+</ul>
+<p>通过这两条规则，我们可以看出，由于我们在使用两个字段相乘的时候，最终的结果是按照<code>float</code>类型处理的，而在计算机中<code>float</code>类型不是精确的数，因此处理结果会按照第二条来，而直接整数字段与1.005这样的小数运算的结果是因为两个参与运算的值都是精确数，因此按照第一条规则计算。从<code>field5</code>和<code>field6</code>执行<code>ROUND</code>函数的结果可以明确的看确实是转换为了最近的偶数。</p>
+<h2 id="toc_2">总结</h2>
+<p>从这个例子中可以看到，在MySQL中使用ROUND还是要非常需要注意的，特别是当参与计算的字段中包含浮点数的时候，这个时候计算结果是不准确的。</p>
+<p>本文将会持续修正和更新，最新内容请参考我的 GITHUB 上的 <a href="https://github.com/mylxsw/growing-up">程序猿成长计划</a> 项目，欢迎 Star，另外，求<a href="https://github.com/mylxsw">follow</a>😂。</p>
+
+            <blockquote class="rewards">
+        <p><strong>打赏支持我写出更多好文章，谢谢！</strong></p>
+        <a href="#rewardbox" id="rewards-button" class="fancybox"><span class="btn-bluet-blue href-style"><i class="fa fa-jpy"></i> 打赏作者</span></a>
+    </blockquote>
+
+    <div id="rewardbox">
+        <h4>打赏支持我写出更多好文章，谢谢！</h4>
+                <p>任选一种支付方式</p>
+
+    </div>
+
+    <div class="post-adds">
+        <span data-post-id="109735" class=" btn-bluet-bigger href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="109735votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="109735" data-item-type="1" class=" btn-bluet-bigger href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 1 收藏</span>
+
+                    <a href="#article-comment"><span class="btn-bluet-bigger href-style hide-on-480"><i class="fa fa-comments-o"></i>  评论</span></a>
+
+        <!-- JiaThis Button BEGIN -->
+        <div class="jiathis_style_24x24" style="display: inline-flex; position: relative; margin: 0; clear: both;float: right;">
+            <a class="jiathis_button_tsina"></a>
+            <a class="jiathis_button_weixin"></a>
+            <a class="jiathis_button_qzone"></a>
+            <a class="jiathis_button_fb hide-on-480"></a>
+            <a href="http://www.jiathis.com/share?uid=1745061" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank"></a>
+        </div>
+
+    </div>
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/mylxsw">管宜尧</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/mylxsw">
+			<img src="/images/jobbole.com/c510273921962744d05b6613c1369155.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            PHP程序猿，常用网络ID为mylxsw，具有6年以上PHP研发经验，专注于PHP，Golang以及Linux生态、微服务架构等方向，对技术比较执着，经常会写一些博文分享自己的所学，目前就职于重庆允升科技有限公司。        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/mylxsw" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/mylxsw/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a>
+
+             · <a title="声望值" target="_blank" href="http://www.jobbole.com/members/mylxsw/reputation/"><i class="fa fa-graduation-cap"></i> 3</a> · <a title="我的网站" target="_blank" href="https://aicode.cc"><i class="fa fa-link"></i></a> <a title="微博主页" target="_blank" href="http://weibo.com/code404"><i class="fa fa-weibo"></i></a> <a title="GitHub主页" target="_blank" href="https://github.com/mylxsw"><i class="fa fa-github"></i></a>         </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2016/2016-12-15-how-we-set-up-our-work.html-40e5c1025.html" title="Previous Post: 我们在Basecamp如何组织工作和团队" data-instant>&laquo; 我们在Basecamp如何组织工作和团队</a>
+
+    <a class="basic-alignment right" href="/posts/2017/2017-01-09-109743-41cb1fd62.html" title="Next Post: 一个 Linux 上分析死锁的简单方法" data-instant>一个 Linux 上分析死锁的简单方法 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>14 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-14-109869-01f301eb4.html">每天一个 Linux 命令（35）： ln 命令</a></li>
+
+      <li><span>14 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-14-109861-ae883fd33.html">放弃测试优先式开发（TDD）</a></li>
+
+      <li><span>14 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-14-109803-153041876.html">如何用 OllyDbg 的跟踪功能分析虚拟机保护</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
