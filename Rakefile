@@ -22,7 +22,7 @@ end
 desc "Sync"
 task :sync do
   puts "Sync"
-  system "./_crawler/site_crawler.rb; find images -size 0 -exec rm {} \;"
+  system "./_crawler/site_crawler.rb; find images -size 0 -exec rm {} \\;"
 end
 
 desc "Drafts"
