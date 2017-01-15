@@ -1,0 +1,1484 @@
+---
+layout: post
+title: '一个 Linux 上分析死锁的简单方法'
+time: 2017-01-09 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109743/
+images:
+  a42e17a213b4b4e19442de456f467b57: http://ww4.sinaimg.cn/large/63918611gw1fbk54mttlfg20ff0auaa0.gif
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<div>
+<h2 id="major1">简介</h2>
+<p>死锁 (deadlocks)： 是指两个或两个以上的进程（线程）在执行过程中，因争夺资源而造成的一种互相等待的现象，若无外力作用，它们都将无法推进下去。此时称系统处于死锁状态或系统产生了死锁，这些永远在互相等待的进程（线程）称为死锁进程（线程）。 由于资源占用是互斥的，当某个进程提出申请资源后，使得有关进程（线程）在无外力协助下，永远分配不到必需的资源而无法继续运行，这就产生了一种特殊现象死锁。</p>
+<p>一种交叉持锁死锁的情形，此时执行程序中两个或多个线程发生永久堵塞（等待），每个线程都在等待被其它线程占用并堵塞了的资源。例如，如果线程 1 锁住了记录 A 并等待记录 B，而线程 2 锁住了记录 B 并等待记录 A，这样两个线程就发生了死锁现象。在计算机系统中 , 如果系统的资源分配策略不当，更常见的可能是程序员写的程序有错误等，则会导致进程因竞争资源不当而产生死锁的现象。</p>
+<h2 id="major2">产生死锁的四个必要条件</h2>
+<p>（1） 互斥条件：一个资源每次只能被一个进程（线程）使用。<br>
+（2） 请求与保持条件：一个进程（线程）因请求资源而阻塞时，对已获得的资源保持不放。<br>
+（3） 不剥夺条件 : 此进程（线程）已获得的资源，在末使用完之前，不能强行剥夺。<br>
+（4） 循环等待条件 : 多个进程（线程）之间形成一种头尾相接的循环等待资源关系。</p>
+<h5 id="fig1">图 1. 交叉持锁的死锁示意图：</h5>
+<p><img class="alignnone" src="/images/jobbole.com/a42e17a213b4b4e19442de456f467b57.jpg" width="555" height="390"></p>
+<p><strong>注释</strong>：在执行 func2 和 func4 之后，子线程 1 获得了锁 A，正试图获得锁 B，但是子线程 2 此时获得了锁 B，正试图获得锁 A，所以子线程 1 和子线程 2 将没有办法得到锁 A 和锁 B，因为它们各自被对方占有，永远不会释放，所以发生了死锁的现象。</p>
+<h2 id="major3">使用 pstack 和 gdb 工具对死锁程序进行分析</h2>
+<h3 id="minor3.1">pstack 在 Linux 平台上的简单介绍</h3>
+<p>pstack 是 Linux（比如 Red Hat Linux 系统、Ubuntu Linux 系统等）下一个很有用的工具，它的功能是打印输出此进程的堆栈信息。可以输出所有线程的调用关系栈。</p>
+<h3 id="minor3.2">gdb 在 Linux 平台上的简单介绍</h3>
+<p>GDB 是 GNU 开源组织发布的一个强大的 UNIX 下的程序调试工具。Linux 系统中包含了 GNU 调试程序 gdb，它是一个用来调试 C 和 C++ 程序的调试器。可以使程序开发者在程序运行时观察程序的内部结构和内存的使用情况 .</p>
+<p>gdb 所提供的一些主要功能如下所示：</p>
+<p>1 运行程序，设置能影响程序运行的参数和环境 ;</p>
+<p>2 控制程序在指定的条件下停止运行；</p>
+<p>3 当程序停止时，可以检查程序的状态；</p>
+<p>4 当程序 crash 时，可以检查 core 文件；</p>
+<p>5 可以修改程序的错误，并重新运行程序；</p>
+<p>6 可以动态监视程序中变量的值；</p>
+<p>7 可以单步执行代码，观察程序的运行状态。</p>
+<p>gdb 程序调试的对象是可执行文件或者进程，而不是程序的源代码文件。然而，并不是所有的可执行文件都可以用 gdb 调试。如果要让产生的可执行文件可以用来调试，需在执行 g++（gcc）指令编译程序时，加上 -g 参数，指定程序在编译时包含调试信息。调试信息包含程序里的每个变量的类型和在可执行文件里的地址映射以及源代码的行号。gdb 利用这些信息使源代码和机器码相关联。gdb 的基本命令较多，不做详细介绍，大家如果需要进一步了解，请参见 gdb 手册。</p>
+<h5 id="listing1">清单 1. 测试程序</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a07774403199713" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ #include &lt;unistd.h&gt; 
+ #include &lt;pthread.h&gt; 
+ #include &lt;string.h&gt; 
+
+ pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER; 
+ pthread_mutex_t mutex2 = PTHREAD_MUTEX_INITIALIZER; 
+ pthread_mutex_t mutex3 = PTHREAD_MUTEX_INITIALIZER; 
+ pthread_mutex_t mutex4 = PTHREAD_MUTEX_INITIALIZER; 
+
+ static int sequence1 = 0; 
+ static int sequence2 = 0; 
+
+ int func1() 
+ { 
+    pthread_mutex_lock(&amp;mutex1); 
+    ++sequence1; 
+    sleep(1); 
+    pthread_mutex_lock(&amp;mutex2); 
+    ++sequence2; 
+    pthread_mutex_unlock(&amp;mutex2); 
+    pthread_mutex_unlock(&amp;mutex1); 
+
+    return sequence1; 
+ } 
+
+ int func2() 
+ { 
+    pthread_mutex_lock(&amp;mutex2); 
+    ++sequence2; 
+    sleep(1); 
+    pthread_mutex_lock(&amp;mutex1); 
+    ++sequence1; 
+    pthread_mutex_unlock(&amp;mutex1); 
+    pthread_mutex_unlock(&amp;mutex2); 
+
+    return sequence2; 
+ } 
+
+ void* thread1(void* arg) 
+ { 
+    while (1) 
+    { 
+        int iRetValue = func1(); 
+
+        if (iRetValue == 100000) 
+        { 
+            pthread_exit(NULL); 
+        } 
+    } 
+ } 
+
+ void* thread2(void* arg) 
+ { 
+    while (1) 
+    { 
+        int iRetValue = func2(); 
+
+        if (iRetValue == 100000) 
+        { 
+            pthread_exit(NULL); 
+        } 
+    } 
+ } 
+
+ void* thread3(void* arg) 
+ { 
+    while (1) 
+    { 
+        sleep(1); 
+        char szBuf[128]; 
+        memset(szBuf, 0, sizeof(szBuf)); 
+        strcpy(szBuf, "thread3"); 
+    } 
+ } 
+
+ void* thread4(void* arg) 
+ { 
+    while (1) 
+    { 
+        sleep(1); 
+        char szBuf[128]; 
+        memset(szBuf, 0, sizeof(szBuf)); 
+        strcpy(szBuf, "thread3"); 
+    } 
+ } 
+
+ int main() 
+ { 
+    pthread_t tid[4]; 
+    if (pthread_create(&amp;tid[0], NULL, &amp;thread1, NULL) != 0) 
+    { 
+        _exit(1); 
+    } 
+    if (pthread_create(&amp;tid[1], NULL, &amp;thread2, NULL) != 0) 
+    { 
+        _exit(1); 
+    } 
+    if (pthread_create(&amp;tid[2], NULL, &amp;thread3, NULL) != 0) 
+    { 
+        _exit(1); 
+    } 
+    if (pthread_create(&amp;tid[3], NULL, &amp;thread4, NULL) != 0) 
+    { 
+        _exit(1); 
+    } 
+
+    sleep(5); 
+    //pthread_cancel(tid[0]); 
+
+    pthread_join(tid[0], NULL); 
+    pthread_join(tid[1], NULL); 
+    pthread_join(tid[2], NULL); 
+    pthread_join(tid[3], NULL); 
+
+    pthread_mutex_destroy(&amp;mutex1); 
+    pthread_mutex_destroy(&amp;mutex2); 
+    pthread_mutex_destroy(&amp;mutex3); 
+    pthread_mutex_destroy(&amp;mutex4); 
+
+    return 0; 
+ }</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-2">2</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-4">4</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-6">6</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-8">8</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-10">10</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-12">12</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-14">14</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-16">16</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-18">18</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-20">20</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-22">22</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-24">24</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-26">26</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-28">28</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-30">30</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-32">32</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-34">34</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-36">36</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-38">38</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-40">40</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-42">42</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-44">44</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-46">46</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-48">48</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-50">50</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-52">52</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-53">53</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-54">54</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-55">55</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-56">56</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-57">57</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-58">58</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-59">59</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-60">60</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-61">61</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-62">62</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-63">63</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-64">64</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-65">65</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-66">66</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-67">67</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-68">68</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-69">69</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-70">70</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-71">71</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-72">72</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-73">73</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-74">74</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-75">75</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-76">76</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-77">77</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-78">78</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-79">79</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-80">80</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-81">81</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-82">82</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-83">83</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-84">84</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-85">85</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-86">86</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-87">87</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-88">88</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-89">89</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-90">90</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-91">91</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-92">92</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-93">93</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-94">94</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-95">95</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-96">96</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-97">97</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-98">98</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-99">99</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-100">100</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-101">101</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-102">102</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-103">103</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-104">104</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-105">105</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-106">106</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-107">107</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-108">108</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-109">109</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-110">110</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-111">111</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-112">112</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-113">113</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-114">114</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-115">115</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-116">116</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-117">117</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-118">118</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-119">119</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07774403199713-120">120</div>
+<div class="crayon-num" data-line="crayon-587a973a07774403199713-121">121</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a973a07774403199713-1">
+<span class="crayon-h"> </span><span class="crayon-p">#include &lt;unistd.h&gt; </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-2">
+<span class="crayon-h"> </span><span class="crayon-p">#include &lt;pthread.h&gt; </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-3">
+<span class="crayon-h"> </span><span class="crayon-p">#include &lt;string.h&gt; </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-4"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-5">
+<span class="crayon-h"> </span><span class="crayon-e">pthread_mutex_t </span><span class="crayon-v">mutex1</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">PTHREAD_MUTEX_INITIALIZER</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-6">
+<span class="crayon-h"> </span><span class="crayon-e">pthread_mutex_t </span><span class="crayon-v">mutex2</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">PTHREAD_MUTEX_INITIALIZER</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-7">
+<span class="crayon-h"> </span><span class="crayon-e">pthread_mutex_t </span><span class="crayon-v">mutex3</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">PTHREAD_MUTEX_INITIALIZER</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-8">
+<span class="crayon-h"> </span><span class="crayon-e">pthread_mutex_t </span><span class="crayon-v">mutex4</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">PTHREAD_MUTEX_INITIALIZER</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-9"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-10">
+<span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">sequence1</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-11">
+<span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">sequence2</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-12"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-13">
+<span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-e">func1</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-14">
+<span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-15">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_lock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-16">
+<span class="crayon-h">    </span><span class="crayon-o">++</span><span class="crayon-v">sequence1</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-17">
+<span class="crayon-h">    </span><span class="crayon-e">sleep</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-18">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_lock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex2</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-19">
+<span class="crayon-h">    </span><span class="crayon-o">++</span><span class="crayon-v">sequence2</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-20">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_unlock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex2</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-21">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_unlock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-22"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-23">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">sequence1</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-24">
+<span class="crayon-h"> </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-25"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-26">
+<span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-e">func2</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-27">
+<span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-28">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_lock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex2</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-29">
+<span class="crayon-h">    </span><span class="crayon-o">++</span><span class="crayon-v">sequence2</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-30">
+<span class="crayon-h">    </span><span class="crayon-e">sleep</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-31">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_lock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-32">
+<span class="crayon-h">    </span><span class="crayon-o">++</span><span class="crayon-v">sequence1</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-33">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_unlock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-34">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_unlock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex2</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-35"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-36">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">sequence2</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-37">
+<span class="crayon-h"> </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-38"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-39">
+<span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-e">thread1</span><span class="crayon-sy">(</span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">arg</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-40">
+<span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-41">
+<span class="crayon-h">    </span><span class="crayon-st">while</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-42">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-43">
+<span class="crayon-h">        </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">iRetValue</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">func1</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-44"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-45">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">iRetValue</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-cn">100000</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-46">
+<span class="crayon-h">        </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-47">
+<span class="crayon-h">            </span><span class="crayon-e">pthread_exit</span><span class="crayon-sy">(</span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-48">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-49">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-50">
+<span class="crayon-h"> </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-51"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-52">
+<span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-e">thread2</span><span class="crayon-sy">(</span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">arg</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-53">
+<span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-54">
+<span class="crayon-h">    </span><span class="crayon-st">while</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-55">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-56">
+<span class="crayon-h">        </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">iRetValue</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">func2</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-57"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-58">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">iRetValue</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-cn">100000</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-59">
+<span class="crayon-h">        </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-60">
+<span class="crayon-h">            </span><span class="crayon-e">pthread_exit</span><span class="crayon-sy">(</span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-61">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-62">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-63">
+<span class="crayon-h"> </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-64"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-65">
+<span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-e">thread3</span><span class="crayon-sy">(</span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">arg</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-66">
+<span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-67">
+<span class="crayon-h">    </span><span class="crayon-st">while</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-68">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-69">
+<span class="crayon-h">        </span><span class="crayon-e">sleep</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-70">
+<span class="crayon-h">        </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">szBuf</span><span class="crayon-sy">[</span><span class="crayon-cn">128</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-71">
+<span class="crayon-h">        </span><span class="crayon-e">memset</span><span class="crayon-sy">(</span><span class="crayon-v">szBuf</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">sizeof</span><span class="crayon-sy">(</span><span class="crayon-v">szBuf</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-72">
+<span class="crayon-h">        </span><span class="crayon-e">strcpy</span><span class="crayon-sy">(</span><span class="crayon-v">szBuf</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-s">"thread3"</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-73">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-74">
+<span class="crayon-h"> </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-75"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-76">
+<span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-e">thread4</span><span class="crayon-sy">(</span><span class="crayon-t">void</span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">arg</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-77">
+<span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-78">
+<span class="crayon-h">    </span><span class="crayon-st">while</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-79">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-80">
+<span class="crayon-h">        </span><span class="crayon-e">sleep</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-81">
+<span class="crayon-h">        </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">szBuf</span><span class="crayon-sy">[</span><span class="crayon-cn">128</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-82">
+<span class="crayon-h">        </span><span class="crayon-e">memset</span><span class="crayon-sy">(</span><span class="crayon-v">szBuf</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">sizeof</span><span class="crayon-sy">(</span><span class="crayon-v">szBuf</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-83">
+<span class="crayon-h">        </span><span class="crayon-e">strcpy</span><span class="crayon-sy">(</span><span class="crayon-v">szBuf</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-s">"thread3"</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-84">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-85">
+<span class="crayon-h"> </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-86"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-87">
+<span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-e">main</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-88">
+<span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-89">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_t </span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">4</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-90">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-e">pthread_create</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">&amp;</span><span class="crayon-v">thread1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-91">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-92">
+<span class="crayon-h">        </span><span class="crayon-e">_exit</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-93">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-94">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-e">pthread_create</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">1</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">&amp;</span><span class="crayon-v">thread2</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-95">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-96">
+<span class="crayon-h">        </span><span class="crayon-e">_exit</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-97">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-98">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-e">pthread_create</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">2</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">&amp;</span><span class="crayon-v">thread3</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-99">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-100">
+<span class="crayon-h">        </span><span class="crayon-e">_exit</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-101">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-102">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-e">pthread_create</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">3</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">&amp;</span><span class="crayon-v">thread4</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-103">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-104">
+<span class="crayon-h">        </span><span class="crayon-e">_exit</span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-105">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-106"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-107">
+<span class="crayon-h">    </span><span class="crayon-e">sleep</span><span class="crayon-sy">(</span><span class="crayon-cn">5</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-108">
+<span class="crayon-h">    </span><span class="crayon-c">//pthread_cancel(tid[0]); </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-109"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-110">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_join</span><span class="crayon-sy">(</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-111">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_join</span><span class="crayon-sy">(</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">1</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-112">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_join</span><span class="crayon-sy">(</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">2</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-113">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_join</span><span class="crayon-sy">(</span><span class="crayon-v">tid</span><span class="crayon-sy">[</span><span class="crayon-cn">3</span><span class="crayon-sy">]</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-114"> </div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-115">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_destroy</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-116">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_destroy</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex2</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-117">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_destroy</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex3</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-118">
+<span class="crayon-h">    </span><span class="crayon-e">pthread_mutex_destroy</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex4</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-119"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07774403199713-120">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07774403199713-121">
+<span class="crayon-h"> </span><span class="crayon-sy">}</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0151 seconds] -->
+
+</div>
+<h5 id="listing2">清单 2. 编译测试程序</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a07783561306474" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ [dyu@xilinuxbldsrv purify]$ g++ -g lock.cpp -o lock -lpthread</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-587a973a07783561306474-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-587a973a07783561306474-1">
+<span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-v">dyu</span><span class="crayon-sy">@</span><span class="crayon-e">xilinuxbldsrv </span><span class="crayon-v">purify</span><span class="crayon-sy">]</span><span class="crayon-sy">$</span><span class="crayon-h"> </span><span class="crayon-v">g</span><span class="crayon-o">++</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-i">g</span><span class="crayon-h"> </span><span class="crayon-v">lock</span><span class="crayon-sy">.</span><span class="crayon-v">cpp</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-i">o</span><span class="crayon-h"> </span><span class="crayon-v">lock</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">lpthread</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0007 seconds] -->
+
+</div>
+<h5 id="listing3">清单 3. 查找测试程序的进程号</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a0778a197066439" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ [dyu@xilinuxbldsrv purify]$ ps -ef|grep lock 
+ dyu       6721  5751  0 15:21 pts/3    00:00:00 ./lock</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a973a0778a197066439-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778a197066439-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a973a0778a197066439-1">
+<span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-v">dyu</span><span class="crayon-sy">@</span><span class="crayon-e">xilinuxbldsrv </span><span class="crayon-v">purify</span><span class="crayon-sy">]</span><span class="crayon-sy">$</span><span class="crayon-h"> </span><span class="crayon-v">ps</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">ef</span><span class="crayon-o">|</span><span class="crayon-e">grep </span><span class="crayon-e">lock </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778a197066439-2">
+<span class="crayon-e"> </span><span class="crayon-i">dyu</span><span class="crayon-h">       </span><span class="crayon-cn">6721</span><span class="crayon-h">  </span><span class="crayon-cn">5751</span><span class="crayon-h">  </span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-cn">15</span><span class="crayon-o">:</span><span class="crayon-cn">21</span><span class="crayon-h"> </span><span class="crayon-v">pts</span><span class="crayon-o">/</span><span class="crayon-cn">3</span><span class="crayon-h">    </span><span class="crayon-cn">00</span><span class="crayon-o">:</span><span class="crayon-cn">00</span><span class="crayon-o">:</span><span class="crayon-cn">00</span><span class="crayon-h"> </span><span class="crayon-sy">.</span><span class="crayon-o">/</span><span class="crayon-v">lock</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0011 seconds] -->
+
+</div>
+<h5 id="listing4">清单 4. 对死锁进程第一次执行 pstack（pstack –进程号）的输出结果</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a0778e253008467" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ [dyu@xilinuxbldsrv purify]$ pstack 6721 
+ Thread 5 (Thread 0x41e37940 (LWP 6722)): 
+ #0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 
+ #1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 
+ #2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 
+ #3  0x0000000000400a9b in func1() () 
+ #4  0x0000000000400ad7 in thread1(void*) () 
+ #5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 4 (Thread 0x42838940 (LWP 6723)): 
+ #0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 
+ #1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 
+ #2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 
+ #3  0x0000000000400a17 in func2() () 
+ #4  0x0000000000400a53 in thread2(void*) () 
+ #5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 3 (Thread 0x43239940 (LWP 6724)): 
+ #0  0x0000003d19c9a541 in nanosleep () from /lib64/libc.so.6 
+ #1  0x0000003d19c9a364 in sleep () from /lib64/libc.so.6 
+ #2  0x00000000004009bc in thread3(void*) () 
+ #3  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #4  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 2 (Thread 0x43c3a940 (LWP 6725)): 
+ #0  0x0000003d19c9a541 in nanosleep () from /lib64/libc.so.6 
+ #1  0x0000003d19c9a364 in sleep () from /lib64/libc.so.6 
+ #2  0x0000000000400976 in thread4(void*) () 
+ #3  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #4  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 1 (Thread 0x2b984ecabd90 (LWP 6721)): 
+ #0  0x0000003d1a807b35 in pthread_join () from /lib64/libpthread.so.0 
+ #1  0x0000000000400900 in main ()</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-2">2</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-4">4</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-6">6</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-8">8</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-10">10</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-12">12</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-14">14</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-16">16</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-18">18</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-20">20</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-22">22</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-24">24</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-26">26</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-28">28</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-30">30</div>
+<div class="crayon-num" data-line="crayon-587a973a0778e253008467-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0778e253008467-32">32</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a973a0778e253008467-1">
+<span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-v">dyu</span><span class="crayon-sy">@</span><span class="crayon-e">xilinuxbldsrv </span><span class="crayon-v">purify</span><span class="crayon-sy">]</span><span class="crayon-sy">$</span><span class="crayon-h"> </span><span class="crayon-i">pstack</span><span class="crayon-h"> </span><span class="crayon-cn">6721</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-2">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">5</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x41e37940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6722</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-3">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-4">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-5">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-6">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000000000400a9b in func1() () </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-7">
+<span class="crayon-h"> </span><span class="crayon-p">#4  0x0000000000400ad7 in thread1(void*) () </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-8">
+<span class="crayon-h"> </span><span class="crayon-p">#5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-9">
+<span class="crayon-h"> </span><span class="crayon-p">#6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-10">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">4</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x42838940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6723</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-11">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-12">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-13">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-14">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000000000400a17 in func2() () </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-15">
+<span class="crayon-h"> </span><span class="crayon-p">#4  0x0000000000400a53 in thread2(void*) () </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-16">
+<span class="crayon-h"> </span><span class="crayon-p">#5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-17">
+<span class="crayon-h"> </span><span class="crayon-p">#6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-18">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">3</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x43239940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6724</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-19">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d19c9a541 in nanosleep () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-20">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000003d19c9a364 in sleep () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-21">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x00000000004009bc in thread3(void*) () </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-22">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-23">
+<span class="crayon-h"> </span><span class="crayon-p">#4  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-24">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x43c3a940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6725</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-25">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d19c9a541 in nanosleep () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-26">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000003d19c9a364 in sleep () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-27">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000000000400976 in thread4(void*) () </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-28">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-29">
+<span class="crayon-h"> </span><span class="crayon-p">#4  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-30">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x2b984ecabd90</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6721</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0778e253008467-31">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d1a807b35 in pthread_join () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0778e253008467-32">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000000000400900 in main ()</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0037 seconds] -->
+
+</div>
+<h5 id="listing5">清单 5. 对死锁进程第二次执行 pstack（pstack –进程号）的输出结果</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a07792930208225" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ [dyu@xilinuxbldsrv purify]$ pstack 6721 
+ Thread 5 (Thread 0x40bd6940 (LWP 6722)): 
+ #0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 
+ #1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 
+ #2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 
+ #3  0x0000000000400a87 in func1() () 
+ #4  0x0000000000400ac3 in thread1(void*) () 
+ #5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 4 (Thread 0x415d7940 (LWP 6723)): 
+ #0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 
+ #1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 
+ #2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 
+ #3  0x0000000000400a03 in func2() () 
+ #4  0x0000000000400a3f in thread2(void*) () 
+ #5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 3 (Thread 0x41fd8940 (LWP 6724)): 
+ #0  0x0000003d19c7aec2 in memset () from /lib64/libc.so.6 
+ #1  0x00000000004009be in thread3(void*) () 
+ #2  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #3  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 2 (Thread 0x429d9940 (LWP 6725)): 
+ #0  0x0000003d19c7ae0d in memset () from /lib64/libc.so.6 
+ #1  0x0000000000400982 in thread4(void*) () 
+ #2  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #3  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 
+ Thread 1 (Thread 0x2af906fd9d90 (LWP 6721)): 
+ #0  0x0000003d1a807b35 in pthread_join () from /lib64/libpthread.so.0 
+ #1  0x0000000000400900 in main ()</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-2">2</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-4">4</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-6">6</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-8">8</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-10">10</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-12">12</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-14">14</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-16">16</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-18">18</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-20">20</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-22">22</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-24">24</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-26">26</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-28">28</div>
+<div class="crayon-num" data-line="crayon-587a973a07792930208225-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07792930208225-30">30</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a973a07792930208225-1">
+<span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-v">dyu</span><span class="crayon-sy">@</span><span class="crayon-e">xilinuxbldsrv </span><span class="crayon-v">purify</span><span class="crayon-sy">]</span><span class="crayon-sy">$</span><span class="crayon-h"> </span><span class="crayon-i">pstack</span><span class="crayon-h"> </span><span class="crayon-cn">6721</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-2">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">5</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x40bd6940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6722</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-3">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-4">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-5">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-6">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000000000400a87 in func1() () </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-7">
+<span class="crayon-h"> </span><span class="crayon-p">#4  0x0000000000400ac3 in thread1(void*) () </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-8">
+<span class="crayon-h"> </span><span class="crayon-p">#5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-9">
+<span class="crayon-h"> </span><span class="crayon-p">#6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-10">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">4</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x415d7940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6723</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-11">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-12">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-13">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-14">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000000000400a03 in func2() () </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-15">
+<span class="crayon-h"> </span><span class="crayon-p">#4  0x0000000000400a3f in thread2(void*) () </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-16">
+<span class="crayon-h"> </span><span class="crayon-p">#5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-17">
+<span class="crayon-h"> </span><span class="crayon-p">#6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-18">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">3</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x41fd8940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6724</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-19">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d19c7aec2 in memset () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-20">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x00000000004009be in thread3(void*) () </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-21">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-22">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-23">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x429d9940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6725</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-24">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d19c7ae0d in memset () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-25">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000000000400982 in thread4(void*) () </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-26">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-27">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000003d19cd40cd in clone () from /lib64/libc.so.6 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-28">
+<span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x2af906fd9d90</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6721</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07792930208225-29">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d1a807b35 in pthread_join () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07792930208225-30">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000000000400900 in main ()</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0036 seconds] -->
+
+</div>
+<p>连续多次查看这个进程的函数调用关系堆栈进行分析：当进程吊死时，多次使用 pstack 查看进程的函数调用堆栈，死锁线程将一直处于等锁的状态，对比多次的函数调用堆栈输出结果，确定哪两个线程（或者几个线程）一直没有变化且一直处于等锁的状态（可能存在两个线程 一直没有变化）。</p>
+<p>输出分析：</p>
+<p>根据上面的输出对比可以发现，线程 1 和线程 2 由第一次 pstack 输出的处在 sleep 函数变化为第二次 pstack 输出的处在 memset 函数。但是线程 4 和线程 5 一直处在等锁状态（pthread_mutex_lock），在连续两次的 pstack 信息输出中没有变化，所以我们可以推测线程 4 和线程 5 发生了死锁。</p>
+<p><code>Gdb into thread</code><code>输出：</code></p>
+<h5 id="N100CE">清单 6. 然后通过 gdb attach 到死锁进程</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a07799343557225" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+   (gdb) info thread 
+  5 Thread 0x41e37940 (LWP 6722)  0x0000003d1a80d4c4 in __lll_lock_wait () 
+  from /lib64/libpthread.so.0 
+  4 Thread 0x42838940 (LWP 6723)  0x0000003d1a80d4c4 in __lll_lock_wait () 
+  from /lib64/libpthread.so.0 
+  3 Thread 0x43239940 (LWP 6724)  0x0000003d19c9a541 in nanosleep () 
+ from /lib64/libc.so.6 
+  2 Thread 0x43c3a940 (LWP 6725)  0x0000003d19c9a541 in nanosleep () 
+ from /lib64/libc.so.6 
+ * 1 Thread 0x2b984ecabd90 (LWP 6721)  0x0000003d1a807b35 in pthread_join () 
+ from /lib64/libpthread.so.0</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a973a07799343557225-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07799343557225-2">2</div>
+<div class="crayon-num" data-line="crayon-587a973a07799343557225-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07799343557225-4">4</div>
+<div class="crayon-num" data-line="crayon-587a973a07799343557225-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07799343557225-6">6</div>
+<div class="crayon-num" data-line="crayon-587a973a07799343557225-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07799343557225-8">8</div>
+<div class="crayon-num" data-line="crayon-587a973a07799343557225-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a07799343557225-10">10</div>
+<div class="crayon-num" data-line="crayon-587a973a07799343557225-11">11</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a973a07799343557225-1">
+<span class="crayon-h">   </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">info </span><span class="crayon-i">thread</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07799343557225-2">
+<span class="crayon-h">  </span><span class="crayon-cn">5</span><span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x41e37940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6722</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-cn">0x0000003d1a80d4c4</span><span class="crayon-h"> </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-e">__lll_lock_wait</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07799343557225-3">
+<span class="crayon-h">  </span><span class="crayon-v">from</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">lib64</span><span class="crayon-o">/</span><span class="crayon-v">libpthread</span><span class="crayon-sy">.</span><span class="crayon-v">so</span><span class="crayon-sy">.</span><span class="crayon-cn">0</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07799343557225-4">
+<span class="crayon-h">  </span><span class="crayon-cn">4</span><span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x42838940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6723</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-cn">0x0000003d1a80d4c4</span><span class="crayon-h"> </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-e">__lll_lock_wait</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07799343557225-5">
+<span class="crayon-h">  </span><span class="crayon-v">from</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">lib64</span><span class="crayon-o">/</span><span class="crayon-v">libpthread</span><span class="crayon-sy">.</span><span class="crayon-v">so</span><span class="crayon-sy">.</span><span class="crayon-cn">0</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07799343557225-6">
+<span class="crayon-h">  </span><span class="crayon-cn">3</span><span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x43239940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6724</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-cn">0x0000003d19c9a541</span><span class="crayon-h"> </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-e">nanosleep</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07799343557225-7">
+<span class="crayon-h"> </span><span class="crayon-v">from</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">lib64</span><span class="crayon-o">/</span><span class="crayon-v">libc</span><span class="crayon-sy">.</span><span class="crayon-v">so</span><span class="crayon-sy">.</span><span class="crayon-cn">6</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07799343557225-8">
+<span class="crayon-h">  </span><span class="crayon-cn">2</span><span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x43c3a940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6725</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-cn">0x0000003d19c9a541</span><span class="crayon-h"> </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-e">nanosleep</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07799343557225-9">
+<span class="crayon-h"> </span><span class="crayon-v">from</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">lib64</span><span class="crayon-o">/</span><span class="crayon-v">libc</span><span class="crayon-sy">.</span><span class="crayon-v">so</span><span class="crayon-sy">.</span><span class="crayon-cn">6</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a07799343557225-10">
+<span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x2b984ecabd90</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6721</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-cn">0x0000003d1a807b35</span><span class="crayon-h"> </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-e">pthread_join</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a07799343557225-11">
+<span class="crayon-h"> </span><span class="crayon-v">from</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">lib64</span><span class="crayon-o">/</span><span class="crayon-v">libpthread</span><span class="crayon-sy">.</span><span class="crayon-v">so</span><span class="crayon-sy">.</span><span class="crayon-cn">0</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0036 seconds] -->
+
+</div>
+<h5 id="listing6">清单 7. 切换到线程 5 的输出</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a0779d467689681" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ (gdb) thread 5 
+ [Switching to thread 5 (Thread 0x41e37940 (LWP 6722))]#0  0x0000003d1a80d4c4 in 
+ __lll_lock_wait () from /lib64/libpthread.so.0 
+ (gdb) where 
+ #0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 
+ #1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 
+ #2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 
+ #3  0x0000000000400a9b in func1 () at lock.cpp:18 
+ #4  0x0000000000400ad7 in thread1 (arg=0x0) at lock.cpp:43 
+ #5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 
+ #6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a973a0779d467689681-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0779d467689681-2">2</div>
+<div class="crayon-num" data-line="crayon-587a973a0779d467689681-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0779d467689681-4">4</div>
+<div class="crayon-num" data-line="crayon-587a973a0779d467689681-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0779d467689681-6">6</div>
+<div class="crayon-num" data-line="crayon-587a973a0779d467689681-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0779d467689681-8">8</div>
+<div class="crayon-num" data-line="crayon-587a973a0779d467689681-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a0779d467689681-10">10</div>
+<div class="crayon-num" data-line="crayon-587a973a0779d467689681-11">11</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a973a0779d467689681-1">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-i">thread</span><span class="crayon-h"> </span><span class="crayon-cn">5</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0779d467689681-2">
+<span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-e">Switching </span><span class="crayon-st">to</span><span class="crayon-h"> </span><span class="crayon-i">thread</span><span class="crayon-h"> </span><span class="crayon-cn">5</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x41e37940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6722</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">]</span><span class="crayon-p">#0  0x0000003d1a80d4c4 in </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0779d467689681-3">
+<span class="crayon-h"> </span><span class="crayon-e">__lll_lock_wait</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">from</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">lib64</span><span class="crayon-o">/</span><span class="crayon-v">libpthread</span><span class="crayon-sy">.</span><span class="crayon-v">so</span><span class="crayon-sy">.</span><span class="crayon-cn">0</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0779d467689681-4">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">where</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0779d467689681-5">
+<span class="crayon-h"> </span><span class="crayon-p">#0  0x0000003d1a80d4c4 in __lll_lock_wait () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0779d467689681-6">
+<span class="crayon-h"> </span><span class="crayon-p">#1  0x0000003d1a808e1a in _L_lock_1034 () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0779d467689681-7">
+<span class="crayon-h"> </span><span class="crayon-p">#2  0x0000003d1a808cdc in pthread_mutex_lock () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0779d467689681-8">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000000000400a9b in func1 () at lock.cpp:18 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0779d467689681-9">
+<span class="crayon-h"> </span><span class="crayon-p">#4  0x0000000000400ad7 in thread1 (arg=0x0) at lock.cpp:43 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a0779d467689681-10">
+<span class="crayon-h"> </span><span class="crayon-p">#5  0x0000003d1a80673d in start_thread () from /lib64/libpthread.so.0 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a0779d467689681-11">
+<span class="crayon-h"> </span><span class="crayon-p">#6  0x0000003d19cd40cd in clone () from /lib64/libc.so.6</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0017 seconds] -->
+
+</div>
+<h5 id="listing7">清单 8. 线程 4 和线程 5 的输出</h5>
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a973a077a1640481434" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ (gdb) f 3 
+ #3  0x0000000000400a9b in func1 () at lock.cpp:18 
+ 18          pthread_mutex_lock(&amp;mutex2); 
+ (gdb) thread 4 
+ [Switching to thread 4 (Thread 0x42838940 (LWP 6723))]#0  0x0000003d1a80d4c4 in 
+ __lll_lock_wait () from /lib64/libpthread.so.0 
+ (gdb) f 3 
+ #3  0x0000000000400a17 in func2 () at lock.cpp:31 
+ 31          pthread_mutex_lock(&amp;mutex1); 
+ (gdb) p mutex1 
+ $1 = {__data = {__lock = 2, __count = 0, __owner = 6722, __nusers = 1, __kind = 0, 
+ __spins = 0, __list = {__prev = 0x0, __next = 0x0}}, 
+  __size = "\002\000\000\000\000\000\000\000B\032\000\000\001", '\000'
+ &lt;repeats 26 times&gt;, __align = 2} 
+ (gdb) p mutex3 
+ $2 = {__data = {__lock = 0, __count = 0, __owner = 0, __nusers = 0, 
+ __kind = 0, __spins = 0, __list = {__prev = 0x0, __next = 0x0}}, 
+ __size = '\000' &lt;repeats 39 times&gt;, __align = 0} 
+ (gdb) p mutex2 
+ $3 = {__data = {__lock = 2, __count = 0, __owner = 6723, __nusers = 1, 
+ __kind = 0, __spins = 0, __list = {__prev = 0x0, __next = 0x0}}, 
+  __size = "\002\000\000\000\000\000\000\000C\032\000\000\001", '\000'
+ &lt;repeats 26 times&gt;, __align = 2} 
+ (gdb)</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-2">2</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-4">4</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-6">6</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-8">8</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-10">10</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-12">12</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-14">14</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-16">16</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-18">18</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-20">20</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-22">22</div>
+<div class="crayon-num" data-line="crayon-587a973a077a1640481434-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a973a077a1640481434-24">24</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a973a077a1640481434-1">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-i">f</span><span class="crayon-h"> </span><span class="crayon-cn">3</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-2">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000000000400a9b in func1 () at lock.cpp:18 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-3">
+<span class="crayon-h"> </span><span class="crayon-cn">18</span><span class="crayon-h">          </span><span class="crayon-e">pthread_mutex_lock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex2</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-4">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-i">thread</span><span class="crayon-h"> </span><span class="crayon-cn">4</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-5">
+<span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-e">Switching </span><span class="crayon-st">to</span><span class="crayon-h"> </span><span class="crayon-i">thread</span><span class="crayon-h"> </span><span class="crayon-cn">4</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">Thread</span><span class="crayon-h"> </span><span class="crayon-cn">0x42838940</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-i">LWP</span><span class="crayon-h"> </span><span class="crayon-cn">6723</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">]</span><span class="crayon-p">#0  0x0000003d1a80d4c4 in </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-6">
+<span class="crayon-h"> </span><span class="crayon-e">__lll_lock_wait</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">from</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">lib64</span><span class="crayon-o">/</span><span class="crayon-v">libpthread</span><span class="crayon-sy">.</span><span class="crayon-v">so</span><span class="crayon-sy">.</span><span class="crayon-cn">0</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-7">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-i">f</span><span class="crayon-h"> </span><span class="crayon-cn">3</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-8">
+<span class="crayon-h"> </span><span class="crayon-p">#3  0x0000000000400a17 in func2 () at lock.cpp:31 </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-9">
+<span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-h">          </span><span class="crayon-e">pthread_mutex_lock</span><span class="crayon-sy">(</span><span class="crayon-o">&amp;</span><span class="crayon-v">mutex1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-10">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-i">p</span><span class="crayon-h"> </span><span class="crayon-i">mutex1</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-11">
+<span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__data</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__lock</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__count</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__owner</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">6722</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__nusers</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__kind</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-12">
+<span class="crayon-h"> </span><span class="crayon-v">__spins</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__list</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__prev</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0x0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__next</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0x0</span><span class="crayon-sy">}</span><span class="crayon-sy">}</span><span class="crayon-sy">,</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-13">
+<span class="crayon-h">  </span><span class="crayon-v">__size</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-s">"\002\000\000\000\000\000\000\000B\032\000\000\001"</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-s">'\000'</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-14">
+<span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-i">repeats</span><span class="crayon-h"> </span><span class="crayon-cn">26</span><span class="crayon-h"> </span><span class="crayon-v">times</span><span class="crayon-o">&gt;</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__align</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-15">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-i">p</span><span class="crayon-h"> </span><span class="crayon-i">mutex3</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-16">
+<span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-cn">2</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__data</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__lock</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__count</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__owner</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__nusers</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-17">
+<span class="crayon-h"> </span><span class="crayon-v">__kind</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__spins</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__list</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__prev</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0x0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__next</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0x0</span><span class="crayon-sy">}</span><span class="crayon-sy">}</span><span class="crayon-sy">,</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-18">
+<span class="crayon-h"> </span><span class="crayon-v">__size</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-s">'\000'</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-i">repeats</span><span class="crayon-h"> </span><span class="crayon-cn">39</span><span class="crayon-h"> </span><span class="crayon-v">times</span><span class="crayon-o">&gt;</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__align</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-19">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-i">p</span><span class="crayon-h"> </span><span class="crayon-i">mutex2</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-20">
+<span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-cn">3</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__data</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__lock</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__count</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__owner</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">6723</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__nusers</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-21">
+<span class="crayon-h"> </span><span class="crayon-v">__kind</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__spins</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__list</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-v">__prev</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0x0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__next</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0x0</span><span class="crayon-sy">}</span><span class="crayon-sy">}</span><span class="crayon-sy">,</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-22">
+<span class="crayon-h">  </span><span class="crayon-v">__size</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-s">"\002\000\000\000\000\000\000\000C\032\000\000\001"</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-s">'\000'</span>
+</div>
+<div class="crayon-line" id="crayon-587a973a077a1640481434-23">
+<span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-i">repeats</span><span class="crayon-h"> </span><span class="crayon-cn">26</span><span class="crayon-h"> </span><span class="crayon-v">times</span><span class="crayon-o">&gt;</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">__align</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a973a077a1640481434-24">
+<span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">gdb</span><span class="crayon-sy">)</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0080 seconds] -->
+
+</div>
+<p>从上面可以发现，线程 4 正试图获得锁 mutex1，但是锁 mutex1 已经被 LWP 为 6722 的线程得到（__owner = 6722），线程 5 正试图获得锁 mutex2，但是锁 mutex2 已经被 LWP 为 6723 的 得到（__owner = 6723），从 pstack 的输出可以发现，LWP 6722 与线程 5 是对应的，LWP 6723 与线程 4 是对应的。所以我们可以得出， 线程 4 和线程 5 发生了交叉持锁的死锁现象。查看线程的源代码发现，线程 4 和线程 5 同时使用 mutex1 和 mutex2，且申请顺序不合理。</p>
+<h2 id="major4">总结</h2>
+<p>本文简单介绍了一种在 Linux 平台下分析死锁问题的方法，对一些死锁问题的分析有一定作用。希望对大家有帮助。理解了死锁的原因，尤其是产生死锁的四个必要条件，就可以最大可能地避免、预防和解除死锁。所以，在系统设计、进程调度等方面注意如何不让这四个必要条件成立，如何确定资源的合理分配算法，避免进程永久占据系统资源。此外，也要防止进程在处于等待状态的情况下占用资源 , 在系统运行过程中，对进程发出的每一个系统能够满足的资源申请进行动态检查，并根据检查结果决定是否分配资源，若分配后系统可能发生死锁，则不予分配，否则予以分配。因此，对资源的分配要给予合理的规划，使用有序资源分配法和银行家算法等是避免死锁的有效方法。</p>
+
+</div>
+
+        
+        
+        
+    <div class="post-adds">
+        <span data-post-id="109743" class=" btn-bluet-bigger href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="109743votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="109743" data-item-type="1" class=" btn-bluet-bigger href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 3 收藏</span>
+
+                    <a href="#article-comment"><span class="btn-bluet-bigger href-style hide-on-480"><i class="fa fa-comments-o"></i> 1 评论</span></a>
+        
+        
+        
+        <!-- JiaThis Button BEGIN -->
+        <div class="jiathis_style_24x24" style="display: inline-flex; position: relative; margin: 0; clear: both;float: right;">
+            <a class="jiathis_button_tsina"></a>
+            <a class="jiathis_button_weixin"></a>
+            <a class="jiathis_button_qzone"></a>
+            <a class="jiathis_button_fb hide-on-480"></a>
+            <a href="http://www.jiathis.com/share?uid=1745061" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank"></a>
+        </div>
+
+    </div>
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

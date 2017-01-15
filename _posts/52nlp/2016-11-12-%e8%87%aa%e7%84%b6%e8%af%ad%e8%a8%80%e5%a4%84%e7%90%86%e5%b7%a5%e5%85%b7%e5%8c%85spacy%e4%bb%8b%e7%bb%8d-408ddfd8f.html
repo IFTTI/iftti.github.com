@@ -1,0 +1,244 @@
+---
+layout: post
+title: '自然语言处理工具包spaCy介绍'
+time: 2016-11-12
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/%e8%87%aa%e7%84%b6%e8%af%ad%e8%a8%80%e5%a4%84%e7%90%86%e5%b7%a5%e5%85%b7%e5%8c%85spacy%e4%bb%8b%e7%bb%8d
+---
+{% raw %}
+
+						<p><a href="https://spacy.io/" target="_blank">spaCy</a> 是一个Python自然语言处理工具包，诞生于2014年年中，号称“Industrial-Strength Natural Language Processing in Python”，是具有工业级强度的Python NLP工具包。spaCy里大量使用了 <a href="http://cython.org/" target="_blank">Cython</a> 来提高相关模块的性能，这个区别于学术性质更浓的Python NLTK，因此具有了业界应用的实际价值。</p>
+<p>安装和编译 <a href="https://github.com/explosion/spaCy" target="_blank">spaCy</a> 比较方便，在ubuntu环境下，直接用pip安装即可：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">sudo apt-get install build-essential python-dev git<br>
+sudo pip install -U spacy</div></div>
+<p>不过安装完毕之后，需要下载相关的模型数据，以英文模型数据为例，可以用”all”参数下载所有的数据:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">sudo python -m spacy.en.download all</div></div>
+<p>或者可以分别下载相关的模型和用glove训练好的词向量数据：</p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="python codecolorer">
+<span class="co1"># 这个过程下载英文tokenizer，词性标注，句法分析，命名实体识别相关的模型</span><br>
+python -m spacy.<span class="me1">en</span>.<span class="me1">download</span> <span class="kw3">parser</span><br>
+<br>
+<span class="co1"># 这个过程下载glove训练好的词向量数据</span><br>
+python -m spacy.<span class="me1">en</span>.<span class="me1">download</span> glove</div></div>
+<p>下载好的数据放在spacy安装目录下的data里，以我的ubuntu为例：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">textminer@textminer:/usr/local/lib/python2.7/dist-packages/spacy/data$ du -sh *<br>
+776M    en-1.1.0<br>
+774M    en_glove_cc_300_1m_vectors-1.0.0</div></div>
+<p>进入到英文数据模型下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">textminer@textminer:/usr/local/lib/python2.7/dist-packages/spacy/data/en-1.1.0$ du -sh *<br>
+424M    deps<br>
+8.0K    meta.json<br>
+35M ner<br>
+12M pos<br>
+84K tokenizer<br>
+300M    vocab<br>
+6.3M    wordnet</div></div>
+<p>可以用如下命令检查模型数据是否安装成功：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">textminer@textminer:~$ python -c "import spacy; spacy.load('en'); print('OK')"<br>
+OK</div></div>
+<p>也可以用pytest进行测试：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><div class="text codecolorer"># 首先找到spacy的安装路径：<br>
+python -c "import os; import spacy; print(os.path.dirname(spacy.__file__))"<br>
+/usr/local/lib/python2.7/dist-packages/spacy<br>
+<br>
+# 再安装pytest:<br>
+sudo python -m pip install -U pytest<br>
+<br>
+# 最后进行测试：<br>
+python -m pytest /usr/local/lib/python2.7/dist-packages/spacy --vectors --model --slow<br>
+============================= test session starts ==============================<br>
+platform linux2 -- Python 2.7.12, pytest-3.0.4, py-1.4.31, pluggy-0.4.0<br>
+rootdir: /usr/local/lib/python2.7/dist-packages/spacy, inifile: <br>
+collected 318 items <br>
+<br>
+../../usr/local/lib/python2.7/dist-packages/spacy/tests/test_matcher.py ........<br>
+../../usr/local/lib/python2.7/dist-packages/spacy/tests/matcher/test_entity_id.py ....<br>
+../../usr/local/lib/python2.7/dist-packages/spacy/tests/matcher/test_matcher_bugfixes.py .....<br>
+......<br>
+../../usr/local/lib/python2.7/dist-packages/spacy/tests/vocab/test_vocab.py .......Xx<br>
+../../usr/local/lib/python2.7/dist-packages/spacy/tests/website/test_api.py x...............<br>
+../../usr/local/lib/python2.7/dist-packages/spacy/tests/website/test_home.py ............<br>
+<br>
+============== 310 passed, 5 xfailed, 3 xpassed in 53.95 seconds ===============</div></div>
+<p>现在可以快速测试一下spaCy的相关功能，我们以英文数据为例，spaCy目前主要支持英文和德文，对其他语言的支持正在陆续加入：</p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="python codecolorer">textminer<span class="sy0">@</span>textminer:<span class="sy0">~</span>$ ipython<br>
+Python 2.7.12 <span class="br0">(</span>default<span class="sy0">,</span> Jul  <span class="nu0">1</span> <span class="nu0">2016</span><span class="sy0">,</span> <span class="nu0">15</span>:<span class="nu0">12</span>:<span class="nu0">24</span><span class="br0">)</span> <br>
+Type <span class="st0">"copyright"</span><span class="sy0">,</span> <span class="st0">"credits"</span> <span class="kw1">or</span> <span class="st0">"license"</span> <span class="kw1">for</span> more information.<br>
+<br>
+<span class="me1">IPython</span> 2.4.1 -- An enhanced Interactive Python.<br>
+?         -<span class="sy0">&gt;</span> Introduction <span class="kw1">and</span> overview of IPython<span class="st0">'s features.<br>
+%quickref -&gt; Quick reference.<br>
+help      -&gt; Python'</span>s own <span class="kw2">help</span> system.<br>
+<span class="kw2">object</span>?   -<span class="sy0">&gt;</span> Details about <span class="st0">'object'</span><span class="sy0">,</span> use <span class="st0">'object??'</span> <span class="kw1">for</span> extra details.<br>
+<br>
+<span class="me1">In</span> <span class="br0">[</span><span class="nu0">1</span><span class="br0">]</span>: <span class="kw1">import</span> spacy          <br>
+<br>
+<span class="co1"># 加载英文模型数据，稍许等待</span><br>
+In <span class="br0">[</span><span class="nu0">2</span><span class="br0">]</span>: nlp <span class="sy0">=</span> spacy.<span class="me1">load</span><span class="br0">(</span><span class="st0">'en'</span><span class="br0">)</span>
+</div></div>
+<p><strong>Word tokenize功能，spaCy 1.2版本加了中文tokenize接口，基于<a href="https://github.com/fxsjy/jieba" target="_blank">Jieba</a>中文分词:</strong></p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="python codecolorer">In <span class="br0">[</span><span class="nu0">3</span><span class="br0">]</span>: test_doc <span class="sy0">=</span> nlp<span class="br0">(</span>u<span class="st0">"it's word tokenize test for spacy"</span><span class="br0">)</span>            <br>
+<br>
+In <span class="br0">[</span><span class="nu0">4</span><span class="br0">]</span>: <span class="kw1">print</span><span class="br0">(</span>test_doc<span class="br0">)</span><br>
+it<span class="st0">'s word tokenize test for spacy<br>
+<br>
+In [5]: for token in test_doc:                                          <br>
+    print(token)<br>
+   ...:     <br>
+it<br>
+'</span>s<br>
+word<br>
+<span class="kw3">tokenize</span><br>
+<span class="kw3">test</span><br>
+<span class="kw1">for</span><br>
+spacy</div></div>
+<p><strong>英文断句:</strong></p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="python codecolorer">In <span class="br0">[</span><span class="nu0">6</span><span class="br0">]</span>: test_doc <span class="sy0">=</span> nlp<span class="br0">(</span>u<span class="st0">'Natural language processing (NLP) deals with the application of computational models to text or speech data. Application areas within NLP include automatic (machine) translation between languages; dialogue systems, which allow a human to interact with a machine using natural language; and information extraction, where the goal is to transform unstructured text into structured (database) representations that can be searched and browsed in flexible ways. NLP technologies are having a dramatic impact on the way people interact with computers, on the way people interact with each other through the use of language, and on the way people access the vast amount of linguistic data now in electronic form. From a scientific viewpoint, NLP involves fundamental questions of how to structure formal models (for example statistical models) of natural language phenomena, and of how to design algorithms that implement these models.'</span><span class="br0">)</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">7</span><span class="br0">]</span>: <span class="kw1">for</span> sent <span class="kw1">in</span> test_doc.<span class="me1">sents</span>:<br>
+    <span class="kw1">print</span><span class="br0">(</span>sent<span class="br0">)</span><br>
+   ...:     <br>
+Natural language processing <span class="br0">(</span>NLP<span class="br0">)</span> deals <span class="kw1">with</span> the application of computational models to text <span class="kw1">or</span> speech data.<br>
+<span class="me1">Application</span> areas within NLP include automatic <span class="br0">(</span>machine<span class="br0">)</span> translation between languages<span class="sy0">;</span> dialogue systems<span class="sy0">,</span> which allow a human to interact <span class="kw1">with</span> a machine using natural language<span class="sy0">;</span> <span class="kw1">and</span> information extraction<span class="sy0">,</span> where the goal <span class="kw1">is</span> to transform unstructured text into structured <span class="br0">(</span>database<span class="br0">)</span> representations that can be searched <span class="kw1">and</span> browsed <span class="kw1">in</span> flexible ways.<br>
+<span class="me1">NLP</span> technologies are having a dramatic impact on the way people interact <span class="kw1">with</span> computers<span class="sy0">,</span> on the way people interact <span class="kw1">with</span> each other through the use of language<span class="sy0">,</span> <span class="kw1">and</span> on the way people access the vast amount of linguistic data now <span class="kw1">in</span> electronic form.<br>
+<span class="me1">From</span> a scientific viewpoint<span class="sy0">,</span> NLP involves fundamental questions of how to structure formal models <span class="br0">(</span><span class="kw1">for</span> example statistical models<span class="br0">)</span> of natural language phenomena<span class="sy0">,</span> <span class="kw1">and</span> of how to design algorithms that implement these models.</div></div>
+<p><strong><br>
+词干化（Lemmatize):</strong></p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="python codecolorer">In <span class="br0">[</span><span class="nu0">8</span><span class="br0">]</span>: test_doc <span class="sy0">=</span> nlp<span class="br0">(</span>u<span class="st0">"you are best. it is lemmatize test for spacy. I love these books"</span><span class="br0">)</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">9</span><span class="br0">]</span>: <span class="kw1">for</span> <span class="kw3">token</span> <span class="kw1">in</span> test_doc:                                                      <br>
+    <span class="kw1">print</span><span class="br0">(</span><span class="kw3">token</span><span class="sy0">,</span> <span class="kw3">token</span>.<span class="me1">lemma_</span><span class="sy0">,</span> <span class="kw3">token</span>.<span class="me1">lemma</span><span class="br0">)</span><br>
+   ...:     <br>
+<span class="br0">(</span>you<span class="sy0">,</span> u<span class="st0">'you'</span><span class="sy0">,</span> <span class="nu0">472</span><span class="br0">)</span><br>
+<span class="br0">(</span>are<span class="sy0">,</span> u<span class="st0">'be'</span><span class="sy0">,</span> <span class="nu0">488</span><span class="br0">)</span><br>
+<span class="br0">(</span>best<span class="sy0">,</span> u<span class="st0">'good'</span><span class="sy0">,</span> <span class="nu0">556</span><span class="br0">)</span><br>
+<span class="br0">(</span>.<span class="sy0">,</span> u<span class="st0">'.'</span><span class="sy0">,</span> <span class="nu0">419</span><span class="br0">)</span><br>
+<span class="br0">(</span>it<span class="sy0">,</span> u<span class="st0">'it'</span><span class="sy0">,</span> <span class="nu0">473</span><span class="br0">)</span><br>
+<span class="br0">(</span><span class="kw1">is</span><span class="sy0">,</span> u<span class="st0">'be'</span><span class="sy0">,</span> <span class="nu0">488</span><span class="br0">)</span><br>
+<span class="br0">(</span>lemmatize<span class="sy0">,</span> u<span class="st0">'lemmatize'</span><span class="sy0">,</span> <span class="nu0">1510296</span><span class="br0">)</span><br>
+<span class="br0">(</span><span class="kw3">test</span><span class="sy0">,</span> u<span class="st0">'test'</span><span class="sy0">,</span> <span class="nu0">1351</span><span class="br0">)</span><br>
+<span class="br0">(</span><span class="kw1">for</span><span class="sy0">,</span> u<span class="st0">'for'</span><span class="sy0">,</span> <span class="nu0">480</span><span class="br0">)</span><br>
+<span class="br0">(</span>spacy<span class="sy0">,</span> u<span class="st0">'spacy'</span><span class="sy0">,</span> <span class="nu0">173783</span><span class="br0">)</span><br>
+<span class="br0">(</span>.<span class="sy0">,</span> u<span class="st0">'.'</span><span class="sy0">,</span> <span class="nu0">419</span><span class="br0">)</span><br>
+<span class="br0">(</span>I<span class="sy0">,</span> u<span class="st0">'i'</span><span class="sy0">,</span> <span class="nu0">570</span><span class="br0">)</span><br>
+<span class="br0">(</span>love<span class="sy0">,</span> u<span class="st0">'love'</span><span class="sy0">,</span> <span class="nu0">644</span><span class="br0">)</span><br>
+<span class="br0">(</span>these<span class="sy0">,</span> u<span class="st0">'these'</span><span class="sy0">,</span> <span class="nu0">642</span><span class="br0">)</span><br>
+<span class="br0">(</span>books<span class="sy0">,</span> u<span class="st0">'book'</span><span class="sy0">,</span> <span class="nu0">1011</span><span class="br0">)</span>
+</div></div>
+<p><strong>词性标注(POS Tagging):</strong></p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="python codecolorer">In <span class="br0">[</span><span class="nu0">10</span><span class="br0">]</span>: <span class="kw1">for</span> <span class="kw3">token</span> <span class="kw1">in</span> test_doc:                                                     <br>
+    <span class="kw1">print</span><span class="br0">(</span><span class="kw3">token</span><span class="sy0">,</span> <span class="kw3">token</span>.<span class="me1">pos_</span><span class="sy0">,</span> <span class="kw3">token</span>.<span class="me1">pos</span><span class="br0">)</span><br>
+   ....:     <br>
+<span class="br0">(</span>you<span class="sy0">,</span> u<span class="st0">'PRON'</span><span class="sy0">,</span> <span class="nu0">92</span><span class="br0">)</span><br>
+<span class="br0">(</span>are<span class="sy0">,</span> u<span class="st0">'VERB'</span><span class="sy0">,</span> <span class="nu0">97</span><span class="br0">)</span><br>
+<span class="br0">(</span>best<span class="sy0">,</span> u<span class="st0">'ADJ'</span><span class="sy0">,</span> <span class="nu0">82</span><span class="br0">)</span><br>
+<span class="br0">(</span>.<span class="sy0">,</span> u<span class="st0">'PUNCT'</span><span class="sy0">,</span> <span class="nu0">94</span><span class="br0">)</span><br>
+<span class="br0">(</span>it<span class="sy0">,</span> u<span class="st0">'PRON'</span><span class="sy0">,</span> <span class="nu0">92</span><span class="br0">)</span><br>
+<span class="br0">(</span><span class="kw1">is</span><span class="sy0">,</span> u<span class="st0">'VERB'</span><span class="sy0">,</span> <span class="nu0">97</span><span class="br0">)</span><br>
+<span class="br0">(</span>lemmatize<span class="sy0">,</span> u<span class="st0">'ADJ'</span><span class="sy0">,</span> <span class="nu0">82</span><span class="br0">)</span><br>
+<span class="br0">(</span><span class="kw3">test</span><span class="sy0">,</span> u<span class="st0">'NOUN'</span><span class="sy0">,</span> <span class="nu0">89</span><span class="br0">)</span><br>
+<span class="br0">(</span><span class="kw1">for</span><span class="sy0">,</span> u<span class="st0">'ADP'</span><span class="sy0">,</span> <span class="nu0">83</span><span class="br0">)</span><br>
+<span class="br0">(</span>spacy<span class="sy0">,</span> u<span class="st0">'NOUN'</span><span class="sy0">,</span> <span class="nu0">89</span><span class="br0">)</span><br>
+<span class="br0">(</span>.<span class="sy0">,</span> u<span class="st0">'PUNCT'</span><span class="sy0">,</span> <span class="nu0">94</span><span class="br0">)</span><br>
+<span class="br0">(</span>I<span class="sy0">,</span> u<span class="st0">'PRON'</span><span class="sy0">,</span> <span class="nu0">92</span><span class="br0">)</span><br>
+<span class="br0">(</span>love<span class="sy0">,</span> u<span class="st0">'VERB'</span><span class="sy0">,</span> <span class="nu0">97</span><span class="br0">)</span><br>
+<span class="br0">(</span>these<span class="sy0">,</span> u<span class="st0">'DET'</span><span class="sy0">,</span> <span class="nu0">87</span><span class="br0">)</span><br>
+<span class="br0">(</span>books<span class="sy0">,</span> u<span class="st0">'NOUN'</span><span class="sy0">,</span> <span class="nu0">89</span><span class="br0">)</span>
+</div></div>
+<p><strong>命名实体识别（NER）：</strong></p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="python codecolorer">In <span class="br0">[</span><span class="nu0">11</span><span class="br0">]</span>: test_doc <span class="sy0">=</span> nlp<span class="br0">(</span>u<span class="st0">"Rami Eid is studying at Stony Brook University in New York"</span><span class="br0">)</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">12</span><span class="br0">]</span>: <span class="kw1">for</span> ent <span class="kw1">in</span> test_doc.<span class="me1">ents</span>:<br>
+    <span class="kw1">print</span><span class="br0">(</span>ent<span class="sy0">,</span> ent.<span class="me1">label_</span><span class="sy0">,</span> ent.<span class="me1">label</span><span class="br0">)</span><br>
+   ....:     <br>
+<span class="br0">(</span>Rami Eid<span class="sy0">,</span> u<span class="st0">'PERSON'</span><span class="sy0">,</span> <span class="nu0">346</span><span class="br0">)</span><br>
+<span class="br0">(</span>Stony Brook University<span class="sy0">,</span> u<span class="st0">'ORG'</span><span class="sy0">,</span> <span class="nu0">349</span><span class="br0">)</span><br>
+<span class="br0">(</span>New York<span class="sy0">,</span> u<span class="st0">'GPE'</span><span class="sy0">,</span> <span class="nu0">350</span><span class="br0">)</span>
+</div></div>
+<p><strong>名词短语提取：</strong></p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><div class="python codecolorer">In <span class="br0">[</span><span class="nu0">13</span><span class="br0">]</span>: test_doc <span class="sy0">=</span> nlp<span class="br0">(</span>u<span class="st0">'Natural language processing (NLP) deals with the application of computational models to text or speech data. Application areas within NLP include automatic (machine) translation between languages; dialogue systems, which allow a human to interact with a machine using natural language; and information extraction, where the goal is to transform unstructured text into structured (database) representations that can be searched and browsed in flexible ways. NLP technologies are having a dramatic impact on the way people interact with computers, on the way people interact with each other through the use of language, and on the way people access the vast amount of linguistic data now in electronic form. From a scientific viewpoint, NLP involves fundamental questions of how to structure formal models (for example statistical models) of natural language phenomena, and of how to design algorithms that implement these models.'</span><span class="br0">)</span><br>
+<br>
+<br>
+In <span class="br0">[</span><span class="nu0">14</span><span class="br0">]</span>: <span class="kw1">for</span> np <span class="kw1">in</span> test_doc.<span class="me1">noun_chunks</span>:<br>
+    <span class="kw1">print</span><span class="br0">(</span>np<span class="br0">)</span><br>
+   ....:     <br>
+Natural language processing<br>
+Natural language processing <span class="br0">(</span>NLP<span class="br0">)</span> deals<br>
+the application<br>
+computational models<br>
+text<br>
+speech<br>
+data<br>
+Application areas<br>
+NLP<br>
+automatic <span class="br0">(</span>machine<span class="br0">)</span> translation<br>
+languages<br>
+dialogue systems<br>
+a human<br>
+a machine<br>
+natural language<br>
+information extraction<br>
+the goal<br>
+unstructured text<br>
+structured <span class="br0">(</span>database<span class="br0">)</span> representations<br>
+flexible ways<br>
+NLP technologies<br>
+a dramatic impact<br>
+the way<br>
+people<br>
+computers<br>
+the way<br>
+people<br>
+the use<br>
+language<br>
+the way<br>
+people<br>
+the vast amount<br>
+linguistic data<br>
+electronic form<br>
+a scientific viewpoint<br>
+NLP<br>
+fundamental questions<br>
+formal models<br>
+example<br>
+natural language phenomena<br>
+algorithms<br>
+these models</div></div>
+<p><strong>基于词向量计算两个单词的相似度：</strong></p>
+<div class="codecolorer-container python default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><div class="python codecolorer">In <span class="br0">[</span><span class="nu0">15</span><span class="br0">]</span>: test_doc <span class="sy0">=</span> nlp<span class="br0">(</span>u<span class="st0">"Apples and oranges are similar. Boots and hippos aren't."</span><span class="br0">)</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">16</span><span class="br0">]</span>: apples <span class="sy0">=</span> test_doc<span class="br0">[</span><span class="nu0">0</span><span class="br0">]</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">17</span><span class="br0">]</span>: <span class="kw1">print</span><span class="br0">(</span>apples<span class="br0">)</span><br>
+Apples<br>
+<br>
+In <span class="br0">[</span><span class="nu0">18</span><span class="br0">]</span>: oranges <span class="sy0">=</span> test_doc<span class="br0">[</span><span class="nu0">2</span><span class="br0">]</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">19</span><span class="br0">]</span>: <span class="kw1">print</span><span class="br0">(</span>oranges<span class="br0">)</span><br>
+oranges<br>
+<br>
+In <span class="br0">[</span><span class="nu0">20</span><span class="br0">]</span>: boots <span class="sy0">=</span> test_doc<span class="br0">[</span><span class="nu0">6</span><span class="br0">]</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">21</span><span class="br0">]</span>: <span class="kw1">print</span><span class="br0">(</span>boots<span class="br0">)</span><br>
+Boots<br>
+<br>
+In <span class="br0">[</span><span class="nu0">22</span><span class="br0">]</span>: hippos <span class="sy0">=</span> test_doc<span class="br0">[</span><span class="nu0">8</span><span class="br0">]</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">23</span><span class="br0">]</span>: <span class="kw1">print</span><span class="br0">(</span>hippos<span class="br0">)</span><br>
+hippos<br>
+<br>
+In <span class="br0">[</span><span class="nu0">24</span><span class="br0">]</span>: apples.<span class="me1">similarity</span><span class="br0">(</span>oranges<span class="br0">)</span><br>
+Out<span class="br0">[</span><span class="nu0">24</span><span class="br0">]</span>: <span class="nu0">0.77809414836023805</span><br>
+<br>
+In <span class="br0">[</span><span class="nu0">25</span><span class="br0">]</span>: boots.<span class="me1">similarity</span><span class="br0">(</span>hippos<span class="br0">)</span><br>
+Out<span class="br0">[</span><span class="nu0">25</span><span class="br0">]</span>: <span class="nu0">0.038474555379008429</span>
+</div></div>
+<p>当然，spaCy还包括句法分析的相关功能等。另外值得关注的是 spaCy 从1.0版本起，加入了对<a href="http://www.52nlp.cn/tag/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0" target="_blank">深度学习</a>工具的支持，例如 <a href="http://www.52nlp.cn/tag/tensorflow" target="_blank">Tensorflow</a> 和 Keras 等，这方面具体可以参考官方文档给出的一个对情感分析（<a href="http://sentimentanalysis.net/" target="_blank">Sentiment Analysis</a>）模型进行分析的例子：<a href="https://spacy.io/docs/usage/deep-learning" target="_blank">Hooking a deep learning model into spaCy</a>.</p>
+<p>参考：<br>
+<a href="https://spacy.io/docs/usage/" target="_blank">spaCy官方文档</a><br>
+<a href="http://textminingonline.com/getting-started-with-spacy" target="_blank">Getting Started with spaCy</a></p>
+<p>注：原创文章，转载请注明出处及保留链接“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">http://www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/?p=9386">自然语言处理工具包spaCy介绍</a> <a href="http://www.52nlp.cn/?p=9386">http://www.52nlp.cn/?p=9386</a></p>
+
+											
+{% endraw %}

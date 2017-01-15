@@ -1,0 +1,173 @@
+---
+layout: post
+title: 'SIREn 插件试用'
+time: 2015-10-29 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2015/10/29/siren/
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>SIREn 是一个基于 Lucene 做的，专门针对 nested object 数据做优化的方案。其官网地址：<a href="http://siren.solutions">http://siren.solutions</a>。SIREn 自己并不提供完整的软件，而是以 Solr 或者 Elasticsearch 插件的形式存在。在 SIREn 官网首页写着，自己是 trush schemaless，high performance nested query。而我之前已经写博客说过，Elasticsearch 的 schemaless 是有限制的，同一个 index 下，field 的 mapping 是必须唯一一致的。否则，或者写入失败，或者搜索异常。</p>
+<p>那么我们来试一下这个 SIREn 看看。首先是下载运行：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="c"># wget http://siren.solutions/download/siren-elasticsearch-1.4-bin.zip</span>
+<span class="c"># unzip siren-elasticsearch-1.4-bin.zip</span>
+<span class="c"># cd siren-elasticsearch-1.4-bin</span>
+<span class="c"># ./example/bin/elasticsearch</span>
+</code></pre>
+</div>
+<p>然后我们尝试写入几条 mapping 有冲突的数据：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="c"># curl -XDELETE "http://localhost:9200/napr"</span>
+<span class="c"># curl -XPOST "http://localhost:9200/napr"</span>
+<span class="c"># curl -XPUT "http://localhost:9200/napr/chargepoint/_mapping" -d '</span>
+<span class="o">{</span>
+    <span class="s2">"chargepoint"</span> : <span class="o">{</span>
+        <span class="s2">"properties"</span> : <span class="o">{</span>
+            <span class="s2">"_siren_source"</span> : <span class="o">{</span>
+                <span class="s2">"analyzer"</span> : <span class="s2">"concise"</span>,
+                <span class="s2">"postings_format"</span> : <span class="s2">"Siren10AFor"</span>,
+                <span class="s2">"store"</span> : <span class="s2">"no"</span>,
+                <span class="s2">"type"</span> : <span class="s2">"string"</span>
+            <span class="o">}</span>
+        <span class="o">}</span>,
+        <span class="s2">"_siren"</span> : <span class="o">{}</span>
+    <span class="o">}</span>
+<span class="o">}</span><span class="s1">'
+# curl -XPUT "http://localhost:9200/napr/chargepoint/1" -d '</span>
+<span class="o">{</span>
+    <span class="s2">"ChargeDeviceName"</span>: <span class="s2">"1c Design Limited, Glasgow (1)"</span>,
+    <span class="s2">"Accessible24Hours"</span>: <span class="nb">false</span>
+<span class="o">}</span><span class="s1">'
+# curl -XPUT "http://localhost:9200/napr/chargepoint/2" -d '</span>
+<span class="o">{</span>
+    <span class="s2">"ChargeDeviceName"</span>: <span class="s2">"2c Design Limited, Glasgow (2)"</span>,
+    <span class="s2">"Accessible24Hours"</span>: <span class="s2">"true"</span>
+<span class="o">}</span><span class="s1">'
+# curl -XPUT "http://localhost:9200/napr/chargepoint/3" -d '</span>
+<span class="o">{</span>
+    <span class="s2">"ChargeDeviceName"</span>: <span class="s2">"3c Design Limited, Glasgow (3)"</span>,
+    <span class="s2">"Accessible24Hours"</span>: 123
+<span class="o">}</span><span class="s1">'
+# curl -XPUT "http://localhost:9200/nepr/chargepoint/4" -d '</span>
+<span class="o">{</span>
+    <span class="s2">"ChargeDeviceName"</span>: <span class="s2">"4c Design Limited, Glasgow (4)"</span>,
+    <span class="s2">"Accessible24Hours"</span>: <span class="o">[</span>123, 234, 345, 456]
+<span class="o">}</span><span class="s1">'
+</span></code></pre>
+</div>
+<p>ok，三条数据都写入成功了。</p>
+<p>然后我们用原始的 Elasticsearch 语法尝试去获取『大于100』的数据：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="c"># curl -XPOST "http://localhost:9200/nepr/_search?q=Accessible24Hours:&gt;100"</span>
+<span class="o">{</span><span class="s2">"took"</span>:16,<span class="s2">"timed_out"</span>:false,<span class="s2">"_shards"</span>:<span class="o">{</span><span class="s2">"total"</span>:5,<span class="s2">"successful"</span>:5,<span class="s2">"failed"</span>:0<span class="o">}</span>,<span class="s2">"hits"</span>:<span class="o">{</span><span class="s2">"total"</span>:0,<span class="s2">"max_score"</span>:null,<span class="s2">"hits"</span>:[]<span class="o">}}</span>
+</code></pre>
+</div>
+<p>可以看到，搜索结果是空。</p>
+<p>而用 SIREn 的树状结构语法获取：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="c"># curl -XPOST "http://localhost:9200/nepr/_search" -d '</span>
+<span class="o">{</span>
+  <span class="s2">"query"</span>: <span class="o">{</span>
+    <span class="s2">"tree"</span> : <span class="o">{</span>
+      <span class="s2">"node"</span> : <span class="o">{</span>
+        <span class="s2">"attribute"</span> : <span class="s2">"Accessible24Hours"</span>,
+        <span class="s2">"query"</span> : <span class="s2">"xsd:long([100 TO *])"</span>
+      <span class="o">}</span>
+    <span class="o">}</span>
+  <span class="o">}</span>
+<span class="o">}</span><span class="s1">'
+{"took":29,"timed_out":false,"_shards":{"total":5,"successful":5,"failed":0},"hits":{"total":2,"max_score":4.0,"hits":[{"_index":"nepr","_type":"chargepoint","_id":"4","_score":4.0,"_source":
+{
+    "ChargeDeviceName": "4c Design Limited, Glasgow (4)",
+    "Accessible24Hours": [123, 234, 345, 456]
+}},{"_index":"nepr","_type":"chargepoint","_id":"3","_score":1.0,"_source":
+{
+    "ChargeDeviceName": "3c Design Limited, Glasgow (3)",
+    "Accessible24Hours": 123
+}}]}}%
+</span></code></pre>
+</div>
+<p>yes，我们拿到了这条数据！</p>
+<p>更复杂一点，我们再来:</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="c"># curl -XPOST "http://localhost:9200/nepr/_search" -d '</span>
+<span class="o">{</span>
+  <span class="s2">"query"</span>: <span class="o">{</span>
+    <span class="s2">"tree"</span> : <span class="o">{</span>
+      <span class="s2">"node"</span> : <span class="o">{</span>
+        <span class="s2">"attribute"</span> : <span class="s2">"Accessible24Hours"</span>,
+        <span class="s2">"range"</span> : <span class="o">[</span>2,3],
+        <span class="s2">"query"</span> : <span class="s2">"xsd:long([10 TO *])"</span>
+      <span class="o">}</span>
+    <span class="o">}</span>
+  <span class="o">}</span>,
+  <span class="s2">"aggs"</span>: <span class="o">{</span>
+    <span class="s2">"1"</span>: <span class="o">{</span>
+      <span class="s2">"terms"</span>: <span class="o">{</span>
+        <span class="s2">"field"</span>: <span class="s2">"ChargeDeviceName"</span>
+      <span class="o">}</span>
+    <span class="o">}</span>
+  <span class="o">}</span>
+<span class="o">}</span><span class="s1">'
+</span></code></pre>
+</div>
+<p>这里添加了一个 <code class="highlighter-rouge">range</code> 选项，SIREn 对所有的数组默认就做 nested 处理了，所有是有序的。这个选项的意思就是，只对数组中第 2 到 3 位节点的数据做搜索请求。这下，搜索结果变成了：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="p">{</span><span class="nt">"took"</span><span class="p">:</span><span class="mi">9</span><span class="p">,</span><span class="nt">"timed_out"</span><span class="p">:</span><span class="kc">false</span><span class="p">,</span><span class="nt">"_shards"</span><span class="p">:{</span><span class="nt">"total"</span><span class="p">:</span><span class="mi">5</span><span class="p">,</span><span class="nt">"successful"</span><span class="p">:</span><span class="mi">5</span><span class="p">,</span><span class="nt">"failed"</span><span class="p">:</span><span class="mi">0</span><span class="p">},</span><span class="nt">"hits"</span><span class="p">:{</span><span class="nt">"total"</span><span class="p">:</span><span class="mi">1</span><span class="p">,</span><span class="nt">"max_score"</span><span class="p">:</span><span class="mf">2.0</span><span class="p">,</span><span class="nt">"hits"</span><span class="p">:[{</span><span class="nt">"_index"</span><span class="p">:</span><span class="s2">"nepr"</span><span class="p">,</span><span class="nt">"_type"</span><span class="p">:</span><span class="s2">"chargepoint"</span><span class="p">,</span><span class="nt">"_id"</span><span class="p">:</span><span class="s2">"4"</span><span class="p">,</span><span class="nt">"_score"</span><span class="p">:</span><span class="mf">2.0</span><span class="p">,</span><span class="nt">"_source"</span><span class="p">:</span><span class="w">
+    </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"ChargeDeviceName"</span><span class="p">:</span><span class="w"> </span><span class="s2">"4c Design Limited, Glasgow (4)"</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"Accessible24Hours"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">123</span><span class="p">,</span><span class="mi">234</span><span class="p">,</span><span class="mi">345</span><span class="p">,</span><span class="mi">456</span><span class="p">]</span><span class="w">
+    </span><span class="p">}}]},</span><span class="nt">"aggregations"</span><span class="p">:{</span><span class="nt">"1"</span><span class="p">:{</span><span class="nt">"buckets"</span><span class="p">:[{</span><span class="nt">"key"</span><span class="p">:</span><span class="s2">"4"</span><span class="p">,</span><span class="nt">"doc_count"</span><span class="p">:</span><span class="mi">1</span><span class="p">},{</span><span class="nt">"key"</span><span class="p">:</span><span class="s2">"4c"</span><span class="p">,</span><span class="nt">"doc_count"</span><span class="p">:</span><span class="mi">1</span><span class="p">},{</span><span class="nt">"key"</span><span class="p">:</span><span class="s2">"design"</span><span class="p">,</span><span class="nt">"doc_count"</span><span class="p">:</span><span class="mi">1</span><span class="p">},{</span><span class="nt">"key"</span><span class="p">:</span><span class="s2">"glasgow"</span><span class="p">,</span><span class="nt">"doc_count"</span><span class="p">:</span><span class="mi">1</span><span class="p">},{</span><span class="nt">"key"</span><span class="p">:</span><span class="s2">"limited"</span><span class="p">,</span><span class="nt">"doc_count"</span><span class="p">:</span><span class="mi">1</span><span class="p">}]}}}</span><span class="err">%</span><span class="w">
+</span></code></pre>
+</div>
+<p>可以看到，因为 <code class="highlighter-rouge">_id</code> 为 3 的文档里 Accessible24Hours 字段只有一个值，所以无法匹配上从第二个值开始的多个值的对比，也就没被过滤出来了。</p>
+<hr>
+<p>不过 SIREn 目前比较尴尬的是，他只基于 ES 做了 query 部分，aggregation 部分还是老样子，必须类型一致才行，这也导致 SIREn 示例文件数据里把一些冲突日志去掉了的原因。</p>
+<p>如果使用的是 Solr，SIREn 插件的做法是只定义两个 field，一个是 UUID，一个是 JSON。然后 siren 处理的所有数据存在这个 JSON 字段里(类似 ES 插件里的那个 <code class="highlighter-rouge">_siren_source</code> 字段)。这也就能达到全部 JSON schemaless。此外，SIREn 的 Solr 插件还实现了 nested facet 支持，也可以尝试。</p>
+<p>总之，SIREn 扩展采用树形方式自行处理一个在 ES、Solr 看来多出来的字段，而并不影响原有字段的处理流程。所以，这对 ES 有几个影响：</p>
+<ul>
+  <li>其他字段还是会判断数据类型并生成 mapping，所以写入依然会有问题。</li>
+  <li>aggregation 还是走 ES 的实现，导致根据 number 过滤出来的文档，在 aggregation 时却会按照 boolean(即 mapping 中的记录)检测，aggregation 请求直接报错不计算。</li>
+  <li>重复一遍树状索引数据，导致膨胀率翻倍增高。实测，一段大小约为 30MB 的数据，在 ES 默认环境中会膨胀到 50MB，而在开启 SIREn 插件的环境下则膨胀到了 120MB！</li>
+</ul>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

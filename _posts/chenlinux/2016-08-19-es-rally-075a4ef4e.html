@@ -1,0 +1,144 @@
+---
+layout: post
+title: 'Elastic 官方压测工具 rally 试用'
+time: 2016-08-19 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2016/08/19/es-rally/
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>rally 工具是 Elastic 官方开源的针对性性能压测工具。目前 Elasticsearch 的 nightly performance report 就是由 rally 产生的。对自己在做 ES 源码修改，或者ES 应用调优的人来说，通过 rally 验证自己的修改效果，是一件很需要且容易的事情。</p>
+<p>rally 依赖 python3.4+，所以为了试用直接在自己电脑上安装比较快。直接 <code class="highlighter-rouge">pip3 install esrally</code> 即可。</p>
+<p>电脑上没有 gradle 的无法从最新 master 代码编译(Macbook 上即使通过 dmg 安装的 gradle 也识别不到)。只能下 binary 包。所以运行方式为：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>/opt/local/Library/Frameworks/Python.framework/Versions/3.5/bin/esrally --pipeline=from-distribution --distribution-version=1.7.3
+</code></pre>
+</div>
+<p>默认情况下压测采用的数据集叫 geonames，是一个 2.8GB 大的 JSON 数据。ES 也提供了一系列其他类型的压测数据集。如果要切换数据集采用 <code class="highlighter-rouge">--track</code> 参数：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>/opt/local/Library/Frameworks/Python.framework/Versions/3.5/bin/esrally --pipeline=from-distribution --distribution-version=1.7.3 --track=geonames
+</code></pre>
+</div>
+<p>重复运行的时候可以修改 ~/.rally/rally.ini 里的 <code class="highlighter-rouge">tracks[default.url]</code> 为第一次运行时下载的地址：<strong>~/.rally/benchmarks/tracks/default</strong> 。然后离线运行：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>/opt/local/Library/Frameworks/Python.framework/Versions/3.5/bin/esrally --offline --pipeline=from-distribution --distribution-version=1.7.3 --track=geonames
+</code></pre>
+</div>
+<p>静静等待程序运行完毕，就会给出一个漂亮的输出结果了。</p>
+<p>这个运行会是一个很漫长的时间，如果你其实只关心部分的性能，比如只关心写入，不关心搜索。其实可以自己去修改一下 track 的任务定义。</p>
+<p>track 的定义文件在 <code class="highlighter-rouge">~/.rally/benchmarks/tracks/default/geonames/track.json</code>。如果你改动较大，建议直接新建一个 track 目录，比如叫 <code class="highlighter-rouge">mytest/track.json</code> 。</p>
+<p>对照 geonames 里的定义，有各种 operations，然后在 challenges 里指明调用哪些 operation。最后运行命令的时候通过 <code class="highlighter-rouge">--challenge=</code> 参数来指定执行哪个。</p>
+<p>下面是一段我在本机采用默认压测数据集 geonames 的结果：</p>
+<table>
+  <thead>
+    <tr>
+      <th>version</th>
+      <th>eps</th>
+      <th>index size</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1.7.3</td>
+      <td>12650</td>
+      <td>2.67GB</td>
+    </tr>
+    <tr>
+      <td>2.3.2</td>
+      <td>10344</td>
+      <td>3.31GB</td>
+    </tr>
+    <tr>
+      <td>5.0.0-alpha2</td>
+      <td>11903</td>
+      <td>3.19GB</td>
+    </tr>
+  </tbody>
+</table>
+<p>差距好大啊？！然后我发现 1.7.3 用的 mapping 没加 doc_values，修改 <code class="highlighter-rouge">~/.rally/benchmarks/tracks/default/geonames/mappings.json</code> ，都加上后重新测试结果：</p>
+<p>10448eps 3.25GB</p>
+<p>接着再关闭 <code class="highlighter-rouge">_all</code> 结果：</p>
+<p>12630eps 2.73GB</p>
+<p>接着再关闭<code class="highlighter-rouge">_field_names</code> 结果：</p>
+<p>14662eps 2.71GB</p>
+<p>以及打开<code class="highlighter-rouge">_field_names</code> 关闭 <code class="highlighter-rouge">_source</code> 结果：</p>
+<p>13121eps 2.04GB</p>
+<p>在关闭<code class="highlighter-rouge">_all</code>和<code class="highlighter-rouge">_field_names</code>的基础上，mapping中分词字符串字段加上</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>"index_options": "docs",
+"norms": {
+    "enabled": false
+}
+</code></pre>
+</div>
+<p>定义的结果：</p>
+<p>16226eps 2.6GB</p>
+<p>写入速度大概提高了10%。</p>
+<p>如果要用自己的数据集呢，也一样是在自己的 track.json 里定义，比如：</p>
+<pre><code class="language-JSON">{
+    "meta": {
+        "data-url": "/Users/raochenlin/.rally/benchmarks/data/splunklog/1468766825_10.json.bz2"
+    },
+    "indices": [
+        {
+            "name": "geonames",
+            "types": [
+                {
+                     "name": "type",
+                     "mapping": "mappings.json",
+                     "documents": "1468766825_10.json.bz2",
+                     "document-count":  924645,
+                     "compressed-bytes": 19149532,
+                     "uncompressed-bytes": 938012996
+                }
+            ]
+        }
+    ],
+</code></pre>
+<p>这里就是用的一份 splunkd 的 internal 日志，JSON 导出。日志原长度为 166152239，导出 JSON 长度为 938012996。</p>
+<p>同样做一次写入压测，结果为：</p>
+<ul>
+  <li>关闭<code class="highlighter-rouge">_field_names</code>：7193.5eps，索引大小358.173MB。</li>
+  <li>关闭<code class="highlighter-rouge">_field_names</code>和norms：8216.5eps，345.536MB。</li>
+  <li>关闭<code class="highlighter-rouge">_source</code>和norms：6615eps，192.817MB。</li>
+</ul>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

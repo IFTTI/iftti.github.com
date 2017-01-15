@@ -1,0 +1,71 @@
+---
+layout: post
+title: 'Lucene 查询中的距离查询(proximity query)'
+time: 2016-04-04 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2016/04/04/lucene-proximity-querystring/
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>我们在使用 ELK 的时候，使用 Lucene querystring 语法的机会，远超过使用 Elasticsearch 的 query DSL。毕竟在搜索框里写语法比自己拼 JSON 简单多了。</p>
+<p>不过一般我们用的 querystring 语法总是最简单的几样：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>text
+key:value
+key:"term"
+k1:v1 AND NOT k2:v2
+</code></pre>
+</div>
+<p>80% 的情况下，这几个用法也就足够了。但总有剩下的 20% 的情况，还是需要我们来了解一些更复杂的语法。</p>
+<p>举一个还算通用的场景：<strong>我们在 ELK 里索引了访问日志。这时候需要查一下以 <code class="highlighter-rouge">/api/login</code> 开头的 URL 们的情况。</strong></p>
+<p>我们没法确定 URL 里是不是只有 <code class="highlighter-rouge">/api/login</code> 一种可能。没准可能还有 <code class="highlighter-rouge">/api/oauth/login</code> 呢？没准可能还有 <code class="highlighter-rouge">login/weibo/api</code> 呢？</p>
+<p>一般来说，日志进 ELK 都是采用标准分词器的。而很巧，<code class="highlighter-rouge">/</code> 就是标准分词器的停止词之一。所以，我们在搜索框里写 <code class="highlighter-rouge">api/login</code> 等效于 <code class="highlighter-rouge">api login</code>。那么太多可能都可以命中了。</p>
+<p>这个时候，Lucene 查询语法里的距离查询(proximity query)就可以帮忙了：</p>
+<p><code class="highlighter-rouge">url:"api login"</code></p>
+<p>看起来很简单，无非是给加了一对双引号？！</p>
+<p>没错，加引号以后，意味着这个短语查询必须是有序的，即只能命中<em>先出现api，再出现login</em>的文本了。这下就把 <code class="highlighter-rouge">login/weibo/api</code> 排除掉了。</p>
+<p>其次，Lucene 距离查询默认的距离为 0，即只能命中<em>出现api之后，下一个term必须为login</em>的文本了。这些就把 <code class="highlighter-rouge">/api/oauth/login</code> 也排除了。</p>
+<p>当然，如果这时候你日志里除了 <code class="highlighter-rouge">api/login</code> 还有 <code class="highlighter-rouge">api,login</code> 之类的文本，也是会命中的。不过在 url 字段里出现这个的概率不大，可以无视了~</p>
+<p>如果你要搜的就是 <code class="highlighter-rouge">/api/oauth/login</code>，但是你不记得中间这个是不是 oauth，也可能是其他的吧，怎么办？</p>
+<p><code class="highlighter-rouge">url:"api login"~1</code></p>
+<p>后面加波浪线和距离即可。</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

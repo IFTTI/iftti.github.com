@@ -1,0 +1,1327 @@
+---
+layout: post
+title: '无锁数据结构：队列'
+time: 2017-01-12 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109648/
+images:
+  62af57f249e7916927ee98d5837624f2: http://jbcdn2.b0.upaiyun.com/2016/03/a36bf49854a9c7ef5cfae068a08d1261.jpg
+  5cc2541751308783bb0a6c35190bf904: http://jbcdn2.b0.upaiyun.com/2016/03/16936c85b82c476fb83ea5bbb38a89ea1.png
+  954024e73d2f513b1c75d259b2529d23: http://jbcdn2.b0.upaiyun.com/2016/03/5055a2bdee6f3efad5702357ead1e2ca.png
+  a78f6521bee01a7712325a54b3aae3a1: http://jbcdn2.b0.upaiyun.com/2016/03/8a375e568d2d453d9b15dac60adaa5456.png
+  68569b8f86461e1b4bad4290ce7b25b8: http://jbcdn2.b0.upaiyun.com/2016/03/c48e4f3019f41de124b1c17e54d8a107.png
+  3be67bfb4e77d1e56f6facca92130868: http://jbcdn2.b0.upaiyun.com/2016/03/4b06ccf36054b6a9736403c1afadf54f1.png
+  acda3426f2f8e417ec57a06e9c929edd: http://jbcdn2.b0.upaiyun.com/2016/03/ab36fce388d53bf19c2b01c13e961a0a.png
+  4d505ad17f6363052e03dec0ca808d45: http://jbcdn2.b0.upaiyun.com/2016/03/3eeaa3355fc3c50c758518add3d47229.png
+  e548efa6f888f48c5a171bebd28382ec: http://jbcdn2.b0.upaiyun.com/2016/12/c3d69df6568c8c8861768301d9607a81.jpg
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<p>队列多种多样，不同之处在于消息生产者、消费的数量不同；在于是基于预先分配的buffer有界队列，还是基于List的无界队列；在于是否支持优先级；在于是无锁非阻塞，还是有锁；在于严格遵守FIFO，公平还是非公平等等。更多细节参见<a href="http://www.1024cores.net/home/lock-free-algorithms/queues">Dmitry Vyukov的文章</a>。</p>
+<p>众所周知，更多特定的队列需求，势必需要更加有效的算法。本文中，只考虑队列最常见的版本，多个生产者对多个消费者，无界并发队列，因此不考虑优先级。</p>
+<p><img class="alignnone size-medium wp-image-55310" src="/images/jobbole.com/62af57f249e7916927ee98d5837624f2.jpg"></p>
+<p>我猜队列想必是研究人员最喜欢的数据结构，因为它简单，但却比栈复杂，因为它有两端而非一端。正是因为有两端，那么一个有趣的问题就出来了：如何在多线程环境下管理它们呢？各种版本的队列算法纷纷发表，想要做一个全面的描述是不可能的了。我提炼其中一些最流行的算法简要介绍一下，首先从经典队列开始。</p>
+<h2>经典队列</h2>
+<p>经典队列是一个带有两端，即头和尾的列表。从头部读取数据，从尾部写入数据。</p>
+<h2>一个标准的简单队列</h2>
+<p>下面的代码拷贝自<a href="http://blog.jobbole.com/90810/">《无锁数据结构：简介》</a></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f471b0ce677475022" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">C++</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+struct Node {
+        Node * m_pNext ;
+};
+class queue {
+        Node * m_pHead ;
+        Node * m_pTail ;
+public:
+        queue(): m_pHead( NULL ), m_pTail( NULL ) {}
+    void enqueue( Node * p )
+    {
+        p-&gt;m_pNext = nullptr;
+        if ( m_pTail )
+           m_pTail-&gt;m_pNext = p;
+        else
+            m_pHead = p ;
+        m_pTail = p ;
+    }
+    Node * dequeue()
+    {
+        if ( !m_pHead ) return nullptr ;
+        Node * p = m_pHead ;
+        m_pHead = p-&gt;m_pNext ;
+        if ( !m_pHead )
+            m_pTail = nullptr ;
+        return p ;
+    }
+};</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-8">8</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-10">10</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-12">12</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-14">14</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-16">16</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-18">18</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-20">20</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-22">22</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-24">24</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0ce677475022-26">26</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0ce677475022-27">27</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-1">
+<span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-e">Node</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-2">
+<span class="crayon-h">        </span><span class="crayon-v">Node</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pNext<span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-3">
+<span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-4">
+<span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">queue</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-5">
+<span class="crayon-h">        </span><span class="crayon-v">Node</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pHead<span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-6">
+<span class="crayon-h">        </span><span class="crayon-v">Node</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pTail<span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-7">
+<span class="crayon-m">public</span><span class="crayon-o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-8">
+<span class="crayon-h">        </span><span class="crayon-e">queue</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-e">m_pHead</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">m_pTail</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-9">
+<span class="crayon-h">    </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">enqueue</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">Node</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-i">p</span><span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-10">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-11">
+<span class="crayon-h">        </span><span class="crayon-v">p</span><span class="crayon-o">-&gt;</span><span class="crayon-v">m_pNext</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-t">nullptr</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-12">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pTail<span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-13">
+<span class="crayon-h">           </span><span class="crayon-v">m_pTail</span><span class="crayon-o">-&gt;</span><span class="crayon-v">m_pNext</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">p</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-14">
+<span class="crayon-h">        </span><span class="crayon-st">else</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-15">
+<span class="crayon-h">            </span><span class="crayon-v">m_pHead</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-i">p</span><span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-16">
+<span class="crayon-h">        </span><span class="crayon-v">m_pTail</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-i">p</span><span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-17">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-18">
+<span class="crayon-h">    </span><span class="crayon-v">Node</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-e">dequeue</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-19">
+<span class="crayon-h">    </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-20">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-o">!</span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pHead<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-t">nullptr</span><span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-21">
+<span class="crayon-h">        </span><span class="crayon-v">Node</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">p</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pHead<span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-22">
+<span class="crayon-h">        </span><span class="crayon-v">m_pHead</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">p</span><span class="crayon-o">-&gt;</span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pNext<span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-23">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-o">!</span><span class="crayon-v">m</span><span class="crayon-sy">_</span>pHead<span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-24">
+<span class="crayon-h">            </span><span class="crayon-v">m_pTail</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-t">nullptr</span><span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-25">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-i">p</span><span class="crayon-h"> </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0ce677475022-26">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0ce677475022-27">
+<span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0047 seconds] -->
+<p>这里就不要过多纠结于此，它不适用于并发，列出来只是为了印证主题，说明该队列有多简单。本文会向大家展示，该队列适用于并发场景时，其简单算法做了哪些变动。</p>
+<p>Michael和Scott的算法被认为是无锁队列的经典算法。</p>
+<p>以下代码来自libcds库，它是经典算法的一种简单实现。若想查看全部代码，请看cds::intrusive::MSQueue类。代码中包含有注释，避免大家读起来乏味：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f471b0d8439235974" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+bool enqueue( value_type&amp;amp; val )
+{
+    /*
+         实现细节：NODE_TYPE和VALUE_TYPE-
+        是不一样的，因此需要类型转换。
+       为了简单起见，我们假定node_traits :: to_node_ptr -
+      仅仅是的static_cast&amp;lt;node_type *&amp;gt;( &amp;amp;val )
+   */
+
+      node_type * pNew = node_traits::to_node_ptr( val )  ;
+      typename gc::Guard guard; // A guard, for example, Hazard Pointer
+      // Back-off strategy (of the template-argument class)
+      back_off bkoff;
+      node_type * t;
+       // As always in lock-free, we’ll deal with it, till we make the right thing...
+       while ( true ) {
+          /*
+            保护m_pTail, 在读取该字段时
+          可以规避已删除内存被读的情形
+          */
+           t = guard.protect( m_pTail, node_to_value() );
+           node_type * pNext = t-&amp;gt;m_pNext.load(
+                    memory_model::memory_order_acquire);
+          /*
+            有趣的是：该算法假定
+            m_pTail不能指向尾部（Tail），
+            而是希望通过进一步的调用实现对Tail正确的设置。
+            多线程互助就是一个典型的例子
+            */
+           if ( pNext != nullptr ) {
+               // 在接下来的线程之后
+                // 有必要有效地清理Tail
+                m_pTail.compare_exchange_weak( t, pNext,
+                       std::memory_order_release, std::memory_order_relaxed);
+                /*
+                  全部必须从新开始，即使CAS不成功；
+                  CAS不成功的，意味着在我们读取m_pTail之前，它已经被改变
+                  */
+                continue    ;
+           }
+          node_type * tmp = nullptr;
+          if ( t-&amp;gt;m_pNext.compare_exchange_strong( tmp, pNew,
+                                std::memory_order_release,
+                                std::memory_order_relaxed ))
+          {
+        // Have successfully added a new element to the queue.
+                    break    ;
+          }
+         /*
+          执行失败- 即CAS运算没有成功
+          这意味着有人先我们到达
+          检测到有并发，为了不恶化CAS
+          调用back_off函数
+          我们及时地做一个短时间的回退
+          */
+          bkoff();
+     }
+      /*
+       通常，我们可以利用元素计数器
+      显而易见，此计数器是不很准确：
+      元素早已添加，我们现在的才进行计数
+      这样的计数器只能作为元素数量的清单，
+      不能作为一个空队列符号
+      */
+    ++m_ItemCounter    ;
+    /*
+      最后，试着改变m_pTail的Tail。
+      不用在意成功与否，
+      如果没有成功，
+      它们会在dequeue()方法的Oops!注解前后被清理掉
+      */
+     m_pTail.compare_exchange_strong( t, pNew,
+               std::memory_order_acq_rel, std::memory_order_relaxed );
+     /*
+    本算法返回必然是true。
+    其它算法，比如有界队列，
+    当队列已满时，可以返回false
+    为了保证接口的一致性，enqueue()
+    总是返回成功的标志
+    */
+     return true;      
+}
+value_type * dequeue()
+{
+     node_type * pNext;
+     back_off bkoff;
+    // We need 2 Hazard Pointers for dequeue 
+     typename gc::template GuardArray&amp;lt;2&amp;gt;  guards;
+      node_type * h;
+      // Keep trying till we can execute it…
+      while ( true ) {
+           // Read and guard our Head m_pHead
+           h = guards.protect( 0, m_pHead, node_to_value() );
+           // and the element that follows the Head
+           pNext = guards.protect( 1, h-&amp;gt;m_pNext, node_to_value() );
+           // Check: is what we have just read 
+           // remains bounded?..
+           if ( m_pHead.load(std::memory_order_relaxed) != h ) {
+                // no, - someone has managed to spoil everything... 
+                // Start all over again
+                continue;
+           }
+          /*
+            此标记显示队列已空
+            注意与tail不同的是，
+            H=head始终不会错的
+            */
+           if ( pNext == nullptr )
+                 return nullptr;    // the queue is empty
+           /*
+            此处读取tail，但未采用Hazard Pointer对其进行保护
+            我们对其指向的上下文（数据结构中字段）不感兴趣
+            */
+           node_type * t = m_pTail.load(std::memory_order_acquire);
+           if ( h == t ) {
+                /*
+                  糟糕，有头无尾
+                  元素紧随头之后，
+                  并且尾指向头。
+                  我想到了应该纠错的时候了
+                  */
+               m_pTail.compare_exchange_strong( t, pNext,
+                        std::memory_order_release, std::memory_order_relaxed);
+               // After helping them, we have to start over. 
+               // Therefore, the CAS result is not important for us
+               continue;
+           }
+           // The most important thing is to link a new Head
+           // That is, we move down the list
+           if ( m_pHead.compare_exchange_strong( h, pNext, 
+                     std::memory_order_release, std::memory_order_relaxed ))
+           {
+                    // Success! Terminate our infinite loop
+                    break;
+           }
+           /*
+            倘若失败，意味着有其干预；
+            不干扰它们，退回去小歇片刻
+            */
+           bkoff()    ;
+     }
+    // Change the not very useful counter of elements, 
+    // see the comment in enqueue
+     --m_ItemCounter;
+     // It’s the call of 'remove the h element' functor
+     dispose_node( h );
+     /* 
+   /*
+   有趣的是，
+   返回[ex] Head后面的元素，
+   但pNext仍然在队列中-
+   这是队列的新头部！
+  */
+     */
+     return pNext;
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-8">8</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-10">10</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-12">12</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-14">14</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-16">16</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-18">18</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-20">20</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-22">22</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-24">24</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-26">26</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-28">28</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-30">30</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-32">32</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-34">34</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-36">36</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-38">38</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-40">40</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-42">42</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-44">44</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-46">46</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-48">48</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-50">50</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-52">52</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-53">53</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-54">54</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-55">55</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-56">56</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-57">57</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-58">58</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-59">59</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-60">60</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-61">61</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-62">62</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-63">63</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-64">64</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-65">65</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-66">66</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-67">67</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-68">68</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-69">69</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-70">70</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-71">71</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-72">72</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-73">73</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-74">74</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-75">75</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-76">76</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-77">77</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-78">78</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-79">79</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-80">80</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-81">81</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-82">82</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-83">83</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-84">84</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-85">85</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-86">86</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-87">87</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-88">88</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-89">89</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-90">90</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-91">91</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-92">92</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-93">93</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-94">94</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-95">95</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-96">96</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-97">97</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-98">98</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-99">99</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-100">100</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-101">101</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-102">102</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-103">103</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-104">104</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-105">105</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-106">106</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-107">107</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-108">108</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-109">109</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-110">110</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-111">111</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-112">112</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-113">113</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-114">114</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-115">115</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-116">116</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-117">117</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-118">118</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-119">119</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-120">120</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-121">121</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-122">122</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-123">123</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-124">124</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-125">125</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-126">126</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-127">127</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-128">128</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-129">129</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-130">130</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-131">131</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-132">132</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-133">133</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-134">134</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-135">135</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-136">136</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-137">137</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-138">138</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-139">139</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-140">140</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-141">141</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-142">142</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-143">143</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-144">144</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-145">145</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-146">146</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-147">147</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-148">148</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-149">149</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-150">150</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-151">151</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-152">152</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-153">153</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-154">154</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0d8439235974-155">155</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0d8439235974-156">156</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-1">
+<span class="crayon-t">bool</span><span class="crayon-h"> </span><span class="crayon-e">enqueue</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">value_type</span><span class="crayon-o">&amp;</span><span class="crayon-v">amp</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-i">val</span><span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-2"><span class="crayon-sy">{</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-3">
+<span class="crayon-h">    </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-4"><span class="crayon-c">         实现细节：NODE_TYPE和VALUE_TYPE-</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-5"><span class="crayon-c">        是不一样的，因此需要类型转换。</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-6"><span class="crayon-c">       为了简单起见，我们假定node_traits :: to_node_ptr -</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-7"><span class="crayon-c">      仅仅是的static_cast&amp;lt;node_type *&amp;gt;( &amp;amp;val )</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-8"><span class="crayon-c">   */</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-9"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-10">
+<span class="crayon-h">      </span><span class="crayon-e ">node_type *</span><span class="crayon-h"> </span><span class="crayon-v">pNew</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">node_traits</span><span class="crayon-o">::</span><span class="crayon-e">to_node_ptr</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-i">val</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-11">
+<span class="crayon-h">      </span><span class="crayon-e">typename </span><span class="crayon-v">gc</span><span class="crayon-o">::</span><span class="crayon-e">Guard </span><span class="crayon-v">guard</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">// A guard, for example, Hazard Pointer</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-12">
+<span class="crayon-h">      </span><span class="crayon-c">// Back-off strategy (of the template-argument class)</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-13">
+<span class="crayon-h">      </span><span class="crayon-e">back_off </span><span class="crayon-v">bkoff</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-14">
+<span class="crayon-h">      </span><span class="crayon-e ">node_type *</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-15">
+<span class="crayon-h">       </span><span class="crayon-c">// As always in lock-free, we’ll deal with it, till we make the right thing...</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-16">
+<span class="crayon-h">       </span><span class="crayon-st">while</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-t">true</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-17">
+<span class="crayon-h">          </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-18"><span class="crayon-c">            保护m_pTail, 在读取该字段时</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-19"><span class="crayon-c">          可以规避已删除内存被读的情形</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-20"><span class="crayon-c">          */</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-21">
+<span class="crayon-h">           </span><span class="crayon-v">t</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">guard</span><span class="crayon-sy">.</span><span class="crayon-e">protect</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">m_pTail</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">node_to_value</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-22">
+<span class="crayon-h">           </span><span class="crayon-e ">node_type *</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-o">-</span><span class="crayon-o">&amp;</span><span class="crayon-v">gt</span><span class="crayon-sy">;</span><span class="crayon-v">m_pNext</span><span class="crayon-sy">.</span><span class="crayon-e">load</span><span class="crayon-sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-23">
+<span class="crayon-h">                    </span><span class="crayon-v">memory_model</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_acquire</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-24">
+<span class="crayon-h">          </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-25"><span class="crayon-c">            有趣的是：该算法假定</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-26"><span class="crayon-c">            m_pTail不能指向尾部（Tail），</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-27"><span class="crayon-c">            而是希望通过进一步的调用实现对Tail正确的设置。</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-28"><span class="crayon-c">            多线程互助就是一个典型的例子</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-29"><span class="crayon-c">            */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-30">
+<span class="crayon-h">           </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-i">nullptr</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-31">
+<span class="crayon-h">               </span><span class="crayon-c">// 在接下来的线程之后</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-32">
+<span class="crayon-h">                </span><span class="crayon-c">// 有必要有效地清理Tail</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-33">
+<span class="crayon-h">                </span><span class="crayon-v">m_pTail</span><span class="crayon-sy">.</span><span class="crayon-e">compare_exchange_weak</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-34">
+<span class="crayon-h">                       </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_release</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_relaxed</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-35">
+<span class="crayon-h">                </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-36"><span class="crayon-c">                  全部必须从新开始，即使CAS不成功；</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-37"><span class="crayon-c">                  CAS不成功的，意味着在我们读取m_pTail之前，它已经被改变</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-38"><span class="crayon-c">                  */</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-39">
+<span class="crayon-h">                </span><span class="crayon-st">continue</span><span class="crayon-h">    </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-40">
+<span class="crayon-h">           </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-41">
+<span class="crayon-h">          </span><span class="crayon-e ">node_type *</span><span class="crayon-h"> </span><span class="crayon-v">tmp</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">nullptr</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-42">
+<span class="crayon-h">          </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-o">-</span><span class="crayon-o">&amp;</span><span class="crayon-v">gt</span><span class="crayon-sy">;</span><span class="crayon-v">m_pNext</span><span class="crayon-sy">.</span><span class="crayon-e">compare_exchange_strong</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">tmp</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">pNew</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-43">
+<span class="crayon-h">                                </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_release</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-44">
+<span class="crayon-h">                                </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order</span><span class="crayon-sy">_</span>relaxed<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-45">
+<span class="crayon-h">          </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-46">
+<span class="crayon-h">        </span><span class="crayon-c">// Have successfully added a new element to the queue.</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-47">
+<span class="crayon-h">                    </span><span class="crayon-st">break</span><span class="crayon-h">    </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-48">
+<span class="crayon-h">          </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-49">
+<span class="crayon-h">         </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-50"><span class="crayon-c">          执行失败- 即CAS运算没有成功</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-51"><span class="crayon-c">          这意味着有人先我们到达</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-52"><span class="crayon-c">          检测到有并发，为了不恶化CAS</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-53"><span class="crayon-c">          调用back_off函数</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-54"><span class="crayon-c">          我们及时地做一个短时间的回退</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-55"><span class="crayon-c">          */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-56">
+<span class="crayon-h">          </span><span class="crayon-e">bkoff</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-57">
+<span class="crayon-h">     </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-58">
+<span class="crayon-h">      </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-59"><span class="crayon-c">       通常，我们可以利用元素计数器</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-60"><span class="crayon-c">      显而易见，此计数器是不很准确：</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-61"><span class="crayon-c">      元素早已添加，我们现在的才进行计数</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-62"><span class="crayon-c">      这样的计数器只能作为元素数量的清单，</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-63"><span class="crayon-c">      不能作为一个空队列符号</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-64"><span class="crayon-c">      */</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-65">
+<span class="crayon-h">    </span><span class="crayon-o">++</span><span class="crayon-v">m</span><span class="crayon-sy">_</span>ItemCounter<span class="crayon-h">    </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-66">
+<span class="crayon-h">    </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-67"><span class="crayon-c">      最后，试着改变m_pTail的Tail。</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-68"><span class="crayon-c">      不用在意成功与否，</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-69"><span class="crayon-c">      如果没有成功，</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-70"><span class="crayon-c">      它们会在dequeue()方法的Oops!注解前后被清理掉</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-71"><span class="crayon-c">      */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-72">
+<span class="crayon-h">     </span><span class="crayon-v">m_pTail</span><span class="crayon-sy">.</span><span class="crayon-e">compare_exchange_strong</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">pNew</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-73">
+<span class="crayon-h">               </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_acq_rel</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order</span><span class="crayon-sy">_</span>relaxed<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-74">
+<span class="crayon-h">     </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-75"><span class="crayon-c">    本算法返回必然是true。</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-76"><span class="crayon-c">    其它算法，比如有界队列，</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-77"><span class="crayon-c">    当队列已满时，可以返回false</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-78"><span class="crayon-c">    为了保证接口的一致性，enqueue()</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-79"><span class="crayon-c">    总是返回成功的标志</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-80"><span class="crayon-c">    */</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-81">
+<span class="crayon-h">     </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-t">true</span><span class="crayon-sy">;</span><span class="crayon-h">      </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-82"><span class="crayon-sy">}</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-83">
+<span class="crayon-e ">value_type *</span><span class="crayon-h"> </span><span class="crayon-e">dequeue</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-84"><span class="crayon-sy">{</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-85">
+<span class="crayon-h">     </span><span class="crayon-e ">node_type *</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-86">
+<span class="crayon-h">     </span><span class="crayon-e">back_off </span><span class="crayon-v">bkoff</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-87">
+<span class="crayon-h">    </span><span class="crayon-c">// We need 2 Hazard Pointers for dequeue </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-88">
+<span class="crayon-h">     </span><span class="crayon-e">typename </span><span class="crayon-v">gc</span><span class="crayon-o">::</span><span class="crayon-e">template </span><span class="crayon-v">GuardArray</span><span class="crayon-o">&amp;</span><span class="crayon-v">lt</span><span class="crayon-sy">;</span><span class="crayon-cn">2</span><span class="crayon-o">&amp;</span><span class="crayon-v">gt</span><span class="crayon-sy">;</span><span class="crayon-h">  </span><span class="crayon-v">guards</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-89">
+<span class="crayon-h">      </span><span class="crayon-e ">node_type *</span><span class="crayon-h"> </span><span class="crayon-v">h</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-90">
+<span class="crayon-h">      </span><span class="crayon-c">// Keep trying till we can execute it…</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-91">
+<span class="crayon-h">      </span><span class="crayon-st">while</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-t">true</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-92">
+<span class="crayon-h">           </span><span class="crayon-c">// Read and guard our Head m_pHead</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-93">
+<span class="crayon-h">           </span><span class="crayon-v">h</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">guards</span><span class="crayon-sy">.</span><span class="crayon-e">protect</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">m_pHead</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">node_to_value</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-94">
+<span class="crayon-h">           </span><span class="crayon-c">// and the element that follows the Head</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-95">
+<span class="crayon-h">           </span><span class="crayon-v">pNext</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">guards</span><span class="crayon-sy">.</span><span class="crayon-e">protect</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">h</span><span class="crayon-o">-</span><span class="crayon-o">&amp;</span><span class="crayon-v">gt</span><span class="crayon-sy">;</span><span class="crayon-v">m_pNext</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">node_to_value</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-96">
+<span class="crayon-h">           </span><span class="crayon-c">// Check: is what we have just read </span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-97">
+<span class="crayon-h">           </span><span class="crayon-c">// remains bounded?..</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-98">
+<span class="crayon-h">           </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">m_pHead</span><span class="crayon-sy">.</span><span class="crayon-e">load</span><span class="crayon-sy">(</span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_relaxed</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-i">h</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-99">
+<span class="crayon-h">                </span><span class="crayon-c">// no, - someone has managed to spoil everything... </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-100">
+<span class="crayon-h">                </span><span class="crayon-c">// Start all over again</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-101">
+<span class="crayon-h">                </span><span class="crayon-st">continue</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-102">
+<span class="crayon-h">           </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-103">
+<span class="crayon-h">          </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-104"><span class="crayon-c">            此标记显示队列已空</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-105"><span class="crayon-c">            注意与tail不同的是，</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-106"><span class="crayon-c">            H=head始终不会错的</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-107"><span class="crayon-c">            */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-108">
+<span class="crayon-h">           </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-i">nullptr</span><span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-109">
+<span class="crayon-h">                 </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">nullptr</span><span class="crayon-sy">;</span><span class="crayon-h">    </span><span class="crayon-c">// the queue is empty</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-110">
+<span class="crayon-h">           </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-111"><span class="crayon-c">            此处读取tail，但未采用Hazard Pointer对其进行保护</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-112"><span class="crayon-c">            我们对其指向的上下文（数据结构中字段）不感兴趣</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-113"><span class="crayon-c">            */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-114">
+<span class="crayon-h">           </span><span class="crayon-e ">node_type *</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">m_pTail</span><span class="crayon-sy">.</span><span class="crayon-e">load</span><span class="crayon-sy">(</span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_acquire</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-115">
+<span class="crayon-h">           </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">h</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-i">t</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-116">
+<span class="crayon-h">                </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-117"><span class="crayon-c">                  糟糕，有头无尾</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-118"><span class="crayon-c">                  元素紧随头之后，</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-119"><span class="crayon-c">                  并且尾指向头。</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-120"><span class="crayon-c">                  我想到了应该纠错的时候了</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-121"><span class="crayon-c">                  */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-122">
+<span class="crayon-h">               </span><span class="crayon-v">m_pTail</span><span class="crayon-sy">.</span><span class="crayon-e">compare_exchange_strong</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-123">
+<span class="crayon-h">                        </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_release</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_relaxed</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-124">
+<span class="crayon-h">               </span><span class="crayon-c">// After helping them, we have to start over. </span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-125">
+<span class="crayon-h">               </span><span class="crayon-c">// Therefore, the CAS result is not important for us</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-126">
+<span class="crayon-h">               </span><span class="crayon-st">continue</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-127">
+<span class="crayon-h">           </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-128">
+<span class="crayon-h">           </span><span class="crayon-c">// The most important thing is to link a new Head</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-129">
+<span class="crayon-h">           </span><span class="crayon-c">// That is, we move down the list</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-130">
+<span class="crayon-h">           </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">m_pHead</span><span class="crayon-sy">.</span><span class="crayon-e">compare_exchange_strong</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">h</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-sy">,</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-131">
+<span class="crayon-h">                     </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_release</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order</span><span class="crayon-sy">_</span>relaxed<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-132">
+<span class="crayon-h">           </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-133">
+<span class="crayon-h">                    </span><span class="crayon-c">// Success! Terminate our infinite loop</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-134">
+<span class="crayon-h">                    </span><span class="crayon-st">break</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-135">
+<span class="crayon-h">           </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-136">
+<span class="crayon-h">           </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-137"><span class="crayon-c">            倘若失败，意味着有其干预；</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-138"><span class="crayon-c">            不干扰它们，退回去小歇片刻</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-139"><span class="crayon-c">            */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-140">
+<span class="crayon-h">           </span><span class="crayon-e">bkoff</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-141">
+<span class="crayon-h">     </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-142">
+<span class="crayon-h">    </span><span class="crayon-c">// Change the not very useful counter of elements, </span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-143">
+<span class="crayon-h">    </span><span class="crayon-c">// see the comment in enqueue</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-144">
+<span class="crayon-h">     </span><span class="crayon-o">--</span><span class="crayon-v">m_ItemCounter</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-145">
+<span class="crayon-h">     </span><span class="crayon-c">// It’s the call of 'remove the h element' functor</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-146">
+<span class="crayon-h">     </span><span class="crayon-e">dispose_node</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-i">h</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-147">
+<span class="crayon-h">     </span><span class="crayon-c">/* </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-148"><span class="crayon-c">   /*</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-149"><span class="crayon-c">   有趣的是，</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-150"><span class="crayon-c">   返回[ex] Head后面的元素，</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-151"><span class="crayon-c">   但pNext仍然在队列中-</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-152"><span class="crayon-c">   这是队列的新头部！</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-153"><span class="crayon-c">  */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-154">
+<span class="crayon-h">     </span><span class="crayon-o">*</span><span class="crayon-o">/</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0d8439235974-155">
+<span class="crayon-h">     </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">pNext</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0d8439235974-156"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0135 seconds] -->
+<p>正如大家所看到的，队列由一个有头有尾的单链表组成。</p>
+<p>算法的核心是什么呢？通过常规的CAS控制两个指针——这俩指针分别指向头部的和尾部。实际上得到的队列永远不为空。查看代码，是否有任何一处对头和尾做了nullptr检查？没有吧。非空的队列构造器中，添加哑元素（dummy element）给它，作为头和尾。出队返回一个元素，该元素作为一个新的头哑元素，其前面的哑元素被移除。</p>
+<p>（译者注：所谓哑元素，仅是为了占一个位置，让链表永远不为空，从而简化判断的边缘条件，其数据部分没有任何意义）</p>
+<p><img class="alignnone size-medium wp-image-55321" src="/images/jobbole.com/5cc2541751308783bb0a6c35190bf904.jpg"></p>
+<p>在设计侵入式队列时必须考虑，返回指针是队列的一部分，仅在下一次出队时可以移除它。</p>
+<p>其次，算法假定尾部指针不指向最后一个元素。每一次读取尾部，需检查尾部是否包含下一个m_pNext元素。倘若该指针不为nullptr<span style="color: #ff0000;">，</span>说明tail位置不对，应该后移。但这里有另外一个陷阱：或许tail会指向head前面的元素。为了避免这一点，出队方法中对m_pTail-&gt;m_pNext做了隐式地检查：先读取head，m_pHead-&gt;m_pNext元素紧随其后，确保pNext != nullptr。接着看到head等于tail，tail后面必然还有元素，即pNext，此时应该后移tail。这是一个典型的线程互助案例，它在无锁编程中很常见。</p>
+<p>2000年，小范围的算法优化被提出<span style="color: #ff0000;">。</span>该观点认为出队方法中的MSQueue算法，在每一次的循环迭代中，读取tail是没有必要的；只有在成功更新head时，才有必要读取tail，验证tail是否真的指向最后一个元素。因此，可以在某种程度上减少加载m_pTail的压力。这个优化参见libcds库中的cds::intrusive::MoirQueue类。</p>
+<h2>菜篮队列</h2>
+<p>2007年，一个MSQueue有趣的<a href="http://people.csail.mit.edu/shanir/publications/Baskets%20Queue.pdf">变体</a>被引入。无锁领域久负盛名的研究者Nir Shavit和他的助理们，采用不同的方法优化了Michael和Scott经典的无锁队列。</p>
+<p>Nir Shavit将队列作为一组逻辑菜篮，短时间内，每一个都可以插入一个新元素。一旦这个时间点过了，一个新的菜篮就会被创建。<br>
+<img class="alignnone size-medium wp-image-55323" src="/images/jobbole.com/954024e73d2f513b1c75d259b2529d23.jpg"></p>
+<p>每个菜篮包含一组无序元素，这种定义看似违反了队列-FIFO的基本特性；也就是说队列变成了非公平。FIFO是针对菜篮的，而非菜篮中的元素。倘若菜篮用来插入的时间段非常短暂，我们可以忽视菜篮中无序项。（译者注：时间短意味着，没放几个就创建了新的菜篮，因此可以近似地看做是FIFO）</p>
+<p>如何确定时间段的长短呢？菜篮队列作者认为，实际上，无需确定该时间短长短。让我们回头看一眼MSQueue队列，在入队运算中（enqueue），当并发很高时，CAS改变尾部（tail）无法正常工作；这就是为什么在MSQueue调用回退（back-off）的原因，在并发情况下加入元素，无法保证队列中元素项的排序。就是这个逻辑菜篮。正好说明，抽象的逻辑菜篮就是一种回退策略。</p>
+<p>在此，我不想过多地谈论代码实现，因此就不提供具体代码了。MSQueue例子已经很好的向我阐述了，无锁代码确实相当的简洁。有计划查看代码实现的，请参看libcds库中cds::intrusive::BasketQueue类，cds/intrusive/basket_queue.h文件。同时，为了解释本算法，我从Nir Shavit及其同事的工作中拷贝了另一张图：</p>
+<p><img class="alignnone size-medium wp-image-55330" src="/images/jobbole.com/a78f6521bee01a7712325a54b3aae3a1.jpg"></p>
+<p>1、A、B、C三个线程打算往队列中插入项。它们看到尾部（tail）在正确的位置，并试图并发改变tail（还记得在MSQueue中，尾部（tail）可以不指向队列中最后的元素）。<br>
+2、A线程获胜，成功插入一个新项。B和C则失败了——它们的tail的CAS运算没有成功执行。因此<span style="color: #ff0000;">，</span>它俩开始基于之前的读到的tail旧值，往菜篮中插入各自的项。<br>
+3、B线程先一步成功插入，与此同时，D线程调用入队（enqueue），成功完成项插入，并改变了尾部（tail）。<br>
+4、C线程此后也完成了插入，请看，它将项插入队列中间位置。在这个插入过程中，C使用的指向旧tail的指针，在线程进入运算但未成功执行CAS时，就已经读取此指针了。</p>
+<p>需要注意的是，在插入过程中，插入项可能被放入队列head前面。比如图NR 4中C前面的项：当C线程执行入队（enqueue）时，其它线程删除C前面的项。（译者注，旧的头部被删除了）<br>
+为了防止此类情形出现，建议采用逻辑删除，即用一个特殊删除标签标记待删除元素。这就要求指向项的标签和指针必须为原子性读取，我们在指向pNext项指针的最低有效位（lsb）中存入此标签。这是可以接受的，现代系统中内存分配都是以4个字节对齐，因为指针最低有效位的2个比特一直为零。所以我们创造了标记指针方法，该方法被广泛地应用于无锁数据结构中。当然未来我们会多次碰到此方法。应用逻辑删除，即在CAS帮助下，将pNext最低位比特值设为1，这样就可以避免插入项在head前面的情形出现。这样插入依旧由CAS来完成，与此同时，待删除项在最低位值为1.因此，CAS可能会失败。（当然，在插入项时，我们无需获取整个标记指针，只有最高有效位（msb）包含地址；我们假定最低有效位等于零）。</p>
+<p>菜篮队列最后一项改进是删除项实体，据观察，在每次成功调用出队时，改变头部令人不爽，因为CAS会被调用，正如你所知道的那样，这个操作太笨重了。因此，我们仅在存在好几个逻辑删除元素之后，才会改变头部。（在libcds库中，缺省值是三）。同样，当队列为空时，我们也可以改变头部（head）。可以说，在菜篮队列中，头部是变化跳动的。</p>
+<p>所有对经典无锁队列优化设计都是在高并发这个背景下展开的。</p>
+<h2>乐观方式</h2>
+<p>2004年 Nir Shavit和Edya Ladan Mozes在MSQueue引入另一种叫做<a href="http://people.csail.mit.edu/edya/publications/OptimisticFIFOQueue-journal.pdf">乐观的优化方式</a>。</p>
+<p><img class="alignnone size-medium wp-image-55332" src="/images/jobbole.com/68569b8f86461e1b4bad4290ce7b25b8.jpg"></p>
+<p>他们注意到Michael和Scott的算法中，出队运算仅需要一个CAS，而入队需要两个CAS，如上图所示。</p>
+<p>而入队中第二个CAS甚至在低加载时。能显著降低性能，因为在现代处理器中，CAS是一个相当重量级运算。是否在某种程度上可以处理掉这个不足呢？</p>
+<p>试想MSQueue::enqueue中存在两个CAS会怎样？第一个CAS添加新项到tail<span style="color: #ff0000;">，</span>使得pTail-&gt;pNext。第二个CAS将尾部向后移动。那么可否用一个原子性记录而非CAS改变pNext字段呢？确实可以，假定单链表的方向与以往不一样，并非从头到尾，而是从尾到头。因此可以采用原子性store（pNew-&gt;pNext = pTail）完成pNew-&gt;pNext任务，接着再通过CAS改变pTail。不过一旦改变了单链表方向，接下来如何进行出队运算呢？因为方向改变，pHead-&gt;pNext 必然不会存在了。</p>
+<p>乐观队列作者建议改用一个双链表。</p>
+<p>但问题是，针对CAS的无锁双链表有效算法迄今还未可知。已知的算法有DCAS，但没有对应的硬件实现。针对CAS的MCAS（CAS for M unbounded memory cells）仿真算法，但没那么有效（需要2M + 1 CAS），充其量就是一个理论的玩意。</p>
+<p>作者给出了以下方法：链表从尾部到头部的链接依旧是一致的（队列中并不需要next链接，但它可以处理入队第一个CAS）。正是由于从头到尾相反的方向，最重要的链接-prev-并不能真正的一致，意味着允许出现这种违例的。找出此类违例，我们就可以重建正确的表，放在next引用后面。如何检测此类违例了？事实上，这个相当简单：pHead-&gt;prev-&gt;next != pHead。如果这个不等在出队（dequeue）被发现， fix_list这个辅助处理过程就会被调用。</p>
+<p>摘自libcds库cds::intrusive::OptimisticQueue类</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f471b0e5139975534" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">C++</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+void fix_list( node_type * pTail, node_type * pHead )
+{            
+   // pTail and pHead are already protected by Hazard Pointers
+   node_type * pCurNode;
+   node_type * pCurNodeNext;
+   typename gc::template GuardArray&lt;2&gt; guards;
+   pCurNode = pTail;
+   while ( pCurNode != pHead ) { // Till we reach the head
+     pCurNodeNext = guards.protect(0, pCurNode-&gt;m_pNext, node_to_value() );
+     if ( pHead != m_pHead.load(std::memory_order_relaxed) )
+         break;
+     pCurNodeNext-&gt;m_pPrev.store( pCurNode, std::memory_order_release );
+     guards.assign( 1, node_traits::to_value_ptr( pCurNode = pCurNodeNext ));
+   }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e5139975534-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e5139975534-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e5139975534-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e5139975534-8">8</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e5139975534-10">10</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e5139975534-12">12</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e5139975534-14">14</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e5139975534-15">15</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-1">
+<span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">fix_list</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">node_type</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">pTail</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">node_type</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-i">pHead</span><span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e5139975534-2">
+<span class="crayon-sy">{</span><span class="crayon-h">            </span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-3">
+<span class="crayon-h">   </span><span class="crayon-c">// pTail and pHead are already protected by Hazard Pointers</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e5139975534-4">
+<span class="crayon-h">   </span><span class="crayon-v">node_type</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">pCurNode</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-5">
+<span class="crayon-h">   </span><span class="crayon-v">node_type</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">pCurNodeNext</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e5139975534-6">
+<span class="crayon-h">   </span><span class="crayon-r">typename</span><span class="crayon-h"> </span><span class="crayon-v">gc</span><span class="crayon-o">::</span><span class="crayon-t">template</span><span class="crayon-h"> </span><span class="crayon-v">GuardArray</span><span class="crayon-o">&lt;</span><span class="crayon-cn">2</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">guards</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-7">
+<span class="crayon-h">   </span><span class="crayon-v">pCurNode</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">pTail</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e5139975534-8">
+<span class="crayon-h">   </span><span class="crayon-st">while</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pCurNode</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-i">pHead</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h"> </span><span class="crayon-c">// Till we reach the head</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-9">
+<span class="crayon-h">     </span><span class="crayon-v">pCurNodeNext</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">guards</span><span class="crayon-sy">.</span><span class="crayon-e">protect</span><span class="crayon-sy">(</span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">pCurNode</span><span class="crayon-o">-&gt;</span><span class="crayon-v">m_pNext</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">node_to_value</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e5139975534-10">
+<span class="crayon-h">     </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pHead</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-v">m_pHead</span><span class="crayon-sy">.</span><span class="crayon-e">load</span><span class="crayon-sy">(</span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_relaxed</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-11">
+<span class="crayon-h">         </span><span class="crayon-st">break</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e5139975534-12">
+<span class="crayon-h">     </span><span class="crayon-v">pCurNodeNext</span><span class="crayon-o">-&gt;</span><span class="crayon-v">m_pPrev</span><span class="crayon-sy">.</span><span class="crayon-e">store</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pCurNode</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order</span><span class="crayon-sy">_</span>release<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-13">
+<span class="crayon-h">     </span><span class="crayon-v">guards</span><span class="crayon-sy">.</span><span class="crayon-e">assign</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">node_traits</span><span class="crayon-o">::</span><span class="crayon-e">to_value_ptr</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pCurNode</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-i">pCurNodeNext</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e5139975534-14">
+<span class="crayon-h">   </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e5139975534-15"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0038 seconds] -->
+<p>fix_list从队列的尾查至头，用正确的pNext引用，正确的pPrev。</p>
+<p>列表从头至尾的违例也是有可能的，更多的是因为延迟，而非重加载。延迟是因为操作系统替换或线程中断。具体请看 OptimisticQueue::enqueue中的代码：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-587a9f471b0e9356589769" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">C++</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+bool enqueue( value_type&amp; val )
+{
+  node_type * pNew = node_traits::to_node_ptr( val );
+  typename gc::template GuardArray&lt;2&gt; guards;
+  back_off bkoff;
+  guards.assign( 1, &amp;val );
+  node_type * pTail = guards.protect( 0, m_pTail, node_to_value());
+  while( true ) {
+    // 从尾至头形成一个直接列表
+     pNew-&gt;m_pNext.store( pTail, std::memory_order_release );
+     // Trying to change the tail
+     if ( m_pTail.compare_exchange_strong( pTail, pNew,
+        std::memory_order_release, std::memory_order_relaxed )) 
+     {
+        /*
+          从头到尾形成一个相反的列表
+          操作系统可以中断、替换。
+          结果，pTail从队列中被替换掉，即出队
+          （不用担心，pTail会被Hazard Pointer保护，因此具有不可被移除性）
+
+        */
+        pTail-&gt;m_pPrev.store( pNew, std::memory_order_release );
+        break ;                             // Enqueue done!
+     }
+     /*
+        CAS没有成功，pTail已被改变，（记住C++11中CAS特点：
+        第一个元素传的是引用）
+        Hazard Pointer保护新的pTail
+
+        */
+     guards.assign( 0, node_traits::to_value_ptr( pTail ));
+     // High contention – let’s step back
+     bkoff();
+  }
+  return true;
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-2">2</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-4">4</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-6">6</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-8">8</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-10">10</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-12">12</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-14">14</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-16">16</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-18">18</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-20">20</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-22">22</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-24">24</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-26">26</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-28">28</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-30">30</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-32">32</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-34">34</div>
+<div class="crayon-num" data-line="crayon-587a9f471b0e9356589769-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-587a9f471b0e9356589769-36">36</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-1">
+<span class="crayon-t">bool</span><span class="crayon-h"> </span><span class="crayon-e">enqueue</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">value_type</span><span class="crayon-o">&amp;</span><span class="crayon-h"> </span><span class="crayon-i">val</span><span class="crayon-h"> </span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-2"><span class="crayon-sy">{</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-3">
+<span class="crayon-h">  </span><span class="crayon-v">node_type</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">pNew</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">node_traits</span><span class="crayon-o">::</span><span class="crayon-e">to_node_ptr</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-i">val</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-4">
+<span class="crayon-h">  </span><span class="crayon-r">typename</span><span class="crayon-h"> </span><span class="crayon-v">gc</span><span class="crayon-o">::</span><span class="crayon-t">template</span><span class="crayon-h"> </span><span class="crayon-v">GuardArray</span><span class="crayon-o">&lt;</span><span class="crayon-cn">2</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">guards</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-5">
+<span class="crayon-h">  </span><span class="crayon-e">back_off </span><span class="crayon-v">bkoff</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-6">
+<span class="crayon-h">  </span><span class="crayon-v">guards</span><span class="crayon-sy">.</span><span class="crayon-e">assign</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">&amp;val </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-7">
+<span class="crayon-h">  </span><span class="crayon-v">node_type</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">pTail</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">guards</span><span class="crayon-sy">.</span><span class="crayon-e">protect</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">m_pTail</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">node_to_value</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-8">
+<span class="crayon-h">  </span><span class="crayon-st">while</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-t">true</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-9">
+<span class="crayon-h">    </span><span class="crayon-c">// 从尾至头形成一个直接列表</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-10">
+<span class="crayon-h">     </span><span class="crayon-v">pNew</span><span class="crayon-o">-&gt;</span><span class="crayon-v">m_pNext</span><span class="crayon-sy">.</span><span class="crayon-e">store</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pTail</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order</span><span class="crayon-sy">_</span>release<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-11">
+<span class="crayon-h">     </span><span class="crayon-c">// Trying to change the tail</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-12">
+<span class="crayon-h">     </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">m_pTail</span><span class="crayon-sy">.</span><span class="crayon-e">compare_exchange_strong</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pTail</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">pNew</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-13">
+<span class="crayon-h">        </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order_release</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order</span><span class="crayon-sy">_</span>relaxed<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-14">
+<span class="crayon-h">     </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-15">
+<span class="crayon-h">        </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-16"><span class="crayon-c">          从头到尾形成一个相反的列表</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-17"><span class="crayon-c">          操作系统可以中断、替换。</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-18"><span class="crayon-c">          结果，pTail从队列中被替换掉，即出队</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-19"><span class="crayon-c">          （不用担心，pTail会被Hazard Pointer保护，因此具有不可被移除性）</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-20"> </div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-21"><span class="crayon-c">        */</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-22">
+<span class="crayon-h">        </span><span class="crayon-v">pTail</span><span class="crayon-o">-&gt;</span><span class="crayon-v">m_pPrev</span><span class="crayon-sy">.</span><span class="crayon-e">store</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-v">pNew</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">std</span><span class="crayon-o">::</span><span class="crayon-v">memory_order</span><span class="crayon-sy">_</span>release<span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-23">
+<span class="crayon-h">        </span><span class="crayon-st">break</span><span class="crayon-h"> </span><span class="crayon-sy">;</span><span class="crayon-h">                             </span><span class="crayon-c">// Enqueue done!</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-24">
+<span class="crayon-h">     </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-25">
+<span class="crayon-h">     </span><span class="crayon-c">/*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-26"><span class="crayon-c">        CAS没有成功，pTail已被改变，（记住C++11中CAS特点：</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-27"><span class="crayon-c">        第一个元素传的是引用）</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-28"><span class="crayon-c">        Hazard Pointer保护新的pTail</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-29"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-30"><span class="crayon-c">        */</span></div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-31">
+<span class="crayon-h">     </span><span class="crayon-v">guards</span><span class="crayon-sy">.</span><span class="crayon-e">assign</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">node_traits</span><span class="crayon-o">::</span><span class="crayon-e">to_value_ptr</span><span class="crayon-sy">(</span><span class="crayon-h"> </span><span class="crayon-i">pTail</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-32">
+<span class="crayon-h">     </span><span class="crayon-c">// High contention – let’s step back</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-33">
+<span class="crayon-h">     </span><span class="crayon-e">bkoff</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-34">
+<span class="crayon-h">  </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-587a9f471b0e9356589769-35">
+<span class="crayon-h">  </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-t">true</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-587a9f471b0e9356589769-36"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0052 seconds] -->
+<p> </p>
+<p>这段代码证明了我们所做出的优化：建立pPrev列表（对我们最重要了），希望能成功。倘若发现直接列表和反向列表之间有错位，我们不得不花时间确认了（运行fix_list）。</p>
+<p>那么，底线在哪里？入队和出队各自都有一个CAS。代价就是一旦列表被检测出违例，就会运行fix_list。代价究竟有多大？实验结果会告诉我们。</p>
+<p>大家可以在cds/intrusive.optimistic_queue.h文件，以及libcds库中的cds::intrusive::OptimisticQueue类中找到源代码。</p>
+<h2>无等待队列</h2>
+<p>为了完整地阐述经典队列，我们应该谈谈无等待队列算法。</p>
+<p>无等待几乎是算法中最严格的，算法的执行时间必须可限定并且可预测。在实践中，无等待算法通常比诸如无锁、无干扰算法性能要低。但它们数量众多，实现起来也不复杂。</p>
+<p>许多无等待算法结构是相当标准：不是执行一运算（例如入队/出队），而是先声明<span style="color: #ff0000;">——</span>存储带参数的运算描述于一些可公开访问的共享存储中<span style="color: #ff0000;">，</span>接着不停地开启并发线程。接着它们浏览存储中的描述符，并试着执行该代码。结果，很多线程以很高的负载执行相同的任务，仅有一个线程成功。</p>
+<p>诸如此类的C++算法实现复杂度，主要涉及如何实现存储，以及处理描述符的内存分配。</p>
+<p>libcds库没有实现无等待队列，是因为该队列作者在其研究中，性能测试结果不尽人意。</p>
+<h2>测试结果</h2>
+<p>本文中，我决定提供以上算法的测试结果。</p>
+<p>测试是综合性的，测试机为双核处理器，Debian Linux，Intel Dual Xeon X5670 2.93 GHz, 6 cores per processor + hyperthreading，总共24逻辑处理器。测试过程中，机器闲置达百分之九十。</p>
+<p>编译器为GCC4.8.2，优化参数为-O3 -march=native -mtune=native。</p>
+<p>测试队列来自cds::container命名空间，因此，它们是非侵入式的，即每个元素执行各种的内存分配。随后我们会将队列与采用互斥量（mutex）的std::queue&lt;T, std::deque&lt;T&gt;&gt;和std::queue&lt;T, std::list&lt;T&gt;&gt;标准同步实现做比较。</p>
+<p>T类型为两个整型的数据结构。所有无锁队列都基于Hazard Pointer。</p>
+<h2>持久性测试</h2>
+<p>该测试相当特殊，有一千万对入队/出队运算。第一部分，测试执行一千万入队，75%为入队运算，剩余25%为出队运算，即一千万的入队运算，二百五十万的出队运算）。第二部分，出队运算执行七百五十万次，直到队列为空。</p>
+<p>测试遵循以下理念：减小缓存分配器的不利影响，当然前提是分配器含有缓存。</p>
+<p>测试时间的绝对值：</p>
+<p><img class="alignnone size-medium wp-image-55337" src="/images/jobbole.com/3be67bfb4e77d1e56f6facca92130868.jpg"></p>
+<p>大家看到了什么？</p>
+<p>首先映入眼帘的是，有锁std::queue&lt;T, std::deque&lt;T&gt;&gt;被证明是最快的。怎么可能呢？我认为这个跟内存有关：std::deque以N元素的块来分配内存，而非每个元素。这暗示我们应该移除测试中分配器的影响，这会带来相当长的延迟，另外，还有互斥量。当然， libcds的所有侵入式容器版本，没有为元素分配内存。理应对它们进行测试。</p>
+<p>显而易见，无锁队列，针对MSQueue所有缜密的优化开出了丰硕的果实，即便不是那么完美。</p>
+<h2>生产者和消费者测试</h2>
+<p>这个测试相当切合实际，队列中包含N个生产者，N个消费者，分别执行百万条写运算，百万条读运算。图表中的线程数，为生产者和消费者的线程数之和。</p>
+<p>测试时间的绝对值：</p>
+<p><img class="alignnone size-medium wp-image-55338" src="/images/jobbole.com/acda3426f2f8e417ec57a06e9c929edd.jpg"></p>
+<p>此处可以看出无锁队列是相当优雅，胜出者为OpimisticQueue。这就是说该无锁数据结构的所有假设被证明都是正确的。</p>
+<p>本测试接近实际情形，队列中没有出现大量元素堆积现象。为什么呢？个人认为，分配器内在的优化在起作用。确实如此，在最后阶段，队列的存在不是为了大量元素堆积，而是削峰，通常队列中是不存在元素的。</p>
+<h2>关于栈的补充说明</h2>
+<p>既然谈到测试，就来谈谈栈。</p>
+<p>本文以及前文所涉及的无锁栈，针对Treiber栈，我移除了回退（back-off）。不论实现，亦或者伪码描述、C++完整产品实现，理应单独作为一篇文章。不过我可能永远不会写，因为其中所涉及的代码是在太多。实际上，你会发现移除回退（back-off）之后，若你查看源码，完全不同。截止目前，只有libcds库里有。</p>
+<p>同样，我也提供了综合测试结果，测试机器和前面的一样。</p>
+<p>生产者和消费者测试：一些线程会写入栈中即压栈，而另一些线程会读取栈即弹栈。一组相同数量的生产者和消费者，生产者和消费者的线程总数都是百万级。标准的栈，其同步由互斥量完成。</p>
+<p>测试时间的绝对值：</p>
+<p><img class="alignnone size-medium wp-image-55339" src="/images/jobbole.com/4d505ad17f6363052e03dec0ca808d45.jpg"></p>
+<p>显而易见，图表本身就可以很好地说明事实。</p>
+<p>移除回退（back-off）之后，什么促使性能的显著增加？好像是因为压栈、弹栈相互抵消。然而，我们查看内部统计，就会发现百万个执行仅有十万到十五万个压栈、弹栈相互抵消，大约为0.1%。而移除回退整个进入数大约为三十五万。这说明移除回退最大的优势就是一些线程在负载高的时候休眠，进而自动降低了整个栈的负载。现实的例子，移除回退（back-off）的休眠线程会持续大约5毫秒。</p>
+<h2>总结</h2>
+<p>本文阐述了经典无锁队列，展示了列表元素。该对列显著的特点就是存在两个并发端-头部和尾部。接着缜密地阐述了Michael和Scott经典算法的一些改进。我希望你会对此感兴趣，并能在每天的生活中用到它。</p>
+<p>从测试结果看，尽管队列是无锁的，但神奇的CAS并没有带来任何特别的性能提升。因此，很有必要寻找其它一些方法消除瓶颈即头部和尾部，在某种程度上实现队列并行工作。</p>
+<p>这就是接下来我们要探讨的。</p>
+<p>无锁数据结构</p>
+<p><a href="http://blog.jobbole.com/90810/">引言</a></p>
+<p>基础篇</p>
+<p><a href="http://blog.jobbole.com/90811/"> 原子性和原子性原语</a></p>
+<p><a href="http://irl.cs.ucla.edu/~yingdi/web/paperreading/whymb.2010.06.07c.pdf"> 内存栅障</a></p>
+<p><a href="http://kukuruku.co/hub/cpp/lock-free-data-structures-memory-model-part-3"> 内存模型</a></p>
+<p>机制篇</p>
+<p><a href="http://kukuruku.co/hub/cpp/lock-free-data-structures-the-inside-memory-management-schemes">内存管理规则</a></p>
+<p><a href="http://kukuruku.co/hub/cpp/lock-free-data-structures-the-inside-rcu"> RCU</a></p>
+<p><a href="http://kukuruku.co/hub/cpp/lock-free-data-structures-the-evolution-of-a-stack">栈的演进</a></p>
+
+        
+            <blockquote class="rewards">
+        <p><strong>打赏支持我翻译更多好文章，谢谢！</strong></p>
+        <a href="#rewardbox" id="rewards-button" class="fancybox"><span class="btn-bluet-blue href-style"><i class="fa fa-jpy"></i> 打赏译者</span></a>
+    </blockquote>
+
+    <div id="rewardbox">
+        <h4>打赏支持我翻译更多好文章，谢谢！</h4>
+                <p>任选一种支付方式</p>
+                
+    </div>
+
+    
+        
+    <div class="post-adds">
+        <span data-post-id="109648" class=" btn-bluet-bigger href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="109648votetotal">2</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="109648" data-item-type="1" class=" btn-bluet-bigger href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 6 收藏</span>
+
+                    <a href="#article-comment"><span class="btn-bluet-bigger href-style hide-on-480"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+        
+        
+        <!-- JiaThis Button BEGIN -->
+        <div class="jiathis_style_24x24" style="display: inline-flex; position: relative; margin: 0; clear: both;float: right;">
+            <a class="jiathis_button_tsina"></a>
+            <a class="jiathis_button_weixin"></a>
+            <a class="jiathis_button_qzone"></a>
+            <a class="jiathis_button_fb hide-on-480"></a>
+            <a href="http://www.jiathis.com/share?uid=1745061" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank"></a>
+        </div>
+
+    </div>
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/qiaofeng">乔永琪</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/qiaofeng">
+			<img src="/images/jobbole.com/e548efa6f888f48c5a171bebd28382ec.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            （新浪微博：@甜菜碱）        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/qiaofeng" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/qiaofeng/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a>
+
+             · <a title="声望值" target="_blank" href="http://www.jobbole.com/members/qiaofeng/reputation/"><i class="fa fa-graduation-cap"></i> 18</a>        </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}

@@ -1,0 +1,141 @@
+---
+layout: post
+title: '虚拟机中的快照和备份之间的区别'
+time: 2017-01-10 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109703/
+images:
+  2f9bffe5fad98ac8721ba7919c1752c6: http://jbcdn2.b0.upaiyun.com/2016/06/6f70d1ee9c030a14a9b51bdf0ed3de35.jpg
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<p>虚拟化的术语中，快照和备份普遍被滥用。让我来解释一下虚拟机快照和备份的基本区别。</p>
+<h1>虚拟机快照</h1>
+<p>VMware 和 Hyper-V 的快照，都可以捕获虚机运行状态（开机，关机，中止）、虚机运行产生的数据（虚拟磁盘，内存)和运行中虚拟机的硬件配置（虚拟网卡）。</p>
+<h2>虚拟机如何通过快照恢复？</h2>
+<p><span style="background-color: #ffffff;">虚拟机可以恢复到创建快照的时刻：比如，它可以在内存全部加载完时启动。所有程序的运行状态恢复到创建快照时的状态。这是快照不能被备份替代的原因之一。</span></p>
+<h2>什么时候应该使用快照?</h2>
+<p>创建快照同时会创建一个记录了虚拟机状态变化的一个文件。这对性能有一些影响。基本上，随着镜像越来越多，性能会随之降低。</p>
+<p>虚拟机快照只能在非生产环境创建，在非生产环境中，软件可以在一个不占用CPU的单独虚机上运行。就是说，如果将虚拟机从快照恢复到以前的状态可能会引起一些机器本身依赖的应用程序（Exchange,SharePoint,SQL Server..等)各层之间不兼容。</p>
+<p><span style="background-color: #ffffff;">每个软件各层之间都会有不同的依赖，主要分为以下几层：</span></p>
+<ul>
+<li><span style="background-color: #ffffff;">web前端</span></li>
+<li><span style="background-color: #ffffff;">应用中间层</span></li>
+<li><span style="background-color: #ffffff;">数据库后端</span></li>
+</ul>
+<p>如果所有的这些都包含在一个单独虚机（比如SharePoint和SQL服务器)中，那么这个非生产环境可以很方便地创建快照。</p>
+<p>理想的情况就是在创建快照前关掉虚拟机。在不产生变化的状态下，尽管不能降低RAM，也可以节省很大的硬盘空间。</p>
+<h1>虚拟机备份</h1>
+<p><span style="background-color: #ffffff;">虚拟机快照和备份最主要的区别在于：</span></p>
+<ul>
+<li><span style="background-color: #ffffff;">一个虚机从备份恢复时，必须在启动状态</span></li>
+<li><span style="background-color: #ffffff;">一个虚机从快照中恢复，可以在开机状态</span></li>
+</ul>
+<p>微软卷影复制技术，也称为卷快照服务，是一个用于创建单时间点数据副本的Windows 服务器数据备份特性。</p>
+<p>Hyper-V有自己的VSS写入器，而VMware使用它的<strong>VDP</strong>进行备份恢复。</p>
+<p>任何第三方备份产品为实现虚拟机备份，都会调用刚刚提及的一些技术的API。</p>
+<p>备份应该包含一些配置，虚拟机使用的虚拟机快照和虚拟硬盘。</p>
+<p>VMware借用第三方备份产品执行的主要操作如下：</p>
+<h2>备份一个VMware虚拟机</h2>
+<p><span style="background-color: #ffffff;">1.连接包含目标虚拟机的服务器</span></p>
+<p><span style="background-color: #ffffff;">2.通过服务器创建一个目标虚拟机的快照</span></p>
+<p><span style="background-color: #ffffff;">3.通过服务器获得虚机磁盘和快照的文件的使用权</span></p>
+<p><span style="background-color: #ffffff;">4.捕获虚机磁盘数据和虚机配置信息</span></p>
+<p><span style="background-color: #ffffff;">5.通过服务器清除备份快照</span></p>
+<h2>从 VMware 虚拟机还原</h2>
+<p>你可以选择任意一种还原情景：</p>
+<p><strong>将一个已存在的虚机还原到一个单独虚机</strong></p>
+<ol>
+<li><span style="background-color: #ffffff;">连接到服务器，关掉目标虚机</span></li>
+<li><span style="background-color: #ffffff;">通过server获取虚拟磁盘的使用权</span></li>
+<li><span style="background-color: #ffffff;">在备份程序中传递磁盘的镜像</span></li>
+</ol>
+<p><strong><span style="background-color: #ffffff;">完全重创虚机</span></strong></p>
+<ol>
+<li><span style="background-color: #ffffff;">连接服务器</span></li>
+<li><span style="background-color: #ffffff;">通过服务器使用上面提到的备份过程的第四步中的配置信息创建一个新的虚拟机和虚拟机的虚拟磁盘</span></li>
+<li><span style="background-color: #ffffff;">将虚拟磁盘数据转移到一个新建的虚拟磁盘中。这里包含了虚拟磁盘的格式化信息，因此没有必要在虚拟磁盘上建立任何种类的文件系统。</span></li>
+</ol>
+<h1>需要牢记什么？</h1>
+<p>执行VMware或者Hyper-V虚拟机备份都涉及到了虚拟机快照技术的应用，然而开始执行还原的时刻，备份和快照的情况是不一样的。</p>
+<ul>
+<li><strong><span style="background-color: #ffffff;">虚拟机从备份还原的时候必需在还原后才可以开机</span></strong></li>
+<li><strong><span style="background-color: #ffffff;">虚拟机从快照恢复时，可以保持开机状态</span></strong></li>
+</ul>
+<p><strong>参考资料：</strong></p>
+<p><span style="background-color: #ffffff;">VMware虚拟机快照：</span></p>
+<p><span style="background-color: #ffffff;"><a style="background-color: #ffffff;" href="http://kb.vmware.com/selfservice/microsites/search.do?language=en_US&amp;cmd=displayKC&amp;externalId=1015180" target="_blank">http://kb.VMware.com/selfservice/microsites/search.do?language=en_US&amp;cmd=displayKC&amp;externalId=1015180</a></span><br>
+<span style="background-color: #ffffff;">Hyper-V VM snapshot: <a style="background-color: #ffffff;" href="http://technet.microsoft.com/en-us/library/dd560637(v=WS.10).aspx" target="_blank">http://technet.microsoft.com/en-us/library/dd560637(v=WS.10).aspx</a></span><span style="background-color: #ffffff;"> </span></p>
+<p><span style="background-color: #ffffff;">VMware备份：</span></p>
+<p><span style="background-color: #ffffff;"><a style="background-color: #ffffff;" href="https://www.vmware.com/support/developer/vddk/vcb_vsphere_backup.pdf" target="_blank">https://www.VMware.com/support/developer/vddk/vcb_vsphere_backup.pdf</a></span><br>
+<span style="background-color: #ffffff;">Hyper-V backup: <a style="background-color: #ffffff;" href="http://technet.microsoft.com/en-us/library/dd252619.aspx" target="_blank">http://technet.microsoft.com/en-us/library/dd252619.aspx</a></span></p>
+
+        
+            <blockquote class="rewards">
+        <p><strong>打赏支持我翻译更多好文章，谢谢！</strong></p>
+        <a href="#rewardbox" id="rewards-button" class="fancybox"><span class="btn-bluet-blue href-style"><i class="fa fa-jpy"></i> 打赏译者</span></a>
+    </blockquote>
+
+    <div id="rewardbox">
+        <h4>打赏支持我翻译更多好文章，谢谢！</h4>
+                <p>任选一种支付方式</p>
+                
+    </div>
+
+    
+        
+    <div class="post-adds">
+        <span data-post-id="109703" class=" btn-bluet-bigger href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="109703votetotal">1</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="109703" data-item-type="1" class=" btn-bluet-bigger href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i>  收藏</span>
+
+                    <a href="#article-comment"><span class="btn-bluet-bigger href-style hide-on-480"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+        
+        
+        <!-- JiaThis Button BEGIN -->
+        <div class="jiathis_style_24x24" style="display: inline-flex; position: relative; margin: 0; clear: both;float: right;">
+            <a class="jiathis_button_tsina"></a>
+            <a class="jiathis_button_weixin"></a>
+            <a class="jiathis_button_qzone"></a>
+            <a class="jiathis_button_fb hide-on-480"></a>
+            <a href="http://www.jiathis.com/share?uid=1745061" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank"></a>
+        </div>
+
+    </div>
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+<div id="author-bio">
+	
+	<h3 class="widget-title">
+	关于作者：<a target="_blank" href="http://www.jobbole.com/members/2937134480">百焱</a>
+	</h3>
+	<div class="alignleft">
+		<a target="_blank" href="http://www.jobbole.com/members/2937134480">
+			<img src="/images/jobbole.com/2f9bffe5fad98ac8721ba7919c1752c6.jpg">
+		</a>
+	</div>
+
+    <div class="author-bio-info">
+
+        <span class="author-bio-info-block">
+            选最难走的路        </span>
+        <span class="author-bio-info-block">
+            <a href="http://www.jobbole.com/members/2937134480" target="_blank"><i class="fa fa-user"></i> 个人主页</a> ·
+            <a href="http://blog.jobbole.com/author/2937134480/" target="_blank"><i class="fa fa-file-text-o"></i> 我的文章</a>
+
+             · <a title="声望值" target="_blank" href="http://www.jobbole.com/members/2937134480/reputation/"><i class="fa fa-graduation-cap"></i> 19</a> · <a title="我的网站" target="_blank" href="http://zhangzhengjiao.com"><i class="fa fa-link"></i></a> <a title="微博主页" target="_blank" href="http://weibo.com/2937134480"><i class="fa fa-weibo"></i></a> <a title="QQ：379047366" target="_blank" href="#"><i class="fa fa-qq"></i></a> <a title="个人微信：zzj379047366" target="_blank" href="#"><i class="fa fa-weixin"></i></a>         </span>
+    </div>
+	<div class="clear"></div>
+</div>
+
+<!-- END #author-bio -->
+	
+{% endraw %}

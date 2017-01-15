@@ -1,0 +1,232 @@
+---
+layout: post
+title: 'Kibana4 服务器端插件开发'
+time: 2016-01-27 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2016/01/27/kibana-server-plugin-develop/
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>我在 ELK Stack 中文指南的 <a href="http://kibana.logstash.es/content/kibana/v4/source-code-analysis/visualize_app.html">visualize 解析</a>一节介绍了如何给 Kibana4 开发浏览器端的可视化插件。Kibana4 跟 Kibana3 比，最大的一个变化是有了独立的 node.js 服务器端。那么同样的，也就有了服务器端的 Kibana4 插件。最明显的一个场景：我们可以在 node.js 里跑定时器做 Elasticsearch 的告警逻辑了！</p>
+<p>本文示例一个最基础的 Kibana4 告警插件开发。只演示基础的定时器和 Kibana4 插件规范，实际运用中，肯定还涉及历史记录，告警项配置更新等。请读者不要直接 copy-paste。</p>
+<p>首先，我们尽量沿袭 Elastic 官方的 watcher 产品的告警配置设计。也新建一个索引，里面是具体的配置内容：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="err">#</span><span class="w"> </span><span class="err">curl</span><span class="w"> </span><span class="err">-XPUT</span><span class="w"> </span><span class="err">http://</span><span class="mf">127.0</span><span class="err">.</span><span class="mf">0.1</span><span class="err">:</span><span class="mi">9200</span><span class="err">/watcher/watch/error_status</span><span class="w"> </span><span class="err">-d'</span><span class="w">
+</span><span class="p">{</span><span class="w">
+  </span><span class="nt">"trigger"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"schedule"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"interval"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"60"</span><span class="w">  </span><span class="p">}</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nt">"input"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"search"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+      </span><span class="nt">"request"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"indices"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="s2">"&lt;logstash-{now/d}&gt;"</span><span class="p">,</span><span class="w"> </span><span class="s2">"&lt;logstash-{now/d-1d}&gt;"</span><span class="w">  </span><span class="p">],</span><span class="w">
+        </span><span class="nt">"body"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"query"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"filtered"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"query"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"match"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"host"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"MacBook-Pro"</span><span class="w">  </span><span class="p">}</span><span class="w"> </span><span class="p">},</span><span class="w">
+              </span><span class="nt">"filter"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"range"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"@timestamp"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"from"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"now-5m"</span><span class="w">  </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nt">"condition"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"script"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+      </span><span class="nt">"script"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"payload.hits.total &gt; 0"</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nt">"transform"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"search"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+      </span><span class="nt">"request"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"indices"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="s2">"&lt;logstash-{now/d}&gt;"</span><span class="p">,</span><span class="w"> </span><span class="s2">"&lt;logstash-{now/d-1d}&gt;"</span><span class="w">  </span><span class="p">],</span><span class="w">
+        </span><span class="nt">"body"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"query"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"filtered"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"query"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"match"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"host"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"MacBook-Pro"</span><span class="w">  </span><span class="p">}</span><span class="w"> </span><span class="p">},</span><span class="w">
+              </span><span class="nt">"filter"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"range"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"@timestamp"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"from"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"now-5m"</span><span class="w">  </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">},</span><span class="w">
+          </span><span class="nt">"aggs"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"topn"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"terms"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"field"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"path.raw"</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nt">"actions"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"email_admin"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"throttle_period"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"15m"</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"email"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+      </span><span class="nt">"to"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"admin@domain"</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"subject"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"Found  Error Events"</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"priority"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"high"</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"body"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"Top10 paths:\n\t \n"</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="err">'</span><span class="w">
+</span></code></pre>
+</div>
+<p>我们可以看到，跟原版的相比，只改动了很小的一些地方：</p>
+<ol>
+  <li>为了简便，<code class="highlighter-rouge">interval</code> 固定写数值，没带 <code class="highlighter-rouge">s/m/d/H</code> 之类的单位；</li>
+  <li>
+<code class="highlighter-rouge">condition</code> 里直接使用了 JavaScript，这点也是 ES 2.x 的 mapping 要求跟 watcher 本身有冲突的一个地方：watcher的 <code class="highlighter-rouge">"ctx.payload.hits.total" : { "gt" : 0 }</code> 这种写法，如果是普通索引，会因为字段名里带 <code class="highlighter-rouge">.</code> 直接写入失败的；</li>
+  <li>因为是在 Kibana 里面运行，所以从 ES 拿到的只有 payload(也就是查询响应)，所以把里面的 <code class="highlighter-rouge">ctx.</code> 都删掉了。</li>
+</ol>
+<p>好，然后创建插件：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>cd kibana-4.3.0-darwin-x64/src/plugins
+mkdir alert
+</code></pre>
+</div>
+<p>在自定义插件目录底下创建 <code class="highlighter-rouge">package.json</code> 描述：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"alert"</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"0.0.1"</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre>
+</div>
+<p>以及最终的 <code class="highlighter-rouge">index.js</code> 代码：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="s1">'use strict'</span><span class="p">;</span>
+<span class="nx">module</span><span class="p">.</span><span class="nx">exports</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">kibana</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">later</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'later'</span><span class="p">);</span>
+  <span class="kd">var</span> <span class="nx">_</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'lodash'</span><span class="p">);</span>
+  <span class="kd">var</span> <span class="nx">mustache</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'mustache'</span><span class="p">);</span>
+  <span class="k">return</span> <span class="k">new</span> <span class="nx">kibana</span><span class="p">.</span><span class="nx">Plugin</span><span class="p">({</span>
+    <span class="na">init</span><span class="p">:</span> <span class="kd">function</span> <span class="nx">init</span><span class="p">(</span><span class="nx">server</span><span class="p">)</span> <span class="p">{</span>
+      <span class="kd">var</span> <span class="nx">client</span> <span class="o">=</span> <span class="nx">server</span><span class="p">.</span><span class="nx">plugins</span><span class="p">.</span><span class="nx">elasticsearch</span><span class="p">.</span><span class="nx">client</span><span class="p">;</span>
+      <span class="kd">var</span> <span class="nx">sched</span> <span class="o">=</span> <span class="nx">later</span><span class="p">.</span><span class="nx">parse</span><span class="p">.</span><span class="nx">text</span><span class="p">(</span><span class="s1">'every 10 minute'</span><span class="p">);</span>
+      <span class="nx">later</span><span class="p">.</span><span class="nx">setInterval</span><span class="p">(</span><span class="nx">doalert</span><span class="p">,</span> <span class="nx">sched</span><span class="p">);</span>
+      <span class="kd">function</span> <span class="nx">doalert</span><span class="p">()</span> <span class="p">{</span>
+        <span class="nx">getCount</span><span class="p">().</span><span class="nx">then</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">resp</span><span class="p">){</span>
+          <span class="nx">getWatcher</span><span class="p">(</span><span class="nx">resp</span><span class="p">.</span><span class="nx">count</span><span class="p">).</span><span class="nx">then</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">resp</span><span class="p">){</span>
+            <span class="nx">_</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">resp</span><span class="p">.</span><span class="nx">hits</span><span class="p">.</span><span class="nx">hits</span><span class="p">,</span> <span class="kd">function</span><span class="p">(</span><span class="nx">hit</span><span class="p">){</span>
+              <span class="kd">var</span> <span class="nx">watch</span> <span class="o">=</span> <span class="nx">hit</span><span class="p">.</span><span class="nx">_source</span><span class="p">;</span>
+              <span class="kd">var</span> <span class="nx">every</span> <span class="o">=</span> <span class="nx">watch</span><span class="p">.</span><span class="nx">trigger</span><span class="p">.</span><span class="nx">schedule</span><span class="p">.</span><span class="nx">interval</span><span class="p">;</span>
+              <span class="kd">var</span> <span class="nx">watchSched</span> <span class="o">=</span> <span class="nx">later</span><span class="p">.</span><span class="nx">parse</span><span class="p">.</span><span class="nx">recur</span><span class="p">().</span><span class="nx">every</span><span class="p">(</span><span class="nx">every</span><span class="p">).</span><span class="nx">second</span><span class="p">();</span>
+              <span class="kd">var</span> <span class="nx">wt</span> <span class="o">=</span> <span class="nx">later</span><span class="p">.</span><span class="nx">setInterval</span><span class="p">(</span><span class="nx">watching</span><span class="p">,</span> <span class="nx">watchSched</span><span class="p">);</span>
+              <span class="kd">function</span> <span class="nx">watching</span><span class="p">()</span> <span class="p">{</span>
+                <span class="kd">var</span> <span class="nx">request</span> <span class="o">=</span> <span class="nx">watch</span><span class="p">.</span><span class="nx">input</span><span class="p">.</span><span class="nx">search</span><span class="p">.</span><span class="nx">request</span><span class="p">;</span>
+                <span class="kd">var</span> <span class="nx">condition</span> <span class="o">=</span> <span class="nx">watch</span><span class="p">.</span><span class="nx">condition</span><span class="p">.</span><span class="nx">script</span><span class="p">.</span><span class="nx">script</span><span class="p">;</span>
+                <span class="kd">var</span> <span class="nx">transform</span> <span class="o">=</span> <span class="nx">watch</span><span class="p">.</span><span class="nx">transform</span><span class="p">.</span><span class="nx">search</span><span class="p">.</span><span class="nx">request</span><span class="p">;</span>
+                <span class="kd">var</span> <span class="nx">actions</span> <span class="o">=</span> <span class="nx">watch</span><span class="p">.</span><span class="nx">actions</span><span class="p">;</span>
+                <span class="nx">client</span><span class="p">.</span><span class="nx">search</span><span class="p">(</span><span class="nx">request</span><span class="p">).</span><span class="nx">then</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">payload</span><span class="p">){</span>
+                  <span class="kd">var</span> <span class="nx">ret</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="nx">condition</span><span class="p">);</span>
+                  <span class="k">if</span> <span class="p">(</span><span class="nx">ret</span><span class="p">)</span> <span class="p">{</span>
+                    <span class="nx">client</span><span class="p">.</span><span class="nx">search</span><span class="p">(</span><span class="nx">transform</span><span class="p">).</span><span class="nx">then</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">payload</span><span class="p">)</span> <span class="p">{</span>
+                      <span class="nx">_</span><span class="p">.</span><span class="nx">each</span><span class="p">(</span><span class="nx">_</span><span class="p">.</span><span class="nx">values</span><span class="p">(</span><span class="nx">actions</span><span class="p">),</span> <span class="kd">function</span><span class="p">(</span><span class="nx">action</span><span class="p">){</span>
+                        <span class="k">if</span><span class="p">(</span><span class="nx">_</span><span class="p">.</span><span class="nx">has</span><span class="p">(</span><span class="nx">action</span><span class="p">,</span> <span class="s1">'email'</span><span class="p">))</span> <span class="p">{</span>
+                          <span class="kd">var</span> <span class="nx">subject</span> <span class="o">=</span> <span class="nx">mustache</span><span class="p">.</span><span class="nx">render</span><span class="p">(</span><span class="nx">action</span><span class="p">.</span><span class="nx">email</span><span class="p">.</span><span class="nx">subject</span><span class="p">,</span> <span class="p">{</span><span class="s2">"payload"</span><span class="p">:</span><span class="nx">payload</span><span class="p">});</span>
+                          <span class="kd">var</span> <span class="nx">body</span> <span class="o">=</span> <span class="nx">mustache</span><span class="p">.</span><span class="nx">render</span><span class="p">(</span><span class="nx">action</span><span class="p">.</span><span class="nx">email</span><span class="p">.</span><span class="nx">body</span><span class="p">,</span> <span class="p">{</span><span class="s2">"payload"</span><span class="p">:</span><span class="nx">payload</span><span class="p">});</span>
+                          <span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">subject</span><span class="p">,</span> <span class="nx">body</span><span class="p">);</span>
+                        <span class="p">}</span>
+                      <span class="p">});</span>
+                    <span class="p">});</span>
+                  <span class="p">}</span>
+                <span class="p">});</span>
+              <span class="p">}</span>
+            <span class="p">});</span>
+          <span class="p">});</span>
+        <span class="p">});</span>
+      <span class="p">}</span>
+      <span class="kd">function</span> <span class="nx">getCount</span><span class="p">()</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">client</span><span class="p">.</span><span class="nx">count</span><span class="p">({</span>
+          <span class="na">index</span><span class="p">:</span><span class="s1">'watcher'</span><span class="p">,</span>
+          <span class="na">type</span><span class="p">:</span><span class="s2">"watch"</span>
+        <span class="p">});</span>
+      <span class="p">}</span>
+      <span class="kd">function</span> <span class="nx">getWatcher</span><span class="p">(</span><span class="nx">count</span><span class="p">)</span> <span class="p">{</span>
+        <span class="k">return</span> <span class="nx">client</span><span class="p">.</span><span class="nx">search</span><span class="p">({</span>
+          <span class="na">index</span><span class="p">:</span><span class="s1">'watcher'</span><span class="p">,</span>
+          <span class="na">type</span><span class="p">:</span><span class="s2">"watch"</span><span class="p">,</span>
+          <span class="na">size</span><span class="p">:</span><span class="nx">count</span>
+        <span class="p">});</span>
+      <span class="p">}</span>
+    <span class="p">}</span>
+  <span class="p">});</span>
+<span class="p">};</span>
+</code></pre>
+</div>
+<p>其中用到了两个 npm 模块，later 模块用来实现定时器和 crontab 文本解析，mustache 模块用来渲染邮件内容模板，这也是 watcher 本身采用的渲染模块。</p>
+<p>需要安装一下：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>npm install later
+npm install mustache
+</code></pre>
+</div>
+<p>然后运行 <code class="highlighter-rouge">./bin/kibana</code>，就可以看到终端上除了原有的内容以外，还会定期输出 alert 的 email 内容了。</p>
+<h2 id="section">要点解释</h2>
+<p>这个极简示例中，主要有两段：</p>
+<ol>
+  <li>注册为插件</li>
+</ol>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>module.exports = function (kibana) {
+  return new kibana.Plugin({
+    init: function init(server) {
+</code></pre>
+</div>
+<p>如果是浏览器端插件，这块应该是：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>module.exports = function (kibana) {
+  return new kibana.Plugin({
+    uiExports: {
+</code></pre>
+</div>
+<ol>
+  <li>引用 ES client</li>
+</ol>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>    init: function init(server) {
+      var client = server.plugins.elasticsearch.client;
+</code></pre>
+</div>
+<p>这里通过调用 <code class="highlighter-rouge">server.plugins</code> 来直接引用 Kibana 里其他插件里的对象。这样，alert 插件就可以跟其他功能共用同一个 ES client，免去单独配置自己的 ES 设置项和新开网络连接的资源消耗。</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

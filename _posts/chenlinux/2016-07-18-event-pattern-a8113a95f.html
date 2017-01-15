@@ -1,0 +1,427 @@
+---
+layout: post
+title: '山寨一个 Splunk 的事件模式功能'
+time: 2016-07-18 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2016/07/18/event-pattern/
+images:
+  263a1208c8b32d4950970b418776ac9f: /images/uploads/splunk-event-pattern.png
+  0d6b9ab183c5e4646d05b54283325ad8: /images/uploads/splunk-findkeywords.png
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>之前我曾经讲过一个简单的在 ELK 中山寨 Splunk 的『显示来源』功能的办法。这次我们玩个更有难度的、当然依然只是山寨式功能的新东西：『事件模式』功能。</p>
+<p>Splunk 6.2 推出的这个功能，会基于当前搜索语句的结果集做模式探测，根据精度调整，做成不同数量的聚类。然后给每个聚类分组内，提取出一个关键词（个别情况下也有零个或多个的）。也就是通过机器学习的手段，探测你的日志可能有什么模式，其最具识别性的关键内容是什么。</p>
+<p><img src="/images/chenlinux.com/263a1208c8b32d4950970b418776ac9f.jpg" alt="Event Pattern"></p>
+<p>这个页面如果用 SPL 表示，就是：<code class="highlighter-rouge">index=_internal | cluster t=0.8 lableonly=true | findkeywords labelfield=cluster_label | sort - percentInputGroup</code></p>
+<p><img src="/images/chenlinux.com/0d6b9ab183c5e4646d05b54283325ad8.jpg" alt="findkeywords command"></p>
+<p>我们目前当然在 ES 里是没法做聚类分析什么的了。不过在日志场景下，也不是没有近似的办法。</p>
+<h3 id="section">第一步：完成山寨版的日志模式分组</h3>
+<p>其实如何山寨模式分组，Splunk 也有类似 SPL 命令做出了示范。这个命令叫 <code class="highlighter-rouge">typelearner</code>。</p>
+<p>这个命令的大致意思是：把日志里的英文单词、数字、空格等字符都隐藏掉，剩下各种标点符号，就代表一种日志类型。简单的处理方式就是：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code>cat samplelog.cisco.asa |sed <span class="s1">'s/[0-9a-zA-Z]*//g'</span> | sed <span class="s1">'s/[[:space:]]/_/g'</span>
+</code></pre>
+</div>
+<p>然后将这个纯标点符号的字符串，存为事件的一个字段，我们沿袭 Splunk 的叫法： <strong>punct</strong> 。</p>
+<p>这样，我们只要简单的对 punct 字段做 <code class="highlighter-rouge">terms aggregation</code> 就可以获取模式分组了。</p>
+<h3 id="section-1">第二步：完成分组内的关键词查找</h3>
+<p>然后查找关键词。什么叫关键词呢？就是要能让本分组跟其他分组有显著差异的一个词。这个显然不能再用 terms aggregation 了。否则出来的是最多的词，而不是最有差异性的词。ES 对这个也提供了现成的聚合方式：<code class="highlighter-rouge">significant_terms aggregation</code>。</p>
+<p>然后这里有另一个问题：一般我们都是在 <code class="highlighter-rouge">not_analyzed</code> 字段上做聚合统计的。现在显然并没有具体哪个字段来提供单个字段值做聚合！我们需要用的就是<strong>分词的日志原文内容</strong>。</p>
+<p>所以这块我们需要对原文字段的 mapping 做出特殊定义：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="w">    </span><span class="s2">"message"</span><span class="err">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text"</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"fielddata"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"index_options"</span><span class="p">:</span><span class="w"> </span><span class="s2">"docs"</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"norms"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w">
+    </span><span class="p">}</span><span class="err">,</span><span class="w">
+</span></code></pre>
+</div>
+<p>即重新放开 fielddata —— ES 5.0 里，text 类型字段已经默认关闭 fielddata 了。</p>
+<p>至于内存的问题，或者交给 Circuit Breaker 来控制；或者自己通过请求中的 <code class="highlighter-rouge">terminate_after</code> 参数预先控制。</p>
+<p>就模式发现这个功能来说，通过 <code class="highlighter-rouge">terminate_after</code> 参数预定义控制应该是个不错的思路。因为本来就是一个不确定的猜测，加太大的数据量来做这事儿，没多少性价比。</p>
+<p>所以我们最终发出的请求是这样：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="c">#!/bin/bash</span>
+curl -XPOST <span class="s1">'http://localhost:9200/logstash-2016.07.18/logs/_search?pretty&amp;terminate_after=30000&amp;size=0'</span> -d <span class="s1">'
+{
+    "aggs": {
+        "group": {
+            "terms": {
+                "field": "punct"
+            },
+            "aggs": {
+                "keyword": {
+                    "significant_terms": {
+                        "size": 1,
+                        "field": "message"
+                    },
+                    "aggs": {
+                        "hit": {
+                            "top_hits": {
+                                "_source": {
+                                    "include": [ "message"  ]
+                                },
+                                "size":1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+'</span>
+</code></pre>
+</div>
+<p>我们可以看到请求结果如下：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nt">"took"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">2179</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"timed_out"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"terminated_early"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"_shards"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"successful"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"failed"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"failures"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+      </span><span class="nt">"shard"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"node"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"L0qQ1ZcyQGmj7Ge7ZlCmYg"</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"reason"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"circuit_breaking_exception"</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"reason"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"[request] Data too large, data for [&lt;reused_arrays&gt;] would be larger than limit of [415550668/396.2mb]"</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"bytes_wanted"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">415762160</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"bytes_limit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">415550668</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">371095</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w">
+    </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">]</span><span class="w">
+  </span><span class="p">},</span><span class="w">
+  </span><span class="nt">"aggregations"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+    </span><span class="nt">"group"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+      </span><span class="nt">"doc_count_error_upper_bound"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">72</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"sum_other_doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">93355</span><span class="p">,</span><span class="w">
+      </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=,_=.,_=,_="</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">98100</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">98100</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"cpu_seconds"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">98100</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">2.2037623779471813</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">115831</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">98100</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMJbLjo3PexoUujh"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:17:33.776 +0800 INFO  Metrics - group=pipeline, name=indexerpipe, processor=index_thruput, cpu_seconds=0.000000, executes=111, cumulative_hits=161675"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=,_=,_=,_=,_="</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">87058</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">87058</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"largest_size"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">75663</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">2.835574761742766</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">75663</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">75663</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMJbLjo3PexoUuj9"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:17:02.780 +0800 INFO  Metrics - group=queue, name=nullqueue, max_size_kb=500, current_size_kb=0, current_size=0, largest_size=1, smallest_size=0"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=\"\",_=.,_=.,_=.,_=,_=.,_="</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">26317</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">26317</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"max_age"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">26317</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">7.224805514306611</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">45119</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">26317</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMJbLjo3PexoUukH"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:17:02.780 +0800 INFO  Metrics - group=per_sourcetype_thruput, series=\"scheduler\", kbps=0.014869, eps=0.032258, kb=0.460938, ev=1, avg_age=0.000000, max_age=0"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=\"//////.\",_=.,_=.,_=.,_=,_=.,_="</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">13063</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">13063</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"log"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">13063</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">27.241628614916287</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">13140</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">13063</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMKILjo3PexoUulQ"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:16:31.780 +0800 INFO  Metrics - group=per_source_thruput, series=\"/applications/splunk/var/log/splunk/metrics.log\", kbps=0.326188, eps=2.032164, kb=10.112305, ev=63, avg_age=0.968254, max_age=1"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=.,_=.,_=.,_=.,_=.,_=."</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11603</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11603</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"average_kbps"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11603</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">20.38013481592441</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">17357</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11603</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMKILjo3PexoUulA"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:16:31.781 +0800 INFO  Metrics - group=thruput, name=index_thruput, instantaneous_kbps=0.875684, instantaneous_eps=2.032165, average_kbps=0.340430, total_k_processed=33138.000000, kb=27.147461, ev=63.000000"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=,_=,_="</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11417</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11417</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"qwork_units"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11417</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">31.50372251905054</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11417</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11417</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMLOLjo3PexoUunn"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:15:29.777 +0800 INFO  Metrics - group=tpool, name=indexertpool, qsize=0, workers=2, qwork_units=0"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=---,_=.,_=,_="</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11350</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11350</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"generic"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11350</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">31.69559471365639</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11350</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">11350</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMJbLjo3PexoUukk"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:17:02.779 +0800 INFO  Metrics - group=pipeline, name=indexerpipe, processor=syslog-output-generic-processor, cpu_seconds=0.000000, executes=104, cumulative_hits=161564"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=,_=."</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">7135</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">7135</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"search_health_metrics"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">7135</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">51.010511562718996</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">7135</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">7135</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMJbLjo3PexoUujq"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:17:33.776 +0800 INFO  Metrics - group=search_health_metrics, name=bundle_directory_reaper, bundle_dir_reaper_max_ms=1, bundle_dir_reaper_mean_ms=1.000000"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=,_=.,_=,_=,_=,_="</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5849</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5849</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"search_queue_metrics"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5849</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">62.445888186014706</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5849</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5849</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMKILjo3PexoUulx"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:16:31.777 +0800 INFO  Metrics - group=search_concurrency, name=search_queue_metrics, enqueue_seaches_count=0, avg_time_spent_in_queue=0.000000, max_time_spent_in_queue=0, current_queue_size=0, largest_queue_size=0, min_queue_size=0"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"--_::._+____-_=,_=,_=,_=,_=,_=,_=,_=,_=,_=,_=,_=,_"</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5848</span><span class="p">,</span><span class="w">
+        </span><span class="nt">"keyword"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+          </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5848</span><span class="p">,</span><span class="w">
+          </span><span class="nt">"buckets"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+            </span><span class="nt">"key"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"max_ready"</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"doc_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5848</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">62.45673734610123</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"bg_count"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5848</span><span class="p">,</span><span class="w">
+            </span><span class="nt">"hit"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                </span><span class="nt">"total"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mi">5848</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"max_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                </span><span class="nt">"hits"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w">
+                  </span><span class="nt">"_index"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logstash-2016.07.18"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_type"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"logs"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_id"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"AVX-RMJbLjo3PexoUuk5"</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_score"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w">
+                  </span><span class="nt">"_source"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+                    </span><span class="nt">"message"</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="s2">"07-15-2016 14:17:02.776 +0800 INFO  Metrics - group=searchscheduler, dispatched=1, skipped=0, total_lag=1, max_ready=0, max_pending=0, max_lag=1, window_max_lag=0, window_total_lag=0, max_running=0, actions_triggered=0, completed=1, total_runtime=0.189, max_runtime=0.189"</span><span class="w">
+                  </span><span class="p">}</span><span class="w">
+                </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+        </span><span class="p">}</span><span class="w">
+      </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w">
+    </span><span class="p">}</span><span class="w">
+  </span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre>
+</div>
+<p>响应体中可以看到因为 <code class="highlighter-rouge">terminate_after</code> 设得还是过大，所以还没到中止条数就被 kill 了。实际只扫描了 370173 条数据。那么我们下次就可以把 <code class="highlighter-rouge">terminate_after</code> 调成 10000 得了。</p>
+<p>然后就是 <code class="highlighter-rouge">significant_terms</code> 返回的关键词们。跟之前 splunk 的截图相比，我们可以发现，不是完全一样的效果，但是还是有部分关键词是一致的。比如 <code class="highlighter-rouge">smallest_size</code>, <code class="highlighter-rouge">total_k_processed</code>, <code class="highlighter-rouge">search_health_metrics</code>, <code class="highlighter-rouge">var</code>, <code class="highlighter-rouge">workers</code> 等。</p>
+<p>可以说，作为一个山寨品，这个做法是行得通的~</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

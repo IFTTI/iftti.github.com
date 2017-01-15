@@ -1,0 +1,89 @@
+---
+layout: post
+title: '我是如何开发公司年会抽奖系统的？'
+time: 2017-01-13 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109852/
+images:
+  66337e1b4a4c06795af3ddd1a446c5e9: http://jbcdn2.b0.upaiyun.com/2017/01/d3248dbef060016a23f6e08664809f3a.png
+  2706a3866d4206acb0e076d1906a91cc: http://jbcdn2.b0.upaiyun.com/2017/01/c99dbaff14a1b326880ac7f54ab5cf0e.png
+  5d839bc38d96e3512c06d3c7602756bb: http://jbcdn2.b0.upaiyun.com/2017/01/f7e126b91ae957169f53854711e2bfc2.png
+  c3d2aec3af80314537f4f04b6282c46c: http://jbcdn2.b0.upaiyun.com/2017/01/c4bde95e3155da431ab305c12beaf009.png
+  685c4e6f38a233a81dfbec224a0c5583: http://jbcdn2.b0.upaiyun.com/2017/01/806d3e22a9bf634111fb4bea24470004.png
+  b26c07a872203111d09e3bf8f38b0739: http://jbcdn2.b0.upaiyun.com/2017/01/01db6f50ba149a39431f65042ba7bc4f.png
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<h3>需求出现</h3>
+<p>年会将近，而年会抽奖环节必不可少，但是抽奖系统却还没有。所以某一天，PM走过来说：小伙，手头的需求修完成了吧！在年会开始之前必须做出一个抽奖系统。这个系统很简单，后台可以设置总金额，然后每个用户可以获得的金额范围，金额派完则显示很遗憾没有中奖，还要设置抽奖活动时间。</p>
+<p><img src="/images/jobbole.com/66337e1b4a4c06795af3ddd1a446c5e9.jpg" alt="抽奖系统业务分析图"></p>
+<h3>需求分析</h3>
+<p>一看这东西，就觉得非常简单。最简单的一个方案，活动时间放在一个数据表，总金额和已经使用金额存放在一个表，已经派送的日志一个表。后台提供一个接口，客户端手动点击按钮，则发送一个请求。账号体系直接使用微信的oauth，接口首先判断活动有没有开始，如果开始则随机一个金额，然后判断如果派送该金额会不会超预算，如果不超预算，则调用微信的现金接口发放零钱。</p>
+<p><img src="/images/jobbole.com/2706a3866d4206acb0e076d1906a91cc.jpg" alt="最原始的架构设计图"></p>
+<h3>并发问题</h3>
+<p>这个简单方案存在一个致命的问题，就是并发下，可能导致超预算的问题。如果采用加锁的方式，面对1000多员工同时请求，系统100%瘫痪。（因为抽奖系统的服务器是最普通的1核1G 1M带宽的服务器）</p>
+<p><img src="/images/jobbole.com/5d839bc38d96e3512c06d3c7602756bb.jpg" alt="超预算问题触发情况"></p>
+<p>那么不加锁的情况，又能如何避免并发造成的派送超过预算的问题呢？ 一个简单的办法，把分配派送金额的操作从并行变成串行。那么就需要异步的编程方法。最简单的处理方法，把任务写入mysql，然后启动一个独立的进程来一个任务一个任务的串行处理。异步的话，客户端如何知道服务器已经处理了呢？最简单就是采用轮询的方法了，客户端每隔几秒就请求服务器一次。</p>
+<p><img src="/images/jobbole.com/c3d2aec3af80314537f4f04b6282c46c.jpg" alt="异步处理抽奖操作"></p>
+<h3>性能问题</h3>
+<p>由于抽奖是短时间大量用户请求的，如果直接让请求落到mysql，类似DDOS攻击,一般的数据库是扛不住的。而redis是1种基于内存的高并发NoSQL,在很多公司广泛使用,由于其性能非常好，并且其丰富的数据接口完全可以胜任抽奖任务需求。 这个时候，你可能有这样的疑问,我们的系统设计是怎么样的呢？</p>
+<ul>
+<li>抽奖系统相关配置存储在redis的一个key值，直接使用json格式</li>
+<li>客户端请求的时候判断，时间是否在活动时间范围内</li>
+<li>客户端请求如果时间在活动范围内，则把用户添加到一个redis集合，用于防止用户重复请求，只有第一次请求才会添加到集合后，再添加到一个redis列表。</li>
+<li>后台一个独立的进程，从redis列表pop第一位用户，然后分配一个金额，然后把金额和用户信息压入另一个redis列表B，同时写入redis的hash结构，标示用户获得多少现金。一直循环该过程。</li>
+<li>后台另一个独立的进程，从redis列表B pop第一位用户，然后调用发送现金接口，一直循环该过程。</li>
+<li>客户端不停轮询获取用户金额的接口，该接口从哪个hash结构获取用户金额，然后没有数据，则告诉客户端若干秒后再次请求。</li>
+</ul>
+<p><img src="/images/jobbole.com/685c4e6f38a233a81dfbec224a0c5583.jpg" alt="最终架构图"></p>
+<h3>前端优化</h3>
+<p>由于参与活动的人数较多，而且服务器是放在外网的，所以需要考虑带宽的问题。</p>
+<ol>
+<li>第一步，把静态资源放到cdn。</li>
+<li>第二步，抽奖页面静态化，同时也放到cdn，这样子服务器只需要承受用户请求和登录即可。</li>
+<li>第三步，由于采用了微信登录，所以登录系统采用一个独立的进程，并且使用异步框架来处理高并发。</li>
+<li>第四步，前端发送请求队列化处理，避免用户不停点击，造成大量请求。</li>
+</ol>
+<p><img src="/images/jobbole.com/b26c07a872203111d09e3bf8f38b0739.jpg" alt="静态资源cdn化"></p>
+<h3>总结</h3>
+<ul>
+<li>整套系统开发没有任何难度，唯一需要注意高并发下性能和数据问题。</li>
+<li>静态资源放到cdn，避免带宽成为瓶颈。</li>
+<li>把mysql操作变成redis操作，解决io问题</li>
+</ul>
+
+        
+        
+        
+    <div class="post-adds">
+        <span data-post-id="109852" class=" btn-bluet-bigger href-style vote-post-up   register-user-only "><i class="fa  fa-thumbs-o-up"></i> <h10 id="109852votetotal">2</h10> 赞</span>
+        <span data-book-type="1" data-site-id="2" data-item-id="109852" data-item-type="1" class=" btn-bluet-bigger href-style bookmark-btn  register-user-only "><i class="fa fa-bookmark-o  "></i> 4 收藏</span>
+
+                    <a href="#article-comment"><span class="btn-bluet-bigger href-style hide-on-480"><i class="fa fa-comments-o"></i>  评论</span></a>
+        
+        
+        
+        <!-- JiaThis Button BEGIN -->
+        <div class="jiathis_style_24x24" style="display: inline-flex; position: relative; margin: 0; clear: both;float: right;">
+            <a class="jiathis_button_tsina"></a>
+            <a class="jiathis_button_weixin"></a>
+            <a class="jiathis_button_qzone"></a>
+            <a class="jiathis_button_fb hide-on-480"></a>
+            <a href="http://www.jiathis.com/share?uid=1745061" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank"></a>
+        </div>
+
+    </div>
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

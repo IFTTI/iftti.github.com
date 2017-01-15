@@ -1,0 +1,92 @@
+---
+layout: post
+title: 'elasticsearch 的 sampler 聚合'
+time: 2016-07-21 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2016/07/21/sampler-aggregation/
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>在上一篇文章的基础上，其实 Elasticsearch 从 2.0 以后，还新增了另一种聚合方式，叫 sampler。这个聚合的作用，是在每个分片上，只采样部分文档出来继续后续统计。</p>
+<p>比如把上一篇的查询改成这样：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="c">#!/bin/bash</span>
+curl -XPOST <span class="s1">'localhost:9200/logstash-2016.07.18/logs/_search?pretty&amp;terminate_after=10000&amp;size=0'</span> -d <span class="s1">'
+{
+    "aggs": {
+        "group": {
+            "terms": {
+                "field": "result.punct"
+            },
+            "aggs": {
+                "sample": {
+                    "sampler": {
+                         "shard_size": 200
+                     },
+                    "aggs": {
+                        "keyword": {
+                            "significant_terms": {
+                                "size": 1,
+                                "field": "result._raw"
+                            },
+                            "aggs": {
+                                "hit": {
+                                    "top_hits": {
+                                        "_source": {
+                                            "include": [ "result._raw" ]
+                                        },
+                                        "size":1
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+'</span>
+</code></pre>
+</div>
+<p>当然，在这个 raw 日志的情况下，取样意义不是特别到，因为有 <code class="highlighter-rouge">terminate_after</code> 在，采样本身不会绝对随机。但是对其他 <code class="highlighter-rouge">doc_values</code> 的字段，采样就有意义了。</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}

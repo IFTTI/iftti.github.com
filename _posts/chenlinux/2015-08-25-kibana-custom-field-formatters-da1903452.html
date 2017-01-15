@@ -1,0 +1,165 @@
+---
+layout: post
+title: '【翻译】Kibana 字段的自定义展示格式开发'
+time: 2015-08-25 00:00:00 +0800
+site_name: chenlinux.com
+source_url: http://chenlinux.com/2015/08/25/kibana-custom-field-formatters/
+images:
+  ed99fb5adb3b61660de0dc15e494dd3d: https://www.elastic.co/assets/blt3b40cdcf8a606803/select.png
+  8cb5b143fd4136da62faf125a6ff83cb: https://www.elastic.co/assets/bltbd8a84ea59294648/highlight-error.png
+  7f96c33742d5322a7d882feec8b5e79f: https://www.elastic.co/assets/blt8bbd181d804191a0/sample.png
+---
+{% raw %}
+
+  
+  <div style="background-color: #FFF;">
+    <p>原文地址：<a href="http://www.elasticsearch.org/blog/kibana-custom-field-formatters">http://www.elasticsearch.org/blog/kibana-custom-field-formatters</a></p>
+<p>Kibana 4.1 引入了一个新特性叫字段展示格式(field formatters)，让我们可以实时转换字段内容成更形象的样式。这个特性帮助我们不修改数据的存储方式，而用另一种方式显示它。有关 field formatters 的介绍，可以阅读之前一篇<a href="https://www.elastic.co/blog/kibana-4-1-field-formatters">博客</a>。</p>
+<p>本文的目的，则是带大家过一遍 field formatters 的开发流程。从 field formatter 接口开始，自己实现一个基础的 formatter，可以字段给 error 单词加高亮效果，最后完成整个解决方案。</p>
+<h2 id="section">起步</h2>
+<p>Kibana 开发环境的搭建介绍可以在 <a href="https://github.com/elastic/kibana/blob/master/CONTRIBUTING.md#development-environment-setup">Kibana repository</a> 看到。</p>
+<p>从 Kibana 根目录触发，field formatters 相关代码存在 <code class="highlighter-rouge">/src/ui/public/stringify</code> 目录下。目录结构如下所示：</p>
+<p>/stringify<br>
+ |–type  //包括各种 formatter<br>
+ |–icons<br>
+ |–editors  //formatter 用来请求和显示附加信息的 HTML 页面<br>
+ |–<strong>tests</strong><br>
+ |–register.js //每个 formatter 都要在这里面注册</p>
+<p>Kibana 4.1 里，formatters 位置则在 <code class="highlighter-rouge">/src/kibana/components/stringify</code>。如果你是看的 4.1 版，可能跟本文讲的路径稍有区别，请自动对应查找一下，本文以 git master 为准。</p>
+<p>现在，让我们在 <code class="highlighter-rouge">type</code> 目录 下创建一个文件叫 <code class="highlighter-rouge">Highlight.js</code>，下面是初始代码：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="nx">define</span><span class="p">(</span><span class="kd">function</span> <span class="p">(</span><span class="nx">require</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">return</span> <span class="kd">function</span> <span class="nx">HighlightFormatProvider</span><span class="p">(</span><span class="nx">Private</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">_</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'lodash'</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">FieldFormat</span> <span class="o">=</span> <span class="nx">Private</span><span class="p">(</span><span class="nx">require</span><span class="p">(</span><span class="s1">'ui/index_patterns/_field_format/FieldFormat'</span><span class="p">));</span>
+    <span class="nx">_</span><span class="p">.</span><span class="kr">class</span><span class="p">(</span><span class="nx">Highlight</span><span class="p">).</span><span class="nx">inherits</span><span class="p">(</span><span class="nx">FieldFormat</span><span class="p">);</span>
+    <span class="kd">function</span> <span class="nx">Highlight</span><span class="p">(</span><span class="nx">params</span><span class="p">)</span> <span class="p">{</span>
+      <span class="nx">Highlight</span><span class="p">.</span><span class="nx">Super</span><span class="p">.</span><span class="nx">call</span><span class="p">(</span><span class="k">this</span><span class="p">,</span> <span class="nx">params</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="nx">Highlight</span><span class="p">.</span><span class="nx">id</span> <span class="o">=</span> <span class="s1">'highlight'</span><span class="p">;</span>
+    <span class="nx">Highlight</span><span class="p">.</span><span class="nx">title</span> <span class="o">=</span> <span class="s1">'Highlight'</span><span class="p">;</span>
+    <span class="nx">Highlight</span><span class="p">.</span><span class="nx">fieldType</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'string'</span><span class="p">];</span>
+    <span class="nx">Highlight</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">_convert</span> <span class="o">=</span> <span class="p">{</span>
+      <span class="na">text</span><span class="p">:</span> <span class="nx">_</span><span class="p">.</span><span class="nx">escape</span><span class="p">,</span>
+      <span class="na">html</span><span class="p">:</span> <span class="nx">_</span><span class="p">.</span><span class="nx">escape</span>
+    <span class="p">};</span>
+    <span class="k">return</span> <span class="nx">Highlight</span><span class="p">;</span>
+  <span class="p">};</span>
+<span class="p">});</span>
+</code></pre>
+</div>
+<p>每种字段格式，都实现为扩展 FieldFormat 的类。<code class="highlighter-rouge">Highlight.id</code> 用在 Kibana 内部跟踪 formatter，每个 formatter 必须采用不同的 id。<code class="highlighter-rouge">Highlight.title</code> 显示在 formatter 下拉选择框里，<code class="highlighter-rouge">Highlight.fieldType</code> 则描述自己适用于哪种类型的字段内容。</p>
+<p><code class="highlighter-rouge">Highlight.prototype._convert</code> 是实际进行格式化的地方。包括有 text 和 html 两种方法。text 方法用于 tooltips, filters, legends, 和 axis markers。html 方法用于搜索表格内。两者都接收字段内容为输入，输出我们希望的展示内容。如果两个方法是一样的，可以直接赋值 <code class="highlighter-rouge">Highlight.prototype._convert</code> 为一个函数。给 error 单词加高亮的代码如下：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="nx">Highlight</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">_highlight</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">val</span><span class="p">,</span> <span class="nx">replace</span><span class="p">)</span> <span class="p">{</span>
+  <span class="k">return</span> <span class="nx">_</span><span class="p">.</span><span class="nx">escape</span><span class="p">(</span><span class="nx">val</span><span class="p">).</span><span class="nx">replace</span><span class="p">(</span><span class="sr">/</span><span class="se">(</span><span class="sr">error</span><span class="se">)</span><span class="sr">/g</span><span class="p">,</span> <span class="nx">replace</span><span class="p">);</span>
+<span class="p">};</span>
+<span class="nx">Highlight</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">_convert</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="na">text</span><span class="p">:</span> <span class="kd">function</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">_highlight</span><span class="p">(</span><span class="nx">val</span><span class="p">,</span> <span class="kd">function</span> <span class="nx">convertToUpperCase</span><span class="p">(</span><span class="nx">match</span><span class="p">)</span> <span class="p">{</span>
+      <span class="k">return</span> <span class="nx">match</span><span class="p">.</span><span class="nx">toUpperCase</span><span class="p">();</span>
+    <span class="p">});</span>
+  <span class="p">},</span>
+  <span class="na">html</span><span class="p">:</span> <span class="kd">function</span><span class="p">(</span><span class="nx">val</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="k">this</span><span class="p">.</span><span class="nx">_highlight</span><span class="p">(</span><span class="nx">val</span><span class="p">,</span> <span class="s1">'&lt;mark&gt;$&amp;&lt;/mark&gt;'</span><span class="p">);</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+</code></pre>
+</div>
+<p>只要字段内容中有 error 文本字样，我们就会根据 HTML 或者 text 场景选择包含进 mark 元素或者是转换成大写形式。注意这里使用的 <code class="highlighter-rouge">_.escape(val)</code> 语句，这句可以用来放置 HTML 注入和跨站脚本攻击。</p>
+<p>然后需要注册这个新的 field formatter。在 register.js 里添加：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="nx">fieldFormats</span><span class="p">.</span><span class="nx">register</span><span class="p">(</span><span class="nx">require</span><span class="p">(</span><span class="s1">'ui/stringify/types/Highlight'</span><span class="p">));</span>
+</code></pre>
+</div>
+<p>未来，我们(Kibana 开发组)可能会把这个功能以插件形式提供，届时注册方法会更加简单。</p>
+<p>现在我们可以对 string 类型的字段选择 Highlight 作为 field formatter 了！</p>
+<p><img src="/images/chenlinux.com/ed99fb5adb3b61660de0dc15e494dd3d.jpg" alt=""></p>
+<p>在 Discover 页测试效果：</p>
+<p><img src="/images/chenlinux.com/8cb5b143fd4136da62faf125a6ff83cb.jpg" alt=""></p>
+<h2 id="section-1">更通用化</h2>
+<p>插件已经可以运行了，但是我们如果想更通用化一点，不单单可以用来高亮 error 字眼呢？当然不用给每个单词开发一种 formatter，我们可以提供一个输入正则表达式的方式。</p>
+<p>在 editor 目录，添加一个叫 <code class="highlighter-rouge">highlight.html</code> 的文件，内容如下：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="o">&lt;</span><span class="nx">div</span> <span class="kr">class</span><span class="o">=</span><span class="s2">"form-group"</span><span class="o">&gt;</span>
+  <span class="o">&lt;</span><span class="nx">label</span><span class="o">&gt;</span><span class="nx">Pattern</span><span class="o">&lt;</span><span class="sr">/label</span><span class="err">&gt;
+</span>  <span class="o">&lt;</span><span class="nx">input</span> <span class="kr">class</span><span class="o">=</span><span class="s2">"form-control"</span> <span class="nx">ng</span><span class="o">-</span><span class="nx">model</span><span class="o">=</span><span class="s2">"editor.formatParams.pattern"</span><span class="o">/&gt;</span>
+<span class="o">&lt;</span><span class="sr">/div</span><span class="err">&gt;
+</span></code></pre>
+</div>
+<p>然后回到 Highlight.js 里，我们需要定义 <code class="highlighter-rouge">highlight.html</code> 作为我们的编辑页面，然后更新我们的 <code class="highlighter-rouge">_highlight</code> 方法，使用输入文本作为匹配时的正则表达式。</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="nx">Highlight</span><span class="p">.</span><span class="nx">editor</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'ui/stringify/editors/highlight.html'</span><span class="p">);</span>
+<span class="nx">Highlight</span><span class="p">.</span><span class="nx">prototype</span><span class="p">.</span><span class="nx">_highlight</span> <span class="o">=</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">val</span><span class="p">,</span> <span class="nx">replace</span><span class="p">)</span> <span class="p">{</span>
+  <span class="kd">var</span> <span class="nx">escapedVal</span> <span class="o">=</span> <span class="nx">_</span><span class="p">.</span><span class="nx">escape</span><span class="p">(</span><span class="nx">val</span><span class="p">);</span>
+  <span class="kd">var</span> <span class="nx">highlightPattern</span><span class="p">;</span>
+  <span class="k">try</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">inputRegex</span> <span class="o">=</span> <span class="k">this</span><span class="p">.</span><span class="nx">param</span><span class="p">(</span><span class="s1">'pattern'</span><span class="p">).</span><span class="nx">split</span><span class="p">(</span><span class="s1">'/'</span><span class="p">);</span>
+    <span class="kd">var</span> <span class="nx">pattern</span> <span class="o">=</span> <span class="nx">inputRegex</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">||</span> <span class="nx">inputRegex</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span>
+    <span class="kd">var</span> <span class="nx">flags</span> <span class="o">=</span> <span class="nx">inputRegex</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span>
+    <span class="nx">highlightPattern</span> <span class="o">=</span> <span class="k">new</span> <span class="nb">RegExp</span><span class="p">(</span><span class="nx">pattern</span><span class="p">,</span> <span class="nx">flags</span><span class="p">);</span>
+  <span class="p">}</span> <span class="k">catch</span><span class="p">(</span><span class="nx">e</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nx">escapedVal</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="nx">escapedVal</span><span class="p">.</span><span class="nx">replace</span><span class="p">(</span><span class="nx">highlightPattern</span><span class="p">,</span> <span class="nx">replace</span><span class="p">);</span>
+<span class="p">};</span>
+</code></pre>
+</div>
+<h2 id="section-2">示例</h2>
+<p>如果在应用 formatter 之前，就能看到输入的正则表达式的效果就更好了。Kibana 里提供了一个 directive 指令让我们可以在修改表达式时观察示例变化。</p>
+<p>我们可以增加一些输入字段，并且在模板中加入这个指令。也就是在 highlight.html 后面追加下面这段：</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="o">&lt;</span><span class="nx">field</span><span class="o">-</span><span class="nx">format</span><span class="o">-</span><span class="nx">editor</span><span class="o">-</span><span class="nx">samples</span> <span class="nx">inputs</span><span class="o">=</span><span class="s2">"editor.field.format.type.sampleInputs"</span><span class="o">&gt;&lt;</span><span class="sr">/field-format-editor-samples</span><span class="err">&gt;
+</span></code></pre>
+</div>
+<p>对应的，在 Highlight.js 里添加下面这段:</p>
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="nx">Highlight</span><span class="p">.</span><span class="nx">sampleInputs</span> <span class="o">=</span> <span class="p">[</span>
+  <span class="s1">'Hello world'</span><span class="p">,</span>
+  <span class="s1">'The quick brown fox jumps over the lazy dog'</span><span class="p">,</span>
+  <span class="s1">'112345'</span>
+<span class="p">];</span>
+</code></pre>
+</div>
+<p>最终结果如下：</p>
+<p><img src="/images/chenlinux.com/7f96c33742d5322a7d882feec8b5e79f.jpg" alt=""></p>
+<h2 id="section-3">结论</h2>
+<p>field formatter 接口提供了非常简便的办法让我们定制字段内容的展示方式。Kibana 自带了好几种 formatter，不过如果你没发现比较合适的，你可以随时自己开发添加一个。如果你已经开始计划添加了，也请注意在 Kibana 4.2 发版的时候，回来看看，有没有新的接口变更。</p>
+    <hr>
+    
+    <hr>
+  <!-- JiaThis Button BEGIN -->
+<div class="jiathis_style">
+<span class="jiathis_txt">分享到：</span>
+<a class="jiathis_button_tsina">新浪微博</a>
+<a class="jiathis_button_weixin">微信</a>
+<a class="jiathis_button_renren">人人网</a>
+<a class="jiathis_button_ydnote">有道云笔记</a>
+<a class="jiathis_button_gmail">Gmail邮箱</a>
+<a class="jiathis_button_twitter">Twitter</a>
+<a class="jiathis_button_googleplus">Google+</a>
+<a class="jiathis_button_hi">百度空间</a>
+<a class="jiathis_button_fb">Facebook</a>
+<a class="jiathis_button_douban">豆瓣</a>
+<a href="http://www.jiathis.com/share?uid=1589850" class="jiathis jiathis_txt jiathis_separator jtico jtico_jiathis" target="_blank">更多</a>
+<a class="jiathis_counter_style"></a>
+</div>
+<script type="text/javascript">
+var jiathis_config={
+	data_track_clickback:true,
+	summary:"",
+	ralateuid:{
+		"tsina":"1035836154"
+	},
+	shortUrl:false,
+	hideMore:false
+}
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1589850" charset="utf-8"></script>
+<!-- JiaThis Button END -->
+<!-- UY BEGIN -->
+
+
+<!-- UY END -->
+  </div>
+{% endraw %}
