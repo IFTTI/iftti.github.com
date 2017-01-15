@@ -6,7 +6,7 @@ task :gen do
   system "cd ./_site && git rm -q -r -f ./"
 
   puts "## Generating Site with Jekyll"
-  system "jekyll build --lsi"
+  system "jekyll build"
 
   puts "### Git commit"
   system "cd ./_site && git add . && git diff HEAD; git commit -a"

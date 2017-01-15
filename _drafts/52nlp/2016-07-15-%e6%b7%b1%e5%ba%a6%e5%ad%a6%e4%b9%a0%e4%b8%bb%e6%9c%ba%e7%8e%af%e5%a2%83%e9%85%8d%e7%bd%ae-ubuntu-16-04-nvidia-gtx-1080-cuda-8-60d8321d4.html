@@ -1,0 +1,243 @@
+---
+layout: post
+title: '深度学习主机环境配置: Ubuntu16.04+Nvidia GTX 1080+CUDA8.0'
+time: 2016-07-15
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/%e6%b7%b1%e5%ba%a6%e5%ad%a6%e4%b9%a0%e4%b8%bb%e6%9c%ba%e7%8e%af%e5%a2%83%e9%85%8d%e7%bd%ae-ubuntu-16-04-nvidia-gtx-1080-cuda-8
+images:
+  f7a760d7f792113a6ae1c6ba070c6a0a: http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-15-上午8.25.37.png
+  8037ffa666de92bd825b50d4607b0e02: http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-15-上午8.44.43.png
+---
+{% raw %}
+
+						<p>接上文《<a href="http://www.52nlp.cn/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E4%B8%BB%E6%9C%BA%E6%94%92%E6%9C%BA%E5%B0%8F%E8%AE%B0" target="_blank">深度学习主机攒机小记</a>》，这台GTX1080主机准备好之后，就是配置深度学习环境了，这里选择了比较熟悉Ubuntu系统，不过是最新的16.04版本，另外在Nvidia GTX1080的基础上安装相关GPU驱动，外加CUDA8.0，因为都比较新，所以踩了很多坑。</p>
+<p><strong>1. 安装Ubuntu16.04</strong></p>
+<p>不考虑双系统，直接安装 Ubuntu16.04，从<a href="http://www.ubuntu.com/download/alternative-downloads" target="_blank">ubuntu官方</a>下载64位版本: ubuntu-16.04-desktop-amd64.iso 。</p>
+<p>在MAC下制作了 Ubuntu USB 安装盘，具体方法可参考: <a href="http://www.linuxidc.com/Linux/2013-04/82973.htm" target="_blank">在MAC下使用ISO制作Linux的安装USB盘</a>，之后通过Bios引导U盘启动安装Ubuntu系统：</p>
+<p>1）一开始安装就踩了一个坑，选择”Install Ubuntu”回车后过一会儿屏幕显示“输入不支持”，google了好多方案，最终和ubuntu对显卡的支持有关，需要手动添加显卡选项: nomodeset，使其支持Nvidia系列显卡，参考：<a href="http://blog.sciencenet.cn/blog-655584-877622.html" target="_blank">安装ubuntu黑屏问题的解决</a> or <a href="http://askubuntu.com/questions/38780/how-do-i-set-nomodeset-after-ive-already-installed-ubuntu" target="_blank">How do I set ‘nomodeset’ after I’ve already installed Ubuntu?</a></p>
+<p>2) 磁盘分区，全部干掉之前<a href="http://www.52nlp.cn/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E4%B8%BB%E6%9C%BA%E6%94%92%E6%9C%BA%E5%B0%8F%E8%AE%B0">主机</a>自带的Window 10系统，分区为 /boot, /, /home 等几个目录，同时把第二块4T硬盘也挂载了上去，作为数据盘。</p>
+<p>3）安装完毕后Ubuntu 16.04的分辨率很低，在显卡驱动未安装之前，可以手动修改一下grub文件：</p>
+<p>sudo vim /etc/default/grub </p>
+<p><i># The resolution used on graphical terminal<br>
+# note that you can use only modes which your graphic card supports via VBE<br>
+# you can see them in real GRUB with the command `vbeinfo’<br>
+#GRUB_GFXMODE=640×480<br>
+# 这里分辨率自行设置<br>
+GRUB_GFXMODE=1024×768<br>
+</i></p>
+<p>sudo update-grub</p>
+<p>4）安装SSH Server，这样可以远程ssh访问这台GTX1080主机：</p>
+<p>sudo apt-get install openssh-server</p>
+<p>5）更新Ubuntu16.04源，用的是<a href="https://lug.ustc.edu.cn/wiki/mirrors/help/ubuntu" target="_blank">中科大的源</a>：</p>
+<p>cd /etc/apt/<br>
+sudo cp sources.list sources.list.bak<br>
+sudo vi sources.list</p>
+<p>把下面的这些源添加到source.list文件头部：</p>
+<p><i>deb http://mirrors.ustc.edu.cn/ubuntu/ xenial main restricted universe multiverse<br>
+deb http://mirrors.ustc.edu.cn/ubuntu/ xenial-security main restricted universe multiverse<br>
+deb http://mirrors.ustc.edu.cn/ubuntu/ xenial-updates main restricted universe multiverse<br>
+deb http://mirrors.ustc.edu.cn/ubuntu/ xenial-proposed main restricted universe multiverse<br>
+deb http://mirrors.ustc.edu.cn/ubuntu/ xenial-backports main restricted universe multiverse<br>
+deb-src http://mirrors.ustc.edu.cn/ubuntu/ xenial main restricted universe multiverse<br>
+deb-src http://mirrors.ustc.edu.cn/ubuntu/ xenial-security main restricted universe multiverse<br>
+deb-src http://mirrors.ustc.edu.cn/ubuntu/ xenial-updates main restricted universe multiverse<br>
+deb-src http://mirrors.ustc.edu.cn/ubuntu/ xenial-proposed main restricted universe multiverse<br>
+deb-src http://mirrors.ustc.edu.cn/ubuntu/ xenial-backports main restricted universe multiverse</i></p>
+<p>最后更新源和更新已安装的包：</p>
+<p>sudo apt-get update<br>
+sudo apt-get upgrade<br>
+<span id="more-9226"></span></p>
+<p>2. <strong>安装GTX1080驱动</strong></p>
+<p>安装 Nvidia 驱动 367.27</p>
+<p>sudo add-apt-repository ppa:graphics-drivers/ppa</p>
+<p>第一次运行出现如下的警告：</p>
+<blockquote>
+<p> Fresh drivers from upstream, currently shipping Nvidia.</p>
+<p>## Current Status</p>
+<p>We currently recommend: `nvidia-361`, Nvidia’s current long lived branch.<br>
+For GeForce 8 and 9 series GPUs use `nvidia-340`<br>
+For GeForce 6 and 7 series GPUs use `nvidia-304`</p>
+<p>## What we’re working on right now:</p>
+<p>– Normal driver updates<br>
+– Investigating how to bring this goodness to distro on a cadence.</p>
+<p>## WARNINGS:</p>
+<p>This PPA is currently in testing, you should be experienced with packaging before you dive in here. Give us a few days to sort out the kinks.</p>
+<p>Volunteers welcome! See also: https://github.com/mamarley/nvidia-graphics-drivers/</p>
+<p>http://www.ubuntu.com/download/desktop/contribute<br>
+ 更多信息： https://launchpad.net/~graphics-drivers/+archive/ubuntu/ppa<br>
+按回车继续或者 Ctrl+c 取消添加</p>
+</blockquote>
+<p>回车后继续:</p>
+<p>sudo apt-get update<br>
+sudo apt-get install nvidia-367<br>
+sudo apt-get install mesa-common-dev<br>
+sudo apt-get install freeglut3-dev</p>
+<p>之后重启系统让<a href="http://www.52nlp.cn/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E4%B8%BB%E6%9C%BA%E6%94%92%E6%9C%BA%E5%B0%8F%E8%AE%B0">GTX1080</a>显卡驱动生效。</p>
+<p><strong>3. 下载和安装CUDA</strong></p>
+<p>在安装<a href="https://developer.nvidia.com/cuda-toolkit" target="_blank">CUDA</a>之前，google了一下，发现在Ubuntu16.04下安装CUDA7.5问题多多，幸好CUDA8已出，支持GTX1080：</p>
+<blockquote>
+<p>New in CUDA 8</p>
+<p>Pascal Architecture Support<br>
+Out of box performance improvements on Tesla P100, supports GeForce GTX 1080<br>
+Simplify programming using Unified memory on Pascal including support for large datasets, concurrent data access and atomics*<br>
+Optimize Unified Memory performance using new data migration APIs*<br>
+Faster Deep Learning using optimized cuBLAS routines for native FP16 computation<br>
+Developer Tools<br>
+Quickly identify latent system-level bottlenecks using the new critical path analysis feature<br>
+Improve productivity with up to 2x faster NVCC compilation speed<br>
+Tune OpenACC applications and overall host code using new profiling extensions<br>
+Libraries<br>
+Accelerate graph analytics algorithms with nvGRAPH<br>
+New cuBLAS matrix multiply optimizations for matrices with sizes smaller than 512 and for batched operation</p>
+</blockquote>
+<p>不过下载CUDA需要注册和登陆NVIDIA开发者账号，<a href="https://developer.nvidia.com/cuda-release-candidate-download" target="_blank">CUDA8下载页面</a>提供了很详细的系统选择和安装说明，</p>
+<p>这里选择了Ubuntu16.04系统runfile安装方案，千万不要选择deb方案，前方无数坑：</p>
+<p><img src="/images/52nlp.cn/f7a760d7f792113a6ae1c6ba070c6a0a.jpg" alt="屏幕快照 2016-07-15 上午8.25.37" width="808" height="606" class="aligncenter size-full wp-image-9269" srcset="http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-15-上午8.25.37.png 808w, http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-15-上午8.25.37-300x225.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-15-上午8.25.37-768x576.png 768w" sizes="(max-width: 808px) 100vw, 808px"></p>
+<p>下载的“cuda_8.0.27_linux.run”有1.4G，按照Nivdia官方给出的方法安装CUDA8：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">sudo sh cuda_8.0.27_linux.run --tmpdir=/opt/temp/</div></div>
+<p>这里加了–tmpdir主要是直接运行“sudo sh cuda_8.0.27_linux.run”会提示空间不足的错误，其实是全新的电脑主机，硬盘足够大的，google了以下发现加个tmpdir就可以了：</p>
+<blockquote>
+<p>
+Not enough space on parition mounted at /.<br>
+Need 5091561472 bytes.</p>
+<p>Disk space check has failed. Installation cannot continue.</p>
+</blockquote>
+<p>执行后会有一系列提示让你确认，非常非常非常非常关键的地方是是否安装361这个低版本的驱动：</p>
+<p>Install NVIDIA Accelerated Graphics Driver for Linux-x86_64 361.62?</p>
+<p>答案必须是n，否则之前安装的GTX1080驱动就白费了，而且问题多多。</p>
+<blockquote>
+<p>Logging to /opt/temp//cuda_install_6583.log<br>
+Using more to view the EULA.<br>
+End User License Agreement<br>
+————————–</p>
+<p>Preface<br>
+——-</p>
+<p>The following contains specific license terms and conditions<br>
+for four separate NVIDIA products. By accepting this<br>
+agreement, you agree to comply with all the terms and<br>
+conditions applicable to the specific product(s) included<br>
+herein.</p>
+<p>Do you accept the previously read EULA?<br>
+accept/decline/quit: accept</p>
+<p>Install NVIDIA Accelerated Graphics Driver for Linux-x86_64 361.62?<br>
+(y)es/(n)o/(q)uit: n</p>
+<p>Install the CUDA 8.0 Toolkit?<br>
+(y)es/(n)o/(q)uit: y</p>
+<p>Enter Toolkit Location<br>
+ [ default is /usr/local/cuda-8.0 ]: </p>
+<p>Do you want to install a symbolic link at /usr/local/cuda?<br>
+(y)es/(n)o/(q)uit: y</p>
+<p>Install the CUDA 8.0 Samples?<br>
+(y)es/(n)o/(q)uit: y</p>
+<p>Enter CUDA Samples Location<br>
+ [ default is /home/textminer ]: </p>
+<p>Installing the CUDA Toolkit in /usr/local/cuda-8.0 …<br>
+Installing the CUDA Samples in /home/textminer …<br>
+Copying samples to /home/textminer/NVIDIA_CUDA-8.0_Samples now…<br>
+Finished copying samples.</p>
+<p>===========<br>
+= Summary =<br>
+===========</p>
+<p>Driver:   Not Selected<br>
+Toolkit:  Installed in /usr/local/cuda-8.0<br>
+Samples:  Installed in /home/textminer</p>
+<p>Please make sure that<br>
+ –   PATH includes /usr/local/cuda-8.0/bin<br>
+ –   LD_LIBRARY_PATH includes /usr/local/cuda-8.0/lib64, or, add /usr/local/cuda-8.0/lib64 to /etc/ld.so.conf and run ldconfig as root</p>
+<p>To uninstall the CUDA Toolkit, run the uninstall script in /usr/local/cuda-8.0/bin</p>
+<p>Please see CUDA_Installation_Guide_Linux.pdf in /usr/local/cuda-8.0/doc/pdf for detailed information on setting up CUDA.</p>
+<p>***WARNING: Incomplete installation! This installation did not install the CUDA Driver. A driver of version at least 361.00 is required for CUDA 8.0 functionality to work.<br>
+To install the driver using this installer, run the following command, replacing <cudainstaller> with the name of this run file:<br>
+    sudo <cudainstaller>.run -silent -driver</cudainstaller></cudainstaller></p>
+<p>Logfile is /opt/temp//cuda_install_6583.log</p>
+</blockquote>
+<p>安装完毕后，再声明一下环境变量，并将其写入到 ~/.bashrc 的尾部:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">export PATH=/usr/local/cuda-8.0/bin\${PATH:+:\${PATH}}<br>
+export LD_LIBRARY_PATH=/usr/local/cuda-8.0/lib64\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}</div></div>
+<p>最后再来测试一下CUDA，运行：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">nvidia-smi</div></div>
+<p>结果如下所示：</p>
+<p><img src="/images/52nlp.cn/8037ffa666de92bd825b50d4607b0e02.jpg" alt="屏幕快照 2016-07-15 上午8.44.43" width="656" height="324" class="aligncenter size-full wp-image-9276" srcset="http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-15-上午8.44.43.png 656w, http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-15-上午8.44.43-300x148.png 300w" sizes="(max-width: 656px) 100vw, 656px"></p>
+<p>再来试几个CUDA例子：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">cd 1_Utilities/deviceQuery<br>
+make</div></div>
+<p>这里如果提示gcc版本过高，可以安装低版本的gcc并做软连接替换，具体方法请自行google，我用低版本的gcc4.9替换了ubuntu16.04自带的gcc5.x版本。</p>
+<blockquote><p>
+“/usr/local/cuda-8.0″/bin/nvcc -ccbin g++ -I../../common/inc  -m64    -gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_60,code=compute_60 -o deviceQuery.o -c deviceQuery.cpp<br>
+“/usr/local/cuda-8.0″/bin/nvcc -ccbin g++   -m64      -gencode arch=compute_20,code=sm_20 -gencode arch=compute_30,code=sm_30 -gencode arch=compute_35,code=sm_35 -gencode arch=compute_37,code=sm_37 -gencode arch=compute_50,code=sm_50 -gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_60,code=compute_60 -o deviceQuery deviceQuery.o<br>
+mkdir -p ../../bin/x86_64/linux/release<br>
+cp deviceQuery ../../bin/x86_64/linux/release</p></blockquote>
+<p>执行 ./deviceQuery ，得到:</p>
+<blockquote>
+<p>./deviceQuery Starting…</p>
+<p> CUDA Device Query (Runtime API) version (CUDART static linking)</p>
+<p>Detected 1 CUDA Capable device(s)</p>
+<p>Device 0: “GeForce GTX 1080”<br>
+  CUDA Driver Version / Runtime Version          8.0 / 8.0<br>
+  CUDA Capability Major/Minor version number:    6.1<br>
+  Total amount of global memory:                 8112 MBytes (8506179584 bytes)<br>
+  (20) Multiprocessors, (128) CUDA Cores/MP:     2560 CUDA Cores<br>
+  GPU Max Clock rate:                            1835 MHz (1.84 GHz)<br>
+  Memory Clock rate:                             5005 Mhz<br>
+  Memory Bus Width:                              256-bit<br>
+  L2 Cache Size:                                 2097152 bytes<br>
+  Maximum Texture Dimension Size (x,y,z)         1D=(131072), 2D=(131072, 65536), 3D=(16384, 16384, 16384)<br>
+  Maximum Layered 1D Texture Size, (num) layers  1D=(32768), 2048 layers<br>
+  Maximum Layered 2D Texture Size, (num) layers  2D=(32768, 32768), 2048 layers<br>
+  Total amount of constant memory:               65536 bytes<br>
+  Total amount of shared memory per block:       49152 bytes<br>
+  Total number of registers available per block: 65536<br>
+  Warp size:                                     32<br>
+  Maximum number of threads per multiprocessor:  2048<br>
+  Maximum number of threads per block:           1024<br>
+  Max dimension size of a thread block (x,y,z): (1024, 1024, 64)<br>
+  Max dimension size of a grid size    (x,y,z): (2147483647, 65535, 65535)<br>
+  Maximum memory pitch:                          2147483647 bytes<br>
+  Texture alignment:                             512 bytes<br>
+  Concurrent copy and kernel execution:          Yes with 2 copy engine(s)<br>
+  Run time limit on kernels:                     Yes<br>
+  Integrated GPU sharing Host Memory:            No<br>
+  Support host page-locked memory mapping:       Yes<br>
+  Alignment requirement for Surfaces:            Yes<br>
+  Device has ECC support:                        Disabled<br>
+  Device supports Unified Addressing (UVA):      Yes<br>
+  Device PCI Domain ID / Bus ID / location ID:   0 / 1 / 0<br>
+  Compute Mode:<br>
+     &lt; Default (multiple host threads can use ::cudaSetDevice() with device simultaneously) &gt;</p>
+<p>deviceQuery, CUDA Driver = CUDART, CUDA Driver Version = 8.0, CUDA Runtime Version = 8.0, NumDevs = 1, Device0 = GeForce GTX 1080<br>
+Result = PASS</p>
+</blockquote>
+<p>再测试试一下nobody：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">cd ../../5_Simulations/nbody/<br>
+make</div></div>
+<p>执行：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">./nbody -benchmark -numbodies=256000 -device=0</div></div>
+<p>得到：</p>
+<blockquote><p>
+&gt; Windowed mode<br>
+&gt; Simulation data stored in video memory<br>
+&gt; Single precision floating point simulation<br>
+&gt; 1 Devices used for simulation<br>
+gpuDeviceInit() CUDA Device [0]: “GeForce GTX 1080<br>
+&gt; Compute 6.1 CUDA device: [GeForce GTX 1080]<br>
+number of bodies = 256000<br>
+256000 bodies, total time for 10 iterations: 2291.469 ms<br>
+= 286.000 billion interactions per second<br>
+= 5719.998 single-precision GFLOP/s at 20 flops per interaction</p></blockquote>
+<p>参考:<br>
+<a href="http://yangcha.github.io/GTX-1080/" target="_blank">Nvidia GTX 1080 on Ubuntu 16.04 for Deep Learning</a><br>
+<a href="http://www.linuxdiyf.com/linux/22230.html" target="_blank">Ubuntu 16.04下安装Tensorflow(GPU)</a><br>
+<a href="http://blog.csdn.net/autocyz/article/details/51841157" target="_blank">ubuntu16.04安装 cuda7.5</a><br>
+<a href="https://www.zhihu.com/question/43711830" target="_blank">Ubuntu16.04无法安装CUDA吗？</a><br>
+<a href="http://www.jianshu.com/p/663029044efd" target="_blank">Ubuntu16.04+matlab2014a+anaconda2+OpenCV3.1+caffe安装</a><br>
+<a href="http://blog.csdn.net/Swearos/article/details/51307304" target="_blank">ubuntu 16.04 编译opencv3.1，opencv多版本切换</a><br>
+<a href="http://qiita.com/hidenorly/items/9f614534db1b151b3b93" target="_blank">TensorFlow, Caffe, Chainer と Deep Learning大御所を一気に source code build で GPU向けに setupしてみた</a><br>
+<a href="https://github.com/tensorflow/tensorflow/issues/2559" target="_blank">feature request: support for cuda 8.0 rc</a><br>
+<a href="https://www.pugetsystems.com/labs/hpc/GTX-1080-CUDA-performance-on-Linux-Ubuntu-16-04-preliminary-results-nbody-and-NAMD-803/" target="_blank">GTX 1080 CUDA performance on Linux (Ubuntu 16.04) preliminary results (nbody and NAMD)</a><br>
+<a href="https://www.reddit.com/r/MachineLearning/comments/4rxbvl/anyone_able_to_run_tensorflow_with_10701080_on/" target="_blank">Anyone able to run Tensorflow with 1070/1080 on Ubuntu 16.04/15.10/15.04?</a><br>
+<a href="http://yangcha.github.io/Tensorflow/" target="_blank">Tensorflow on Ubuntu 16.04 with Nvidia GTX 1080</a></p>
+<p>注：原创文章，转载请注明出处及保留链接“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">http://www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/?p=9226">深度学习主机环境配置: Ubuntu16.04+Nvidia GTX 1080+CUDA8.0</a> <a href="http://www.52nlp.cn/?p=9226">http://www.52nlp.cn/?p=9226</a></p>
+
+											
+{% endraw %}

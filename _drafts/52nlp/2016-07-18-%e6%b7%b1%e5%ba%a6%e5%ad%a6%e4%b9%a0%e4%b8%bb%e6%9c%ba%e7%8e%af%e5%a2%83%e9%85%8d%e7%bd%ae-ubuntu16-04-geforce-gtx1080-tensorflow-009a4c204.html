@@ -1,0 +1,296 @@
+---
+layout: post
+title: '深度学习主机环境配置: Ubuntu16.04+GeForce GTX 1080+TensorFlow'
+time: 2016-07-18
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/%e6%b7%b1%e5%ba%a6%e5%ad%a6%e4%b9%a0%e4%b8%bb%e6%9c%ba%e7%8e%af%e5%a2%83%e9%85%8d%e7%bd%ae-ubuntu16-04-geforce-gtx1080-tensorflow
+images:
+  1b4973c84f980cec590d39374bc1d73a: http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-17-上午11.17.39.png
+  ea191a84058b02a430c83493d812fda1: http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-17-下午11.42.11.png
+---
+{% raw %}
+
+						<p>接上文《<a href="http://www.52nlp.cn/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0%E4%B8%BB%E6%9C%BA%E7%8E%AF%E5%A2%83%E9%85%8D%E7%BD%AE-ubuntu-16-04-nvidia-gtx-1080-cuda-8" target="_blank">深度学习主机环境配置: Ubuntu16.04+Nvidia GTX 1080+CUDA8.0</a>》，我们继续来安装 <a href="https://www.tensorflow.org/" target="_blank">TensorFlow</a>，使其支持<a href="http://www.geforce.com/hardware/10series/geforce-gtx-1080" target="_blank">GeForce GTX 1080</a>显卡。</p>
+<p><strong>1 下载和安装cuDNN</strong></p>
+<p><a href="https://developer.nvidia.com/cudnn" target="_blank">cuDNN</a>全称 CUDA Deep Neural Network library，是NVIDIA专门针对深度神经网络设计的一套GPU计算加速库，被广泛用于各种深度学习框架，例如Caffe, TensorFlow, Theano, Torch, CNTK等。</p>
+<blockquote>
+<p>The NVIDIA CUDA® Deep Neural Network library (cuDNN) is a GPU-accelerated library of primitives for deep neural networks. cuDNN provides highly tuned implementations for standard routines such as forward and backward convolution, pooling, normalization, and activation layers. cuDNN is part of the NVIDIA Deep Learning SDK.</p>
+<p>Deep learning researchers and framework developers worldwide rely on cuDNN for high-performance GPU acceleration. It allows them to focus on training neural networks and developing software applications rather than spending time on low-level GPU performance tuning. cuDNN accelerates widely used deep learning frameworks, including Caffe, TensorFlow, Theano, Torch, and CNTK. See supported frameworks for more details.</p>
+</blockquote>
+<p>首先需要下载cuDNN，直接从Nvidia官方下载链接选择一个版本，不过下载cuDNN前同样需要登录甚至填写一个简单的调查问卷: <a href="https://developer.nvidia.com/rdp/cudnn-download" target="_blank">https://developer.nvidia.com/rdp/cudnn-download</a>，这里选择的是支持CUDA8.0的cuDNN v5版本，而支持CUDA8的5.1版本虽然显示在下载选择项里，但是提示：cuDNN 5.1 RC for CUDA 8RC will be available soon – please check back again.</p>
+<p><img class="aligncenter size-full wp-image-9299" src="/images/52nlp.cn/1b4973c84f980cec590d39374bc1d73a.jpg" alt="屏幕快照 2016-07-17 上午11.17.39" width="727" height="521" srcset="http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-17-上午11.17.39.png 727w, http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-17-上午11.17.39-300x215.png 300w" sizes="(max-width: 727px) 100vw, 727px"></p>
+<p>安装cuDNN比较简单，解压后把相应的文件拷贝到对应的CUDA目录下即可：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">tar -zxvf cudnn-8.0-linux-x64-v5.0-ga.tgz</div></div>
+<blockquote><p>cuda/include/cudnn.h<br>
+cuda/lib64/libcudnn.so<br>
+cuda/lib64/libcudnn.so.5<br>
+cuda/lib64/libcudnn.so.5.0.5<br>
+cuda/lib64/libcudnn_static.a</p></blockquote>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">sudo cp cuda/include/cudnn.h /usr/local/cuda/include/<br>
+sudo cp cuda/lib64/libcudnn* /usr/local/cuda/lib64/<br>
+sudo chmod a+r /usr/local/cuda/include/cudnn.h<br>
+sudo chmod a+r /usr/local/cuda/lib64/libcudnn*</div></div>
+<p><span id="more-9285"></span></p>
+<p><strong>2 通过源代码方式编译安装TensorFlow GPU版本</strong></p>
+<p>TensorFlow的CPU版本安装比较简单，在Ubuntu 环境下通过PIP方式安装即可，具体请参考TensorFlow<a href="https://www.tensorflow.org/versions/r0.9/get_started/os_setup.html#pip-installation" target="_blank">官方安装文档</a>。这里通过源代码编译安装TensorFlow 0.9版本，使其支持相应的GPU：<a href="http://www.52nlp.cn/tag/gtx1080" target="_blank">GTX1080</a>。</p>
+<p>1) Python相关环境准备</p>
+<p>这里使用的是Python2.7版本，在Ubuntu16.04下安装相关依赖:<br>
+sudo apt-get install python-pip<br>
+sudo apt-get install python-numpy swig python-dev python-wheel</p>
+<p>2）安装Google构建工具Bazel</p>
+<p><a href="http://www.bazel.io/" target="_blank">Bazel</a>是Google官方开源的一个构建工具，用来配合Google的软件开发模式，有以下几个特点：</p>
+<blockquote><p>多语言支持：Bazel支持Java，Objective-C和C++，可以扩展来支持任意的编程语言<br>
+高级别的构建语言：工程是通过BUILD语言来描述的。BUILD语言以简洁的文本格式，描述了由多个小的互相关联的库、二进制程序和测试程序来组成的一个项目。而与之相比，Make这类的工具需要描述各个单独的文件和编译的命令<br>
+多平台支持：同一套工具和同样的BUILD文件可以用来构建不同架构和不同平台的软件。在Google，我们使用Bazel来构建在我们数据中心系统中运行的服务器端程序和在手机上运行的客户端应用程序。<br>
+重现性[Reproducibility]：在BUILD文件中，每个库，测试程序，二进制文件必须明确完整地指定直接依赖。当修改源代码文件后，Bazel使用这个依赖信息就可以知道哪些必须重新构建，哪些任务可以并行执行。这意味者所有的构建都是增量形式的并能够每次都生成相同的结果。<br>
+伸缩性[Scalability]：Bazel可以处理巨大的构建；在Google，一个服务器端程序超过100k的源码是常有的事情，如果没有文件被改动，构建过程需要大约200ms</p></blockquote>
+<p>从Bazel github上最新的Linux relase版本：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">wget https://github.com/bazelbuild/bazel/releases/download/0.3.0/bazel-0.3.0-installer-linux-x86_64.sh</div></div>
+<p>下载完毕后执行：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">chmod +x bazel-0.3.0-installer-linux-x86_64.sh<br>
+./bazel-0.3.0-installer-linux-x86_64.sh --user</div></div>
+<p>提示错误：</p>
+<blockquote><p>Java not found, please install the corresponding package<br>
+See http://bazel.io/docs/install.html for more information on</p></blockquote>
+<p>应该是没有安装Java环境的问题，bazel需要Java JDK 8，在ubuntu16.04直接apt-get安装即可：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">sudo apt-get update<br>
+sudo apt-get install default-jre<br>
+sudo apt-get install default-jdk</div></div>
+<p>安装完毕后，再次执行Bazel安装脚本：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">./bazel-0.3.0-installer-linux-x86_64.sh --user</div></div>
+<blockquote>
+<p>Bazel installer<br>
+—————</p>
+<p># Release 0.3.0 (2016-06-10)</p>
+<p>Baseline: a9301fa</p>
+<p>Cherry picks:<br>
++ ff30a73: Turn –legacy_external_runfiles back on by default<br>
++ aeee3b8: Fix delete[] warning on fsevents.cc</p>
+<p>Incompatible changes:</p>
+<p>– The –cwarn command line option is not supported anymore. Use<br>
+–copt instead.</p>
+<p>New features:</p>
+<p>– On OSX, –watchfs now uses FsEvents to be notified of changes<br>
+from the filesystem (previously, this flag had no effect on OS X).<br>
+– add support for the ‘-=’, ‘*=’, ‘/=’, and’%=’ operators to<br>
+skylark. Notably, we do not support ‘|=’ because the semantics<br>
+of skylark sets are sufficiently different from python sets.</p>
+<p>Important changes:</p>
+<p>– Use singular form when appropriate in blaze’s test result summary<br>
+message.<br>
+– Added supported for Android NDK revision 11<br>
+– –objc_generate_debug_symbols is now deprecated.<br>
+– swift_library now generates an Objective-C header for its @objc<br>
+interfaces.<br>
+– new_objc_provider can now set the USES_SWIFT flag.<br>
+– objc_framework now supports dynamic frameworks.<br>
+– Symlinks in zip files are now unzipped correctly by http_archive,<br>
+download_and_extract, etc.<br>
+– swift_library is now able to import framework rules such as<br>
+objc_framework.<br>
+– Adds “jre_deps” attribute to j2objc_library.<br>
+– Release apple_binary rule, for creating multi-architecture<br>
+(“fat”) objc/cc binaries and libraries, targeting ios platforms.<br>
+– Aspects documentation added.<br>
+– The –ues_isystem_for_includes command line option is not<br>
+supported anymore.<br>
+– global function ‘provider’ is removed from .bzl files. Providers<br>
+can only be accessed through fields in a ‘target’ object.</p>
+<p>## Build informations<br>
+– [Build log](http://ci.bazel.io/job/Bazel/JAVA_VERSION=1.8,PLATFORM_NAME=linux-x86_64/595/)<br>
+– [Commit](https://github.com/bazelbuild/bazel/commit/e671d29)<br>
+Uncompressing……Extracting Bazel installation…<br>
+.</p>
+<p>Bazel is now installed!</p>
+<p>Make sure you have “/home/textminer/bin” in your path. You can also activate bash<br>
+completion by adding the following line to your ~/.bashrc:<br>
+source /home/textminer/.bazel/bin/bazel-complete.bash</p>
+<p>See http://bazel.io/docs/getting-started.html to start a new project!</p>
+</blockquote>
+<p>然后在 ~/.bashrc中追加：</p>
+<p>source /home/textminer/.bazel/bin/bazel-complete.bash<br>
+export PATH=$PATH:/home/textminer/.bazel/bin</p>
+<p>追加的第一行的原因在这里：</p>
+<blockquote>
+<p>Bazel comes with a bash completion script. To install it:</p>
+<p>Build it with Bazel: bazel build //scripts:bazel-complete.bash.<br>
+Copy the script bazel-bin/scripts/bazel-complete.bash to your completion folder (/etc/bash_completion.d directory under Ubuntu). If you don’t have a completion folder, you can copy it wherever suits you and simply insert source /path/to/bazel-complete.bash in your ~/.bashrc file (under OS X, put it in your ~/.bash_profile file).</p>
+</blockquote>
+<p>最后执行</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">source ~/.bashrc</div></div>
+<p>至此，Bazel安装完毕。</p>
+<p>3） 编译安装TensorFlow:</p>
+<p>首先从github上克隆TensorFlow最新的代码：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">git clone https://github.com/tensorflow/tensorflow</div></div>
+<p>代码下载完毕之后，进入tensorflow主目录，执行：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">./configure</div></div>
+<p>会有一系列提示：<br>
+Please specify the location of python. [Default is /usr/bin/python]:<br>
+Do you wish to build TensorFlow with Google Cloud Platform support? [y/N] y<br>
+Google Cloud Platform support will be enabled for TensorFlow</p>
+<blockquote><p>ERROR: It appears that the development version of libcurl is not available. Please install the libcurl3-dev package.</p></blockquote>
+<p>第二项”是否选择Google云平台的支持”选择y之后出现了一个错误，需要libcurl，用apt-get安装，当然，基于国内的网络现状，这一项也可以选择no:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">sudo apt-get install libcurl3 libcurl3-dev</div></div>
+<p>安装完毕之后重新执行</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">./configure</div></div>
+<p>除了两处选择yes or no 的地方外，其他地方一路回车:</p>
+<blockquote><p>Please specify the location of python. [Default is /usr/bin/python]:<br>
+Do you wish to build TensorFlow with Google Cloud Platform support? [y/N] y<br>
+Google Cloud Platform support will be enabled for TensorFlow<br>
+Do you wish to build TensorFlow with GPU support? [y/N] y<br>
+GPU support will be enabled for TensorFlow<br>
+Please specify which gcc nvcc should use as the host compiler. [Default is /usr/bin/gcc]:<br>
+Please specify the Cuda SDK version you want to use, e.g. 7.0. [Leave empty to use system default]:<br>
+Please specify the location where CUDA toolkit is installed. Refer to README.md for more details. [Default is /usr/local/cuda]:<br>
+Please specify the Cudnn version you want to use. [Leave empty to use system default]:<br>
+Please specify the location where cuDNN library is installed. Refer to README.md for more details. [Default is /usr/local/cuda]:<br>
+Please specify a list of comma-separated Cuda compute capabilities you want to build with.<br>
+You can find the compute capability of your device at: https://developer.nvidia.com/cuda-gpus.<br>
+Please note that each additional compute capability significantly increases your build time and binary size.<br>
+[Default is: “3.5,5.2”]:<br>
+Setting up Cuda include<br>
+Setting up Cuda lib64<br>
+Setting up Cuda bin<br>
+Setting up Cuda nvvm<br>
+Setting up CUPTI include<br>
+Setting up CUPTI lib64<br>
+Configuration finished</p></blockquote>
+<p>最后就是通过Bazel进行编译安装了:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">bazel build -c opt --config=cuda //tensorflow/cc:tutorials_example_trainer</div></div>
+<p>这个过程中需要通过git下载和编译google protobuf 和 boringssl:</p>
+<blockquote><p>INFO: Cloning https://github.com/google/protobuf: Receiving objects<br>
+INFO: Cloning https://github.com/google/boringssl.git: Receiving objects<br>
+….</p></blockquote>
+<p>不过第一次安装的时候遇到报错：</p>
+<blockquote><p>configure: error: zlib not installed<br>
+Target //tensorflow/cc:tutorials_example_trainer failed to build</p></blockquote>
+<p>google了一下，需要安装zlib1g-dev:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">sudo apt-get install zlib1g-dev</div></div>
+<p>之后重新编译安装TensorFlow就没有问题了，不过需要等待一段时间：</p>
+<p><img class="aligncenter size-full wp-image-9318" src="/images/52nlp.cn/ea191a84058b02a430c83493d812fda1.jpg" alt="屏幕快照 2016-07-17 下午11.42.11" width="654" height="353" srcset="http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-17-下午11.42.11.png 654w, http://www.52nlp.cn/wp-content/uploads/2016/07/屏幕快照-2016-07-17-下午11.42.11-300x162.png 300w" sizes="(max-width: 654px) 100vw, 654px"></p>
+<p>编译TensorFlow成功结束的时候，提示如下：</p>
+<blockquote><p>……<br>
+Target //tensorflow/cc:tutorials_example_trainer up-to-date:<br>
+bazel-bin/tensorflow/cc/tutorials_example_trainer<br>
+INFO: Elapsed time: 897.845s, Critical Path: 533.72s</p></blockquote>
+<p>执行一下TensorFlow官方文档里的例子，看看能否成功调用GTX 1080：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">bazel-bin/tensorflow/cc/tutorials_example_trainer --use_gpu</div></div>
+<blockquote><p>I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcublas.so locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcudnn.so locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcufft.so locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcuda.so.1 locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcurand.so locally<br>
+I tensorflow/core/common_runtime/gpu/gpu_init.cc:102] Found device 0 with properties:<br>
+name: GeForce GTX 1080<br>
+major: 6 minor: 1 memoryClockRate (GHz) 1.835<br>
+pciBusID 0000:01:00.0<br>
+Total memory: 7.92GiB<br>
+Free memory: 7.65GiB<br>
+I tensorflow/core/common_runtime/gpu/gpu_init.cc:126] DMA: 0<br>
+I tensorflow/core/common_runtime/gpu/gpu_init.cc:136] 0: Y<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+000003/000006 lambda = 1.841570 x = [0.669396 0.742906] y = [3.493999 -0.669396]<br>
+000006/000007 lambda = 1.841570 x = [0.669396 0.742906] y = [3.493999 -0.669396]<br>
+000009/000006 lambda = 1.841570 x = [0.669396 0.742906] y = [3.493999 -0.669396]<br>
+000009/000004 lambda = 1.841570 x = [0.669396 0.742906] y = [3.493999 -0.669396]<br>
+000000/000005 lambda = 1.841570 x = [0.669396 0.742906] y = [3.493999 -0.669396]<br>
+000000/000004 lambda = 1.841570 x = [0.669396 0.742906] y = [3.493999 -0.669396]<br>
+……</p></blockquote>
+<p>没有问题，说明这种通过源代码编译TensorFlow使其支持GPU的方式已经成功了。再在Python中调用一下TensorFlow:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">import tensorflow as tf</div></div>
+<p>提示错误：</p>
+<p>ImportError: cannot import name pywrap_tensorflow</p>
+<p>虽然我们通过源代码安装编译的TensorFlow可用，但是Python版本并没有ready，所以继续：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;"><div class="text codecolorer">bazel build -c opt --config=cuda //tensorflow/tools/pip_package:build_pip_package<br>
+bazel-bin/tensorflow/tools/pip_package/build_pip_package /tmp/tensorflow_pkg<br>
+sudo pip install /tmp/tensorflow_pkg/tensorflow-0.9.0-py2-none-any.whl</div></div>
+<blockquote><p>Requirement already satisfied (use –upgrade to upgrade): setuptools in /usr/lib/python2.7/dist-packages (from protobuf==3.0.0b2-&gt;tensorflow==0.9.0)<br>
+Installing collected packages: six, funcsigs, pbr, mock, protobuf, tensorflow<br>
+Successfully installed funcsigs-1.0.2 mock-2.0.0 pbr-1.10.0 protobuf-3.0.0b2 six-1.10.0 tensorflow-0.9.0</p></blockquote>
+<p>我们再次打开ipython，试一下tensorflow官方样例:</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><div class="text codecolorer">Python 2.7.12 (default, Jul  1 2016, 15:12:24) <br>
+Type "copyright", "credits" or "license" for more information.<br>
+<br>
+IPython 2.4.1 -- An enhanced Interactive Python.<br>
+?         -&gt; Introduction and overview of IPython's features.<br>
+%quickref -&gt; Quick reference.<br>
+help      -&gt; Python's own help system.<br>
+object?   -&gt; Details about 'object', use 'object??' for extra details.<br>
+<br>
+In [1]: import tensorflow as tf<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcublas.so locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcudnn.so locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcufft.so locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcuda.so.1 locally<br>
+I tensorflow/stream_executor/dso_loader.cc:108] successfully opened CUDA library libcurand.so locally<br>
+<br>
+In [2]: import numpy as np<br>
+<br>
+In [3]: x_data = np.random.rand(100).astype(np.float32)<br>
+<br>
+In [4]: y_data = x_data * 0.1 + 0.3<br>
+<br>
+In [5]: W = tf.Variable(tf.random_uniform([1], -1.0, 1.0))<br>
+<br>
+In [6]: b = tf.Variable(tf.zeros([1]))<br>
+<br>
+In [7]: y = W * x_data + b<br>
+<br>
+In [8]: loss = tf.reduce_mean(tf.square(y - y_data))<br>
+<br>
+In [9]: optimizer = tf.train.GradientDescentOptimizer(0.5)<br>
+<br>
+In [10]: train = optimizer.minimize(loss)<br>
+<br>
+In [11]: init = tf.initialize_all_variables()<br>
+<br>
+In [12]: sess = tf.Session()<br>
+I tensorflow/core/common_runtime/gpu/gpu_init.cc:102] Found device 0 with properties: <br>
+name: GeForce GTX 1080<br>
+major: 6 minor: 1 memoryClockRate (GHz) 1.835<br>
+pciBusID 0000:01:00.0<br>
+Total memory: 7.92GiB<br>
+Free memory: 7.65GiB<br>
+I tensorflow/core/common_runtime/gpu/gpu_init.cc:126] DMA: 0 <br>
+I tensorflow/core/common_runtime/gpu/gpu_init.cc:136] 0:   Y <br>
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:838] Creating TensorFlow device (/gpu:0) -&gt; (device: 0, name: GeForce GTX 1080, pci bus id: 0000:01:00.0)<br>
+<br>
+In [13]: sess.run(init)<br>
+<br>
+In [14]: for step in range(201):<br>
+   ....:     sess.run(train)<br>
+   ....:     if step % 20 == 0:<br>
+   ....:         print(step, sess.run(W), sess.run(b))<br>
+   ....:         <br>
+(0, array([-0.10331395], dtype=float32), array([ 0.62236434], dtype=float32))<br>
+(20, array([ 0.03067014], dtype=float32), array([ 0.3403711], dtype=float32))<br>
+(40, array([ 0.08353967], dtype=float32), array([ 0.30958495], dtype=float32))<br>
+(60, array([ 0.09609199], dtype=float32), array([ 0.30227566], dtype=float32))<br>
+(80, array([ 0.09907217], dtype=float32), array([ 0.3005403], dtype=float32))<br>
+(100, array([ 0.09977971], dtype=float32), array([ 0.30012828], dtype=float32))<br>
+(120, array([ 0.0999477], dtype=float32), array([ 0.30003047], dtype=float32))<br>
+(140, array([ 0.0999876], dtype=float32), array([ 0.30000722], dtype=float32))<br>
+(160, array([ 0.09999706], dtype=float32), array([ 0.30000171], dtype=float32))<br>
+(180, array([ 0.09999929], dtype=float32), array([ 0.30000043], dtype=float32))<br>
+(200, array([ 0.09999985], dtype=float32), array([ 0.3000001], dtype=float32))</div></div>
+<p>终于OK了，之后就可以尽情享用基于GTX 1080 GPU版的TensorFlow了。</p>
+<p>参考:<br>
+<a href="https://www.tensorflow.org/versions/r0.9/get_started/os_setup.html#installing-from-sources" target="_blank">TensorFlow: Installing from sources</a><br>
+<a href="http://yangcha.github.io/Tensorflow/" target="_blank">Tensorflow on Ubuntu 16.04 with Nvidia GTX 1080</a><br>
+<a href="http://qiita.com/hidenorly/items/9f614534db1b151b3b93" target="_blank">TensorFlow, Caffe, Chainer と Deep Learning大御所を一気に source code build で GPU向けに setupしてみた</a><br>
+<a href="http://qiita.com/Sert/items/48fafa5b28be5b739784" target="_blank">GTX-1080でTensorFlow</a><br>
+<a href="http://www.cnblogs.com/Jack47/tag/Bazel/" target="_blank">Jack47 Bazel解读系列</a></p>
+<p>注：原创文章，转载请注明出处及保留链接“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">http://www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/?p=9285">深度学习主机环境配置: Ubuntu16.04+GeForce GTX 1080+TensorFlow</a> <a href="http://www.52nlp.cn/?p=9285">http://www.52nlp.cn/?p=9285</a></p>
+
+											
+{% endraw %}

@@ -1,0 +1,120 @@
+---
+layout: post
+title: 'QA问答系统中的深度学习技术实现'
+time: 2016-06-13
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/qa%e9%97%ae%e7%ad%94%e7%b3%bb%e7%bb%9f%e4%b8%ad%e7%9a%84%e6%b7%b1%e5%ba%a6%e5%ad%a6%e4%b9%a0%e6%8a%80%e6%9c%af%e5%ae%9e%e7%8e%b0
+images:
+  3ca92df82e9d4fe084484b83f0420a30: http://www.52nlp.cn/wp-content/uploads/2016/06/t1-1-300x142.png
+  6ee1db03a64a0d7b139a4f00c78e2f26: http://www.52nlp.cn/wp-content/uploads/2016/06/t2-300x28.png
+  bc239e132c7b478fd00d3e4efcbfa897: http://www.52nlp.cn/wp-content/uploads/2016/06/t4.png
+  8a463774ab712b17267d0e73ed6d28c6: http://www.52nlp.cn/wp-content/uploads/2016/06/t5.png
+  9ed54cd22417fbd11c8c84ca94f78846: http://www.52nlp.cn/wp-content/uploads/2016/06/t6.png
+  8c2f5b24b93d837df7e99fddf065fccf: http://www.52nlp.cn/wp-content/uploads/2016/06/t7.png
+  ea79ceefdfc064a8aef9ff3405df83ac: http://www.52nlp.cn/wp-content/uploads/2016/06/t8.png
+  81ce9b3cd7e52b9aecc1f47dc84a099e: http://www.52nlp.cn/wp-content/uploads/2016/06/t9.png
+  eee4406544995a950aa8bda24eb9da90: http://www.52nlp.cn/wp-content/uploads/2016/06/t10.png
+  e3452155d133ef31266bc45b9006ff93: http://www.52nlp.cn/wp-content/uploads/2016/06/t11.png
+---
+{% raw %}
+
+						<p><strong>应用场景</strong></p>
+<p>智能问答机器人火得不行，开始研究深度学习在NLP领域的应用已经有一段时间，最近在用深度学习模型直接进行QA系统的问答匹配。主流的还是CNN和LSTM，在网上没有找到特别合适的可用的代码，自己先写了一个CNN的（theano），效果还行，跟论文中的结论是吻合的。目前已经应用到了我们的产品上。</p>
+<p><strong>原理</strong></p>
+<p>参看《Applying Deep Learning To Answer Selection: A Study And An Open Task》，文中比较了好几种网络结构，选择了效果相对较好的其中一个来实现，网络描述如下：</p>
+<p><img class="alignnone size-medium wp-image-9044" src="/images/52nlp.cn/3ca92df82e9d4fe084484b83f0420a30.jpg" alt="qacnn_v2" width="300" height="142" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t1-1-300x142.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t1-1.png 358w" sizes="(max-width: 300px) 100vw, 300px"></p>
+<p>Q&amp;A共用一个网络，网络中包括HL，CNN，P+T和Cosine_Similarity，HL是一个g(W*X+b)的非线性变换，CNN就不说了，P是max_pooling，T是激活函数Tanh，最后的Cosine_Similarity表示将Q&amp;A输出的语义表示向量进行相似度计算。</p>
+<p>详细描述下从输入到输出的矩阵变换过程：</p>
+<ol>
+<li>
+<strong>Qp：[batch_size, sequence_len]</strong>，Qp是Q之前的一个表示（在上图中没有画出）。所有句子需要截断或padding到一个固定长度（因为后面的CNN一般是处理固定长度的矩阵），例如句子包含3个字ABC，我们选择固定长度sequence_len为100，则需要将这个句子padding成ABC&lt;a&gt;&lt;a&gt;…&lt;a&gt;(100个字)，其中的&lt;a&gt;就是添加的专门用于padding的无意义的符号。训练时都是做mini-batch的，所以这里是一个batch_size行的矩阵，每行是一个句子。</li>
+<li>
+<strong>Q：[batch_size, sequence_len, embedding_size]</strong>。句子中的每个字都需要转换成对应的字向量，字向量的维度大小是embedding_size，这样Qp就从一个2维的矩阵变成了3维的Q</li>
+<li>
+<strong>HL层输出：[batch_size, embedding_size, hl_size]</strong>。HL层：[embedding_size, hl_size]，Q中的每个句子会通过和HL层的点积进行变换，相当于将每个字的字向量从embedding_size大小变换到hl_size大小。</li>
+<li>
+<strong>CNN+P+T输出</strong>：[batch_size, num_filters_total]。CNN的filter大小是[filter_size, hl_size]，列大小是hl_size，这个和字向量的大小是一样的，所以对每个句子而言，每个filter出来的结果是一个列向量（而不是矩阵），列向量再取max-pooling就变成了一个数字，每个filter输出一个数字，num_filters_total个filter出来的结果当然就是[num_filters_total]大小的向量，这样就得到了一个句子的语义表示向量。T就是在输出结果上加上Tanh激活函数。</li>
+<li>
+<strong>Cosine_Similarity：[batch_size]</strong>。最后的一层并不是通常的分类或者回归的方法，而是采用了计算两个向量（Q&amp;A）夹角的方法，下面是网络损失函数。<img class="alignnone size-medium wp-image-9048" src="/images/52nlp.cn/6ee1db03a64a0d7b139a4f00c78e2f26.jpg" alt="t2" width="300" height="28" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t2-300x28.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t2.png 456w" sizes="(max-width: 300px) 100vw, 300px">，m是需要设定的参数margin，VQ、VA+、VA-分别是问题、正向答案、负向答案对应的语义表示向量。损失函数的意义就是：让正向答案和问题之间的向量cosine值要大于负向答案和问题的向量cosine值，大多少，就是margin这个参数来定义的。cosine值越大，两个向量越相近，所以通俗的说这个Loss就是要让正向的答案和问题愈来愈相似，让负向的答案和问题越来越不相似。</li>
+</ol>
+<p><strong>实现</strong></p>
+<p>代码<a href="https://github.com/white127/insuranceQA-cnn">点击这里</a>，使用的数据是一份英文的<a href="https://github.com/shuzi/insuranceQA">insuranceQA</a>，下面介绍代码重点部分：</p>
+<p>字向量。本文采用字向量的方法，没有使用词向量。使用字向量的目的主要是为了解决未登录词的问题，这样在测试的时候就很少会遇到Unknown的字向量的问题了。而且字向量的效果也不一定比词向量的效果差，还省去了分词的各种麻烦。先用word2vec生成一份字向量，相当于我们在做pre-training了（之后测试了随机初始化字向量的方法，效果差不多）</p>
+<p>原理中的步骤2。这里没有做HL层的变换，实际测试中，增加HL层有非常非常小的提升，所以在这里就省去了改步骤。</p>
+<p><img class="alignnone size-full wp-image-9053" src="/images/52nlp.cn/bc239e132c7b478fd00d3e4efcbfa897.jpg" alt="t4" width="978" height="233" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t4.png 978w, http://www.52nlp.cn/wp-content/uploads/2016/06/t4-300x71.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t4-768x183.png 768w" sizes="(max-width: 978px) 100vw, 978px"></p>
+<p>CNN可以设置多种大小的filter，最后各种filter的结果会拼接起来。</p>
+<p><img class="alignnone size-full wp-image-9054" src="/images/52nlp.cn/8a463774ab712b17267d0e73ed6d28c6.jpg" alt="t5" width="813" height="123" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t5.png 813w, http://www.52nlp.cn/wp-content/uploads/2016/06/t5-300x45.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t5-768x116.png 768w" sizes="(max-width: 813px) 100vw, 813px"></p>
+<p>原理中的步骤4。这里执行卷积，max-pooling和Tanh激活。</p>
+<p><img class="alignnone size-full wp-image-9055" src="/images/52nlp.cn/9ed54cd22417fbd11c8c84ca94f78846.jpg" alt="t6" width="1380" height="154" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t6.png 1380w, http://www.52nlp.cn/wp-content/uploads/2016/06/t6-300x33.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t6-768x86.png 768w, http://www.52nlp.cn/wp-content/uploads/2016/06/t6-1024x114.png 1024w" sizes="(max-width: 1380px) 100vw, 1380px"></p>
+<p>生成的ouputs_1是一个python的list，使用concatenate将list的多个tensor拼接起来（list中的每个tensor表示一种大小的filter卷积的结果）<img class="alignnone size-full wp-image-9056" src="/images/52nlp.cn/8c2f5b24b93d837df7e99fddf065fccf.jpg" alt="t7" width="1122" height="197" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t7.png 1122w, http://www.52nlp.cn/wp-content/uploads/2016/06/t7-300x53.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t7-768x135.png 768w, http://www.52nlp.cn/wp-content/uploads/2016/06/t7-1024x180.png 1024w" sizes="(max-width: 1122px) 100vw, 1122px"></p>
+<p>原理中的步骤5。计算问题、正向答案、负向答案的向量夹角</p>
+<p><img class="alignnone size-full wp-image-9057" src="/images/52nlp.cn/ea79ceefdfc064a8aef9ff3405df83ac.jpg" alt="t8" width="836" height="241" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t8.png 836w, http://www.52nlp.cn/wp-content/uploads/2016/06/t8-300x86.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t8-768x221.png 768w" sizes="(max-width: 836px) 100vw, 836px"></p>
+<p>生成Loss损失函数和Accuracy。<img class="alignnone size-full wp-image-9058" src="/images/52nlp.cn/81ce9b3cd7e52b9aecc1f47dc84a099e.jpg" alt="t9" width="1141" height="225" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t9.png 1141w, http://www.52nlp.cn/wp-content/uploads/2016/06/t9-300x59.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t9-768x151.png 768w, http://www.52nlp.cn/wp-content/uploads/2016/06/t9-1024x202.png 1024w" sizes="(max-width: 1141px) 100vw, 1141px"></p>
+<p>核心的网络构建代码就是这些，其他的代码都是训练数据、验证数据的读入，以及theano构建训练时的一些常规代码。</p>
+<p>如果需要增加HL层，可参照如下的代码。Whl即是HL层的网络，将input和Whl点积即可。<img class="alignnone size-full wp-image-9059" src="/images/52nlp.cn/eee4406544995a950aa8bda24eb9da90.jpg" alt="t10" width="1033" height="419" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t10.png 1033w, http://www.52nlp.cn/wp-content/uploads/2016/06/t10-300x122.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t10-768x312.png 768w, http://www.52nlp.cn/wp-content/uploads/2016/06/t10-1024x415.png 1024w" sizes="(max-width: 1033px) 100vw, 1033px"></p>
+<p>dropout的实现。</p>
+<p><img class="alignnone size-full wp-image-9061" src="/images/52nlp.cn/e3452155d133ef31266bc45b9006ff93.jpg" alt="t11" width="826" height="144" srcset="http://www.52nlp.cn/wp-content/uploads/2016/06/t11.png 826w, http://www.52nlp.cn/wp-content/uploads/2016/06/t11-300x52.png 300w, http://www.52nlp.cn/wp-content/uploads/2016/06/t11-768x134.png 768w" sizes="(max-width: 826px) 100vw, 826px"></p>
+<p><strong>结果</strong></p>
+<p>使用上面的代码，Test 1的Top-1 Accuracy可以达到61%-62%，和论文中的结论基本一致了，至于论文中提到的GESD、AESD等方法没有再测试了，运行较慢，其他数据集也没有再测试了。</p>
+<p>下面是国外友人用一个叫keras的工具（封装的theano和tensorflow）弄的类似代码，Test 1的Top-1准确率在50%左右，比他这个要高:)</p>
+<p>http://benjaminbolte.com/blog/2016/keras-language-modeling.html</p>
+<table>
+<thead>
+<tr>
+<th>Test set</th>
+<th>Top-1 Accuracy</th>
+<th>Mean Reciprocal Rank</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Test 1</td>
+<td>0.4933</td>
+<td>0.6189</td>
+</tr>
+<tr>
+<td>Test 2</td>
+<td>0.4606</td>
+<td>0.5968</td>
+</tr>
+<tr>
+<td>Dev</td>
+<td>0.4700</td>
+<td>0.6088</td>
+</tr>
+</tbody>
+</table>
+<p>另外，原始的insuranceQA需要进行一些处理才能在这个代码上使用，具体参看github上的说明吧。</p>
+<p><strong>一些技巧</strong></p>
+<ol>
+<li>
+<strong>字向量和词向量的效果相当</strong>。所以优先使用字向量，省去了分词的麻烦，还能更好的避免未登录词的问题，何乐而不为。</li>
+<li>
+<strong>字向量不是固定的，在训练中会更新</strong>。</li>
+<li>
+<strong>Dropout的使用对最高的准确率没有很大的影响，但是使用了Dropout的结果更稳定</strong>，准确率的波动会更小，所以建议还是要使用Dropout的。不过Dropout也不易过度使用，比如Dropout的keep_prob概率如果设置到0.25，则模型收敛得更慢，训练时间长很多，效果也有可能会更差，设置会差很多。我这版代码使用的keep_prob为0.5，同时保证准确率和训练时间。另外，Dropout只应用到了max-pooling的结果上，其他地方没有再使用了，过多的使用反而不好。</li>
+<li>
+<strong>如何生成训练集</strong>。每个训练case需要一个问题+一个正向答案+一个负向答案，很明显问题和正向答案都是有的，负向答案的生成方法就是随机采样，这样就不需要涉及任何人工标注工作了，可以很方便的应用到大数据集上。</li>
+<li>
+<strong>HL层的效果不明显</strong>，有很微量的提升。如果HL层的大小是200，字向量是100，则HL层相当于将字向量再放大一倍，这个感觉没有多少信息可利用的，还不如直接将字向量设置成200，还省去了HL这一层的变换。</li>
+<li>margin的值一般都设置得比较小。这里用的是0.05</li>
+<li>
+<strong>如果将Cosine_similarity这一层换成分类或者回归，印象中效果是不如Cosine_similarity的</strong>（具体数据忘了）</li>
+<li>
+<strong>num_filters越大并不是效果越好</strong>，基本到了一定程度就很难提升了，反而会降低训练速度。</li>
+<li>同时也写了tensorflow版本代码，<strong>对比theano的，效果差不多</strong>。</li>
+<li>
+<strong>Adam和SGD两种训练方法比较</strong>，Adam训练速度貌似会更快一些，效果基本也持平吧，没有太细节的对比。不过同样的网络+SGD，theano好像训练要更快一些。</li>
+<li>
+<strong>Loss和Accuracy是比较重要的监控参数</strong>。如果写一个新的网络的话，类似的指标是很有必要的，可以在每个迭代中评估网络是否正在收敛。因为调试比较麻烦，所以通过这些参数能评估你的网络写对没，参数设置是否正确。</li>
+<li>
+<strong>网络的参数还是比较重要的</strong>，如果一些参数设置不合理，很有可能结果千差万别，记得最初用tensorflow实现的时候，应该是dropout设置得太小，导致效果很差，很久才找到原因。所以调参和微调网络还是需要一定的技巧和经验的，做这版代码的时候就经历了一段比较痛苦的调参过程，最开始还怀疑是网络设计或是代码有问题，最后总结应该就是参数没设置好。</li>
+</ol>
+<p><strong>结语</strong></p>
+<p>如果关注这个东西的人多的话，后面还可以有tensorflow版本的QA CNN，以及LSTM的代码奉上:)</p>
+<p><strong>补充</strong></p>
+<p>tensorflow的CNN代码已添加到github上，<a href="https://github.com/white127/insuranceQA-cnn">点击这里</a></p>
+<p>Contact: jiangwen127@gmail.com weibo:码坛奥沙利文</p>
+
+											
+{% endraw %}

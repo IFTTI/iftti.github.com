@@ -1,0 +1,126 @@
+---
+layout: post
+title: 'Mecab安装过程中的一些坑'
+time: 2016-07-08
+site_name: 52nlp.cn
+source_url: http://www.52nlp.cn/mecab%e5%ae%89%e8%a3%85%e8%bf%87%e7%a8%8b%e4%b8%ad%e7%9a%84%e4%b8%80%e4%ba%9b%e5%9d%91
+---
+{% raw %}
+
+						<p>先说一点题外话，最近发现 <a href="http://www.52nlp.cn/linode.php" target="_blank">Linode</a> 因为庆祝<a href="https://blog.linode.com/2016/06/16/linodes-13th-birthday-gifts-for-all/" target="_blank">13周年活动</a>将所有的Plan加了一倍，又来了一次加量不加价，这一下子和别的产品拉开了差距，可惜目前<a href="http://www.52nlp.cn/linode.php" target="_blank">Linode</a>日本节点并不参加活动，否则52nlp目前所用的这台 <a href="http://www.52nlp.cn/linode.php" target="_blank">Linode</a> 主机性能就可以翻倍了。不过还是搞了一台 <a href="http://www.52nlp.cn/linode.php" target="_blank">Linode</a> 8GB（8G内存，4核，96G SSD硬盘容量） 的VPS套餐（40$/mo)，选择了美国西部的 Fremont 节点，据说国内连接速度很不错。在上面选择了64位的Ubuntu14.04 版本，但是在这个环境下安装<a href="http://www.52nlp.cn/tag/mecab" target="_blank">Mecab</a>的过程中接连踩了几个坑，所以记录一下。</p>
+<p>这里曾写过“<a href="http://www.52nlp.cn/tag/mecab%E4%B8%AD%E6%96%87%E5%88%86%E8%AF%8D" target="_blank">Mecab中文分词</a>”系列文章，也在github上发布过一个<a href="http://www.52nlp.cn/tag/%E4%B8%AD%E6%96%87%E5%88%86%E8%AF%8D" target="_blank">中文分词</a>项目 <a href="https://github.com/panyang/MeCab-Chinese" target="_blank">MeCab-Chinese</a>：Chinese morphological analysis with Word Segment and POS Tagging data for MeCab ，但是这个过程中没有怎么写到Mecab安装的问题，因为之前觉得<a href="http://www.52nlp.cn/author/rickjin" target="_blank">rickjin</a>的这篇《<a href="http://www.52nlp.cn/%E6%97%A5%E6%96%87%E5%88%86%E8%AF%8D%E5%99%A8-mecab-%E6%96%87%E6%A1%A3" target="_blank">日文分词器 Mecab 文档</a>》应该足够参考，自己当时也在Mac OS和Ubuntu环境下安装成功并测试，印象貌似不是太复杂。这次在Ubuntu 14.04的环境安装的时候，遇到了几个小坑，记录一下，做个备忘，仅供参考。<br>
+<span id="more-9208"></span></p>
+<p>安装的是Mecab 0.996版本，这个版本我在github上做了一个备份：<a href="https://github.com/panyang/MeCab-Chinese/blob/master/mecab/mecab-0.996.tar.gz" target="_blank">mecab-0.996.tar.gz</a></p>
+<blockquote><p>tar -zxvf mecab-0.996.tar.gz<br>
+cd mecab-0.996/<br>
+./configure<br>
+make</p></blockquote>
+<p>make的时候遇到如下错误：</p>
+<blockquote><p>libtool: link: g++ -O3 -Wall -o .libs/mecab mecab.o /usr/local/lib/libiconv.so -Wl,-rpath -Wl,/usr/local/lib  ./.libs/libmecab.so -lpthread -lstdc++<br>
+./.libs/libmecab.so: undefined reference to `libiconv’<br>
+./.libs/libmecab.so: undefined reference to `libiconv_close’<br>
+./.libs/libmecab.so: undefined reference to `libiconv_open’<br>
+collect2: error: ld returned 1 exit status<br>
+make[2]: *** [mecab] Error 1</p></blockquote>
+<p>说明没有安装<a href="https://www.gnu.org/software/libiconv/" target="_blank">libiconv</a> ，官方目前提供的最新版本是1.14版本：<a href="http://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.14.tar.gz" target="_blank">http://ftp.gnu.org/pub/gnu/libiconv/libiconv-1.14.tar.gz</a>，Mecab-Chinese里同样做了一个备份：<a href="https://github.com/panyang/MeCab-Chinese/blob/master/mecab/libiconv-1.14.tar.gz" target="_blank">libiconv-1.14.tar.gz</a></p>
+<p>所以需要先安装libiconv:</p>
+<blockquote><p>tar -zxvf libiconv-1.14.tar.gz<br>
+cd libiconv-1.14/<br>
+./configure<br>
+make</p></blockquote>
+<p>同样，在make的时候遇到了如下的错误：</p>
+<blockquote><p>gcc -DHAVE_CONFIG_H -DEXEEXT=\”\” -I. -I.. -I../lib  -I../intl -DDEPENDS_ON_LIBICONV=1 -DDEPENDS_ON_LIBINTL=1   -g -O2 -c progname.c<br>
+In file included from progname.c:26:0:<br>
+./stdio.h:1010:1: error: ‘gets’ undeclared here (not in a function)<br>
+ _GL_WARN_ON_USE (gets, “gets is a security hole – use fgets instead”);<br>
+ ^<br>
+make[2]: *** [progname.o] Error 1</p></blockquote>
+<p>google了一下，解决方案参考自<a href="http://www.linuser.com/thread-1482-1-1.html" target="_blank">这里</a>，稍有不同，直接修改源码包下srclib/stdio.in.h的代码：</p>
+<blockquote>
+<p>通过关键字 gets 找到698 行，将其和695行一同注释：<br>
+695 /* It is very rare that the developer ever has full control of stdin,<br>
+696    so any use of gets warrants an unconditional warning.  Assume it is<br>
+697    always declared, since it is required by C89.<br>
+698 _GL_WARN_ON_USE (gets, “gets is a security hole – use fgets instead”);*/</p>
+<p>然后再注释的行下面添加以下三行：<br>
+#if defined(__GLIBC__) &amp;&amp; !defined(__UCLIBC__) &amp;&amp; !__GLIBC_PREREQ(2, 16)<br>
+_GL_WARN_ON_USE (gets, “gets is a security hole – use fgets instead”);<br>
+#endif</p>
+</blockquote>
+<p>修改完毕之后重新执行如下命令安装libiconv:</p>
+<blockquote><p>make clean<br>
+make<br>
+sudo make install</p></blockquote>
+<p>这次没有问题了，之后重新编译安装测试mecab:</p>
+<blockquote><p>cd ..<br>
+cd mecab-0.996/<br>
+make clean<br>
+make
+</p></blockquote>
+<p>又一次遇到问题：</p>
+<blockquote><p>libtool: link: g++ -O3 -Wall -o .libs/mecab mecab.o /usr/local/lib/libiconv.so -Wl,-rpath -Wl,/usr/local/lib  ./.libs/libmecab.so -lpthread -lstdc++<br>
+./.libs/libmecab.so: undefined reference to `libiconv’<br>
+./.libs/libmecab.so: undefined reference to `libiconv_close’<br>
+./.libs/libmecab.so: undefined reference to `libiconv_open’<br>
+collect2: error: ld returned 1 exit status</p></blockquote>
+<p>印象之前确实遇到过这个问题，再次google，在这篇<a href="http://d.hatena.ne.jp/tullio/20091018/1255872922" target="_blank">日文网页</a>里找到了答案：</p>
+<blockquote><p>
+setenv CFLAGS “-L/usr/local/lib”<br>
+setenv CPPFLAGS “-I/usr/local/include”<br>
+setenv LDFLAGS “-liconv”</p></blockquote>
+<p>不过在ubuntu里，需要把setenv替换为export：</p>
+<blockquote><p>export CFLAGS=”-L/usr/local/lib”<br>
+export CPPFLAGS=”-I/usr/local/include”<br>
+export LDFLAGS=”-liconv”</p></blockquote>
+<p>再次编译：</p>
+<blockquote><p>make clean<br>
+make<br>
+make check<br>
+sudo make install</p></blockquote>
+<p>mecab终于ok了，接下来安装mecab-python版本：<a href="https://github.com/panyang/MeCab-Chinese/blob/master/mecab/mecab-python-0.996.tar.gz" target="_blank">mecab-python-0.996.tar.gz</a>:</p>
+<p>tar -zxvf mecab-python-0.996.tar.gz<br>
+cd mecab-python-0.996/<br>
+sudo python setup.py build<br>
+sudo python setup.py install</p>
+<p>安装过程无误，用ipython测试了一下：</p>
+<div class="codecolorer-container text default" style="overflow:auto;white-space:nowrap;width:620px;height:450px;"><div class="text codecolorer">Python 2.7.6 (default, Jun 22 2015, 17:58:13) <br>
+Type "copyright", "credits" or "license" for more information.<br>
+<br>
+IPython 1.2.1 -- An enhanced Interactive Python.<br>
+?         -&gt; Introduction and overview of IPython's features.<br>
+%quickref -&gt; Quick reference.<br>
+help      -&gt; Python's own help system.<br>
+object?   -&gt; Details about 'object', use 'object??' for extra details.<br>
+<br>
+In [1]: import MeCab<br>
+---------------------------------------------------------------------------<br>
+ImportError                               Traceback (most recent call last)<br>
+&lt;ipython-input-1-a2b2130d5585&gt; in &lt;module&gt;()<br>
+----&gt; 1 import MeCab<br>
+<br>
+/home/textminer/mecab/mecab-python-0.996/MeCab.py in &lt;module&gt;()<br>
+     24                 fp.close()<br>
+     25             return _mod<br>
+---&gt; 26     _MeCab = swig_import_helper()<br>
+     27     del swig_import_helper<br>
+     28 else:<br>
+<br>
+/home/textminer/mecab/mecab-python-0.996/MeCab.py in swig_import_helper()<br>
+     16             fp, pathname, description = imp.find_module('_MeCab', [dirname(__file__)])<br>
+     17         except ImportError:<br>
+---&gt; 18             import _MeCab<br>
+     19             return _MeCab<br>
+     20         if fp is not None:<br>
+<br>
+ImportError: libmecab.so.2: cannot open shared object file: No such file or directory<br>
+<br>
+In [2]:</div></div>
+<p>又google了一下这个Error:</p>
+<p>“ImportError: libmecab.so.2: cannot open shared object file: No such file or directory”</p>
+<p>又一次在一个<a href="http://yura2.hateblo.jp/entry/2015/08/18/MeCab%E3%81%A8UNIDIC%E3%82%92Ubuntu_14.04%E3%81%AB%E3%82%A4%E3%83%B3%E3%82%B9%E3%83%88%E3%83%BC%E3%83%AB" target="_blank">日本网页</a>里找到了答案，执行 “sudo ldconfig” 即可。这一次，终于Mecab可以在python中正常导入了。</p>
+<p>安装成功之后的问题就比较好办了，如果你想使用日文分词，直接安装mecab相关的日文词典文件，例如ipadic；如果你想使用mecab中文分词，可以通过”<a href="https://github.com/panyang/MeCab-Chinese" target="_blank">Mecab-Chinese</a>“项目直接下载中文分词相关的词典和模型文件，具体可参考“<a href="http://www.52nlp.cn/tag/mecab%E4%B8%AD%E6%96%87%E5%88%86%E8%AF%8D" target="_blank">Mecab中文分词</a>”系列。</p>
+<p>注：原创文章，转载请注明出处及保留链接“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">http://www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/?p=9208">Mecab安装过程中的一些坑</a> <a href="http://www.52nlp.cn/?p=9208">http://www.52nlp.cn/?p=9208</a></p>
+
+											
+{% endraw %}
