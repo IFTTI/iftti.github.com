@@ -16,7 +16,7 @@ desc "Deploy to github"
 task :deploy do
   puts "### Git push"
   system "cd ./_site && git add . && git commit -am 'Deploy at #{Time.now}'"
-  system "cd _site && git push git@liulantao.github.com:IFTTI/iftti.github.com.git.git master"
+  system "cd _site && git push origin master"
 end
 
 desc "Sync"
