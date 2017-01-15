@@ -12,18 +12,17 @@ task :gen do
   system "cd ./_site && git add . && git diff HEAD; git commit -a"
 end
 
-desc "Deploy to gitcafe/github"
+desc "Deploy to github"
 task :deploy do
   puts "### Git push"
   system "cd ./_site && git add . && git commit -am 'Deploy at #{Time.now}'"
-  system "cd _site && git push iftti-gitcafe master:gitcafe-pages"
-  system "cd _site && git push iftti-github master"
+  system "cd _site && git push git@liulantao.github.com:IFTTI/iftti.github.com.git.git master"
 end
 
 desc "Sync"
 task :sync do
   puts "Sync"
-  system "./_crawler/site_crawler.rb"
+  system "./_crawler/site_crawler.rb; find images -size 0 -exec rm {} \;"
 end
 
 desc "Drafts"
