@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>坑：重构过程中的过度设计</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="[IT技术干货iftti.com] @KernelHacks">
+    <link rel="canonical" href="http://iftti.com/posts/2017/2017-01-18-109903-6ff880020.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>坑：重构过程中的过度设计</h1>
+    <p class="meta"><span class="time">Jan 18, 2017</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/109903/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        			<div class="textwidget">
+</div>
+
+		<p>这个系列是<code>坑</code>系列，会说一些在系统设计，系统架构上的<code>坑</code>，这些都是我想到哪说到哪，有像这篇一样比较宏观的<code>坑</code>，后面的文章也会有到具体技术细节的（比如某个函数，某个系统调用）<code>坑</code>，总之，到处都是坑，这些坑有些是我经历过的，有些是听说的，你也可以留言说说你遇到的<code>坑</code>。</p>
+<p>这一篇，我们从<code>重构</code>这个场景来看看系统架构的设计中<code>过度设计</code>这个坑。</p>
+<p>首先，我们这里说的「重构」，和《重构:改善既有代码的设计》这本书中的重构不太一样，这是本好书，它主要说的是代码级别的重构，这种重构是需要在编码的时候时时刻刻进行的，更多的是一种编程思想的训练，而我们这篇的<code>重构</code>主要是说系统设计的<code>重构</code>。</p>
+<h2 id="0-">0. 关于架构师</h2>
+<p>在说之前先聊聊架构师这个职位吧，这个职位最近两年特别特别火，哪个公司没个架构师好像都不好意思跟人打招呼，各位架构师打上这个标签后头上就顶了一个光环了，本人也认识各个公司的一些架构师，我认识的架构师分成几种：</p>
+<ul>
+<li>系统架构师，这种技术能力是最强的，这也是一般人眼中的架构师了，这种架构师一般属于领域架构师，对某个领域的技术有比较深入的了解</li>
+<li>业务架构师，我只是用了这个名字而已啊，有些地方的业务架构师其实和上面的系统架构师没什么两样，但有些业务架构师有些脱离了技术了，基本上变成了一个项目经理的角色，各种沟通，我觉得不应该算架构师了。</li>
+<li>PPT架构师，这个顾名思义，这是”最高级”的架构师了，只要PPT做得酷炫就OK了，这是我等达不到的程度，呵呵呵呵。 最近还有一种说法就是架构师到底要不要会写代码？我的理解是<code>没什么可说的，必须要会写啊</code>，你一个架构师，代码都不会写还架构个屁啊，就算你是PPT架构师，没时间写代码，但出问题了抡起袖子来解BUG的能力得有吧，而且很关键的一点，架构师面对的都是一群技术宅，你连个代码都不会写，你觉得下面的技术宅会看得起你么？至少你得显得很会写吧。 为什么说架构师呢？因为大部分架构上的坑都是从一个不好的设计开始的，而现在的各个系统的设计都是由架构师来操刀的。</li>
+</ul>
+<h2 id="1-">1. 重构中的过度设计</h2>
+<p>技术人员最喜欢做的一件事就是<code>重构</code>，因为技术宅们都看不上别人的代码，特别是需要在别人代码上加新功能的工作更是看不上，架构师们是技术宅的升级版，所以更加看不上别人的架构设计，所以<code>重构</code>是经常做的事情，小的是功能模块的重构，大的是整个系统的重构，总之，都是<code>不重构不舒服斯基</code>。</p>
+<p>重构本身并没有问题，但是需要看的是重构的时机，是不是应该重构了？</p>
+<p>我们以一个例子来详细说说<code>重构</code>中的<code>过度设计</code>吧，你也可以想想要是遇到这样的系统，你是架构师，你怎么做？欢迎留言讨论。</p>
+<p>假如有个初创公司，是帮企业做OA系统的，最开始的时候是由三个程序员小哥开发出来的，系统架构很简单，是个<code>AllInOne</code>的设计，开发语言PHP，就像下图一样。</p>
+<p><img class="medium-zoom-image" src="/images/jobbole.com/60992cfb4ba75210dc7746144b54ed07.jpg" alt=""></p>
+<p>每当客户有新需求，基本的操作就是<code>加个表 --- 加个逻辑模块 --- 修改一下界面 --- 上线</code>，而且一般OA系统是部署在客户内部的，所以每次修改都是针对单独客户进行开发。</p>
+<p>公司发展的越来越好，有了一些大公司买了他们的OA，有钱了，请了个架构师过来优化优化技术架构，架构师叫小明（每次都黑小明），小明来了一看现有设计，我去，这怎么行？三天后，给出了他的建议</p>
+<ul>
+<li>首先，数据层都在一个库里面，以后数据量大的话数据库效率太低了，首先要分库分表，把用户数据表和事件表横向和纵向的拆分一下，哈希到不同的机器上去，减轻单台机器的压力。</li>
+<li>其次，<code>AllInOne</code>的设计太臃肿了，要把各个模块<code>微服务</code>化，把<code>权限</code>模块，<code>附件管理</code>模块拆分出去成为一个微服务，提供API给其他模块使用，方便维护，后续添加新功能做一个<code>微服务</code>就行了，和其他模块的耦合性急剧降低。</li>
+<li>在数据层和业务层之间加一个代理层，用个开源的中间件，以后数据端再有分库分表操作，对上层屏蔽细节，业务人员不用关心底层数据库细节，专心写业务逻辑就行了。</li>
+<li>PHP性能不太行，并且界面做出来不好看，前端分离还不彻底，改成Nodejs+Angularjs来进行前后端分离，前端人员专注页面，做出更绚丽的页面来，后端人员专注业务逻辑，使用<code>RESTAPI</code>进行数据交互。</li>
+<li>docker部署，每个服务启一个docker，对运维人员友好，而且有很多工具可以看各个docker的健康状况。 于是，整个系统变成下面这个样子了。</li>
+</ul>
+<p><img class="medium-zoom-image" src="/images/jobbole.com/e372e8519c183d025b71101e431b584c.jpg" alt=""></p>
+<p>卧槽，好高大上，乍一看，这就是一个目前比较流行的架构图了，有数据层，有中间件层，有业务层，有前端展示层，数据层支持分库分表，可以无限扩展，业务层微服务化，也可以无限扩展，docker部署，一个image搞定部署，简直了！除了消息队列没有用上以外，其他的流行东西用了个遍啊。</p>
+<p>那么，开始干吧，把人员分成两拨，一拨继续维护现有系统，接客户新需求，一拨开始重构，一个月时间，把数据和功能模块梳理了一遍，然后开始定各个服务中的接口，又用了小一个月，然后全部人员投入进去开始编码，又忙活了三个月，终于重构完成了，再花一个月时间追上这4个月新来的需求，牛逼的架构上线了！</p>
+<p>如果小明够厉害并且开发人员也给力的话，最好的情况就是上线后一切正常，你不是重构么？客户完全感觉不到有变化，继续使用得很high。但这种概率几乎为零，最有可能的情况是什么呢？</p>
+<ul>
+<li>客户说，卧槽，少了个功能了，卧槽，数不对了，这都是小事，新系统嘛，总归有一些问题，解决这些bug就好了。</li>
+<li>某天发现登录不上了，如果在之前，跟踪一下代码就知道哪里有问题了，立刻解决了，现在已经微服务了，你说是网络问题还是权限服务问题还是逻辑问题呢？要跟踪可没那么容易。</li>
+<li>某天发现数据写入和读取都有问题，最后查问题发现是开源的中间件偶尔抽风了，要修改的话，得看中间件的源码了，跪了吧。。。。</li>
+<li>最关键的是，你会发现，上了这个新的架构以后，是耦合性降低了，但开发一个新功能的工作量比以前多了，效率反而降低了。</li>
+</ul>
+<p>这就是一个典型的<code>过度设计</code>，<code>过度设计</code>特点：</p>
+<blockquote></blockquote>
+<p>这个例子中的业务场景是一个OA系统，OA系统的主要数据是企业的人和人的数据，一个企业能有多少人？一个初创公司，能接入10万人的大公司做OA已经非常不错了吧？即便是10万人的大公司，人的数据也就10万条，我们在成100，算单个表1000万条数据吧，单台MySql完全可以hold得住，所以第一条分库分表的设计在这个场景下就完全没有必要，企业主最关心的是什么？是数据的安全可靠，所以你在这里把MySql换成Orecle，企业主觉得安全也会买单，并且你收入还能更多，而且换成Orecle的话，单个表上亿问题也不大，何必分库分表？</p>
+<p>好，就算你数据量巨大，需要分库分表，那你整个中间件干嘛？中间件的作用是屏蔽底层数据没错，但还有个场景是数据读写分离，一般是在大数据量并且有高并发需求的系统使用，你一OA系统，能有多高的并发？需要用中间件这么高端的东西么？</p>
+<p>再看看<code>微服务</code>，为了降低系统的耦合度使用了<code>微服务</code>，同样场景也不对，什么时候需要把服务拆分出来呢？只有在当前服务已经耗费了单台机器太多的资源了，单机扛不住了，才会把功能比较独立的模块拆分成微服务出去，因为<code>微服务</code>虽然降低了系统的耦合度，但是需要更多的考虑到系统的可用性和网络因素造成的问题，对开发人员的要求更高，一个OA系统，能有多大的计算量？</p>
+<p>后面的前后端分离啊，docker部署啊，你想想各自的必要程度如何？一个OA是否需要绚丽的界面？一个OA系统的更新频率有多高？是否需要docker这样的东西来帮助部署？成本如何？再看看是否是<code>过度设计</code>？</p>
+<p>最后，我觉得上面这个系统，比较合理的修改设计是：</p>
+<ul>
+<li>把数据库加上一个主从同步，保证数据的可靠性，别数据库挂了，那客户可会跟你拼命，这是最重要的。</li>
+<li>把系统的SQL语句梳理一遍，看看有没有什么慢SQL，然后做针对性的优化，比如加索引，改SQL之类的。</li>
+<li>把后端的服务加上详细的Log信息，这样出了问题也好查问题，并且可以把Log收集起来做分析，看看系统的瓶颈在什么地方，然后再在局部做优化也好重构也好，这样对系统的侵入性最小。</li>
+</ul>
+<p>这样下来，系统的性能应该有提升，数据可靠性也增强了，并且也耗费不了多少资源，通过Log分析，一个局部一个局部的优化，直到发现了一个大坑需要拆分服务了，再进行服务的拆分，如果你有更好的建议，欢迎留言讨论啊。</p>
+<h2 id="2-">2. 重构的理由</h2>
+<p>我觉得重构得满足以下几个条件的大部分，才有重构的必要，第一个条件是必须满足的。</p>
+<ul>
+<li>现有系统的所有功能模块和对外接口都了解得非常清楚了。如果你没把对外接口了解得非常清楚，重构完了以后外部的依赖系统必然要跟着改，那就是个无底洞了。</li>
+<li>现有系统有明显的重大BUG，并且在现有条件下无法解决或者很难解决。如果仅仅是系统有BUG，那么解决BUG就好了，完全没有必要为了BUG来重构，只有当确实BUG已经无法解决或者解决的成本实在太高了，才有重构的必要。</li>
+<li>文档缺失或者维护人员大量离职导致目前系统的可维护性降低，很难添加新功能。如果大家都很熟悉现有系统，可以很快的在上面迭代新功能，你重新来一个系统干什么呢？</li>
+<li>现有系统在可预见的未来无法支撑业务的发展了。只有当业务部门已经跑到了技术部门前面了，可以预见得到业务发展的方向了，再来审视目前的系统，发现已经无法继续支撑了，这时候才需要重构现有系统。</li>
+</ul>
+<p>而重构最忌讳的用以下理由来重构系统</p>
+<ul>
+<li>现有代码太臃肿，实现不完美。难道你重新实现一个就完美了？</li>
+<li>这个系统的技术栈太陈旧，没有使用最新的技术流，以后肯定会落伍。难道用了新技术就不会落伍？</li>
+<li>现有系统没有考虑高可用的情况，要是出问题了就是大问题。</li>
+<li>这个语言就不适合做这个系统，得用XXX语言来实现。虽然说每个语言都有他擅长的场景，但是一个既有系统更换实现语言，是一件成本非常高的事情。</li>
+</ul>
+<p>总而言之，重构一个系统最需要考虑的就一个词：<code>成本</code>，需要衡量各方面的成本后，再考虑是否需要重构，这样的重构才是有意义的重构。</p>
+<p>OK，这一篇简单的说了一下重构场景下的过度设计的问题，后面还会有和过度设计相关的，你也可以说说你遇到的过度设计，欢迎留言给我哈。</p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2017/2017-01-18-109902-9ed5b8092.html" title="Previous Post: 服务拆分与架构演进" data-instant>&laquo; 服务拆分与架构演进</a>
+
+    <a class="basic-alignment right" href="/posts/2017/2017-01-18-109907-50628ef19.html" title="Next Post: 每天一个 Linux 命令（39）： grep 命令" data-instant>每天一个 Linux 命令（39）： grep 命令 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>23 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-23-109970-be7a95583.html">每天一个 Linux 命令（46）： vmstat 命令</a></li>
+
+      <li><span>22 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-22-109965-c5dfb9397.html">每天一个 Linux 命令（45）： free 命令</a></li>
+
+      <li><span>21 Jan 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-01-21-109951-09f1179a7.html">每天一个 Linux 命令（44）： top 命令</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">[IT技术干货iftti.com] @KernelHacks</p>
+      <ul>
+        <li>科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
