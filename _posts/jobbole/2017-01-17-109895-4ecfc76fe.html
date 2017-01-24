@@ -1,0 +1,352 @@
+---
+layout: post
+title: '如何做到老板来了就自动切换桌面（含源码）'
+time: 2017-01-17 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109895/
+images:
+  493ba13f632eefa9a03c45a057a6eb2f: http://ww4.sinaimg.cn/mw690/6941baebgw1fbtwbd0ljbj20my0h90u2.jpg
+  4edd96fb6e99d71cc82f11a7f7bdf5f5: http://wx3.sinaimg.cn/mw690/6941baebgy1fbtwbckz3dj20yo0l0ju8.jpg
+  4f202b522aee0a3602f4c093b9e6901b: http://wx1.sinaimg.cn/mw690/6941baebgy1fbtwbar03kj20sg0chgq0.jpg
+  090875335aaf0aec9f429d08a623fbab: http://ww1.sinaimg.cn/mw690/6941baebgw1fbtwbc23b4j20hs0a0wf7.jpg
+  8c93377e8f78c70c61fea99a062b7bc4: http://ww4.sinaimg.cn/mw690/6941baebgw1fbtwba4g2uj20e0098gmz.jpg
+  b28c5fdca158401a9290c8735eebca6c: http://ww1.sinaimg.cn/mw690/6941baebgw1fbtwbbnwlij20hs0cb3zb.jpg
+  c9335399d9c18b90f912f488466c9e42: http://ww1.sinaimg.cn/mw690/6941baebgw1fbtwbb6xjuj20sg0hs415.jpg
+  e049efe13f561597701add424eaec5ad: http://wx3.sinaimg.cn/mw690/6941baebgy1fbtwf9ucd9j20b4082mx9.jpg
+  8ace446c913cf075e2c01c2ba1f0d560: http://wx3.sinaimg.cn/mw690/6941baebgy1fbtwb9b0auj208c061mx3.jpg
+  0cfc703a138b625d8336c23ddc7fefa0: http://wx2.sinaimg.cn/mw690/6941baebgy1fbtweg6ftdj20b406y3yn.jpg
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<div>
+<h3>简介</h3>
+<p><strong>当你工作的时候，肯定会浏览一些与工作无关的东西，别说你没有过。</strong></p>
+<p>这时被老板发现就太尴尬了。当然，我也可以马上切换桌面，但这种举动太可疑了，而且有的时候我根本没注意到老板来了。为了表现得不是那么刻意，我做了个人脸识别程序，老板过来的时候自动隐藏桌面内容。</p>
+<p>具体来说，我用 <strong>Keras</strong> 来实现面部识别的神经网络，用网络摄像头来判断他是否正在接近，然后切换画面。</p>
+<h3>任务</h3>
+<p>这个程序的目的是在发现老板接近时自动切换电脑桌面。</p>
+<p>场景如下：</p>
+<p><img src="/images/jobbole.com/493ba13f632eefa9a03c45a057a6eb2f.jpg"></p>
+<p>老板和我的座位之间隔着 6、7 米，他离开座位后大概 4、5 秒钟到达我的工位。因此必须在这个时间内切换好桌面，时间紧迫！</p>
+<h3>策略</h3>
+<p>可能你们会有很多办法，以下是我的个人对策。</p>
+<p>首先，让电脑用深度学习的技术记住老板的脸；然后在我的工位安装一个网络摄像头，一旦捕捉到老板的脸就迅速切换桌面。我认为这是个很完美的策略，姑且称它为 <strong>Boss Sensor</strong>（老板识别器）吧。</p>
+<p><img src="/images/jobbole.com/4edd96fb6e99d71cc82f11a7f7bdf5f5.jpg"></p>
+<h3>系统架构</h3>
+<p>Boss Sensor 的系统架构如下所示。</p>
+<p><img src="/images/jobbole.com/4f202b522aee0a3602f4c093b9e6901b.jpg"></p>
+<ul>
+<li>网络摄像头捕捉实时画面。</li>
+<li>学习模型对捕捉画面的面部进行检测和识别。</li>
+<li>识别出老板的面部后，切换桌面。</li>
+</ul>
+<p>这个过程用到了如下技术：</p>
+<ul>
+<li>捕捉面部画面</li>
+<li>面部识别</li>
+<li>切换桌面</li>
+</ul>
+<p>让我们一步一步分解一下。</p>
+<h3>捕捉面部画面</h3>
+<p>首先，用网络摄像头捕捉画面。</p>
+<p>我用的是 <a href="https://www.amazon.co.jp/dp/B008AO4KXQ">BUFFALO BSW20KM11BK</a>。</p>
+<p><img src="/images/jobbole.com/090875335aaf0aec9f429d08a623fbab.jpg"></p>
+<p>你也可以用电脑软件自带的摄像头，但是考虑到接下来的步骤，最好是可以直接获得图像。由于接下来需要进行面部识别，所以需要对图像进行剪裁。我用 Python 和 OpenCV 获取面部图像。这是代码：</p>
+<ul>
+<li><a href="https://github.com/Hironsan/BossSensor/blob/master/camera_reader.py">BossSensor/camera_reader.py</a></li>
+</ul>
+<p>脸部图像比预期的更清晰。</p>
+<p><img src="/images/jobbole.com/8c93377e8f78c70c61fea99a062b7bc4.jpg"></p>
+<h3>面部识别</h3>
+<p>接下来，我们用机器学习来确保电脑可以识别出老板的脸。<br>
+这个过程需要分三步：</p>
+<ol>
+<li>图像收集</li>
+<li>图像预处理</li>
+<li>构建机器学习模型</li>
+</ol>
+<p>让我们一步一步分解一下。</p>
+<h3>图像收集</h3>
+<p>首先，</p>
+<ul>
+<li>从 Google 搜索图像</li>
+<li>从 Facebook 收集图像</li>
+<li>拍摄视频</li>
+</ul>
+<p>最开始，我试着从网页搜索和 Facebook 收集图像，但数量远远不够。后来我拍摄了一段视频并把视频分解成无数个图像。</p>
+<h3>图像预处理</h3>
+<p>我收集到了足够多的图片，但是里面除去面部还有很多无关的部分，所以学习模型无法准确识别。我们把面部单独剪裁出来即可。</p>
+<p>我主要使用 ImageMagick 进行提取。通过 ImageMagick 切割来获得面部图像。</p>
+<ul>
+<li><a href="http://www.imagemagick.org/script/index.php">ImageMagick</a></li>
+</ul>
+<p>然后我收集到了如下的面部图像：</p>
+<p><img src="/images/jobbole.com/b28c5fdca158401a9290c8735eebca6c.jpg"></p>
+<p>可能我是世界上收藏老板照片最多的人，估计比他爸妈还要多。</p>
+<p>接下来构建学习模型。</p>
+<h3>构建机器学习模型</h3>
+<p>我用 Keras 来搭建卷积神经网络（CNN），CNN 可以用来进行训练。Keras 的后端使用了 TensorFlow。如果你只需要识别面部，可以调用 Web API 进行图像识别，如 Cognitive Services 中的 Computer Vision API，但是考虑到实时性，我决定自己编写。</p>
+<p>以下是网络的架构。Keras 可以很方便地展示出架构。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-588730bc502fa789694725" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+======================================
+Layer (type)                     Output Shape          Param #     Connected to
+
+======================================
+convolution2d_1 (Convolution2D)  (None, 32, 64, 64)    896         convolution2d_input_1[0][0]
+
+activation_1 (Activation)        (None, 32, 64, 64)    0           convolution2d_1[0][0]
+
+convolution2d_2 (Convolution2D)  (None, 32, 62, 62)    9248        activation_1[0][0]
+
+activation_2 (Activation)        (None, 32, 62, 62)    0           convolution2d_2[0][0]
+
+maxpooling2d_1 (MaxPooling2D)    (None, 32, 31, 31)    0           activation_2[0][0]
+
+dropout_1 (Dropout)              (None, 32, 31, 31)    0           maxpooling2d_1[0][0]
+
+convolution2d_3 (Convolution2D)  (None, 64, 31, 31)    18496       dropout_1[0][0]
+
+activation_3 (Activation)        (None, 64, 31, 31)    0           convolution2d_3[0][0]
+
+convolution2d_4 (Convolution2D)  (None, 64, 29, 29)    36928       activation_3[0][0]
+
+activation_4 (Activation)        (None, 64, 29, 29)    0           convolution2d_4[0][0]
+
+maxpooling2d_2 (MaxPooling2D)    (None, 64, 14, 14)    0           activation_4[0][0]
+
+dropout_2 (Dropout)              (None, 64, 14, 14)    0           maxpooling2d_2[0][0]
+
+flatten_1 (Flatten)              (None, 12544)         0           dropout_2[0][0]
+
+dense_1 (Dense)                  (None, 512)           6423040     flatten_1[0][0]
+
+activation_5 (Activation)        (None, 512)           0           dense_1[0][0]
+
+dropout_3 (Dropout)              (None, 512)           0           activation_5[0][0]
+
+dense_2 (Dense)                  (None, 2)             1026        dropout_3[0][0]
+
+activation_6 (Activation)        (None, 2)             0           dense_2[0][0]
+
+======================================
+Total params: 6489634</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-2">2</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-4">4</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-6">6</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-8">8</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-10">10</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-12">12</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-14">14</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-16">16</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-18">18</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-20">20</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-22">22</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-24">24</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-26">26</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-28">28</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-30">30</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-32">32</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-34">34</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-36">36</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-38">38</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-40">40</div>
+<div class="crayon-num" data-line="crayon-588730bc502fa789694725-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-588730bc502fa789694725-42">42</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-588730bc502fa789694725-1">
+<span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">==</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-2">
+<span class="crayon-e">Layer</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">type</span><span class="crayon-sy">)</span><span class="crayon-h">                     </span><span class="crayon-e">Output </span><span class="crayon-e">Shape          </span><span class="crayon-v">Param</span><span class="crayon-h"> </span><span class="crayon-p">#     Connected to</span>
+</div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-4">
+<span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">==</span>
+</div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-5">
+<span class="crayon-e">convolution2d_1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Convolution2D</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">32</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">896</span><span class="crayon-h">         </span><span class="crayon-v">convolution2d_input_1</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-6"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-7">
+<span class="crayon-e">activation_1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Activation</span><span class="crayon-sy">)</span><span class="crayon-h">        </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">32</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">convolution2d_1</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-8"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-9">
+<span class="crayon-e">convolution2d_2</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Convolution2D</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">32</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">62</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">62</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">9248</span><span class="crayon-h">        </span><span class="crayon-v">activation_1</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-10"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-11">
+<span class="crayon-e">activation_2</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Activation</span><span class="crayon-sy">)</span><span class="crayon-h">        </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">32</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">62</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">62</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">convolution2d_2</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-12"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-13">
+<span class="crayon-e">maxpooling2d_1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">MaxPooling2D</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">32</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">activation_2</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-14"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-15">
+<span class="crayon-e">dropout_1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Dropout</span><span class="crayon-sy">)</span><span class="crayon-h">              </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">32</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">maxpooling2d_1</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-16"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-17">
+<span class="crayon-e">convolution2d_3</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Convolution2D</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">18496</span><span class="crayon-h">       </span><span class="crayon-v">dropout_1</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-18"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-19">
+<span class="crayon-e">activation_3</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Activation</span><span class="crayon-sy">)</span><span class="crayon-h">        </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">31</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">convolution2d_3</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-20"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-21">
+<span class="crayon-e">convolution2d_4</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Convolution2D</span><span class="crayon-sy">)</span><span class="crayon-h">  </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">29</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">29</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">36928</span><span class="crayon-h">       </span><span class="crayon-v">activation_3</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-22"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-23">
+<span class="crayon-e">activation_4</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Activation</span><span class="crayon-sy">)</span><span class="crayon-h">        </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">29</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">29</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">convolution2d_4</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-24"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-25">
+<span class="crayon-e">maxpooling2d_2</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">MaxPooling2D</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">14</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">14</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">activation_4</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-26"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-27">
+<span class="crayon-e">dropout_2</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Dropout</span><span class="crayon-sy">)</span><span class="crayon-h">              </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">14</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">14</span><span class="crayon-sy">)</span><span class="crayon-h">    </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">maxpooling2d_2</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-28"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-29">
+<span class="crayon-e">flatten_1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Flatten</span><span class="crayon-sy">)</span><span class="crayon-h">              </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">12544</span><span class="crayon-sy">)</span><span class="crayon-h">         </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">dropout_2</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-30"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-31">
+<span class="crayon-e">dense_1</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Dense</span><span class="crayon-sy">)</span><span class="crayon-h">                  </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">512</span><span class="crayon-sy">)</span><span class="crayon-h">           </span><span class="crayon-cn">6423040</span><span class="crayon-h">     </span><span class="crayon-v">flatten_1</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-32"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-33">
+<span class="crayon-e">activation_5</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Activation</span><span class="crayon-sy">)</span><span class="crayon-h">        </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">512</span><span class="crayon-sy">)</span><span class="crayon-h">           </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">dense_1</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-34"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-35">
+<span class="crayon-e">dropout_3</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Dropout</span><span class="crayon-sy">)</span><span class="crayon-h">              </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">512</span><span class="crayon-sy">)</span><span class="crayon-h">           </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">activation_5</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-36"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-37">
+<span class="crayon-e">dense_2</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Dense</span><span class="crayon-sy">)</span><span class="crayon-h">                  </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-sy">)</span><span class="crayon-h">             </span><span class="crayon-cn">1026</span><span class="crayon-h">        </span><span class="crayon-v">dropout_3</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-38"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-39">
+<span class="crayon-e">activation_6</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Activation</span><span class="crayon-sy">)</span><span class="crayon-h">        </span><span class="crayon-sy">(</span><span class="crayon-v">None</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">2</span><span class="crayon-sy">)</span><span class="crayon-h">             </span><span class="crayon-cn">0</span><span class="crayon-h">           </span><span class="crayon-v">dense_2</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span><span class="crayon-sy">[</span><span class="crayon-cn">0</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-40"> </div>
+<div class="crayon-line" id="crayon-588730bc502fa789694725-41">
+<span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">===</span><span class="crayon-o">==</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-588730bc502fa789694725-42">
+<span class="crayon-e">Total </span><span class="crayon-v">params</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">6489634</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0101 seconds] -->
+<p>这是代码：</p>
+<ul>
+<li><a href="https://github.com/Hironsan/BossSensor/blob/master/boss_train.py">BossSensor/boss_train.py</a></li>
+</ul>
+<p>现在，如果老板出现在摄像机镜头里就可以被识别出来了。</p>
+<h3>切换桌面</h3>
+<p>当学习模型识别出老板在接近后，就需要切换桌面了。我选择了下面这张图像来假装我在工作。</p>
+<p>选择这样的图片是因为我是个程序员。</p>
+<p><img src="/images/jobbole.com/c9335399d9c18b90f912f488466c9e42.jpg"></p>
+<p>我展示的仅仅是一张图片。</p>
+<p>我希望图片可以全屏展示，所以使用了 PyQt，代码如下：</p>
+<ul>
+<li><a href="https://github.com/Hironsan/BossSensor/blob/master/image_show.py">BossSensor/image_show.py</a></li>
+</ul>
+<p>万事俱备了。</p>
+<h3>成品</h3>
+<p>把上面的技术整合起来就大功告成了，我已经试验过了。</p>
+<p>“老板离开座位后向我靠近。”</p>
+<p><img src="/images/jobbole.com/e049efe13f561597701add424eaec5ad.jpg"></p>
+<p>“OpenCV 检测到了老板的面部并把信息传送给学习模型。”</p>
+<p><img src="/images/jobbole.com/8ace446c913cf075e2c01c2ba1f0d560.jpg"></p>
+<p>“确定是老板后迅速切换桌面！ヽ(‘ ∇‘ )ノ ﾜｰｲ”</p>
+<p><img src="/images/jobbole.com/0cfc703a138b625d8336c23ddc7fefa0.jpg"></p>
+<h3>源代码</h3>
+<p>Boss Sensor 的源代码下载链接如下：</p>
+<ul>
+<li>
+<a href="https://github.com/Hironsan/BossSensor">BossSensor</a>：https://github.com/Hironsan/BossSensor</li>
+</ul>
+<p>记得赞我哦ｍ(_ _)ｍ</p>
+<h3>结论</h3>
+<p>这一次，我把 Web 相机的实时图像采集和 Keras 的面部识别结合起来，成功地识别老板并隐藏桌面。</p>
+<p>目前，我用 OpenCV 进行面部检测，但由于 OpenCV 中面部检测的准确性似乎不太好，我想尝试使用 Dlib 来提高准确性。另外，我还想尝试一下自己的面部检测模型。</p>
+<p>由于对从网络摄像机获取的图像的识别精度不太好，我还会做些改进。</p>
+
+</div>
+
+        
+            
+
+    
+
+    
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

@@ -1,0 +1,157 @@
+---
+layout: post
+title: '服务拆分与架构演进'
+time: 2017-01-18 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109902/
+images:
+  728efc670450d040819d0a487aaa9359: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/gas-1024x488.jpg
+  57f8fda5f9ac635042fe278c76b73bb4: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/1-evolution-course-1024x633.jpg
+  b5feae6f3369b30c5a9d0b88ab08f70d: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/2-process-1024x201.jpg
+  a5d13d71a00a3e77add1fee1289c0bb4: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/3-modeling-1024x430.jpg
+  c62e11a116d05372846f35dd7b4c557d: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/4-inception-1003x1024.png
+  f541f52495471d67a7b24d4ba108d562: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/5-work-order-1-1024x587.jpg
+  4efa7caf10e29174e3bb9cd8a2799e4a: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/6-recognition-1024x682.jpg
+  84a4c98ce5b249ad8bc756e7f91a8d25: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/7-branch-by-abstraction-1024x504.jpg
+  4c55e4fd59528056df34c9c8568d3b6d: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/8-TDDL-1024x679.jpg
+  e18634260a0ffa99280f9acc3bf16925: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/9-system-architecture-1024x607.jpg
+  00efe1ec2399bc1a070a4de5b63611be: http://insights.thoughtworkers.org/wp-content/uploads/2017/01/team-1024x731.jpg
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<div>
+<p>领域驱动设计和服务自演进能力是内功。</p>
+<h3>前言</h3>
+<p>《微服务的团队应对之道》提到，微服务帮助企业提升其响应力，而企业需要从DevOps、服务构建、团队和文化四点入手，应对微服务带来的复杂度和各种挑战，从而真正获益。如果说运维能力是微服务的加油站，服务则是其核心。</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/gas.jpg"><img src="/images/jobbole.com/728efc670450d040819d0a487aaa9359.jpg" alt="gas" width="700" height="334"></a></p>
+<p>企业想要实施微服务架构，经常问到的第一个问题是，怎么拆？如何从单体到服务化的结构？第二个问题是拆完后业务变了增加了怎么办？另外，我们想要改变的系统往往已经成功上线，并有着活跃的用户。那么对其拆分还需要考虑现有的系统运行，如何以安全最快最低成本的方式拆分也是在这个过程中需要回答的问题。</p>
+<p>本文会针对以上问题，介绍我们团队在服务拆分和演进过程中的实践和经验总结。</p>
+<h3>我们项目架构的演化历程</h3>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/1-evolution-course.jpg"><img src="/images/jobbole.com/57f8fda5f9ac635042fe278c76b73bb4.jpg" alt="1-evolution-course" width="700" height="433"></a></p>
+<p>该项目始于2009年，到现在已有7年的时间。在这7年中覆盖的业务线不断扩大，从工单、差旅、计费、文件、报表、增值业务等；业务流程从部分节点到用户端的全线延伸；7年间打造多个产品，架构经历了多次调整，从单体架构、RPC、服务化、规模化到微服务。</p>
+<p>主要架构变迁如下图所示：</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/2-process.jpg"><img src="/images/jobbole.com/b5feae6f3369b30c5a9d0b88ab08f70d.jpg" alt="2-process" width="700" height="137"></a></p>
+<p>在这7年架构演进路上，我们遇到的主要挑战如下：</p>
+<ul>
+<li>如何拆？即如何正确理解业务，将单体结构拆分为服务化架构？</li>
+<li>拆完后业务变了增加了怎么办？即在业务需求不断发展变化的前提下，如何持续快速地演进？</li>
+<li>如何安全地持续地拆？即如何在不影响当下系统运行状态的前提下，持续安全地演进？</li>
+<li>如何保证拆对了？</li>
+<li>拆完了怎么保证不被破坏？</li>
+</ul>
+<h3>问题1：如何将单体结构拆分为服务化架构？</h3>
+<p>就如庖丁解牛一样，拆分需要摸清内部的构造脉络，在筋骨缝隙处下刀。那么微服务架构中，我们认为服务是业务能力的代表，需要围绕业务进行组织。拆分的关键在于正确理解业务，识别单体内部的业务领域及其边界，并按边界进行拆分。</p>
+<h4>1. 识别业务领域及边界。</h4>
+<p>首先需要将客户、体验设计师、业务分析师、技术人员集结在一起对业务需求进行沟通，随后对其进行领域划分，确定限界上下文(Boundary Context)，也称战略建模。</p>
+<p>以下我们经常使用的方法和参考的红蓝宝书：</p>
+<ul>
+<li>
+<a href="http://www.servicedesigntools.org/tools/8">Inception-&gt; User Journey</a> | Scenarios，用于梳理业务流程，由粗粒度到细粒度逐一场景分析。</li>
+<li>
+<a href="http://www.infoq.com/cn/articles/xh-four-color-modeling">四色建模</a>，用于提取核心概念、关键数据项和业务约束。</li>
+<li>领域驱动设计-战略设计，用于划分领域及边界、进行技术验证。</li>
+<li>
+<a href="https://www.thoughtworks.com/cn/radar/techniques/event-storming">Eventstorming</a>，用于提取领域中的业务事件，便于正确建模。</li>
+</ul>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/3-modeling.jpg"><img src="/images/jobbole.com/a5d13d71a00a3e77add1fee1289c0bb4.jpg" alt="3-modeling" width="700" height="294"></a></p>
+<h4>Inception与DDD战略设计的对比：</h4>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/4-inception.png"><img src="/images/jobbole.com/c62e11a116d05372846f35dd7b4c557d.jpg" alt="4-inception" width="700" height="715"></a></p>
+<p>一个业务领域或子域是一个企业中的业务范围以及在其中进行的活动，核心子域指业务成功的主要促成因素，是企业的核心竞争力；通用子域不是核心，但被整个业务系统所使用；支撑子域不是核心，不被整个系统使用，该能力可从外部购买。一个业务领域和子域可以包括多个业务能力，一个业务能力对应一个服务。领域的边界即限界上下文，也是服务的边界，它封装了一系列的领域模型。</p>
+<p>一个业务流程代表了企业的一个业务领域，业务流程所涉及的数据或角色或是通用子域，或是支撑子域，由其在企业的核心竞争力的角色所决定。比如企业有统一身份认证，决策不同部门负责不同的流程任务，那么身份认证子域并不产生业务价值，不是业务成功的促成因素，但是所有流程的入口，因而为通用子域，可为单独服务；而部门负责的业务则为核心子域。</p>
+<p><strong>举个例子</strong></p>
+<p>工单业务流程：</p>
+<p>某企业为服务人员提供工单服务的业务流程简化如下。首先搜索服务人员，选取服务人员购买的服务，基于目标国家的工单流程，向服务人员收取资料，对其进行审计，最后发送结果。</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/5-work-order-1.jpg"><img src="/images/jobbole.com/f541f52495471d67a7b24d4ba108d562.jpg" alt="5-work-order" width="700" height="401"></a>识别的领域：</p>
+<p>其中服务为其核心竞争能力，包括该企业对全球各国的政策理解，即法律流程，服务资料（问卷），计算服务，资料审计服务，相比其他竞争对手的服务（价位/效率等），这些都为改企业提供核心的业务价值，自然也是核心子域。而其他用于统计改企业员工工作的工单，组织结构和员工为支撑子域，并不直接产生业务价值</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/6-recognition.jpg"><img src="/images/jobbole.com/4efa7caf10e29174e3bb9cd8a2799e4a.jpg" alt="6-recognition" width="700" height="466"></a></p>
+<h4>领域划分的原则</h4>
+<p>在划分的过程中，经常纠结的一个问题是：这个模型（概念或数据）看起来放这个领域合适，放另一个也合适，如何抉择呢？</p>
+<ul>
+<li>第一，依据该模型与边界内其他模型或角色关系的紧密程度。比如，是否当该模型变化时，其他模型也需要进行变化；该数据是否通常由当前上下文中的角色在当前活动范围内使用。</li>
+<li>第二，服务边界内的业务能力职责应单一，不是完成同一业务能力的模型不放在同一个上下文中。</li>
+<li>第三，划分的子域和服务需满足正交原则。领域名字代表的自然语言上下文保持互相独立。</li>
+<li>第四，读写分离的原则。例如报表需有单独报表子域。核心子域的划分更多基于来自业务价值的产生方，而非不产生价值的报表系统。</li>
+<li>第五，模型在很多业务操作中同时被修改和更新。</li>
+<li>第六，组织中业务部分的划分也是一种参考，一个业务部门的存在往往有其独特的业务价值。</li>
+</ul>
+<p>简单打个比方，同一个领域上下文中的模型要保持近亲关系，五福以内，同一血统（业务）。</p>
+<h4>领域划分的误区和建议</h4>
+<ul>
+<li>
+<strong>业务能力还是计算能力？</strong>在划分一些貌似通用的领域时，其实只是用到了通用的计算能力而不是业务能力，只需采用通用库的方式进行封装，而无需使用服务的方式。如我们系统的模板服务，是构建通用的模板服务，服务于整个平台的服务；还是每个服务拥有独立的模板模块？</li>
+<li>
+<strong>尽早识别剥离通用领域。</strong>如身份认证与鉴权领域，是企业系统中最复杂、有相对多变的领域，需要及早隔离它对核心业务的干扰。</li>
+<li>
+<strong>时刻促成技术人员与客户、业务人员的对话。</strong>业务领域的划分离不开对业务意图的真正理解。而需求人员和体验设计师对于User Journey的使用更熟悉，而技术人员、架构师对领域驱动设计、Eventstorming更熟悉。不管哪种方法都要求跨角色的群体协同工作，即客户人员、业务分析师、体验设计师与技术人员、架构师。而现实的情况中，User Journey更多的在Inception，在需求阶段进行，而领域驱动设计、Eventstorming更多的在开发设计阶段被使用，故而需求阶段经常缺失技术人员，而开发设计阶段经常缺失客户、业务人员的参与。 另一个常见的现象是，Inception的参与人员和真正的开发团队有可能不是同一个群体，那么Inception中的业务沟通往往以UI的方式作为传递，因此在开发中经常只能通过UI设计来理解业务的真正意图。 所以要想将正确的理解业务，做对软件，需要时刻促成技术人员与客户、业务人员的对话。</li>
+</ul>
+<p>识别了被拆对象的结构和边界，下一步需要决定拆分的策略和拆分的步骤。</p>
+<h4>2.拆分方法与策略</h4>
+<p>拆分方法需要根据遗留系统的状态，通常分为绞杀者与修缮者两种模式。</p>
+<ul>
+<li>绞杀者模式 指在遗留系统外围，将新功能用新的方式构建为新的服务。随着时间的推移，新的服务逐渐“绞杀”老的一流系统。对于那些老旧庞大难以更改的遗留系统，推荐采用绞杀者模式。</li>
+<li>修缮者模式 就如修房或修路一样，将老旧待修缮的部分进行隔离，用新的方式对其进行单独修复。修复的同时，需保证与其他部分仍能协同功能。</li>
+</ul>
+<p>我们过去所做的拆分中多为修缮者模式，其基本原理来自Martin Fowler的<a href="http://www.martinfowler.com/bliki/BranchByAbstraction.html">branch by abstraction</a>的重构方法，如下图所示：</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/7-branch-by-abstraction.jpg"><img src="/images/jobbole.com/84a4c98ce5b249ad8bc756e7f91a8d25.jpg" alt="7-branch-by-abstraction" width="700" height="345"></a></p>
+<p>就如我们团队所总结的16字重构箴言，我觉得十分的贴切：</p>
+<blockquote></blockquote>
+<p>通过识别内部的被拆模块，对其增加接口层，将旧的引用改为新接口调用；随后将接口封装为API，并将对接口的引用改为本地API调用；最后将新服务部署为新进程，调用改为真正的服务API调用。</p>
+<p>同时，拆分建议从业务相对独立、耦合度最小的地方开始。待团队获取相应经验和基础设施平台构建完善后，再进行核心应用迁移和大规模的改造。另外，核心通用服务尽量先行，如身份认证服务。</p>
+<h3>3. 拆分步骤</h3>
+<p>对于模块的拆分包括两部分：数据库与业务代码，可以先数据库后业务代码，亦可先业务代码后数据库。然而我们的项目拆分中遇到的最大挑战是数据层的拆分。在2015年的拆分中发现，数据库层由于当时系统性能调优的驱动，在代码中出现了跨模块的数据库连表查询。这导致后期服务的拆分非常的困难。因此在拆分步骤上我们更多的推荐数据库先行。</p>
+<h3>4.数据库拆分</h3>
+<p>我们借鉴了<a href="https://www.amazon.com/Refactoring-Databases-Evolutionary-paperback-Addison-Wesley/dp/0321774515">重构数据库</a>一书中提到的方法，通过重复schema同步数据，对数据库的读写操作分别进行迁移。如下图所示：</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/8-TDDL.jpg"><img src="/images/jobbole.com/4c55e4fd59528056df34c9c8568d3b6d.jpg" alt="8-TDDL" width="700" height="464"></a></p>
+<p>虽然技术上是可行的，然而这仍然占用了大量不必要的时间，包括大量的数据迁移。这也是导致当时的拆分无法在给定时间内完成的很大因素。</p>
+<h2>5. 我们的结果：</h2>
+<p>系统架构图：</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/9-system-architecture.jpg"><img src="/images/jobbole.com/e18634260a0ffa99280f9acc3bf16925.jpg" alt="9-system-architecture" width="700" height="415"></a></p>
+<h3>问题2：拆分后业务变了增加了怎么办？</h3>
+<p>随着客户业务的变化，我们的服务也在持续的增加，而其中碰到了一个特大的服务。服务的大小如何衡量呢？该服务生产代码7万行+，测试代码14万行+，测试运行时间2个小时。团队中7个stream每天50%工作需要对这个服务进行更改，使得团队间的依赖非常严重，独立功能无法单独快速前行，交付速度及质量都受到了影响。</p>
+<h4>我们的总结：</h4>
+<p>客户的业务是在变化的，我们对业务的认知也是逐渐的过程，所以Martin Fowler在他的文章中提出，系统的初期建议以单体结构开始，随业务发展决定其是否被拆分或合并。那么这也意味着这样构建的服务在它的生命周期中必然会持续被拆分或合并。那么为了实现这样一个目标，使系统拥有快速的响应力，也要求这样的拆分必然是高效的低成本的。</p>
+<p>因此，服务的设计需要满足如下的原则：</p>
+<ul>
+<li>服务要有明确的业务边界，以单体开始并不意味着没有边界。 服务要有边界，即使以单体开始也要定义单体时期的边界。我们系统中有一个名为“Monkey”的服务，是在中国虎年启动的，由此它并不是一个业务概念。当这个服务的名字为MonkeyAPI时，可以想象5年来它变成了什么？几乎所有和这个产品相关的功能都放入了这个服务中。脱离平台来看这一个产品的系统，其实它只是做了前后端分离而已。这个例子告诉我们，没有边界就会导致大杂烩，之后对其进行整理和重造的代价很大，可能需要花费“几代人”的努力。</li>
+<li>服务要有明确清晰的契约设计，即对外提供的业务能力。</li>
+<li>服务内部要保持高度模块化，才能够容易的被拆分。</li>
+<li>可测试。</li>
+</ul>
+<h3>问题3：如何安全地持续地拆？</h3>
+<p>就如前言中提到的，系统已经上线大量的用户正在使用，如何在不影响当下系统运行状态的前提下，持续安全地演进？其实持续演进就是一场架构层次的重构，在这样的路上同样需要：</p>
+<ul>
+<li>坏味道驱动，架构的坏味道是代码坏味道在更高层次的展现，也就意味着架构的混乱程度同样反映了该系统代码层的质量问题。</li>
+<li>安全小步的重构。</li>
+<li>有足够的测试进行保护——契约测试。</li>
+<li>持续验证演进的方向。</li>
+</ul>
+<h3>真正有挑战的问题4：如何保证拆对了？</h3>
+<p>拆分不能没有目标，尤其在具有风险的架构层次拆分更需谨慎。那么我们如何验证拆分的结果和收益？或许它可以提高开发效率，交付速度快，上线快，宕机时间也短，还能提高开发质量，可扩展性好，稳定，维护成本低，新人成长快，团队容易掌握等等。然而软件开发是一个复杂的事情，拆分可以引起多个维度的变化，度量的难度在于如何准确定位由拆分这一单一因素引起的价值的变化（增加或降低）。</p>
+<p>其实要回答这个问题，还是要回到拆分之初：为什么而拆？ 我所见过的案例中有因为政治原因拆的、业务发展需要的、系统集成驱动的等等；有因之而成功的，也有因之而失败的。拆并不是一件容易的事，有诸多的因素。我认为不管表象是什么，拆之前需要弄清拆分的价值所在，这也是我们可以保证拆分结果的源头。</p>
+<h3>总结</h3>
+<p>系统可由单体结构开始，不断的演进。而团队需要对业务保持敏感，与客户、业务人员进行业务对话，不断修炼领域驱动设计和重构的能力。</p>
+<p><a href="http://insights.thoughtworkers.org/wp-content/uploads/2017/01/team.jpg"><img src="/images/jobbole.com/00efe1ec2399bc1a070a4de5b63611be.jpg" alt="team" width="700" height="500"></a></p>
+<p>在拆分的路上，我们的经验显示其最大的障碍来自意大利面一样的系统。不管我们是什么样的架构风格，高内聚低耦合的模块化代码内部质量仍然是我们架构演进的基石。具有夯实领域驱动设计和重构功底的团队才可以应对这些挑战，持续演进，保持其生命力。而架构变迁之前需要弄清背后的变迁动因与价值，探索性前进，及时反馈验证，才是正解。那么我们如何保证架构不被破坏呢？这个问题会在后续的文章中持续探讨。</p>
+<p>最后，勿忘初心，且行且演进。</p>
+<div></div>
+</div>
+
+        
+        
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

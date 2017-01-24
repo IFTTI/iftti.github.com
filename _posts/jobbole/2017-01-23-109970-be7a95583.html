@@ -1,0 +1,2240 @@
+---
+layout: post
+title: '每天一个 Linux 命令（46）： vmstat 命令'
+time: 2017-01-23 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109970/
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<p>vmstat是Virtual Meomory Statistics（虚拟内存统计）的缩写，可对操作系统的虚拟内存、进程、CPU活动进行监控。他是对系统的整体情况进行统计，不足之处是无法对某个进程进行深入分析。vmstat 工具提供了一种低开销的系统性能观察方式。因为 vmstat 本身就是低开销工具，在非常高负荷的服务器上，你需要查看并监控系统的健康情况,在控制窗口还是能够使用vmstat 输出结果。在学习vmstat命令前，我们先了解一下Linux系统中关于物理内存和虚拟内存相关信息。</p>
+<p><strong>物理内存和虚拟内存区别：</strong></p>
+<p>我们知道，直接从物理内存读写数据要比从硬盘读写数据要快的多，因此，我们希望所有数据的读取和写入都在内存完成，而内存是有限的，这样就引出了物理内存与虚拟内存的概念。</p>
+<p>物理内存就是系统硬件提供的内存大小，是真正的内存，相对于物理内存，在linux下还有一个虚拟内存的概念，虚拟内存就是为了满足物理内存的不足而提出的策略，它是利用磁盘空间虚拟出的一块逻辑内存，用作虚拟内存的磁盘空间被称为交换空间（Swap Space）。</p>
+<p>作为物理内存的扩展，linux会在物理内存不足时，使用交换分区的虚拟内存，更详细的说，就是内核会将暂时不用的内存块信息写到交换空间，这样以来，物理内存得到了释放，这块内存就可以用于其它目的，当需要用到原始的内容时，这些信息会被重新从交换空间读入物理内存。</p>
+<p>linux的内存管理采取的是分页存取机制，为了保证物理内存能得到充分的利用，内核会在适当的时候将物理内存中不经常使用的数据块自动交换到虚拟内存中，而将经常使用的信息保留到物理内存。</p>
+<p><strong>要深入了解linux内存运行机制，需要知道下面提到的几个方面：</strong></p>
+<p>首先，Linux系统会不时的进行页面交换操作，以保持尽可能多的空闲物理内存，即使并没有什么事情需要内存，Linux也会交换出暂时不用的内存页面。这可以避免等待交换所需的时间。</p>
+<p>其次，linux进行页面交换是有条件的，不是所有页面在不用时都交换到虚拟内存，linux内核根据”最近最经常使用“算法，仅仅将一些不经常使用的页面文件交换到虚拟内存，有时我们会看到这么一个现象：linux物理内存还有很多，但是交换空间也使用了很多。其实，这并不奇怪，例如，一个占用很大内存的进程运行时，需要耗费很多内存资源，此时就会有一些不常用页面文件被交换到虚拟内存中，但后来这个占用很多内存资源的进程结束并释放了很多内存时，刚才被交换出去的页面文件并不会自动的交换进物理内存，除非有这个必要，那么此刻系统物理内存就会空闲很多，同时交换空间也在被使用，就出现了刚才所说的现象了。关于这点，不用担心什么，只要知道是怎么一回事就可以了。</p>
+<p>最后，交换空间的页面在使用时会首先被交换到物理内存，如果此时没有足够的物理内存来容纳这些页面，它们又会被马上交换出去，如此以来，虚拟内存中可能没有足够空间来存储这些交换页面，最终会导致linux出现假死机、服务异常等问题，linux虽然可以在一段时间内自行恢复，但是恢复后的系统已经基本不可用了。</p>
+<p>因此，合理规划和设计linux内存的使用，是非常重要的。</p>
+<p><strong>虚拟内存原理：</strong></p>
+<p>在系统中运行的每个进程都需要使用到内存，但不是每个进程都需要每时每刻使用系统分配的内存空间。当系统运行所需内存超过实际的物理内存，内核会释放某些进程所占用但未使用的部分或所有物理内存，将这部分资料存储在磁盘上直到进程下一次调用，并将释放出的内存提供给有需要的进程使用。</p>
+<p>在Linux内存管理中，主要是通过“调页Paging”和“交换Swapping”来完成上述的内存调度。调页算法是将内存中最近不常使用的页面换到磁盘上，把活动页面保留在内存中供进程使用。交换技术是将整个进程，而不是部分页面，全部交换到磁盘上。</p>
+<p>分页(Page)写入磁盘的过程被称作Page-Out，分页(Page)从磁盘重新回到内存的过程被称作Page-In。当内核需要一个分页时，但发现此分页不在物理内存中(因为已经被Page-Out了)，此时就发生了分页错误（Page Fault）。</p>
+<p>当系统内核发现可运行内存变少时，就会通过Page-Out来释放一部分物理内存。经管Page-Out不是经常发生，但是如果Page-out频繁不断的发生，直到当内核管理分页的时间超过运行程式的时间时，系统效能会急剧下降。这时的系统已经运行非常慢或进入暂停状态，这种状态亦被称作thrashing(颠簸)。</p>
+<p>1．命令格式：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1b0563720342" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat [-a] [-n] [-S unit] [delay [ count]]
+
+vmstat [-s] [-n] [-S unit]
+
+vmstat [-m] [-n] [delay [ count]]
+
+vmstat [-d] [-n] [delay [ count]]
+
+vmstat [-p disk partition] [-n] [delay [ count]]
+
+vmstat [-f]
+
+vmstat [-V]</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1b0563720342-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1b0563720342-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1b0563720342-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1b0563720342-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1b0563720342-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1b0563720342-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1b0563720342-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1b0563720342-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1b0563720342-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1b0563720342-10">10</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1b0563720342-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1b0563720342-12">12</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1b0563720342-13">13</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1b0563720342-1">
+<span class="crayon-i">vmstat</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">a</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">n</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-i">S</span> <span class="crayon-v">unit</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-i">delay</span> <span class="crayon-sy">[</span> <span class="crayon-v">count</span><span class="crayon-sy">]</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1b0563720342-2"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1b0563720342-3">
+<span class="crayon-i">vmstat</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">s</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">n</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-i">S</span> <span class="crayon-v">unit</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1b0563720342-4"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1b0563720342-5">
+<span class="crayon-i">vmstat</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">m</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">n</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-i">delay</span> <span class="crayon-sy">[</span> <span class="crayon-v">count</span><span class="crayon-sy">]</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1b0563720342-6"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1b0563720342-7">
+<span class="crayon-i">vmstat</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">d</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">n</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-i">delay</span> <span class="crayon-sy">[</span> <span class="crayon-v">count</span><span class="crayon-sy">]</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1b0563720342-8"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1b0563720342-9">
+<span class="crayon-i">vmstat</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-i">p</span> <span class="crayon-i">disk</span> <span class="crayon-v">partition</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">n</span><span class="crayon-sy">]</span> <span class="crayon-sy">[</span><span class="crayon-i">delay</span> <span class="crayon-sy">[</span> <span class="crayon-v">count</span><span class="crayon-sy">]</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1b0563720342-10"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1b0563720342-11">
+<span class="crayon-i">vmstat</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">f</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1b0563720342-12"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1b0563720342-13">
+<span class="crayon-i">vmstat</span> <span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-v">V</span><span class="crayon-sy">]</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0023 seconds] -->
+<p>2．命令功能：</p>
+<p>用来显示虚拟内存的信息</p>
+<p>3．命令参数：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1bb297579330" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+-a：显示活跃和非活跃内存
+
+-f：显示从系统启动至今的fork数量 。
+
+-m：显示slabinfo
+
+-n：只在开始时显示一次各字段名称。
+
+-s：显示内存相关统计信息及多种系统活动数量。
+
+delay：刷新时间间隔。如果不指定，只显示一条结果。
+
+count：刷新次数。如果不指定刷新次数，但指定了刷新时间间隔，这时刷新次数为无穷。
+
+-d：显示磁盘相关统计信息。
+
+-p：显示指定磁盘分区统计信息
+
+-S：使用指定单位显示。参数有 k 、K 、m 、M ，分别代表1000、1024、1000000、1048576字节（byte）。默认单位为K（1024 bytes）
+
+-V：显示vmstat版本信息。</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-10">10</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-12">12</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-14">14</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-16">16</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-18">18</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1bb297579330-20">20</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1bb297579330-21">21</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-1">
+<span class="crayon-o">-</span><span class="crayon-i">a</span>：显示活跃和非活跃内存</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-2"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-3">
+<span class="crayon-o">-</span><span class="crayon-i">f</span>：显示从系统启动至今的<span class="crayon-i">fork</span>数量 。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-4"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-5">
+<span class="crayon-o">-</span><span class="crayon-i">m</span>：显示<span class="crayon-v">slabinfo</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-6"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-7">
+<span class="crayon-o">-</span><span class="crayon-i">n</span>：只在开始时显示一次各字段名称。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-8"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-9">
+<span class="crayon-o">-</span><span class="crayon-i">s</span>：显示内存相关统计信息及多种系统活动数量。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-10"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-11">
+<span class="crayon-i">delay</span>：刷新时间间隔。如果不指定，只显示一条结果。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-12"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-13">
+<span class="crayon-i">count</span>：刷新次数。如果不指定刷新次数，但指定了刷新时间间隔，这时刷新次数为无穷。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-14"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-15">
+<span class="crayon-o">-</span><span class="crayon-i">d</span>：显示磁盘相关统计信息。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-16"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-17">
+<span class="crayon-o">-</span><span class="crayon-i">p</span>：显示指定磁盘分区统计信息</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-18"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-19">
+<span class="crayon-o">-</span><span class="crayon-i">S</span>：使用指定单位显示。参数有 <span class="crayon-i">k</span> 、<span class="crayon-i">K</span> 、<span class="crayon-i">m</span> 、<span class="crayon-i">M</span> ，分别代表<span class="crayon-cn">1000</span>、<span class="crayon-cn">1024</span>、<span class="crayon-cn">1000000</span>、<span class="crayon-cn">1048576</span>字节（<span class="crayon-t">byte</span>）。默认单位为<span class="crayon-i">K</span>（<span class="crayon-cn">1024</span> <span class="crayon-i">bytes</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1bb297579330-20"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1bb297579330-21">
+<span class="crayon-o">-</span><span class="crayon-i">V</span>：显示<span class="crayon-i">vmstat</span>版本信息。</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0026 seconds] -->
+<p>4．使用实例：</p>
+<p>实例1：显示虚拟内存使用情况</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1c0364039378" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5886f12fde1c0364039378-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5886f12fde1c0364039378-1"><span class="crayon-v">vmstat</span></div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code"></div>
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1c3322983880" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# vmstat 5 6
+procs -----------memory---------- ---swap-- -----io---- --system-- -----cpu------
+r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st
+0  0      0 3029876 199616 690980    0    0     0     2    3    2  0  0 100  0  0
+0  0      0 3029752 199616 690980    0    0     0    41 1009   39  0  0 100  0  0
+0  0      0 3029752 199616 690980    0    0     0     3 1004   36  0  0 100  0  0
+0  0      0 3029752 199616 690980    0    0     0     4 1004   36  0  0 100  0  0
+0  0      0 3029752 199616 690980    0    0     0     6 1003   33  0  0 100  0  0
+
+0  0      0 3029752 199616 690980    0    0     0     5 1003   33  0  0 100  0  0</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1c3322983880-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c3322983880-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c3322983880-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c3322983880-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c3322983880-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c3322983880-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c3322983880-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c3322983880-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c3322983880-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c3322983880-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1c3322983880-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat 5 6</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c3322983880-2">
+<span class="crayon-i">procs</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">memory</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">swap</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">io</span><span class="crayon-o">--</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-v">system</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">cpu</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1c3322983880-3">
+<span class="crayon-i">r</span>  <span class="crayon-i">b</span>   <span class="crayon-i">swpd</span>   <span class="crayon-i">free</span>   <span class="crayon-i">buff</span>  <span class="crayon-i">cache</span>   <span class="crayon-i">si</span>   <span class="crayon-i">so</span>    <span class="crayon-i">bi</span>    <span class="crayon-i">bo</span>   <span class="crayon-st">in</span>   <span class="crayon-i">cs</span> <span class="crayon-i">us</span> <span class="crayon-i">sy</span> <span class="crayon-r">id</span> <span class="crayon-i">wa</span> <span class="crayon-i">st</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c3322983880-4">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029876</span> <span class="crayon-cn">199616</span> <span class="crayon-cn">690980</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">2</span>    <span class="crayon-cn">3</span>    <span class="crayon-cn">2</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1c3322983880-5">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">199616</span> <span class="crayon-cn">690980</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>    <span class="crayon-cn">41</span> <span class="crayon-cn">1009</span>   <span class="crayon-cn">39</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c3322983880-6">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">199616</span> <span class="crayon-cn">690980</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">3</span> <span class="crayon-cn">1004</span>   <span class="crayon-cn">36</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1c3322983880-7">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">199616</span> <span class="crayon-cn">690980</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">4</span> <span class="crayon-cn">1004</span>   <span class="crayon-cn">36</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c3322983880-8">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">199616</span> <span class="crayon-cn">690980</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">6</span> <span class="crayon-cn">1003</span>   <span class="crayon-cn">33</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1c3322983880-9"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c3322983880-10">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">199616</span> <span class="crayon-cn">690980</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">5</span> <span class="crayon-cn">1003</span>   <span class="crayon-cn">33</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0051 seconds] -->
+<p>说明：</p>
+<p>字段说明：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1c7910070288" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+Procs（进程）：
+
+r: 运行队列中进程数量
+
+b: 等待IO的进程数量
+
+Memory（内存）：
+
+swpd: 使用虚拟内存大小
+
+free: 可用内存大小
+
+buff: 用作缓冲的内存大小
+
+cache: 用作缓存的内存大小
+
+Swap：
+
+si: 每秒从交换区写到内存的大小
+
+so: 每秒写入交换区的内存大小
+
+IO：（现在的Linux版本块的大小为1024bytes）
+
+bi: 每秒读取的块数
+
+bo: 每秒写入的块数
+
+系统：
+
+in: 每秒中断数，包括时钟中断。
+
+cs: 每秒上下文切换数。
+
+CPU（以百分比表示）：
+
+us: 用户进程执行时间(user time)
+
+sy: 系统进程执行时间(system time)
+
+id: 空闲时间(包括IO等待时间),中央处理器的空闲时间 。以百分比表示。
+
+wa: 等待IO时间</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-10">10</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-12">12</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-14">14</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-16">16</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-18">18</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-20">20</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-22">22</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-24">24</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-26">26</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-28">28</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-30">30</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-32">32</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-34">34</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-36">36</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-38">38</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-40">40</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1c7910070288-42">42</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1c7910070288-43">43</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-1">
+<span class="crayon-i">Procs</span>（进程）：</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-2"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-3">
+<span class="crayon-v">r</span><span class="crayon-o">:</span> 运行队列中进程数量</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-4"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-5">
+<span class="crayon-v">b</span><span class="crayon-o">:</span> 等待<span class="crayon-i">IO</span>的进程数量</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-6"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-7">
+<span class="crayon-i">Memory</span>（内存）：</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-8"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-9">
+<span class="crayon-v">swpd</span><span class="crayon-o">:</span> 使用虚拟内存大小</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-10"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-11">
+<span class="crayon-v">free</span><span class="crayon-o">:</span> 可用内存大小</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-12"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-13">
+<span class="crayon-v">buff</span><span class="crayon-o">:</span> 用作缓冲的内存大小</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-14"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-15">
+<span class="crayon-v">cache</span><span class="crayon-o">:</span> 用作缓存的内存大小</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-16"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-17">
+<span class="crayon-i">Swap</span>：</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-18"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-19">
+<span class="crayon-v">si</span><span class="crayon-o">:</span> 每秒从交换区写到内存的大小</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-20"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-21">
+<span class="crayon-v">so</span><span class="crayon-o">:</span> 每秒写入交换区的内存大小</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-22"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-23">
+<span class="crayon-i">IO</span>：（现在的<span class="crayon-i">Linux</span>版本块的大小为<span class="crayon-cn">1024bytes</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-24"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-25">
+<span class="crayon-v">bi</span><span class="crayon-o">:</span> 每秒读取的块数</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-26"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-27">
+<span class="crayon-v">bo</span><span class="crayon-o">:</span> 每秒写入的块数</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-28"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-29">系统：</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-30"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-31">
+<span class="crayon-st">in</span><span class="crayon-o">:</span> 每秒中断数，包括时钟中断。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-32"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-33">
+<span class="crayon-v">cs</span><span class="crayon-o">:</span> 每秒上下文切换数。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-34"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-35">
+<span class="crayon-i">CPU</span>（以百分比表示）：</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-36"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-37">
+<span class="crayon-v">us</span><span class="crayon-o">:</span> 用户进程执行时间<span class="crayon-sy">(</span><span class="crayon-i">user</span> <span class="crayon-r">time</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-38"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-39">
+<span class="crayon-v">sy</span><span class="crayon-o">:</span> 系统进程执行时间<span class="crayon-sy">(</span><span class="crayon-i">system</span> <span class="crayon-r">time</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-40"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-41">
+<span class="crayon-r">id</span><span class="crayon-o">:</span> 空闲时间<span class="crayon-sy">(</span>包括<span class="crayon-i">IO</span>等待时间<span class="crayon-sy">)</span><span class="crayon-sy">,</span>中央处理器的空闲时间 。以百分比表示。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1c7910070288-42"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1c7910070288-43">
+<span class="crayon-v">wa</span><span class="crayon-o">:</span> 等待<span class="crayon-i">IO</span>时间</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0029 seconds] -->
+<p>备注： 如果 r经常大于 4 ，且id经常少于40，表示cpu的负荷很重。如果pi，po 长期不等于0，表示内存不足。如果disk 经常不等于0， 且在 b中的队列 大于3， 表示 io性能不好。Linux在具有高稳定性、可靠性的同时，具有很好的可伸缩性和扩展性，能够针对不同的应用和硬件环境调整，优化出满足当前应用需要的最佳性能。因此企业在维护Linux系统、进行系统调优时，了解系统性能分析工具是至关重要的。</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1cb907524362" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat 5 5</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5886f12fde1cb907524362-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5886f12fde1cb907524362-1">
+<span class="crayon-i">vmstat</span> <span class="crayon-cn">5</span> <span class="crayon-cn">5</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p>表示在5秒时间内进行5次采样。将得到一个数据汇总他能够反映真正的系统情况。</p>
+<p>实例2：显示活跃和非活跃内存</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1ce337275960" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat -a 2 5</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5886f12fde1ce337275960-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5886f12fde1ce337275960-1">
+<span class="crayon-i">vmstat</span> <span class="crayon-o">-</span><span class="crayon-i">a</span> <span class="crayon-cn">2</span> <span class="crayon-cn">5</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code"></div>
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1d1829564028" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# vmstat -a 2 5
+procs -----------memory---------- ---swap-- -----io---- --system-- -----cpu------
+r  b   swpd   free  inact active   si   so    bi    bo   in   cs us sy id wa st
+0  0      0 3029752 387728 513008    0    0     0     2    3    2  0  0 100  0  0
+0  0      0 3029752 387728 513076    0    0     0     0 1005   34  0  0 100  0  0
+0  0      0 3029752 387728 513076    0    0     0    22 1004   36  0  0 100  0  0
+0  0      0 3029752 387728 513076    0    0     0     0 1004   33  0  0 100  0  0
+0  0      0 3029752 387728 513076    0    0     0     0 1003   32  0  0 100  0  0
+
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1d1829564028-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1d1829564028-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1d1829564028-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1d1829564028-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1d1829564028-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1d1829564028-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1d1829564028-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1d1829564028-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1d1829564028-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1d1829564028-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1d1829564028-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat -a 2 5</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1d1829564028-2">
+<span class="crayon-i">procs</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">memory</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">swap</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">io</span><span class="crayon-o">--</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-v">system</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">cpu</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1d1829564028-3">
+<span class="crayon-i">r</span>  <span class="crayon-i">b</span>   <span class="crayon-i">swpd</span>   <span class="crayon-i">free</span>  <span class="crayon-i">inact</span> <span class="crayon-i">active</span>   <span class="crayon-i">si</span>   <span class="crayon-i">so</span>    <span class="crayon-i">bi</span>    <span class="crayon-i">bo</span>   <span class="crayon-st">in</span>   <span class="crayon-i">cs</span> <span class="crayon-i">us</span> <span class="crayon-i">sy</span> <span class="crayon-r">id</span> <span class="crayon-i">wa</span> <span class="crayon-i">st</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1d1829564028-4">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">387728</span> <span class="crayon-cn">513008</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">2</span>    <span class="crayon-cn">3</span>    <span class="crayon-cn">2</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1d1829564028-5">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">387728</span> <span class="crayon-cn">513076</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span> <span class="crayon-cn">1005</span>   <span class="crayon-cn">34</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1d1829564028-6">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">387728</span> <span class="crayon-cn">513076</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>    <span class="crayon-cn">22</span> <span class="crayon-cn">1004</span>   <span class="crayon-cn">36</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1d1829564028-7">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">387728</span> <span class="crayon-cn">513076</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span> <span class="crayon-cn">1004</span>   <span class="crayon-cn">33</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1d1829564028-8">
+<span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">3029752</span> <span class="crayon-cn">387728</span> <span class="crayon-cn">513076</span>    <span class="crayon-cn">0</span>    <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span>     <span class="crayon-cn">0</span> <span class="crayon-cn">1003</span>   <span class="crayon-cn">32</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span> <span class="crayon-cn">100</span>  <span class="crayon-cn">0</span>  <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1d1829564028-9"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1d1829564028-10">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0046 seconds] -->
+<p>说明：</p>
+<p>使用-a选项显示活跃和非活跃内存时，所显示的内容除增加inact和active外，其他显示内容与例子1相同。</p>
+<p>字段说明：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1d5800482551" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+Memory（内存）：
+
+inact: 非活跃内存大小（当使用-a选项时显示）
+
+active: 活跃的内存大小（当使用-a选项时显示）</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1d5800482551-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1d5800482551-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1d5800482551-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1d5800482551-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1d5800482551-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1d5800482551-1">
+<span class="crayon-i">Memory</span>（内存）：</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1d5800482551-2"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1d5800482551-3">
+<span class="crayon-v">inact</span><span class="crayon-o">:</span> 非活跃内存大小（当使用<span class="crayon-o">-</span><span class="crayon-i">a</span>选项时显示）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1d5800482551-4"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1d5800482551-5">
+<span class="crayon-v">active</span><span class="crayon-o">:</span> 活跃的内存大小（当使用<span class="crayon-o">-</span><span class="crayon-i">a</span>选项时显示）</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0007 seconds] -->
+<p>实例3：查看系统已经fork了多少次</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1d8265514000" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat -f</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5886f12fde1d8265514000-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5886f12fde1d8265514000-1">
+<span class="crayon-i">vmstat</span> <span class="crayon-o">-</span><span class="crayon-v">f</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p>输出：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1db490529491" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@SCF1129 ~]# vmstat -f
+
+12744849 forks
+
+[root@SCF1129 ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1db490529491-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1db490529491-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1db490529491-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1db490529491-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1db490529491-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1db490529491-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">SCF1129</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat -f</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1db490529491-2"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1db490529491-3">
+<span class="crayon-cn">12744849</span> <span class="crayon-i">forks</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1db490529491-4"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1db490529491-5">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">SCF1129</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0006 seconds] -->
+<p>说明：</p>
+<p>这个数据是从/proc/stat中的processes字段里取得的</p>
+<p>实例4：查看内存使用的详细信息</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1df925643568" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat -s</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5886f12fde1df925643568-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5886f12fde1df925643568-1">
+<span class="crayon-i">vmstat</span> <span class="crayon-o">-</span><span class="crayon-v">s</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1e2276636660" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# vmstat -s
+4043760  total memory
+1013884  used memory
+513012  active memory
+387728  inactive memory
+3029876  free memory
+199616  buffer memory
+690980  swap cache
+6096656  total swap
+0  used swap
+6096656  free swap
+83587 non-nice user cpu ticks
+132 nice user cpu ticks
+278599 system cpu ticks
+913344692 idle cpu ticks
+814550 IO-wait cpu ticks
+10547 IRQ cpu ticks
+21261 softirq cpu ticks
+0 stolen cpu ticks
+310215 pages paged in
+14254652 pages paged out
+0 pages swapped in
+0 pages swapped out
+288374745 interrupts
+146680577 CPU context switches
+1351868832 boot time
+367291 forks</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-10">10</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-12">12</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-14">14</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-16">16</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-18">18</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-20">20</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-22">22</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-24">24</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e2276636660-26">26</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e2276636660-27">27</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat -s</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-2">
+<span class="crayon-cn">4043760</span>  <span class="crayon-i">total</span> <span class="crayon-i">memory</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-3">
+<span class="crayon-cn">1013884</span>  <span class="crayon-i">used</span> <span class="crayon-i">memory</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-4">
+<span class="crayon-cn">513012</span>  <span class="crayon-i">active</span> <span class="crayon-i">memory</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-5">
+<span class="crayon-cn">387728</span>  <span class="crayon-i">inactive</span> <span class="crayon-i">memory</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-6">
+<span class="crayon-cn">3029876</span>  <span class="crayon-i">free</span> <span class="crayon-i">memory</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-7">
+<span class="crayon-cn">199616</span>  <span class="crayon-i">buffer</span> <span class="crayon-i">memory</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-8">
+<span class="crayon-cn">690980</span>  <span class="crayon-i">swap</span> <span class="crayon-i">cache</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-9">
+<span class="crayon-cn">6096656</span>  <span class="crayon-i">total</span> <span class="crayon-i">swap</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-10">
+<span class="crayon-cn">0</span>  <span class="crayon-i">used</span> <span class="crayon-i">swap</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-11">
+<span class="crayon-cn">6096656</span>  <span class="crayon-i">free</span> <span class="crayon-i">swap</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-12">
+<span class="crayon-cn">83587</span> <span class="crayon-v">non</span><span class="crayon-o">-</span><span class="crayon-r">nice</span> <span class="crayon-i">user</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-13">
+<span class="crayon-cn">132</span> <span class="crayon-r">nice</span> <span class="crayon-i">user</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-14">
+<span class="crayon-cn">278599</span> <span class="crayon-i">system</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-15">
+<span class="crayon-cn">913344692</span> <span class="crayon-i">idle</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-16">
+<span class="crayon-cn">814550</span> <span class="crayon-v">IO</span><span class="crayon-o">-</span><span class="crayon-r">wait</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-17">
+<span class="crayon-cn">10547</span> <span class="crayon-i">IRQ</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-18">
+<span class="crayon-cn">21261</span> <span class="crayon-i">softirq</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-19">
+<span class="crayon-cn">0</span> <span class="crayon-i">stolen</span> <span class="crayon-i">cpu</span> <span class="crayon-i">ticks</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-20">
+<span class="crayon-cn">310215</span> <span class="crayon-i">pages</span> <span class="crayon-i">paged</span> <span class="crayon-st">in</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-21">
+<span class="crayon-cn">14254652</span> <span class="crayon-i">pages</span> <span class="crayon-i">paged</span> <span class="crayon-i">out</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-22">
+<span class="crayon-cn">0</span> <span class="crayon-i">pages</span> <span class="crayon-i">swapped</span> <span class="crayon-st">in</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-23">
+<span class="crayon-cn">0</span> <span class="crayon-i">pages</span> <span class="crayon-i">swapped</span> <span class="crayon-i">out</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-24">
+<span class="crayon-cn">288374745</span> <span class="crayon-i">interrupts</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-25">
+<span class="crayon-cn">146680577</span> <span class="crayon-i">CPU</span> <span class="crayon-i">context</span> <span class="crayon-i">switches</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e2276636660-26">
+<span class="crayon-cn">1351868832</span> <span class="crayon-i">boot</span> <span class="crayon-r">time</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e2276636660-27">
+<span class="crayon-cn">367291</span> <span class="crayon-v">forks</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0038 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>这些信息的分别来自于/proc/meminfo,/proc/stat和/proc/vmstat。</p>
+<p>实例5：查看磁盘的读/写</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1e5771483026" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat -d</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5886f12fde1e5771483026-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5886f12fde1e5771483026-1">
+<span class="crayon-i">vmstat</span> <span class="crayon-o">-</span><span class="crayon-v">d</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1e8867157629" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# vmstat -d
+disk- ------------reads------------ ------------writes----------- -----IO------
+total merged sectors      ms  total merged sectors      ms    cur    sec
+ram0       0      0       0       0      0      0       0       0      0      0
+ram1       0      0       0       0      0      0       0       0      0      0
+ram2       0      0       0       0      0      0       0       0      0      0
+ram3       0      0       0       0      0      0       0       0      0      0
+ram4       0      0       0       0      0      0       0       0      0      0
+ram5       0      0       0       0      0      0       0       0      0      0
+ram6       0      0       0       0      0      0       0       0      0      0
+ram7       0      0       0       0      0      0       0       0      0      0
+ram8       0      0       0       0      0      0       0       0      0      0
+ram9       0      0       0       0      0      0       0       0      0      0
+ram10      0      0       0       0      0      0       0       0      0      0
+ram11      0      0       0       0      0      0       0       0      0      0
+ram12      0      0       0       0      0      0       0       0      0      0
+ram13      0      0       0       0      0      0       0       0      0      0
+ram14      0      0       0       0      0      0       0       0      0      0
+ram15      0      0       0       0      0      0       0       0      0      0
+sda    33381   6455  615407   63224 2068111 1495416 28508288 15990289      0  10491
+hdc        0      0       0       0      0      0       0       0      0      0
+fd0        0      0       0       0      0      0       0       0      0      0
+md0        0      0       0       0      0      0       0       0      0      0
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-10">10</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-12">12</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-14">14</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-16">16</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-18">18</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-20">20</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-22">22</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1e8867157629-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1e8867157629-24">24</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat -d</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-2">
+<span class="crayon-v">disk</span><span class="crayon-o">-</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-v">reads</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-v">writes</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span> <span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-v">IO</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-3">
+<span class="crayon-i">total</span> <span class="crayon-i">merged</span> <span class="crayon-i">sectors</span>      <span class="crayon-i">ms</span>  <span class="crayon-i">total</span> <span class="crayon-i">merged</span> <span class="crayon-i">sectors</span>      <span class="crayon-i">ms</span>    <span class="crayon-i">cur</span>    <span class="crayon-e">sec</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-4">
+<span class="crayon-i">ram0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-5">
+<span class="crayon-i">ram1</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-6">
+<span class="crayon-i">ram2</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-7">
+<span class="crayon-i">ram3</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-8">
+<span class="crayon-i">ram4</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-9">
+<span class="crayon-i">ram5</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-10">
+<span class="crayon-i">ram6</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-11">
+<span class="crayon-i">ram7</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-12">
+<span class="crayon-i">ram8</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-13">
+<span class="crayon-i">ram9</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-14">
+<span class="crayon-i">ram10</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-15">
+<span class="crayon-i">ram11</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-16">
+<span class="crayon-i">ram12</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-17">
+<span class="crayon-i">ram13</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-18">
+<span class="crayon-i">ram14</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-19">
+<span class="crayon-i">ram15</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-20">
+<span class="crayon-i">sda</span>    <span class="crayon-cn">33381</span>   <span class="crayon-cn">6455</span>  <span class="crayon-cn">615407</span>   <span class="crayon-cn">63224</span> <span class="crayon-cn">2068111</span> <span class="crayon-cn">1495416</span> <span class="crayon-cn">28508288</span> <span class="crayon-cn">15990289</span>      <span class="crayon-cn">0</span>  <span class="crayon-cn">10491</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-21">
+<span class="crayon-i">hdc</span>        <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-22">
+<span class="crayon-i">fd0</span>        <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1e8867157629-23">
+<span class="crayon-i">md0</span>        <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1e8867157629-24">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0122 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>这些信息主要来自于/proc/diskstats.</p>
+<p>merged:表示一次来自于合并的写/读请求,一般系统会把多个连接/邻近的读/写请求合并到一起来操作.</p>
+<p>实例6：查看/dev/sda1磁盘的读/写</p>
+<p>命令：</p>
+<p>输出：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1ed181448454" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@SCF1129 ~]# df
+
+文件系统                 1K-块      已用      可用 已用% 挂载点
+
+/dev/sda3            1119336548  27642068 1034835500   3% /tmpfs                 32978376         0  32978376   0% /dev/shm
+
+/dev/sda1              1032088     59604    920056   7% /boot
+
+[root@SCF1129 ~]# vmstat -p /dev/sda1
+
+sda1          reads   read sectors  writes    requested writes
+
+18607    4249978          6         48[root@SCF1129 ~]# vmstat -p /dev/sda3
+
+sda3          reads   read sectors  writes    requested writes
+
+429350   35176268   28998789  980301488[root@SCF1129 ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-10">10</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-12">12</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-14">14</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1ed181448454-16">16</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1ed181448454-17">17</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">SCF1129</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># df</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-2"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-3">文件系统                 <span class="crayon-cn">1K</span><span class="crayon-o">-</span>块      已用      可用 已用<span class="crayon-o">%</span> 挂载点</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-4"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-5">
+<span class="crayon-o">/</span><span class="crayon-v">dev</span><span class="crayon-o">/</span><span class="crayon-i">sda3</span>            <span class="crayon-cn">1119336548</span>  <span class="crayon-cn">27642068</span> <span class="crayon-cn">1034835500</span>   <span class="crayon-cn">3</span><span class="crayon-o">%</span> <span class="crayon-o">/</span><span class="crayon-i">tmpfs</span>                 <span class="crayon-cn">32978376</span>         <span class="crayon-cn">0</span>  <span class="crayon-cn">32978376</span>   <span class="crayon-cn">0</span><span class="crayon-o">%</span> <span class="crayon-o">/</span><span class="crayon-v">dev</span><span class="crayon-o">/</span><span class="crayon-v">shm</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-6"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-7">
+<span class="crayon-o">/</span><span class="crayon-v">dev</span><span class="crayon-o">/</span><span class="crayon-i">sda1</span>              <span class="crayon-cn">1032088</span>     <span class="crayon-cn">59604</span>    <span class="crayon-cn">920056</span>   <span class="crayon-cn">7</span><span class="crayon-o">%</span> <span class="crayon-o">/</span><span class="crayon-i">boot</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-8"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-9">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">SCF1129</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat -p /dev/sda1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-10"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-11">
+<span class="crayon-i">sda1</span>          <span class="crayon-i">reads</span>   <span class="crayon-r">read</span> <span class="crayon-i">sectors</span>  <span class="crayon-i">writes</span>    <span class="crayon-i">requested</span> <span class="crayon-i">writes</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-12"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-13">
+<span class="crayon-cn">18607</span>    <span class="crayon-cn">4249978</span>          <span class="crayon-cn">6</span>         <span class="crayon-cn">48</span><span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">SCF1129</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat -p /dev/sda3</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-14"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-15">
+<span class="crayon-i">sda3</span>          <span class="crayon-i">reads</span>   <span class="crayon-r">read</span> <span class="crayon-i">sectors</span>  <span class="crayon-i">writes</span>    <span class="crayon-i">requested</span> <span class="crayon-i">writes</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1ed181448454-16"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1ed181448454-17">
+<span class="crayon-cn">429350</span>   <span class="crayon-cn">35176268</span>   <span class="crayon-cn">28998789</span>  <span class="crayon-cn">980301488</span><span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">SCF1129</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0034 seconds] -->
+<p>说明：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1f1270978666" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+这些信息主要来自于/proc/diskstats。
+
+reads:来自于这个分区的读的次数。
+
+read sectors:来自于这个分区的读扇区的次数。
+
+writes:来自于这个分区的写的次数。
+
+requested writes:来自于这个分区的写请求次数。</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1f1270978666-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f1270978666-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f1270978666-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f1270978666-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f1270978666-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f1270978666-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f1270978666-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f1270978666-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f1270978666-9">9</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1f1270978666-1">这些信息主要来自于<span class="crayon-o">/</span><span class="crayon-v">proc</span><span class="crayon-o">/</span><span class="crayon-i">diskstats</span>。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f1270978666-2"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1f1270978666-3">
+<span class="crayon-v">reads</span><span class="crayon-o">:</span>来自于这个分区的读的次数。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f1270978666-4"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1f1270978666-5">
+<span class="crayon-i">read</span> <span class="crayon-v">sectors</span><span class="crayon-o">:</span>来自于这个分区的读扇区的次数。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f1270978666-6"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1f1270978666-7">
+<span class="crayon-v">writes</span><span class="crayon-o">:</span>来自于这个分区的写的次数。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f1270978666-8"> </div>
+<div class="crayon-line" id="crayon-5886f12fde1f1270978666-9">
+<span class="crayon-i">requested</span> <span class="crayon-v">writes</span><span class="crayon-o">:</span>来自于这个分区的写请求次数。</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0010 seconds] -->
+<p>实例7：查看系统的slab信息</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1f5705783228" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+vmstat -m</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5886f12fde1f5705783228-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5886f12fde1f5705783228-1">
+<span class="crayon-i">vmstat</span> <span class="crayon-o">-</span><span class="crayon-v">m</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5886f12fde1f8230025523" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-mac print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# vmstat -m
+Cache                       Num  Total   Size  Pages
+ip_conntrack_expect           0      0    136     28
+ip_conntrack                  3     13    304     13
+ip_fib_alias                 11     59     64     59
+ip_fib_hash                  11     59     64     59
+AF_VMCI                       0      0    960      4
+bio_map_info                100    105   1064      7
+dm_mpath                      0      0   1064      7
+jbd_4k                        0      0   4096      1
+dm_uevent                     0      0   2608      3
+dm_tio                        0      0     24    144
+dm_io                         0      0     48     77
+scsi_cmd_cache               10     10    384     10
+sgpool-128                   32     32   4096      1
+sgpool-64                    32     32   2048      2
+sgpool-32                    32     32   1024      4
+sgpool-16                    32     32    512      8
+sgpool-8                     45     45    256     15
+scsi_io_context               0      0    112     34
+ext3_inode_cache          51080  51105    760      5
+ext3_xattr                   36     88     88     44
+journal_handle               18    144     24    144
+journal_head                 56     80     96     40
+revoke_table                  4    202     16    202
+revoke_record                 0      0     32    112
+uhci_urb_priv                 0      0     56     67
+UNIX                         13     33    704     11
+flow_cache                    0      0    128     30
+msi_cache                    33     59     64     59
+cfq_ioc_pool                 14     90    128     30
+cfq_pool                     12     90    216     18
+crq_pool                     16     96     80     48
+deadline_drq                  0      0     80     48
+as_arq                        0      0     96     40
+mqueue_inode_cache            1      4    896      4
+isofs_inode_cache             0      0    608      6
+hugetlbfs_inode_cache         1      7    576      7
+Cache                       Num  Total   Size  Pages
+ext2_inode_cache              0      0    720      5
+ext2_xattr                    0      0     88     44
+dnotify_cache                 0      0     40     92
+dquot                         0      0    256     15
+eventpoll_pwq                 3     53     72     53
+eventpoll_epi                 3     20    192     20
+inotify_event_cache           0      0     40     92
+inotify_watch_cache           1     53     72     53
+kioctx                        0      0    320     12
+kiocb                         0      0    256     15
+fasync_cache                  0      0     24    144
+shmem_inode_cache           254    290    768      5
+posix_timers_cache            0      0    128     30
+uid_cache                     0      0    128     30
+ip_mrt_cache                  0      0    128     30
+tcp_bind_bucket               3    112     32    112
+inet_peer_cache               0      0    128     30
+secpath_cache                 0      0     64     59
+xfrm_dst_cache                0      0    384     10
+ip_dst_cache                  5     10    384     10
+arp_cache                     1     15    256     15
+RAW                           3      5    768      5
+UDP                           5     10    768      5
+tw_sock_TCP                   0      0    192     20
+request_sock_TCP              0      0    128     30
+TCP                           4      5   1600      5
+blkdev_ioc                   14    118     64     59
+blkdev_queue                 20     30   1576      5
+blkdev_requests              13     42    272     14
+biovec-256                    7      7   4096      1
+biovec-128                    7      8   2048      2
+biovec-64                     7      8   1024      4
+biovec-16                     7     15    256     15
+biovec-4                      7     59     64     59
+biovec-1                     23    202     16    202
+bio                         270    270    128     30
+utrace_engine_cache           0      0     64     59
+Cache                       Num  Total   Size  Pages
+utrace_cache                  0      0     64     59
+sock_inode_cache             33     48    640      6
+skbuff_fclone_cache           7      7    512      7
+skbuff_head_cache           319    390    256     15
+file_lock_cache               1     22    176     22
+Acpi-Operand               4136   4248     64     59
+Acpi-ParseExt                 0      0     64     59
+Acpi-Parse                    0      0     40     92
+Acpi-State                    0      0     80     48
+Acpi-Namespace             2871   2912     32    112
+delayacct_cache              81    295     64     59
+taskstats_cache               4     53     72     53
+proc_inode_cache           1427   1440    592      6
+sigqueue                      0      0    160     24
+radix_tree_node           13166  13188    536      7
+bdev_cache                   23     24    832      4
+sysfs_dir_cache            5370   5412     88     44
+mnt_cache                    26     30    256     15
+inode_cache                2009   2009    560      7
+dentry_cache              60952  61020    216     18
+filp                        479   1305    256     15
+names_cache                   3      3   4096      1
+avc_node                     14     53     72     53
+selinux_inode_security      994   1200     80     48
+key_jar                       2     20    192     20
+idr_layer_cache              74     77    528      7
+buffer_head              164045 164800     96     40
+mm_struct                    51     56    896      4
+vm_area_struct             1142   1958    176     22
+fs_cache                     35    177     64     59
+files_cache                  36     55    768      5
+signal_cache                 72    162    832      9
+sighand_cache                68     84   2112      3
+task_struct                  76     80   1888      2
+anon_vma                    458    864     24    144
+pid                          83    295     64     59
+shared_policy_node            0      0     48     77
+Cache                       Num  Total   Size  Pages
+numa_policy                  37    144     24    144
+size-131072(DMA)              0      0 131072      1
+size-131072                   0      0 131072      1
+size-65536(DMA)               0      0  65536      1
+size-65536                    1      1  65536      1
+size-32768(DMA)               0      0  32768      1
+size-32768                    2      2  32768      1
+size-16384(DMA)               0      0  16384      1
+size-16384                    5      5  16384      1
+size-8192(DMA)                0      0   8192      1
+size-8192                     7      7   8192      1
+size-4096(DMA)                0      0   4096      1
+size-4096                   110    111   4096      1
+size-2048(DMA)                0      0   2048      2
+size-2048                   602    602   2048      2
+size-1024(DMA)                0      0   1024      4
+size-1024                   344    352   1024      4
+size-512(DMA)                 0      0    512      8
+size-512                    433    480    512      8
+size-256(DMA)                 0      0    256     15
+size-256                   1139   1155    256     15
+size-128(DMA)                 0      0    128     30
+size-64(DMA)                  0      0     64     59
+size-64                    5639   5782     64     59
+size-32(DMA)                  0      0     32    112
+size-128                    801    930    128     30
+size-32                    3005   3024     32    112
+kmem_cache                  137    137   2688      1</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-2">2</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-4">4</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-6">6</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-8">8</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-10">10</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-12">12</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-14">14</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-16">16</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-18">18</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-20">20</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-22">22</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-24">24</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-26">26</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-28">28</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-30">30</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-32">32</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-34">34</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-36">36</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-38">38</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-40">40</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-42">42</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-44">44</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-46">46</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-48">48</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-50">50</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-52">52</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-53">53</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-54">54</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-55">55</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-56">56</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-57">57</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-58">58</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-59">59</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-60">60</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-61">61</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-62">62</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-63">63</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-64">64</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-65">65</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-66">66</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-67">67</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-68">68</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-69">69</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-70">70</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-71">71</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-72">72</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-73">73</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-74">74</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-75">75</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-76">76</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-77">77</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-78">78</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-79">79</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-80">80</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-81">81</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-82">82</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-83">83</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-84">84</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-85">85</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-86">86</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-87">87</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-88">88</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-89">89</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-90">90</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-91">91</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-92">92</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-93">93</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-94">94</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-95">95</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-96">96</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-97">97</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-98">98</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-99">99</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-100">100</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-101">101</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-102">102</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-103">103</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-104">104</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-105">105</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-106">106</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-107">107</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-108">108</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-109">109</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-110">110</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-111">111</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-112">112</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-113">113</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-114">114</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-115">115</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-116">116</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-117">117</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-118">118</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-119">119</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-120">120</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-121">121</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-122">122</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-123">123</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-124">124</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-125">125</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-126">126</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-127">127</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-128">128</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-129">129</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-130">130</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-131">131</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-132">132</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-133">133</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-134">134</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-135">135</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-136">136</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-137">137</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-138">138</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-139">139</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-140">140</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-141">141</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5886f12fde1f8230025523-142">142</div>
+<div class="crayon-num" data-line="crayon-5886f12fde1f8230025523-143">143</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># vmstat -m</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-2">
+<span class="crayon-i">Cache</span>                       <span class="crayon-i">Num</span>  <span class="crayon-i">Total</span>   <span class="crayon-i">Size</span>  <span class="crayon-e">Pages</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-3">
+<span class="crayon-v">ip_conntrack</span><span class="crayon-sy">_</span>expect           <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">136</span>     <span class="crayon-cn">28</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-4">
+<span class="crayon-v">ip</span><span class="crayon-sy">_</span>conntrack                  <span class="crayon-cn">3</span>     <span class="crayon-cn">13</span>    <span class="crayon-cn">304</span>     <span class="crayon-cn">13</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-5">
+<span class="crayon-v">ip_fib</span><span class="crayon-sy">_</span>alias                 <span class="crayon-cn">11</span>     <span class="crayon-cn">59</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-6">
+<span class="crayon-v">ip_fib</span><span class="crayon-sy">_</span>hash                  <span class="crayon-cn">11</span>     <span class="crayon-cn">59</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-7">
+<span class="crayon-v">AF</span><span class="crayon-sy">_</span>VMCI                       <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">960</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-8">
+<span class="crayon-v">bio_map</span><span class="crayon-sy">_</span>info                <span class="crayon-cn">100</span>    <span class="crayon-cn">105</span>   <span class="crayon-cn">1064</span>      <span class="crayon-cn">7</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-9">
+<span class="crayon-v">dm</span><span class="crayon-sy">_</span>mpath                      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>   <span class="crayon-cn">1064</span>      <span class="crayon-cn">7</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-10">
+<span class="crayon-v">jbd</span><span class="crayon-sy">_</span>4k                        <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>   <span class="crayon-cn">4096</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-11">
+<span class="crayon-v">dm</span><span class="crayon-sy">_</span>uevent                     <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>   <span class="crayon-cn">2608</span>      <span class="crayon-cn">3</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-12">
+<span class="crayon-v">dm</span><span class="crayon-sy">_</span>tio                        <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">24</span>    <span class="crayon-cn">144</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-13">
+<span class="crayon-v">dm</span><span class="crayon-sy">_</span>io                         <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">48</span>     <span class="crayon-cn">77</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-14">
+<span class="crayon-v">scsi_cmd</span><span class="crayon-sy">_</span>cache               <span class="crayon-cn">10</span>     <span class="crayon-cn">10</span>    <span class="crayon-cn">384</span>     <span class="crayon-cn">10</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-15">
+<span class="crayon-v">sgpool</span><span class="crayon-o">-</span><span class="crayon-cn">128</span>                   <span class="crayon-cn">32</span>     <span class="crayon-cn">32</span>   <span class="crayon-cn">4096</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-16">
+<span class="crayon-v">sgpool</span><span class="crayon-o">-</span><span class="crayon-cn">64</span>                    <span class="crayon-cn">32</span>     <span class="crayon-cn">32</span>   <span class="crayon-cn">2048</span>      <span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-17">
+<span class="crayon-v">sgpool</span><span class="crayon-o">-</span><span class="crayon-cn">32</span>                    <span class="crayon-cn">32</span>     <span class="crayon-cn">32</span>   <span class="crayon-cn">1024</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-18">
+<span class="crayon-v">sgpool</span><span class="crayon-o">-</span><span class="crayon-cn">16</span>                    <span class="crayon-cn">32</span>     <span class="crayon-cn">32</span>    <span class="crayon-cn">512</span>      <span class="crayon-cn">8</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-19">
+<span class="crayon-v">sgpool</span><span class="crayon-o">-</span><span class="crayon-cn">8</span>                     <span class="crayon-cn">45</span>     <span class="crayon-cn">45</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-20">
+<span class="crayon-v">scsi_io</span><span class="crayon-sy">_</span>context               <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">112</span>     <span class="crayon-cn">34</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-21">
+<span class="crayon-v">ext3_inode</span><span class="crayon-sy">_</span>cache          <span class="crayon-cn">51080</span>  <span class="crayon-cn">51105</span>    <span class="crayon-cn">760</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-22">
+<span class="crayon-v">ext3</span><span class="crayon-sy">_</span>xattr                   <span class="crayon-cn">36</span>     <span class="crayon-cn">88</span>     <span class="crayon-cn">88</span>     <span class="crayon-cn">44</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-23">
+<span class="crayon-v">journal</span><span class="crayon-sy">_</span>handle               <span class="crayon-cn">18</span>    <span class="crayon-cn">144</span>     <span class="crayon-cn">24</span>    <span class="crayon-cn">144</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-24">
+<span class="crayon-v">journal</span><span class="crayon-sy">_</span>head                 <span class="crayon-cn">56</span>     <span class="crayon-cn">80</span>     <span class="crayon-cn">96</span>     <span class="crayon-cn">40</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-25">
+<span class="crayon-v">revoke</span><span class="crayon-sy">_</span>table                  <span class="crayon-cn">4</span>    <span class="crayon-cn">202</span>     <span class="crayon-cn">16</span>    <span class="crayon-cn">202</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-26">
+<span class="crayon-v">revoke</span><span class="crayon-sy">_</span>record                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">32</span>    <span class="crayon-cn">112</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-27">
+<span class="crayon-v">uhci_urb</span><span class="crayon-sy">_</span>priv                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">56</span>     <span class="crayon-cn">67</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-28">
+<span class="crayon-i">UNIX</span>                         <span class="crayon-cn">13</span>     <span class="crayon-cn">33</span>    <span class="crayon-cn">704</span>     <span class="crayon-cn">11</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-29">
+<span class="crayon-v">flow</span><span class="crayon-sy">_</span>cache                    <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-30">
+<span class="crayon-v">msi</span><span class="crayon-sy">_</span>cache                    <span class="crayon-cn">33</span>     <span class="crayon-cn">59</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-31">
+<span class="crayon-v">cfq_ioc</span><span class="crayon-sy">_</span>pool                 <span class="crayon-cn">14</span>     <span class="crayon-cn">90</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-32">
+<span class="crayon-v">cfq</span><span class="crayon-sy">_</span>pool                     <span class="crayon-cn">12</span>     <span class="crayon-cn">90</span>    <span class="crayon-cn">216</span>     <span class="crayon-cn">18</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-33">
+<span class="crayon-v">crq</span><span class="crayon-sy">_</span>pool                     <span class="crayon-cn">16</span>     <span class="crayon-cn">96</span>     <span class="crayon-cn">80</span>     <span class="crayon-cn">48</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-34">
+<span class="crayon-v">deadline</span><span class="crayon-sy">_</span>drq                  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">80</span>     <span class="crayon-cn">48</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-35">
+<span class="crayon-v">as</span><span class="crayon-sy">_</span>arq                        <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">96</span>     <span class="crayon-cn">40</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-36">
+<span class="crayon-v">mqueue_inode</span><span class="crayon-sy">_</span>cache            <span class="crayon-cn">1</span>      <span class="crayon-cn">4</span>    <span class="crayon-cn">896</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-37">
+<span class="crayon-v">isofs_inode</span><span class="crayon-sy">_</span>cache             <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">608</span>      <span class="crayon-cn">6</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-38">
+<span class="crayon-v">hugetlbfs_inode</span><span class="crayon-sy">_</span>cache         <span class="crayon-cn">1</span>      <span class="crayon-cn">7</span>    <span class="crayon-cn">576</span>      <span class="crayon-cn">7</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-39">
+<span class="crayon-i">Cache</span>                       <span class="crayon-i">Num</span>  <span class="crayon-i">Total</span>   <span class="crayon-i">Size</span>  <span class="crayon-e">Pages</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-40">
+<span class="crayon-v">ext2_inode</span><span class="crayon-sy">_</span>cache              <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">720</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-41">
+<span class="crayon-v">ext2</span><span class="crayon-sy">_</span>xattr                    <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">88</span>     <span class="crayon-cn">44</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-42">
+<span class="crayon-v">dnotify</span><span class="crayon-sy">_</span>cache                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">40</span>     <span class="crayon-cn">92</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-43">
+<span class="crayon-i">dquot</span>                         <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-44">
+<span class="crayon-v">eventpoll</span><span class="crayon-sy">_</span>pwq                 <span class="crayon-cn">3</span>     <span class="crayon-cn">53</span>     <span class="crayon-cn">72</span>     <span class="crayon-cn">53</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-45">
+<span class="crayon-v">eventpoll</span><span class="crayon-sy">_</span>epi                 <span class="crayon-cn">3</span>     <span class="crayon-cn">20</span>    <span class="crayon-cn">192</span>     <span class="crayon-cn">20</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-46">
+<span class="crayon-v">inotify_event</span><span class="crayon-sy">_</span>cache           <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">40</span>     <span class="crayon-cn">92</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-47">
+<span class="crayon-v">inotify_watch</span><span class="crayon-sy">_</span>cache           <span class="crayon-cn">1</span>     <span class="crayon-cn">53</span>     <span class="crayon-cn">72</span>     <span class="crayon-cn">53</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-48">
+<span class="crayon-i">kioctx</span>                        <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">320</span>     <span class="crayon-cn">12</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-49">
+<span class="crayon-i">kiocb</span>                         <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-50">
+<span class="crayon-v">fasync</span><span class="crayon-sy">_</span>cache                  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">24</span>    <span class="crayon-cn">144</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-51">
+<span class="crayon-v">shmem_inode</span><span class="crayon-sy">_</span>cache           <span class="crayon-cn">254</span>    <span class="crayon-cn">290</span>    <span class="crayon-cn">768</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-52">
+<span class="crayon-v">posix_timers</span><span class="crayon-sy">_</span>cache            <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-53">
+<span class="crayon-v">uid</span><span class="crayon-sy">_</span>cache                     <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-54">
+<span class="crayon-v">ip_mrt</span><span class="crayon-sy">_</span>cache                  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-55">
+<span class="crayon-v">tcp_bind</span><span class="crayon-sy">_</span>bucket               <span class="crayon-cn">3</span>    <span class="crayon-cn">112</span>     <span class="crayon-cn">32</span>    <span class="crayon-cn">112</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-56">
+<span class="crayon-v">inet_peer</span><span class="crayon-sy">_</span>cache               <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-57">
+<span class="crayon-v">secpath</span><span class="crayon-sy">_</span>cache                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-58">
+<span class="crayon-v">xfrm_dst</span><span class="crayon-sy">_</span>cache                <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">384</span>     <span class="crayon-cn">10</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-59">
+<span class="crayon-v">ip_dst</span><span class="crayon-sy">_</span>cache                  <span class="crayon-cn">5</span>     <span class="crayon-cn">10</span>    <span class="crayon-cn">384</span>     <span class="crayon-cn">10</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-60">
+<span class="crayon-v">arp</span><span class="crayon-sy">_</span>cache                     <span class="crayon-cn">1</span>     <span class="crayon-cn">15</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-61">
+<span class="crayon-i">RAW</span>                           <span class="crayon-cn">3</span>      <span class="crayon-cn">5</span>    <span class="crayon-cn">768</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-62">
+<span class="crayon-i">UDP</span>                           <span class="crayon-cn">5</span>     <span class="crayon-cn">10</span>    <span class="crayon-cn">768</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-63">
+<span class="crayon-v">tw_sock</span><span class="crayon-sy">_</span>TCP                   <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">192</span>     <span class="crayon-cn">20</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-64">
+<span class="crayon-v">request_sock</span><span class="crayon-sy">_</span>TCP              <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-65">
+<span class="crayon-i">TCP</span>                           <span class="crayon-cn">4</span>      <span class="crayon-cn">5</span>   <span class="crayon-cn">1600</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-66">
+<span class="crayon-v">blkdev</span><span class="crayon-sy">_</span>ioc                   <span class="crayon-cn">14</span>    <span class="crayon-cn">118</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-67">
+<span class="crayon-v">blkdev</span><span class="crayon-sy">_</span>queue                 <span class="crayon-cn">20</span>     <span class="crayon-cn">30</span>   <span class="crayon-cn">1576</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-68">
+<span class="crayon-v">blkdev</span><span class="crayon-sy">_</span>requests              <span class="crayon-cn">13</span>     <span class="crayon-cn">42</span>    <span class="crayon-cn">272</span>     <span class="crayon-cn">14</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-69">
+<span class="crayon-v">biovec</span><span class="crayon-o">-</span><span class="crayon-cn">256</span>                    <span class="crayon-cn">7</span>      <span class="crayon-cn">7</span>   <span class="crayon-cn">4096</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-70">
+<span class="crayon-v">biovec</span><span class="crayon-o">-</span><span class="crayon-cn">128</span>                    <span class="crayon-cn">7</span>      <span class="crayon-cn">8</span>   <span class="crayon-cn">2048</span>      <span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-71">
+<span class="crayon-v">biovec</span><span class="crayon-o">-</span><span class="crayon-cn">64</span>                     <span class="crayon-cn">7</span>      <span class="crayon-cn">8</span>   <span class="crayon-cn">1024</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-72">
+<span class="crayon-v">biovec</span><span class="crayon-o">-</span><span class="crayon-cn">16</span>                     <span class="crayon-cn">7</span>     <span class="crayon-cn">15</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-73">
+<span class="crayon-v">biovec</span><span class="crayon-o">-</span><span class="crayon-cn">4</span>                      <span class="crayon-cn">7</span>     <span class="crayon-cn">59</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-74">
+<span class="crayon-v">biovec</span><span class="crayon-o">-</span><span class="crayon-cn">1</span>                     <span class="crayon-cn">23</span>    <span class="crayon-cn">202</span>     <span class="crayon-cn">16</span>    <span class="crayon-cn">202</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-75">
+<span class="crayon-i">bio</span>                         <span class="crayon-cn">270</span>    <span class="crayon-cn">270</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-76">
+<span class="crayon-v">utrace_engine</span><span class="crayon-sy">_</span>cache           <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-77">
+<span class="crayon-i">Cache</span>                       <span class="crayon-i">Num</span>  <span class="crayon-i">Total</span>   <span class="crayon-i">Size</span>  <span class="crayon-e">Pages</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-78">
+<span class="crayon-v">utrace</span><span class="crayon-sy">_</span>cache                  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-79">
+<span class="crayon-v">sock_inode</span><span class="crayon-sy">_</span>cache             <span class="crayon-cn">33</span>     <span class="crayon-cn">48</span>    <span class="crayon-cn">640</span>      <span class="crayon-cn">6</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-80">
+<span class="crayon-v">skbuff_fclone</span><span class="crayon-sy">_</span>cache           <span class="crayon-cn">7</span>      <span class="crayon-cn">7</span>    <span class="crayon-cn">512</span>      <span class="crayon-cn">7</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-81">
+<span class="crayon-v">skbuff_head</span><span class="crayon-sy">_</span>cache           <span class="crayon-cn">319</span>    <span class="crayon-cn">390</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-82">
+<span class="crayon-v">file_lock</span><span class="crayon-sy">_</span>cache               <span class="crayon-cn">1</span>     <span class="crayon-cn">22</span>    <span class="crayon-cn">176</span>     <span class="crayon-cn">22</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-83">
+<span class="crayon-v">Acpi</span><span class="crayon-o">-</span><span class="crayon-i">Operand</span>               <span class="crayon-cn">4136</span>   <span class="crayon-cn">4248</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-84">
+<span class="crayon-v">Acpi</span><span class="crayon-o">-</span><span class="crayon-i">ParseExt</span>                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-85">
+<span class="crayon-v">Acpi</span><span class="crayon-o">-</span><span class="crayon-i">Parse</span>                    <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">40</span>     <span class="crayon-cn">92</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-86">
+<span class="crayon-v">Acpi</span><span class="crayon-o">-</span><span class="crayon-i">State</span>                    <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">80</span>     <span class="crayon-cn">48</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-87">
+<span class="crayon-v">Acpi</span><span class="crayon-o">-</span><span class="crayon-t">Namespace</span>             <span class="crayon-cn">2871</span>   <span class="crayon-cn">2912</span>     <span class="crayon-cn">32</span>    <span class="crayon-cn">112</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-88">
+<span class="crayon-v">delayacct</span><span class="crayon-sy">_</span>cache              <span class="crayon-cn">81</span>    <span class="crayon-cn">295</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-89">
+<span class="crayon-v">taskstats</span><span class="crayon-sy">_</span>cache               <span class="crayon-cn">4</span>     <span class="crayon-cn">53</span>     <span class="crayon-cn">72</span>     <span class="crayon-cn">53</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-90">
+<span class="crayon-v">proc_inode</span><span class="crayon-sy">_</span>cache           <span class="crayon-cn">1427</span>   <span class="crayon-cn">1440</span>    <span class="crayon-cn">592</span>      <span class="crayon-cn">6</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-91">
+<span class="crayon-i">sigqueue</span>                      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">160</span>     <span class="crayon-cn">24</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-92">
+<span class="crayon-v">radix_tree</span><span class="crayon-sy">_</span>node           <span class="crayon-cn">13166</span>  <span class="crayon-cn">13188</span>    <span class="crayon-cn">536</span>      <span class="crayon-cn">7</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-93">
+<span class="crayon-v">bdev</span><span class="crayon-sy">_</span>cache                   <span class="crayon-cn">23</span>     <span class="crayon-cn">24</span>    <span class="crayon-cn">832</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-94">
+<span class="crayon-v">sysfs_dir</span><span class="crayon-sy">_</span>cache            <span class="crayon-cn">5370</span>   <span class="crayon-cn">5412</span>     <span class="crayon-cn">88</span>     <span class="crayon-cn">44</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-95">
+<span class="crayon-v">mnt</span><span class="crayon-sy">_</span>cache                    <span class="crayon-cn">26</span>     <span class="crayon-cn">30</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-96">
+<span class="crayon-v">inode</span><span class="crayon-sy">_</span>cache                <span class="crayon-cn">2009</span>   <span class="crayon-cn">2009</span>    <span class="crayon-cn">560</span>      <span class="crayon-cn">7</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-97">
+<span class="crayon-v">dentry</span><span class="crayon-sy">_</span>cache              <span class="crayon-cn">60952</span>  <span class="crayon-cn">61020</span>    <span class="crayon-cn">216</span>     <span class="crayon-cn">18</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-98">
+<span class="crayon-i">filp</span>                        <span class="crayon-cn">479</span>   <span class="crayon-cn">1305</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-99">
+<span class="crayon-v">names</span><span class="crayon-sy">_</span>cache                   <span class="crayon-cn">3</span>      <span class="crayon-cn">3</span>   <span class="crayon-cn">4096</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-100">
+<span class="crayon-v">avc</span><span class="crayon-sy">_</span>node                     <span class="crayon-cn">14</span>     <span class="crayon-cn">53</span>     <span class="crayon-cn">72</span>     <span class="crayon-cn">53</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-101">
+<span class="crayon-v">selinux_inode</span><span class="crayon-sy">_</span>security      <span class="crayon-cn">994</span>   <span class="crayon-cn">1200</span>     <span class="crayon-cn">80</span>     <span class="crayon-cn">48</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-102">
+<span class="crayon-v">key</span><span class="crayon-sy">_</span>jar                       <span class="crayon-cn">2</span>     <span class="crayon-cn">20</span>    <span class="crayon-cn">192</span>     <span class="crayon-cn">20</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-103">
+<span class="crayon-v">idr_layer</span><span class="crayon-sy">_</span>cache              <span class="crayon-cn">74</span>     <span class="crayon-cn">77</span>    <span class="crayon-cn">528</span>      <span class="crayon-cn">7</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-104">
+<span class="crayon-v">buffer</span><span class="crayon-sy">_</span>head              <span class="crayon-cn">164045</span> <span class="crayon-cn">164800</span>     <span class="crayon-cn">96</span>     <span class="crayon-cn">40</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-105">
+<span class="crayon-v">mm</span><span class="crayon-sy">_</span>struct                    <span class="crayon-cn">51</span>     <span class="crayon-cn">56</span>    <span class="crayon-cn">896</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-106">
+<span class="crayon-v">vm_area</span><span class="crayon-sy">_</span>struct             <span class="crayon-cn">1142</span>   <span class="crayon-cn">1958</span>    <span class="crayon-cn">176</span>     <span class="crayon-cn">22</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-107">
+<span class="crayon-v">fs</span><span class="crayon-sy">_</span>cache                     <span class="crayon-cn">35</span>    <span class="crayon-cn">177</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-108">
+<span class="crayon-v">files</span><span class="crayon-sy">_</span>cache                  <span class="crayon-cn">36</span>     <span class="crayon-cn">55</span>    <span class="crayon-cn">768</span>      <span class="crayon-cn">5</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-109">
+<span class="crayon-v">signal</span><span class="crayon-sy">_</span>cache                 <span class="crayon-cn">72</span>    <span class="crayon-cn">162</span>    <span class="crayon-cn">832</span>      <span class="crayon-cn">9</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-110">
+<span class="crayon-v">sighand</span><span class="crayon-sy">_</span>cache                <span class="crayon-cn">68</span>     <span class="crayon-cn">84</span>   <span class="crayon-cn">2112</span>      <span class="crayon-cn">3</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-111">
+<span class="crayon-v">task</span><span class="crayon-sy">_</span>struct                  <span class="crayon-cn">76</span>     <span class="crayon-cn">80</span>   <span class="crayon-cn">1888</span>      <span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-112">
+<span class="crayon-v">anon</span><span class="crayon-sy">_</span>vma                    <span class="crayon-cn">458</span>    <span class="crayon-cn">864</span>     <span class="crayon-cn">24</span>    <span class="crayon-cn">144</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-113">
+<span class="crayon-i">pid</span>                          <span class="crayon-cn">83</span>    <span class="crayon-cn">295</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-114">
+<span class="crayon-v">shared_policy</span><span class="crayon-sy">_</span>node            <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">48</span>     <span class="crayon-cn">77</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-115">
+<span class="crayon-i">Cache</span>                       <span class="crayon-i">Num</span>  <span class="crayon-i">Total</span>   <span class="crayon-i">Size</span>  <span class="crayon-e">Pages</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-116">
+<span class="crayon-v">numa</span><span class="crayon-sy">_</span>policy                  <span class="crayon-cn">37</span>    <span class="crayon-cn">144</span>     <span class="crayon-cn">24</span>    <span class="crayon-cn">144</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-117">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">131072</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>              <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">131072</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-118">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">131072</span>                   <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span> <span class="crayon-cn">131072</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-119">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">65536</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>               <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>  <span class="crayon-cn">65536</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-120">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">65536</span>                    <span class="crayon-cn">1</span>      <span class="crayon-cn">1</span>  <span class="crayon-cn">65536</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-121">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">32768</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>               <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>  <span class="crayon-cn">32768</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-122">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">32768</span>                    <span class="crayon-cn">2</span>      <span class="crayon-cn">2</span>  <span class="crayon-cn">32768</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-123">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">16384</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>               <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>  <span class="crayon-cn">16384</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-124">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">16384</span>                    <span class="crayon-cn">5</span>      <span class="crayon-cn">5</span>  <span class="crayon-cn">16384</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-125">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">8192</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>   <span class="crayon-cn">8192</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-126">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">8192</span>                     <span class="crayon-cn">7</span>      <span class="crayon-cn">7</span>   <span class="crayon-cn">8192</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-127">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">4096</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>   <span class="crayon-cn">4096</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-128">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">4096</span>                   <span class="crayon-cn">110</span>    <span class="crayon-cn">111</span>   <span class="crayon-cn">4096</span>      <span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-129">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">2048</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>   <span class="crayon-cn">2048</span>      <span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-130">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">2048</span>                   <span class="crayon-cn">602</span>    <span class="crayon-cn">602</span>   <span class="crayon-cn">2048</span>      <span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-131">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">1024</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>   <span class="crayon-cn">1024</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-132">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">1024</span>                   <span class="crayon-cn">344</span>    <span class="crayon-cn">352</span>   <span class="crayon-cn">1024</span>      <span class="crayon-cn">4</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-133">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">512</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">512</span>      <span class="crayon-cn">8</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-134">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">512</span>                    <span class="crayon-cn">433</span>    <span class="crayon-cn">480</span>    <span class="crayon-cn">512</span>      <span class="crayon-cn">8</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-135">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">256</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-136">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">256</span>                   <span class="crayon-cn">1139</span>   <span class="crayon-cn">1155</span>    <span class="crayon-cn">256</span>     <span class="crayon-cn">15</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-137">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">128</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                 <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-138">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">64</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-139">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">64</span>                    <span class="crayon-cn">5639</span>   <span class="crayon-cn">5782</span>     <span class="crayon-cn">64</span>     <span class="crayon-cn">59</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-140">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">32</span><span class="crayon-sy">(</span><span class="crayon-v">DMA</span><span class="crayon-sy">)</span>                  <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>     <span class="crayon-cn">32</span>    <span class="crayon-cn">112</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-141">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">128</span>                    <span class="crayon-cn">801</span>    <span class="crayon-cn">930</span>    <span class="crayon-cn">128</span>     <span class="crayon-cn">30</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5886f12fde1f8230025523-142">
+<span class="crayon-v">size</span><span class="crayon-o">-</span><span class="crayon-cn">32</span>                    <span class="crayon-cn">3005</span>   <span class="crayon-cn">3024</span>     <span class="crayon-cn">32</span>    <span class="crayon-cn">112</span>
+</div>
+<div class="crayon-line" id="crayon-5886f12fde1f8230025523-143">
+<span class="crayon-v">kmem</span><span class="crayon-sy">_</span>cache                  <span class="crayon-cn">137</span>    <span class="crayon-cn">137</span>   <span class="crayon-cn">2688</span>      <span class="crayon-cn">1</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0536 seconds] -->
+
+</div>
+<p>这组信息来自于/proc/slabinfo。</p>
+<p>slab:由于内核会有许多小对象，这些对象构造销毁十分频繁，比如i-node，dentry，这些对象如果每次构建的时候就向内存要一个页(4kb)，而其实只有几个字节，这样就会非常浪费，为了解决这个问题，就引入了一种新的机制来处理在同一个页框中如何分配小存储区，而slab可以对小对象进行分配,这样就不用为每一个对象分配页框，从而节省了空间，内核对一些小对象创建析构很频繁，slab对这些小对象进行缓冲,可以重复利用,减少内存分配次数。</p>
+<h3>本系列文章：</h3>
+<p><a href="http://blog.jobbole.com/108531/" target="_blank">每天一个 Linux 命令（1）：ls命令</a><br>
+<a href="http://blog.jobbole.com/108805/" target="_blank">每天一个 Linux 命令（2）：cd命令</a><br>
+<a href="http://blog.jobbole.com/108855/" target="_blank">每天一个 Linux 命令（3）：pwd命令</a><br>
+<a href="http://blog.jobbole.com/108871/" target="_blank">每天一个 Linux 命令（4）：mkdir命令</a><br>
+<a href="http://blog.jobbole.com/108901/" target="_blank">每天一个 Linux 命令（5）：rm 命令</a><br>
+<a href="http://blog.jobbole.com/108925/" target="_blank">每天一个 Linux 命令（6）：rmdir 命令</a><br>
+<a href="http://blog.jobbole.com/108983/" target="_blank">每天一个 Linux 命令（7）：mv命令</a><br>
+<a href="http://blog.jobbole.com/108988/" target="_blank">每天一个 Linux 命令（8）：cp 命令</a><br>
+<a href="http://blog.jobbole.com/108989/" target="_blank">每天一个 Linux 命令（9）：touch 命令</a><br>
+<a href="http://blog.jobbole.com/108990/" target="_blank">每天一个 Linux 命令（10）：cat 命令</a><br>
+<a href="http://blog.jobbole.com/108991/" target="_blank">每天一个 Linux 命令（11）：nl 命令</a><br>
+<a href="http://blog.jobbole.com/108992/" target="_blank">每天一个 Linux 命令（12）：more 命令</a><br>
+<a href="http://blog.jobbole.com/108993/" target="_blank">每天一个 Linux 命令（13）：less 命令</a><br>
+<a href="http://blog.jobbole.com/108994/" target="_blank">每天一个 Linux 命令（14）：head 命令</a><br>
+<a href="http://blog.jobbole.com/108995/" target="_blank">每天一个 Linux 命令（15）：tail 命令</a><br>
+<a href="http://blog.jobbole.com/109262/" target="_blank">每天一个 Linux 命令（16）：which命令</a><br>
+<a href="http://blog.jobbole.com/108993/" target="_blank">每天一个 Linux 命令（17）：whereis 命令</a><br>
+<a href="http://blog.jobbole.com/108994/" target="_blank">每天一个 Linux 命令（18）：locate 命令</a><br>
+<a href="http://blog.jobbole.com/109265/" target="_blank">每天一个 Linux 命令（19）：find 命令概览</a><br>
+<a href="http://blog.jobbole.com/108996/" target="_blank">每天一个 Linux 命令（20）：find命令之exec</a><br>
+<a href="http://blog.jobbole.com/108997/" target="_blank">每天一个 Linux 命令（21）：find命令之xargs</a><br>
+<a href="http://blog.jobbole.com/109268/" target="_blank">每天一个 Linux 命令（22）：find 命令的参数详解</a><br>
+<a href="http://blog.jobbole.com/109506/" target="_blank">每天一个 Linux 命令（23）：Linux 目录结构</a><br>
+<a href="http://blog.jobbole.com/109254/" target="_blank">每天一个 Linux 命令（24）：Linux 文件类型与扩展名</a><br>
+<a href="http://blog.jobbole.com/105269" target="_blank">每天一个 Linux 命令（25）：Linux 文件属性详解</a><br>
+<a href="http://blog.jobbole.com/109539" target="_blank">每天一个 Linux 命令（26）：用 SecureCRT 来上传和下载文件</a><br>
+<a href="http://blog.jobbole.com/109614" target="_blank">每天一个 Linux 命令（27）：linux chmod 命令</a><br>
+<a href="http://blog.jobbole.com/109674/" target="_blank">每天一个 Linux 命令（28）：tar 命令</a><br>
+<a href="http://blog.jobbole.com/109696/" target="_blank">每天一个 Linux 命令（29）: chgrp 命令</a><br>
+<a href="http://blog.jobbole.com/109750/" target="_blank">每天一个 Linux 命令（30）: chown 命令</a><br>
+<a href="http://blog.jobbole.com/109781/" target="_blank">每天一个 Linux 命令（31）: /etc/group 文件详解</a><br>
+<a href="http://blog.jobbole.com/109797/" target="_blank">每天一个 Linux 命令（32）：gzip 命令</a><br>
+<a href="http://blog.jobbole.com/109827/" target="_blank">每天一个 Linux 命令（33）：df 命令</a><br>
+<a href="http://blog.jobbole.com/109846/" target="_blank">每天一个 Linux 命令（34）： du 命令</a><br>
+<a href="http://blog.jobbole.com/109869/" target="_blank">每天一个 Linux 命令（35）： ln 命令</a><br>
+<a href="http://blog.jobbole.com/109875/" target="_blank">每天一个 Linux 命令（36）： diff 命令</a><br>
+<a href="http://blog.jobbole.com/109881/" target="_blank">每天一个 Linux 命令（37）： date 命令</a><br>
+<a href="http://blog.jobbole.com/109886/" target="_blank">每天一个 Linux 命令（38）： cal 命令</a><br>
+<a href="http://blog.jobbole.com/109907/" target="_blank">每天一个 Linux 命令（39）： grep 命令</a><br>
+<a href="http://blog.jobbole.com/109925/" target="_blank">每天一个 Linux 命令（40）： wc 命令</a><br>
+<a href="http://blog.jobbole.com/109948/" target="_blank">每天一个 Linux 命令（41）： ps 命令</a><br>
+<a href="http://blog.jobbole.com/109951/" target="_blank">每天一个 Linux 命令（44）： top 命令</a><br>
+<a href="http://blog.jobbole.com/109965/" target="_blank">每天一个 Linux 命令（45）： free 命令</a></p>
+
+        
+        
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}

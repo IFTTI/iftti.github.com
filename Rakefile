@@ -16,7 +16,7 @@ desc "Deploy to github"
 task :deploy do
   puts "### Git push"
   system "cd ./_site && git add . && git commit -am 'Deploy at #{Time.now}'"
-  system "cd _site && git push origin master"
+  system "cd _site && git push origin HEAD:master"
 end
 
 desc "Sync"
@@ -34,7 +34,7 @@ end
 desc "Commit RAW"
 task :raw do
   puts "### cd _raw; Git commit"
-  system "cd _raw && git add . && git commit -am 'Update at #{Time.now}' && git push origin raw"
+  system "cd _raw && git add . && git commit -am 'Update at #{Time.now}' && git push origin HEAD:raw"
 end
 task :add_raw do
   system "git add _raw"
@@ -43,7 +43,7 @@ end
 desc "Push"
 task :push do
   puts "Push"
-  system "git push origin jekyll/iftti.com"
+  system "git push origin HEAD:jekyll/iftti.com"
 end
 
 desc "Pull"
