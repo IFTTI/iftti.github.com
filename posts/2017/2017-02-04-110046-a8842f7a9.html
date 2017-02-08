@@ -1,0 +1,2432 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>每天一个 Linux 命令（57）： ss 命令 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2017/2017-02-04-110046-a8842f7a9.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>每天一个 Linux 命令（57）： ss 命令</h1>
+    <p class="meta"><span class="time">Feb 4, 2017</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/110046/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        			<div class="textwidget">
+</div>
+
+		<p>ss是Socket Statistics的缩写。顾名思义，ss命令可以用来获取socket统计信息，它可以显示和netstat类似的内容。但ss的优势在于它能够显示更多更详细的有关TCP和连接状态的信息，而且比netstat更快速更高效。</p>
+<p>当服务器的socket连接数量变得非常大时，无论是使用netstat命令还是直接cat /proc/net/tcp，执行速度都会很慢。可能你不会有切身的感受，但请相信我，当服务器维持的连接达到上万个的时候，使用netstat等于浪费 生命，而用ss才是节省时间。</p>
+<p>天下武功唯快不破。ss快的秘诀在于，它利用到了TCP协议栈中tcp_diag。tcp_diag是一个用于分析统计的模块，可以获得Linux 内核中第一手的信息，这就确保了ss的快捷高效。当然，如果你的系统中没有tcp_diag，ss也可以正常运行，只是效率会变得稍慢。（但仍然比 netstat要快。）</p>
+<p>1.命令格式:</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1ad2680719386" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss [参数]
+
+ss [参数] [过滤]</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1ad2680719386-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1ad2680719386-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1ad2680719386-3">3</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1ad2680719386-1">
+<span class="crayon-i">ss</span> <span class="crayon-sy">[</span>参数<span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1ad2680719386-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1ad2680719386-3">
+<span class="crayon-i">ss</span> <span class="crayon-sy">[</span>参数<span class="crayon-sy">]</span> <span class="crayon-sy">[</span>过滤<span class="crayon-sy">]</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0005 seconds] -->
+<p>2.命令功能：</p>
+<p>ss(Socket Statistics的缩写)命令可以用来获取 socket统计信息，此命令输出的结果类似于 netstat输出的内容，但它能显示更多更详细的 TCP连接状态的信息，且比 netstat 更快速高效。它使用了 TCP协议栈中 tcp_diag（是一个用于分析统计的模块），能直接从获得第一手内核信息，这就使得 ss命令快捷高效。在没有 tcp_diag，ss也可以正常运行。</p>
+<p>3.命令参数：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1add620479161" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+-h, --help 帮助信息
+
+-V, --version 程序版本信息
+
+-n, --numeric 不解析服务名称
+
+-r, --resolve        解析主机名
+
+-a, --all 显示所有套接字（sockets）
+
+-l, --listening 显示监听状态的套接字（sockets）
+
+-o, --options        显示计时器信息
+
+-e, --extended       显示详细的套接字（sockets）信息
+
+-m, --memory         显示套接字（socket）的内存使用情况
+
+-p, --processes 显示使用套接字（socket）的进程
+
+-i, --info 显示 TCP内部信息
+
+-s, --summary 显示套接字（socket）使用概况
+
+-4, --ipv4           仅显示IPv4的套接字（sockets）
+
+-6, --ipv6           仅显示IPv6的套接字（sockets）
+
+-0, --packet         显示 PACKET 套接字（socket）
+
+-t, --tcp 仅显示 TCP套接字（sockets）
+
+-u, --udp 仅显示 UCP套接字（sockets）
+
+-d, --dccp 仅显示 DCCP套接字（sockets）
+
+-w, --raw 仅显示 RAW套接字（sockets）
+
+-x, --unix 仅显示 Unix套接字（sockets）
+
+-f, --family=FAMILY  显示 FAMILY类型的套接字（sockets），FAMILY可选，支持  unix, inet, inet6, link, netlink
+
+-A, --query=QUERY, --socket=QUERY
+
+      QUERY := {all|inet|tcp|udp|raw|unix|packet|netlink}[,QUERY]
+
+-D, --diag=FILE     将原始TCP套接字（sockets）信息转储到文件
+
+ -F, --filter=FILE   从文件中都去过滤器信息
+
+       FILTER := [ state TCP-STATE ] [ EXPRESSION ]</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-10">10</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-12">12</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-14">14</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-16">16</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-18">18</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-20">20</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-22">22</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-24">24</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-26">26</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-28">28</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-30">30</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-32">32</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-34">34</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-36">36</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-38">38</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-40">40</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-42">42</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-44">44</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-46">46</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-48">48</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1add620479161-50">50</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1add620479161-51">51</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-1">
+<span class="crayon-o">-</span><span class="crayon-v">h</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">help</span><span class="crayon-h"> </span>帮助信息</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-3">
+<span class="crayon-o">-</span><span class="crayon-v">V</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">version</span><span class="crayon-h"> </span>程序版本信息</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-4"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-5">
+<span class="crayon-o">-</span><span class="crayon-v">n</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">numeric</span><span class="crayon-h"> </span>不解析服务名称</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-6"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-7">
+<span class="crayon-o">-</span><span class="crayon-v">r</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">resolve</span>        解析主机名</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-8"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-9">
+<span class="crayon-o">-</span><span class="crayon-v">a</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">all</span><span class="crayon-h"> </span>显示所有套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-10"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-11">
+<span class="crayon-o">-</span><span class="crayon-v">l</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">listening</span><span class="crayon-h"> </span>显示监听状态的套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-12"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-13">
+<span class="crayon-o">-</span><span class="crayon-v">o</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">options</span>        显示计时器信息</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-14"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-15">
+<span class="crayon-o">-</span><span class="crayon-v">e</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">extended</span>       显示详细的套接字（<span class="crayon-i">sockets</span>）信息</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-16"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-17">
+<span class="crayon-o">-</span><span class="crayon-v">m</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">memory</span>         显示套接字（<span class="crayon-i">socket</span>）的内存使用情况</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-18"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-19">
+<span class="crayon-o">-</span><span class="crayon-v">p</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">processes</span><span class="crayon-h"> </span>显示使用套接字（<span class="crayon-i">socket</span>）的进程</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-20"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-21">
+<span class="crayon-o">-</span><span class="crayon-v">i</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">info</span><span class="crayon-h"> </span>显示 <span class="crayon-i">TCP</span>内部信息</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-22"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-23">
+<span class="crayon-o">-</span><span class="crayon-v">s</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">summary</span><span class="crayon-h"> </span>显示套接字（<span class="crayon-i">socket</span>）使用概况</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-24"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-25">
+<span class="crayon-o">-</span><span class="crayon-cn">4</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">ipv4</span>           仅显示<span class="crayon-i">IPv4</span>的套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-26"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-27">
+<span class="crayon-o">-</span><span class="crayon-cn">6</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">ipv6</span>           仅显示<span class="crayon-i">IPv6</span>的套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-28"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-29">
+<span class="crayon-o">-</span><span class="crayon-cn">0</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">packet</span><span class="crayon-h"> </span>        显示 <span class="crayon-i">PACKET</span> 套接字（<span class="crayon-i">socket</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-30"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-31">
+<span class="crayon-o">-</span><span class="crayon-v">t</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">tcp</span><span class="crayon-h"> </span>仅显示 <span class="crayon-i">TCP</span>套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-32"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-33">
+<span class="crayon-o">-</span><span class="crayon-v">u</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">udp</span><span class="crayon-h"> </span>仅显示 <span class="crayon-i">UCP</span>套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-34"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-35">
+<span class="crayon-o">-</span><span class="crayon-v">d</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">dccp</span><span class="crayon-h"> </span>仅显示 <span class="crayon-i">DCCP</span>套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-36"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-37">
+<span class="crayon-o">-</span><span class="crayon-v">w</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">raw</span><span class="crayon-h"> </span>仅显示 <span class="crayon-i">RAW</span>套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-38"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-39">
+<span class="crayon-o">-</span><span class="crayon-v">x</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-i">unix</span><span class="crayon-h"> </span>仅显示 <span class="crayon-i">Unix</span>套接字（<span class="crayon-i">sockets</span>）</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-40"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-41">
+<span class="crayon-o">-</span><span class="crayon-v">f</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-v">family</span><span class="crayon-o">=</span><span class="crayon-i">FAMILY</span>  显示 <span class="crayon-i">FAMILY</span>类型的套接字（<span class="crayon-i">sockets</span>），<span class="crayon-i">FAMILY</span>可选，支持  <span class="crayon-v">unix</span><span class="crayon-sy">,</span> <span class="crayon-v">inet</span><span class="crayon-sy">,</span> <span class="crayon-v">inet6</span><span class="crayon-sy">,</span> <span class="crayon-r">link</span><span class="crayon-sy">,</span> <span class="crayon-v">netlink</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-42"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-43">
+<span class="crayon-o">-</span><span class="crayon-v">A</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-v">query</span><span class="crayon-o">=</span><span class="crayon-v">QUERY</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-v">socket</span><span class="crayon-o">=</span><span class="crayon-i">QUERY</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-44"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-45">      <span class="crayon-i">QUERY</span> <span class="crayon-o">:</span><span class="crayon-o">=</span> <span class="crayon-sy">{</span><span class="crayon-v">all</span><span class="crayon-o">|</span><span class="crayon-v">inet</span><span class="crayon-o">|</span><span class="crayon-v">tcp</span><span class="crayon-o">|</span><span class="crayon-v">udp</span><span class="crayon-o">|</span><span class="crayon-v">raw</span><span class="crayon-o">|</span><span class="crayon-v">unix</span><span class="crayon-o">|</span><span class="crayon-v">packet</span><span class="crayon-o">|</span><span class="crayon-v">netlink</span><span class="crayon-sy">}</span><span class="crayon-sy">[</span><span class="crayon-sy">,</span><span class="crayon-v">QUERY</span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-46"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-47">
+<span class="crayon-o">-</span><span class="crayon-v">D</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-v">diag</span><span class="crayon-o">=</span><span class="crayon-r">FILE</span>     将原始<span class="crayon-i">TCP</span>套接字（<span class="crayon-i">sockets</span>）信息转储到文件</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-48"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-49"> <span class="crayon-o">-</span><span class="crayon-v">F</span><span class="crayon-sy">,</span> <span class="crayon-o">--</span><span class="crayon-v">filter</span><span class="crayon-o">=</span><span class="crayon-r">FILE</span>   从文件中都去过滤器信息</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1add620479161-50"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1add620479161-51">       <span class="crayon-i">FILTER</span> <span class="crayon-o">:</span><span class="crayon-o">=</span> <span class="crayon-sy">[</span> <span class="crayon-i">state</span> <span class="crayon-v">TCP</span><span class="crayon-o">-</span><span class="crayon-i">STATE</span> <span class="crayon-sy">]</span> <span class="crayon-sy">[</span> <span class="crayon-i">EXPRESSION</span> <span class="crayon-sy">]</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0074 seconds] -->
+<p>4.使用实例：</p>
+<p>实例1：显示TCP连接</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1ae2712261464" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -t -a</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1ae2712261464-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1ae2712261464-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-i">t</span> <span class="crayon-o">-</span><span class="crayon-v">a</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1ae5476906122" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -t -a
+State      Recv-Q Send-Q                                Local Address:Port                                    Peer Address:Port
+LISTEN     0      0                                         127.0.0.1:smux                                               *:*
+LISTEN     0      0                                                 *:3690                                               *:*
+LISTEN     0      0                                                 *:ssh                                                *:*
+ESTAB      0      0                                   192.168.120.204:ssh                                        10.2.0.68:49368
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1ae5476906122-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1ae5476906122-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1ae5476906122-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1ae5476906122-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1ae5476906122-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1ae5476906122-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1ae5476906122-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1ae5476906122-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -t -a</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1ae5476906122-2">
+<span class="crayon-i">State</span>      <span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                    <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-e">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1ae5476906122-3">
+<span class="crayon-i">LISTEN</span>     <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                         <span class="crayon-cn">127.0.0.1</span><span class="crayon-o">:</span><span class="crayon-i">smux</span>                                               <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1ae5476906122-4">
+<span class="crayon-i">LISTEN</span>     <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                                 <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-cn">3690</span>                                               <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1ae5476906122-5">
+<span class="crayon-i">LISTEN</span>     <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                                 <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-i">ssh</span>                                                <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1ae5476906122-6">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.120.204</span><span class="crayon-o">:</span><span class="crayon-i">ssh</span>                                        <span class="crayon-cn">10.2.0.68</span><span class="crayon-o">:</span><span class="crayon-cn">49368</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1ae5476906122-7">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0039 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例2：显示 Sockets 摘要</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1ae9069996493" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -s</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1ae9069996493-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1ae9069996493-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-v">s</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<div>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1aed235747065" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -s
+Total: 34 (kernel 48)
+TCP:   4 (estab 1, closed 0, orphaned 0, synrecv 0, timewait 0/0), ports 3
+Transport Total     IP        IPv6
+*         48        -         -
+RAW       0         0         0
+UDP       5         5         0
+TCP       4         4         0
+INET      9         9         0
+FRAG      0         0         0
+
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1aed235747065-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1aed235747065-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1aed235747065-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1aed235747065-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1aed235747065-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1aed235747065-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1aed235747065-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1aed235747065-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1aed235747065-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1aed235747065-10">10</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1aed235747065-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1aed235747065-12">12</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1aed235747065-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -s</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1aed235747065-2">
+<span class="crayon-v">Total</span><span class="crayon-o">:</span> <span class="crayon-cn">34</span> <span class="crayon-sy">(</span><span class="crayon-i">kernel</span> <span class="crayon-cn">48</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1aed235747065-3">
+<span class="crayon-v">TCP</span><span class="crayon-o">:</span>   <span class="crayon-cn">4</span> <span class="crayon-sy">(</span><span class="crayon-i">estab</span> <span class="crayon-cn">1</span><span class="crayon-sy">,</span> <span class="crayon-i">closed</span> <span class="crayon-cn">0</span><span class="crayon-sy">,</span> <span class="crayon-i">orphaned</span> <span class="crayon-cn">0</span><span class="crayon-sy">,</span> <span class="crayon-i">synrecv</span> <span class="crayon-cn">0</span><span class="crayon-sy">,</span> <span class="crayon-i">timewait</span> <span class="crayon-cn">0</span><span class="crayon-o">/</span><span class="crayon-cn">0</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span> <span class="crayon-i">ports</span> <span class="crayon-cn">3</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1aed235747065-4">
+<span class="crayon-i">Transport</span> <span class="crayon-i">Total</span>     <span class="crayon-i">IP</span>        <span class="crayon-v">IPv6</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1aed235747065-5">
+<span class="crayon-o">*</span>         <span class="crayon-cn">48</span>        <span class="crayon-o">-</span>         <span class="crayon-o">-</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1aed235747065-6">
+<span class="crayon-i">RAW</span>       <span class="crayon-cn">0</span>         <span class="crayon-cn">0</span>         <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1aed235747065-7">
+<span class="crayon-i">UDP</span>       <span class="crayon-cn">5</span>         <span class="crayon-cn">5</span>         <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1aed235747065-8">
+<span class="crayon-i">TCP</span>       <span class="crayon-cn">4</span>         <span class="crayon-cn">4</span>         <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1aed235747065-9">
+<span class="crayon-i">INET</span>      <span class="crayon-cn">9</span>         <span class="crayon-cn">9</span>         <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1aed235747065-10">
+<span class="crayon-i">FRAG</span>      <span class="crayon-cn">0</span>         <span class="crayon-cn">0</span>         <span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1aed235747065-11"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1aed235747065-12">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0028 seconds] -->
+
+</div>
+</div>
+<p>说明：</p>
+<p>列出当前的established, closed, orphaned and waiting TCP sockets</p>
+<p>实例3：列出所有打开的网络连接端口</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1af1950794397" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -l</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1af1950794397-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1af1950794397-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-v">l</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1af4734011616" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -l
+Recv-Q Send-Q                                     Local Address:Port                                         Peer Address:Port
+0      0                                              127.0.0.1:smux                                                    *:*
+0      0                                                      *:3690                                                    *:*
+0      0                                                      *:ssh                                                     *:*
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1af4734011616-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1af4734011616-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1af4734011616-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1af4734011616-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1af4734011616-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1af4734011616-6">6</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1af4734011616-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -l</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1af4734011616-2">
+<span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                     <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                         <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1af4734011616-3">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                              <span class="crayon-cn">127.0.0.1</span><span class="crayon-o">:</span><span class="crayon-i">smux</span>                                                    <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1af4734011616-4">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                                      <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-cn">3690</span>                                                    <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1af4734011616-5">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                                      <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-i">ssh</span>                                                     <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1af4734011616-6">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0033 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例4：查看进程使用的socket</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1af8719491351" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -pl</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1af8719491351-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1af8719491351-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-v">pl</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1afb058063139" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -pl
+Recv-Q Send-Q                                     Local Address:Port                                         Peer Address:Port
+0      0                                              127.0.0.1:smux                                                    *:*        users:(("snmpd",2716,8))
+0      0                                                      *:3690                                                    *:*        users:(("svnserve",3590,3))
+0      0                                                      *:ssh                                                     *:*        users:(("sshd",2735,3))
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1afb058063139-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1afb058063139-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1afb058063139-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1afb058063139-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1afb058063139-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1afb058063139-6">6</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1afb058063139-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -pl</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1afb058063139-2">
+<span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                     <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                         <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1afb058063139-3">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                              <span class="crayon-cn">127.0.0.1</span><span class="crayon-o">:</span><span class="crayon-i">smux</span>                                                    <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>        <span class="crayon-v">users</span><span class="crayon-o">:</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-s">"snmpd"</span><span class="crayon-sy">,</span><span class="crayon-cn">2716</span><span class="crayon-sy">,</span><span class="crayon-cn">8</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1afb058063139-4">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                                      <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-cn">3690</span>                                                    <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>        <span class="crayon-v">users</span><span class="crayon-o">:</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-s">"svnserve"</span><span class="crayon-sy">,</span><span class="crayon-cn">3590</span><span class="crayon-sy">,</span><span class="crayon-cn">3</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1afb058063139-5">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                                      <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-i">ssh</span>                                                     <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>        <span class="crayon-v">users</span><span class="crayon-o">:</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-s">"sshd"</span><span class="crayon-sy">,</span><span class="crayon-cn">2735</span><span class="crayon-sy">,</span><span class="crayon-cn">3</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1afb058063139-6">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0040 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例5：找出打开套接字/端口应用程序</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1aff639536608" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -lp | grep 3306</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1aff639536608-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1aff639536608-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-r">lp</span> <span class="crayon-o">|</span> <span class="crayon-r">grep</span> <span class="crayon-cn">3306</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b02126300445" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -lp|grep 1935
+0      0                            *:1935                          *:*        users:(("fmsedge",2913,18))
+0      0                    127.0.0.1:19350                         *:*        users:(("fmsedge",2913,17))
+[root@localhost ~]# ss -lp|grep 3306
+0      0                            *:3306                          *:*        users:(("mysqld",2871,10))
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b02126300445-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b02126300445-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b02126300445-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b02126300445-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b02126300445-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b02126300445-6">6</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b02126300445-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -lp|grep 1935</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b02126300445-2">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                            <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-cn">1935</span>                          <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>        <span class="crayon-v">users</span><span class="crayon-o">:</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-s">"fmsedge"</span><span class="crayon-sy">,</span><span class="crayon-cn">2913</span><span class="crayon-sy">,</span><span class="crayon-cn">18</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b02126300445-3">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                    <span class="crayon-cn">127.0.0.1</span><span class="crayon-o">:</span><span class="crayon-cn">19350</span>                         <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>        <span class="crayon-v">users</span><span class="crayon-o">:</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-s">"fmsedge"</span><span class="crayon-sy">,</span><span class="crayon-cn">2913</span><span class="crayon-sy">,</span><span class="crayon-cn">17</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b02126300445-4">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -lp|grep 3306</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b02126300445-5">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                            <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-cn">3306</span>                          <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>        <span class="crayon-v">users</span><span class="crayon-o">:</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-s">"mysqld"</span><span class="crayon-sy">,</span><span class="crayon-cn">2871</span><span class="crayon-sy">,</span><span class="crayon-cn">10</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b02126300445-6">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0027 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例6：显示所有UDP Sockets</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b05631339525" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -u -a</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1b05631339525-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1b05631339525-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-i">u</span> <span class="crayon-o">-</span><span class="crayon-v">a</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b08546967952" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -u -a
+State      Recv-Q Send-Q                                Local Address:Port                                    Peer Address:Port
+UNCONN     0      0                                         127.0.0.1:syslog                                             *:*
+UNCONN     0      0                                                 *:snmp                                               *:*
+ESTAB      0      0                                   192.168.120.203:39641                                  10.58.119.119:domain
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b08546967952-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b08546967952-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b08546967952-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b08546967952-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b08546967952-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b08546967952-6">6</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b08546967952-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -u -a</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b08546967952-2">
+<span class="crayon-i">State</span>      <span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                    <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-e">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b08546967952-3">
+<span class="crayon-i">UNCONN</span>     <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                         <span class="crayon-cn">127.0.0.1</span><span class="crayon-o">:</span><span class="crayon-i">syslog</span>                                             <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b08546967952-4">
+<span class="crayon-i">UNCONN</span>     <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                                 <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-i">snmp</span>                                               <span class="crayon-o">*</span><span class="crayon-o">:</span><span class="crayon-o">*</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b08546967952-5">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.120.203</span><span class="crayon-o">:</span><span class="crayon-cn">39641</span>                                  <span class="crayon-cn">10.58.119.119</span><span class="crayon-o">:</span><span class="crayon-i">domain</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b08546967952-6">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0033 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例7：显示所有状态为established的SMTP连接</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b0c975225209" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -o state established '( dport = :smtp or sport = :smtp )'</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1b0c975225209-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1b0c975225209-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-i">o</span> <span class="crayon-i">state</span> <span class="crayon-i">established</span> <span class="crayon-s">'( dport = :smtp or sport = :smtp )'</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0005 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b0f542383103" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -o state established '( dport = :smtp or sport = :smtp )'
+Recv-Q Send-Q                                     Local Address:Port                                         Peer Address:Port
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b0f542383103-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b0f542383103-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b0f542383103-3">3</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b0f542383103-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -o state established '( dport = :smtp or sport = :smtp )'</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b0f542383103-2">
+<span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                     <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                         <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b0f542383103-3">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0013 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例8：显示所有状态为Established的HTTP连接</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b13223122431" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -o state established '( dport = :http or sport = :http )'</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1b13223122431-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1b13223122431-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-i">o</span> <span class="crayon-i">state</span> <span class="crayon-i">established</span> <span class="crayon-s">'( dport = :http or sport = :http )'</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0006 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b16109050308" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss -o state established '( dport = :http or sport = :http )'
+Recv-Q Send-Q                                     Local Address:Port                                         Peer Address:Port
+0      0                                              75.126.153.214:2164                                        192.168.10.42:http
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b16109050308-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b16109050308-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b16109050308-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b16109050308-4">4</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b16109050308-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -o state established '( dport = :http or sport = :http )'</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b16109050308-2">
+<span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                     <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                         <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b16109050308-3">
+<span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                              <span class="crayon-cn">75.126.153.214</span><span class="crayon-o">:</span><span class="crayon-cn">2164</span>                                        <span class="crayon-cn">192.168.10.42</span><span class="crayon-o">:</span><span class="crayon-i">http</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b16109050308-4">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0020 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例9：列举出处于 FIN-WAIT-1状态的源端口为 80或者 443，目标网络为 193.233.7/24所有 tcp套接字</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b19151705292" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -o state fin-wait-1 '( sport = :http or sport = :https )' dst 193.233.7/24</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-589a5b2ce1b19151705292-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-589a5b2ce1b19151705292-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-i">o</span> <span class="crayon-i">state</span> <span class="crayon-v">fin</span><span class="crayon-o">-</span><span class="crayon-r">wait</span><span class="crayon-o">-</span><span class="crayon-cn">1</span> <span class="crayon-s">'( sport = :http or sport = :https )'</span> <span class="crayon-i">dst</span> <span class="crayon-cn">193.233.7</span><span class="crayon-o">/</span><span class="crayon-cn">24</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0007 seconds] -->
+<p>输出：</p>
+<p>说明：</p>
+<p>实例10：用TCP 状态过滤Sockets:</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b1c088189735" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss -4 state FILTER-NAME-HERE
+
+ss -6 state FILTER-NAME-HERE</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b1c088189735-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b1c088189735-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b1c088189735-3">3</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b1c088189735-1">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-cn">4</span> <span class="crayon-i">state</span> <span class="crayon-v">FILTER</span><span class="crayon-o">-</span><span class="crayon-v">NAME</span><span class="crayon-o">-</span><span class="crayon-e">HERE</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b1c088189735-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b1c088189735-3">
+<span class="crayon-i">ss</span> <span class="crayon-o">-</span><span class="crayon-cn">6</span> <span class="crayon-i">state</span> <span class="crayon-v">FILTER</span><span class="crayon-o">-</span><span class="crayon-v">NAME</span><span class="crayon-o">-</span><span class="crayon-v">HERE</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0008 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b1f255995797" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]#ss -4 state closing
+Recv-Q Send-Q                                                  Local Address:Port                                                      Peer Address:Port
+1      11094                                                  75.126.153.214:http                                                      192.168.10.42:4669</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b1f255995797-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b1f255995797-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b1f255995797-3">3</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b1f255995797-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#ss -4 state closing</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b1f255995797-2">
+<span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                                  <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                                      <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b1f255995797-3">
+<span class="crayon-cn">1</span>      <span class="crayon-cn">11094</span>                                                  <span class="crayon-cn">75.126.153.214</span><span class="crayon-o">:</span><span class="crayon-i">http</span>                                                      <span class="crayon-cn">192.168.10.42</span><span class="crayon-o">:</span><span class="crayon-cn">4669</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0019 seconds] -->
+
+</div>
+<p>说明：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b23480754333" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+FILTER-NAME-HERE 可以代表以下任何一个：
+
+established
+
+syn-sent
+
+syn-recv
+
+fin-wait-1
+
+fin-wait-2
+
+time-wait
+
+closed
+
+close-wait
+
+last-ack
+
+listen
+
+closing
+
+all : 所有以上状态
+
+connected : 除了listen and closed的所有状态
+
+synchronized :所有已连接的状态除了syn-sent
+
+bucket : 显示状态为maintained as minisockets,如：time-wait和syn-recv.
+
+big : 和bucket相反.</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-10">10</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-12">12</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-14">14</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-16">16</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-18">18</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-20">20</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-22">22</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-24">24</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-26">26</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-28">28</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-30">30</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-32">32</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b23480754333-34">34</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b23480754333-35">35</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-1">
+<span class="crayon-v">FILTER</span><span class="crayon-o">-</span><span class="crayon-v">NAME</span><span class="crayon-o">-</span><span class="crayon-i">HERE</span> 可以代表以下任何一个：</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-3"><span class="crayon-e">established</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-4"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-5">
+<span class="crayon-v">syn</span><span class="crayon-o">-</span><span class="crayon-e">sent</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-6"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-7">
+<span class="crayon-v">syn</span><span class="crayon-o">-</span><span class="crayon-e">recv</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-8"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-9">
+<span class="crayon-v">fin</span><span class="crayon-o">-</span><span class="crayon-v">wait</span><span class="crayon-o">-</span><span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-10"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-11">
+<span class="crayon-v">fin</span><span class="crayon-o">-</span><span class="crayon-v">wait</span><span class="crayon-o">-</span><span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-12"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-13">
+<span class="crayon-v">time</span><span class="crayon-o">-</span><span class="crayon-e">wait</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-14"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-15"><span class="crayon-e">closed</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-16"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-17">
+<span class="crayon-v">close</span><span class="crayon-o">-</span><span class="crayon-e">wait</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-18"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-19">
+<span class="crayon-v">last</span><span class="crayon-o">-</span><span class="crayon-e">ack</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-20"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-21"><span class="crayon-e">listen</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-22"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-23"><span class="crayon-e">closing</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-24"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-25"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-26"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-27">
+<span class="crayon-i">all</span> <span class="crayon-o">:</span> 所有以上状态</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-28"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-29">
+<span class="crayon-i">connected</span> <span class="crayon-o">:</span> 除了<span class="crayon-i">listen</span> <span class="crayon-st">and</span> <span class="crayon-i">closed</span>的所有状态</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-30"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-31">
+<span class="crayon-i">synchronized</span> <span class="crayon-o">:</span>所有已连接的状态除了<span class="crayon-v">syn</span><span class="crayon-o">-</span><span class="crayon-e">sent</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-32"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-33">
+<span class="crayon-i">bucket</span> <span class="crayon-o">:</span> 显示状态为<span class="crayon-i">maintained</span> <span class="crayon-st">as</span> <span class="crayon-v">minisockets</span><span class="crayon-sy">,</span>如：<span class="crayon-v">time</span><span class="crayon-o">-</span><span class="crayon-i">wait</span>和<span class="crayon-v">syn</span><span class="crayon-o">-</span><span class="crayon-v">recv</span><span class="crayon-sy">.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b23480754333-34"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b23480754333-35">
+<span class="crayon-i">big</span> <span class="crayon-o">:</span> 和<span class="crayon-i">bucket</span>相反<span class="crayon-sy">.</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0021 seconds] -->
+<p>实例11：匹配远程地址和端口号</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b26985884330" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss dst ADDRESS_PATTERN
+
+ss dst 192.168.1.5
+
+ss dst 192.168.119.113:http
+
+ss dst 192.168.119.113:smtp
+
+ss dst 192.168.119.113:443</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b26985884330-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b26985884330-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b26985884330-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b26985884330-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b26985884330-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b26985884330-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b26985884330-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b26985884330-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b26985884330-9">9</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b26985884330-1">
+<span class="crayon-i">ss</span> <span class="crayon-i">dst</span> <span class="crayon-e">ADDRESS_PATTERN</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b26985884330-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b26985884330-3">
+<span class="crayon-i">ss</span> <span class="crayon-i">dst</span> <span class="crayon-cn">192.168.1.5</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b26985884330-4"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b26985884330-5">
+<span class="crayon-i">ss</span> <span class="crayon-i">dst</span> <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-e">http</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b26985884330-6"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b26985884330-7">
+<span class="crayon-i">ss</span> <span class="crayon-i">dst</span> <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-e">smtp</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b26985884330-8"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b26985884330-9">
+<span class="crayon-i">ss</span> <span class="crayon-i">dst</span> <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">443</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0008 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b2a442417987" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss dst 192.168.119.113
+State      Recv-Q Send-Q                                Local Address:Port                                    Peer Address:Port
+ESTAB      0      0                                   192.168.119.103:16014                                192.168.119.113:20229
+ESTAB      0      0                                   192.168.119.103:16014                                192.168.119.113:61056
+ESTAB      0      0                                   192.168.119.103:16014                                192.168.119.113:61623
+ESTAB      0      0                                   192.168.119.103:16014                                192.168.119.113:60924
+ESTAB      0      0                                   192.168.119.103:16050                                192.168.119.113:43701
+ESTAB      0      0                                   192.168.119.103:16073                                192.168.119.113:32930
+ESTAB      0      0                                   192.168.119.103:16073                                192.168.119.113:49318
+ESTAB      0      0                                   192.168.119.103:16014                                192.168.119.113:3844
+[root@localhost ~]# ss dst 192.168.119.113:http
+State      Recv-Q Send-Q                                Local Address:Port                                    Peer Address:Port
+[root@localhost ~]# ss dst 192.168.119.113:3844
+State      Recv-Q Send-Q                                Local Address:Port                                    Peer Address:Port
+ESTAB      0      0                                   192.168.119.103:16014                                192.168.119.113:3844
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-10">10</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-12">12</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-14">14</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2a442417987-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2a442417987-16">16</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss dst 192.168.119.113</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-2">
+<span class="crayon-i">State</span>      <span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                    <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-e">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-3">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16014</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">20229</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-4">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16014</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">61056</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-5">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16014</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">61623</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-6">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16014</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">60924</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-7">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16050</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">43701</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-8">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16073</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">32930</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-9">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16073</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">49318</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-10">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16014</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">3844</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-11">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss dst 192.168.119.113:http</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-12">
+<span class="crayon-i">State</span>      <span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                    <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-13">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss dst 192.168.119.113:3844</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-14">
+<span class="crayon-i">State</span>      <span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                    <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-e">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2a442417987-15">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16014</span>                                <span class="crayon-cn">192.168.119.113</span><span class="crayon-o">:</span><span class="crayon-cn">3844</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2a442417987-16">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0082 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例12：匹配本地地址和端口号</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b2e851381635" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss src ADDRESS_PATTERN
+
+ss src 192.168.119.103
+
+ss src 192.168.119.103:http
+
+ss src 192.168.119.103:80
+
+ss src 192.168.119.103:smtp
+
+ss src 192.168.119.103:25</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2e851381635-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2e851381635-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2e851381635-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2e851381635-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2e851381635-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2e851381635-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2e851381635-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2e851381635-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2e851381635-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b2e851381635-10">10</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b2e851381635-11">11</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b2e851381635-1">
+<span class="crayon-i">ss</span> <span class="crayon-i">src</span> <span class="crayon-e">ADDRESS_PATTERN</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2e851381635-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2e851381635-3">
+<span class="crayon-i">ss</span> <span class="crayon-i">src</span> <span class="crayon-cn">192.168.119.103</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2e851381635-4"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2e851381635-5">
+<span class="crayon-i">ss</span> <span class="crayon-i">src</span> <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-e">http</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2e851381635-6"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2e851381635-7">
+<span class="crayon-i">ss</span> <span class="crayon-i">src</span> <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">80</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2e851381635-8"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2e851381635-9">
+<span class="crayon-i">ss</span> <span class="crayon-i">src</span> <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-e">smtp</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b2e851381635-10"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b2e851381635-11">
+<span class="crayon-i">ss</span> <span class="crayon-i">src</span> <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">25</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0010 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b32173032281" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss src 192.168.119.103:16021
+State      Recv-Q Send-Q                                Local Address:Port                                    Peer Address:Port
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.201:63054
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.201:62894
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.201:63055
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.201:2274
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.201:44784
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.201:7233
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.103:58660
+ESTAB      0      0                                   192.168.119.103:16021                                192.168.119.201:44822
+ESTAB      0      0                                   192.168.119.103:16021                                     10.2.1.206:56737
+ESTAB      0      0                                   192.168.119.103:16021                                     10.2.1.206:57487
+ESTAB      0      0                                   192.168.119.103:16021                                     10.2.1.206:56736
+ESTAB      0      0                                   192.168.119.103:16021                                     10.2.1.206:64652
+ESTAB      0      0                                   192.168.119.103:16021                                     10.2.1.206:56586
+ESTAB      0      0                                   192.168.119.103:16021                                     10.2.1.206:64653
+ESTAB      0      0                                   192.168.119.103:16021                                     10.2.1.206:56587
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-10">10</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-12">12</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-14">14</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-16">16</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b32173032281-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b32173032281-18">18</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss src 192.168.119.103:16021</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-2">
+<span class="crayon-i">State</span>      <span class="crayon-v">Recv</span><span class="crayon-o">-</span><span class="crayon-i">Q</span> <span class="crayon-v">Send</span><span class="crayon-o">-</span><span class="crayon-i">Q</span>                                <span class="crayon-i">Local</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-i">Port</span>                                    <span class="crayon-i">Peer</span> <span class="crayon-v">Address</span><span class="crayon-o">:</span><span class="crayon-e">Port</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-3">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.201</span><span class="crayon-o">:</span><span class="crayon-cn">63054</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-4">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.201</span><span class="crayon-o">:</span><span class="crayon-cn">62894</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-5">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.201</span><span class="crayon-o">:</span><span class="crayon-cn">63055</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-6">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.201</span><span class="crayon-o">:</span><span class="crayon-cn">2274</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-7">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.201</span><span class="crayon-o">:</span><span class="crayon-cn">44784</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-8">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.201</span><span class="crayon-o">:</span><span class="crayon-cn">7233</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-9">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">58660</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-10">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                <span class="crayon-cn">192.168.119.201</span><span class="crayon-o">:</span><span class="crayon-cn">44822</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-11">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                     <span class="crayon-cn">10.2.1.206</span><span class="crayon-o">:</span><span class="crayon-cn">56737</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-12">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                     <span class="crayon-cn">10.2.1.206</span><span class="crayon-o">:</span><span class="crayon-cn">57487</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-13">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                     <span class="crayon-cn">10.2.1.206</span><span class="crayon-o">:</span><span class="crayon-cn">56736</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-14">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                     <span class="crayon-cn">10.2.1.206</span><span class="crayon-o">:</span><span class="crayon-cn">64652</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-15">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                     <span class="crayon-cn">10.2.1.206</span><span class="crayon-o">:</span><span class="crayon-cn">56586</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-16">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                     <span class="crayon-cn">10.2.1.206</span><span class="crayon-o">:</span><span class="crayon-cn">64653</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b32173032281-17">
+<span class="crayon-i">ESTAB</span>      <span class="crayon-cn">0</span>      <span class="crayon-cn">0</span>                                   <span class="crayon-cn">192.168.119.103</span><span class="crayon-o">:</span><span class="crayon-cn">16021</span>                                     <span class="crayon-cn">10.2.1.206</span><span class="crayon-o">:</span><span class="crayon-cn">56587</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b32173032281-18">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0097 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>实例13：将本地或者远程端口和一个数比较</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b37634368927" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss dport OP PORT
+
+ss sport OP PORT</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b37634368927-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b37634368927-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b37634368927-3">3</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b37634368927-1">
+<span class="crayon-i">ss</span> <span class="crayon-i">dport</span> <span class="crayon-i">OP</span> <span class="crayon-e">PORT</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b37634368927-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b37634368927-3">
+<span class="crayon-i">ss</span> <span class="crayon-i">sport</span> <span class="crayon-i">OP</span> <span class="crayon-v">PORT</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0005 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b3a709720063" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-mixed-highlight" title="含多种语言"></span><div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# ss  sport = :http
+[root@localhost ~]# ss  dport = :http
+[root@localhost ~]# ss  dport \&gt; :1024
+[root@localhost ~]# ss  sport \&gt; :1024
+[root@localhost ~]# ss sport \&lt; :32000
+[root@localhost ~]# ss  sport eq :22
+[root@localhost ~]# ss  dport != :22
+[root@localhost ~]# ss  state connected sport = :http
+[root@localhost ~]# ss <span class="MathJax_Preview"><img src="/images/jobbole.com/8bd8466d8e848130dd6c571773028f09.jpg" style="vertical-align: middle; border: none; padding-bottom:2px;" class="tex" alt=" sport = :http or sport = :https "></span>
+[root@localhost ~]# ss -o state fin-wait-1 <span class="MathJax_Preview"><img src="/images/jobbole.com/8bd8466d8e848130dd6c571773028f09.jpg" style="vertical-align: middle; border: none; padding-bottom:2px;" class="tex" alt=" sport = :http or sport = :https "></span> dst 192.168.1/24</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3a709720063-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3a709720063-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3a709720063-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3a709720063-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3a709720063-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3a709720063-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3a709720063-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3a709720063-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3a709720063-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3a709720063-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b3a709720063-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss  sport = :http</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3a709720063-2">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss  dport = :http</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3a709720063-3">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss  dport \&gt; :1024</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3a709720063-4">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss  sport \&gt; :1024</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3a709720063-5">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss sport \&lt; :32000</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3a709720063-6">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss  sport eq :22</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3a709720063-7">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss  dport != :22</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3a709720063-8">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss  state connected sport = :http</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3a709720063-9">
+<span class="crayon-sy">[</span><span class="crayon-e">root</span><span class="crayon-sy">@</span><span class="crayon-e">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss <span class="crayon-sy">\</span><span class="crayon-sy">(</span> <span class="crayon-i">sport</span> <span class="crayon-o">=</span> <span class="crayon-o">:</span><span class="crayon-i">http</span> <span class="crayon-st">or</span> <span class="crayon-i">sport</span> <span class="crayon-o">=</span> <span class="crayon-o">:</span><span class="crayon-i">https</span> <span class="crayon-sy">\</span><span class="crayon-sy">)</span></span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3a709720063-10">
+<span class="crayon-sy">[</span><span class="crayon-e">root</span><span class="crayon-sy">@</span><span class="crayon-e">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># ss -o state fin-wait-1 <span class="crayon-sy">\</span><span class="crayon-sy">(</span> <span class="crayon-i">sport</span> <span class="crayon-o">=</span> <span class="crayon-o">:</span><span class="crayon-i">http</span> <span class="crayon-st">or</span> <span class="crayon-i">sport</span> <span class="crayon-o">=</span> <span class="crayon-o">:</span><span class="crayon-i">https</span> <span class="crayon-sy">\</span><span class="crayon-sy">)</span> dst 192.168.1/24</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0041 seconds] -->
+
+</div>
+<p>说明：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b3e354173165" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+ss dport OP PORT 远程端口和一个数比较；ss sport OP PORT 本地端口和一个数比较。
+
+OP 可以代表以下任意一个:
+
+&lt;= or le : 小于或等于端口号
+
+&gt;= or ge : 大于或等于端口号
+
+== or eq : 等于端口号
+
+!= or ne : 不等于端口号
+
+&lt; or gt : 小于端口号
+
+&gt; or lt : 大于端口号</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3e354173165-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3e354173165-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3e354173165-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3e354173165-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3e354173165-10">10</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3e354173165-12">12</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b3e354173165-14">14</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b3e354173165-15">15</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-1">
+<span class="crayon-i">ss</span> <span class="crayon-i">dport</span> <span class="crayon-i">OP</span> <span class="crayon-i">PORT</span> 远程端口和一个数比较；<span class="crayon-i">ss</span> <span class="crayon-i">sport</span> <span class="crayon-i">OP</span> <span class="crayon-i">PORT</span> 本地端口和一个数比较。</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3e354173165-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-3">
+<span class="crayon-i">OP</span> 可以代表以下任意一个<span class="crayon-o">:</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3e354173165-4"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-5">
+<span class="crayon-o">&lt;=</span> <span class="crayon-st">or</span> <span class="crayon-i">le</span> <span class="crayon-o">:</span> 小于或等于端口号</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3e354173165-6"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-7">
+<span class="crayon-o">&gt;=</span> <span class="crayon-st">or</span> <span class="crayon-i">ge</span> <span class="crayon-o">:</span> 大于或等于端口号</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3e354173165-8"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-9">
+<span class="crayon-o">==</span> <span class="crayon-st">or</span> <span class="crayon-i">eq</span> <span class="crayon-o">:</span> 等于端口号</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3e354173165-10"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-11">
+<span class="crayon-o">!=</span> <span class="crayon-st">or</span> <span class="crayon-i">ne</span> <span class="crayon-o">:</span> 不等于端口号</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3e354173165-12"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-13">
+<span class="crayon-o">&lt;</span> <span class="crayon-st">or</span> <span class="crayon-i">gt</span> <span class="crayon-o">:</span> 小于端口号</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b3e354173165-14"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b3e354173165-15">
+<span class="crayon-o">&gt;</span> <span class="crayon-st">or</span> <span class="crayon-i">lt</span> <span class="crayon-o">:</span> 大于端口号</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0017 seconds] -->
+<p>实例14：ss 和 netstat 效率对比</p>
+<p>命令：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b42875097727" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+time netstat -at
+
+time ss</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b42875097727-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b42875097727-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b42875097727-3">3</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b42875097727-1">
+<span class="crayon-r">time</span> <span class="crayon-i">netstat</span> <span class="crayon-o">-</span><span class="crayon-r">at</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b42875097727-2"> </div>
+<div class="crayon-line" id="crayon-589a5b2ce1b42875097727-3">
+<span class="crayon-r">time</span> <span class="crayon-v">ss</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0005 seconds] -->
+<p>输出：</p>
+<div class="cnblogs_code">
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-589a5b2ce1b45942190201" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+<span class="crayon-language">Shell</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+[root@localhost ~]# time ss
+real    0m0.739s
+user    0m0.019s
+sys     0m0.013s
+[root@localhost ~]#
+[root@localhost ~]# time netstat -at
+real    2m45.907s
+user    0m0.063s
+sys     0m0.067s
+[root@localhost ~]#</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-589a5b2ce1b45942190201-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b45942190201-2">2</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b45942190201-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b45942190201-4">4</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b45942190201-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b45942190201-6">6</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b45942190201-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b45942190201-8">8</div>
+<div class="crayon-num" data-line="crayon-589a5b2ce1b45942190201-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-589a5b2ce1b45942190201-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-589a5b2ce1b45942190201-1">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># time ss</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b45942190201-2">
+<span class="crayon-i">real</span>    <span class="crayon-cn">0m0.739s</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b45942190201-3">
+<span class="crayon-i">user</span>    <span class="crayon-cn">0m0.019s</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b45942190201-4">
+<span class="crayon-i">sys</span>     <span class="crayon-cn">0m0.013s</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b45942190201-5">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b45942190201-6">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c"># time netstat -at</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b45942190201-7">
+<span class="crayon-i">real</span>    <span class="crayon-cn">2m45.907s</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b45942190201-8">
+<span class="crayon-i">user</span>    <span class="crayon-cn">0m0.063s</span>
+</div>
+<div class="crayon-line" id="crayon-589a5b2ce1b45942190201-9">
+<span class="crayon-i">sys</span>     <span class="crayon-cn">0m0.067s</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-589a5b2ce1b45942190201-10">
+<span class="crayon-sy">[</span><span class="crayon-v">root</span><span class="crayon-sy">@</span><span class="crayon-i">localhost</span> <span class="crayon-o">~</span><span class="crayon-sy">]</span><span class="crayon-c">#</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0014 seconds] -->
+
+</div>
+<p>说明：</p>
+<p>用time 命令分别获取通过netstat和ss命令获取程序和概要占用资源所使用的时间。在服务器连接数比较多的时候，netstat的效率完全没法和ss比。</p>
+<h3>本系列文章：</h3>
+<p><a href="http://blog.jobbole.com/108531/" target="_blank">每天一个 Linux 命令（1）：ls命令</a><br>
+<a href="http://blog.jobbole.com/108805/" target="_blank">每天一个 Linux 命令（2）：cd命令</a><br>
+<a href="http://blog.jobbole.com/108855/" target="_blank">每天一个 Linux 命令（3）：pwd命令</a><br>
+<a href="http://blog.jobbole.com/108871/" target="_blank">每天一个 Linux 命令（4）：mkdir命令</a><br>
+<a href="http://blog.jobbole.com/108901/" target="_blank">每天一个 Linux 命令（5）：rm 命令</a><br>
+<a href="http://blog.jobbole.com/108925/" target="_blank">每天一个 Linux 命令（6）：rmdir 命令</a><br>
+<a href="http://blog.jobbole.com/108983/" target="_blank">每天一个 Linux 命令（7）：mv命令</a><br>
+<a href="http://blog.jobbole.com/108988/" target="_blank">每天一个 Linux 命令（8）：cp 命令</a><br>
+<a href="http://blog.jobbole.com/108989/" target="_blank">每天一个 Linux 命令（9）：touch 命令</a><br>
+<a href="http://blog.jobbole.com/108990/" target="_blank">每天一个 Linux 命令（10）：cat 命令</a><br>
+<a href="http://blog.jobbole.com/108991/" target="_blank">每天一个 Linux 命令（11）：nl 命令</a><br>
+<a href="http://blog.jobbole.com/108992/" target="_blank">每天一个 Linux 命令（12）：more 命令</a><br>
+<a href="http://blog.jobbole.com/108993/" target="_blank">每天一个 Linux 命令（13）：less 命令</a><br>
+<a href="http://blog.jobbole.com/108994/" target="_blank">每天一个 Linux 命令（14）：head 命令</a><br>
+<a href="http://blog.jobbole.com/108995/" target="_blank">每天一个 Linux 命令（15）：tail 命令</a><br>
+<a href="http://blog.jobbole.com/109262/" target="_blank">每天一个 Linux 命令（16）：which命令</a><br>
+<a href="http://blog.jobbole.com/108993/" target="_blank">每天一个 Linux 命令（17）：whereis 命令</a><br>
+<a href="http://blog.jobbole.com/108994/" target="_blank">每天一个 Linux 命令（18）：locate 命令</a><br>
+<a href="http://blog.jobbole.com/109265/" target="_blank">每天一个 Linux 命令（19）：find 命令概览</a><br>
+<a href="http://blog.jobbole.com/108996/" target="_blank">每天一个 Linux 命令（20）：find命令之exec</a><br>
+<a href="http://blog.jobbole.com/108997/" target="_blank">每天一个 Linux 命令（21）：find命令之xargs</a><br>
+<a href="http://blog.jobbole.com/109268/" target="_blank">每天一个 Linux 命令（22）：find 命令的参数详解</a><br>
+<a href="http://blog.jobbole.com/109506/" target="_blank">每天一个 Linux 命令（23）：Linux 目录结构</a><br>
+<a href="http://blog.jobbole.com/109254/" target="_blank">每天一个 Linux 命令（24）：Linux 文件类型与扩展名</a><br>
+<a href="http://blog.jobbole.com/105269" target="_blank">每天一个 Linux 命令（25）：Linux 文件属性详解</a><br>
+<a href="http://blog.jobbole.com/109539" target="_blank">每天一个 Linux 命令（26）：用 SecureCRT 来上传和下载文件</a><br>
+<a href="http://blog.jobbole.com/109614" target="_blank">每天一个 Linux 命令（27）：linux chmod 命令</a><br>
+<a href="http://blog.jobbole.com/109674/" target="_blank">每天一个 Linux 命令（28）：tar 命令</a><br>
+<a href="http://blog.jobbole.com/109696/" target="_blank">每天一个 Linux 命令（29）: chgrp 命令</a><br>
+<a href="http://blog.jobbole.com/109750/" target="_blank">每天一个 Linux 命令（30）: chown 命令</a><br>
+<a href="http://blog.jobbole.com/109781/" target="_blank">每天一个 Linux 命令（31）: /etc/group 文件详解</a><br>
+<a href="http://blog.jobbole.com/109797/" target="_blank">每天一个 Linux 命令（32）：gzip 命令</a><br>
+<a href="http://blog.jobbole.com/109827/" target="_blank">每天一个 Linux 命令（33）：df 命令</a><br>
+<a href="http://blog.jobbole.com/109846/" target="_blank">每天一个 Linux 命令（34）： du 命令</a><br>
+<a href="http://blog.jobbole.com/109869/" target="_blank">每天一个 Linux 命令（35）： ln 命令</a><br>
+<a href="http://blog.jobbole.com/109875/" target="_blank">每天一个 Linux 命令（36）： diff 命令</a><br>
+<a href="http://blog.jobbole.com/109881/" target="_blank">每天一个 Linux 命令（37）： date 命令</a><br>
+<a href="http://blog.jobbole.com/109886/" target="_blank">每天一个 Linux 命令（38）： cal 命令</a><br>
+<a href="http://blog.jobbole.com/109907/" target="_blank">每天一个 Linux 命令（39）： grep 命令</a><br>
+<a href="http://blog.jobbole.com/109925/" target="_blank">每天一个 Linux 命令（40）： wc 命令</a><br>
+<a href="http://blog.jobbole.com/109948/" target="_blank">每天一个 Linux 命令（41）： ps 命令</a><br>
+<a href="http://blog.jobbole.com/109951/" target="_blank">每天一个 Linux 命令（44）： top 命令</a><br>
+<a href="http://blog.jobbole.com/109965/" target="_blank">每天一个 Linux 命令（45）： free 命令</a><br>
+<a href="http://blog.jobbole.com/109970/" target="_blank">每天一个 Linux 命令（46）： vmstat 命令</a><br>
+<a href="http://blog.jobbole.com/109980/" target="_blank">每天一个 Linux 命令（47）： iostat 命令</a><br>
+<a href="http://blog.jobbole.com/109994/" target="_blank">每天一个 Linux 命令（48）： watch 命令</a><br>
+<a href="http://blog.jobbole.com/110001/" target="_blank">每天一个 Linux 命令（49）： at 命令</a><br>
+<a href="http://blog.jobbole.com/110005/" target="_blank">每天一个 Linux 命令（50）： crontab 命令</a><br>
+<a href="http://blog.jobbole.com/110011/" target="_blank">每天一个 Linux 命令（51）： lsof 命令</a><br>
+<a href="http://blog.jobbole.com/110016/" target="_blank">每天一个 Linux 命令（52）： ifconfig 命令</a><br>
+<a href="http://blog.jobbole.com/110019/" target="_blank">每天一个 Linux 命令（53）： route 命令</a><br>
+<a href="http://blog.jobbole.com/110025/" target="_blank">每天一个 Linux 命令（54）： ping 命令</a><br>
+<a href="http://blog.jobbole.com/110032/" target="_blank">每天一个 Linux 命令（55）： traceroute 命令</a><br>
+<a href="http://blog.jobbole.com/110037/" target="_blank">每天一个 Linux 命令（56）： netstat 命令</a></p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2017/2017-02-03-110041-8624ff8c0.html" title="Previous Post: 全栈必备：网络编程基础" data-instant>&laquo; 全栈必备：网络编程基础</a>
+
+    <a class="basic-alignment right" href="/posts/2017/2017-02-05-110058-c061b0276.html" title="Next Post: 每天一个 Linux 命令（58）： telnet 命令" data-instant>每天一个 Linux 命令（58）： telnet 命令 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>07 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-07-110052-111b13f41.html">研发团队 GIT 开发流程新人学习指南</a></li>
+
+      <li><span>06 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-06-110076-fcd8bd876.html">垃圾回收原来是这么回事</a></li>
+
+      <li><span>06 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-06-110072-cea0048e7.html">每天一个 Linux 命令（59）： rcp 命令</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
