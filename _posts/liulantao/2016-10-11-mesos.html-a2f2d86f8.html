@@ -1,0 +1,217 @@
+---
+layout: post
+title: 'Mesos 实战-1：Mesos 起步'
+time: 2016-10-11 00:00:00 +0800
+site_name: liulantao.com
+source_url: http://blog.liulantao.com/mesos.html
+images:
+  91f206a853ee959cdb90b4487c5764eb: /images/2016/mesos-architecture.jpg
+  f0bb31d16fb1f5dbd39bb06611af3cfa: /images/2016/mesos-master-ui.jpg
+  91a5daea1cabaa141eaa13f34dccc633: /images/2016/mesos-framework-detail-on-mesos-master-ui.png
+---
+{% raw %}
+
+          <p>Mesos 是一套成熟的分布式资源管理系统，应用场景非常广泛。</p>
+
+<p>今天我们来学习 Mesos 的基本架构原理，并亲自动手部署一套 Mesos 集群环境。</p>
+
+<!--excerpt-->
+
+<h3 id="mesos-">Mesos 架构之基本概念</h3>
+
+<p>首先我们来看看，一个典型的 Mesos 集群包含的组件，以及各组件之间的关系。</p>
+
+<p>以下是 Mesos 架构示意图：</p>
+
+<p><img src="/images/liulantao.com/91f206a853ee959cdb90b4487c5764eb.jpg" alt="Mesos Architecture"></p>
+
+<p>从图中可以看出 master 和 agent 进程，可以看到有执行任务所需的 framework，以及存储集群元数据的 zookeeper。</p>
+
+<h4 id="master--agent">Master 和 Agent</h4>
+
+<p>Mesos 的进程包含 master 和 agent 两种角色。</p>
+
+<p>master 管理整个集群的资源，依据策略为各个框架分配资源，调度所有节点少的 agent 进程。</p>
+
+<p>agent 汇报并注册节点的资源状况，并管理本地执行的计算任务，启动／停止计算进程。</p>
+
+<h4 id="mesos-framework">Mesos Framework</h4>
+
+<p>计算任务通过 Mesos 框架的形式提交到 mesos 集群。</p>
+
+<p>Mesos 框架包括两部分：在 master 节点上注册的任务调度器 scheduler，和在 agent 上运行的任务进程 worker。</p>
+
+<p>在分配资源方案，mesos-master 进程和 scheduler 有不同的分工。
+分配资源时，master 决定给框架<code class="highlighter-rouge">分配多少</code>资源，scheduler 则从拿到的资源中具体来选择<code class="highlighter-rouge">使用哪个</code>资源来创建任务。</p>
+
+<p>分配资源后，框架将任务的描述信息发给 mesos，由 mesos 调度在对应的 agent 上启动计算任务。</p>
+
+<h4 id="zookeeper--ha">Zookeeper 和 HA</h4>
+
+<p>Zookeeper 在生产系统中用于存储元数据。</p>
+
+<p>生产环境中，通过多节点的 Zookeeper 方案可以保证元数据达到较高可用性。
+一般部署奇数个（3／5／7） Zookeeper 节点。
+数量为奇数是为了防止选举 leader 时出现脑裂。
+对于不同级别的可用性要求，一般部署 3 或者 5 个即可满足需求。</p>
+
+<p>关于 zookeeper 集群，可以参考 <a href="http://zookeeper.apache.org/doc/trunk/zookeeperAdmin.html#sc_zkMulitServerSetup">zookeeper 官方文档</a>。</p>
+
+<h3 id="mesos--1">Mesos 之动手实践</h3>
+
+<h4 id="section">方案</h4>
+
+<p>先确定下我们目标，部署一个基本的 Mesos 集群环境，包含的组件：</p>
+
+<ul>
+  <li>1个 Zookeeper 进程</li>
+  <li>1个 mesos-master 进程</li>
+  <li>1个 mesos-agent 进程</li>
+</ul>
+
+<h4 id="section-1">系统环境</h4>
+
+<p>我们使用 mesosphere 提供的安装包，在 CentOS 7 系统上安装 mesos 及相关工具。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>yum install -y http://repos.mesosphere.com/el-testing/7/noarch/RPMS/mesosphere-el-repo-7-3.noarch.rpm &amp;&amp; \
+yum update -y &amp;&amp; \
+yum install -y mesos mesosphere-zookeeper
+</code></pre>
+</div>
+
+<p>如果有 docker 环境，还可以直接用这个事先做好的 docker 镜像来试用：</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>docker pull liulantao/mesos
+docker run -i -t —rm —entrypoint /bin/bash liulantao/mesos
+</code></pre>
+</div>
+
+<h4 id="zookeeper">启动 Zookeeper</h4>
+
+<p>启动 zookeeper。
+命令如下：</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>service start zookeeper
+</code></pre>
+</div>
+
+<p>默认的 zookeeper 访问地址为 <code class="highlighter-rouge">zk://127.0.0.1:2181</code>。</p>
+
+<p>生产环境中，zookeeper 一般需要多节点组成高可用集群，可以参考官方文档对配置文件进行修改。</p>
+
+<h4 id="mesos-master">启动 mesos-master</h4>
+
+<p>启动 mesos master，指定使用 zookeeper 的访问地址，并指定本地工作目录。
+命令如下：</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>mesos-master --quorum=1 --zk=zk://127.0.0.1:2181/mesos --ip=127.0.0.1 --work_dir=/var/lib/mesos/master
+</code></pre>
+</div>
+
+<p>可以使用额外参数，如 <code class="highlighter-rouge">--hostname</code> 指定主机名或 ip，<code class="highlighter-rouge">--cluster</code> 指定集群名。</p>
+
+<p>更多启动选项请参考：<a href="http://mesos.apache.org/documentation/latest/configuration/">Mesos Configuration</a>。</p>
+
+<h5 id="mesos-master-ui">Mesos master UI</h5>
+
+<p>mesos master 启动时进程会监听在指定的端口，默认是 5050。
+所以，刚启动的 master 地址就是 <code class="highlighter-rouge">http://127.0.0.1:5050</code>。</p>
+
+<p>在浏览器打开 http://127.0.0.1:5050，可以看到 mesos 管理界面。</p>
+
+<p><img src="/images/liulantao.com/f0bb31d16fb1f5dbd39bb06611af3cfa.jpg" alt="Mesos Master UI"></p>
+
+<p>在这个界面里，我们能看到整个集群的资源分配情况和框架的状态。
+现在所有资源还是空，也没有任何进程。</p>
+
+<h4 id="mesos-agent">启动 mesos-agent</h4>
+
+<p>启动 mesos agent，指定 master 地址，指定工作目录。
+命令如下：</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>mesos-agent --master=127.0.0.1:5050 --work_dir=/var/lib/mesos/slave
+</code></pre>
+</div>
+
+<p>可以使用额外参数，如 <code class="highlighter-rouge">--containerizers</code> 指定支持的容器技术。</p>
+
+<p>更多启动选项请参考：<a href="http://mesos.apache.org/documentation/latest/configuration/">Mesos Configuration</a>。</p>
+
+<p>再打开 master UI，可以看到 Agents 数量变为 1。点击顶部的 <code class="highlighter-rouge">Agents</code> 标签，可以看到新加入的 agent 信息。</p>
+
+<h3 id="section-2">测试</h3>
+
+<h4 id="section-3">安装测试框架</h4>
+
+<p>官方提供的测试框架例子在源码的 <code class="highlighter-rouge">src/examples/java</code> 目录下。
+源码包可以通过<a href="https://github.com/apache/mesos/archive/master.tar.gz">下载 tar 包</a>或者 <a href="https://github.com/apache/mesos">Github</a> 获得。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code># 安装依赖包
+$ sudo wget http://repos.fedorapeople.org/repos/dchen/apache-maven/epel-apache-maven.repo -O /etc/yum.repos.d/epel-apache-maven.repo
+$ sudo yum install -y epel-release
+$ sudo yum groupinstall -y "Development Tools"
+$ sudo yum install -y apache-maven python-devel java-1.8.0-openjdk-devel zlib-devel libcurl-devel openssl-devel cyrus-sasl-devel cyrus-sasl-md5 apr-devel subversion-devel apr-util-devel maven
+
+# 切换到源码目录
+$ cd mesos
+
+# 项目准备工作
+$ ./bootstrap
+
+# 开发进行编译
+$ mkdir build &amp;&amp; cd build
+$ ../configure
+$ make
+</code></pre>
+</div>
+
+<h4 id="section-4">执行测试框架</h4>
+
+<p>在 build 目录下，执行测试框架，命令如下：</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>./src/examples/java/test-framework 127.0.0.1:5050
+</code></pre>
+</div>
+
+<p>执行完毕后，进程会自动退出。</p>
+
+<h4 id="section-5">查看测试结果</h4>
+
+<p>从 Master UI 上，打开 <code class="highlighter-rouge">Frameworks</code> 标签页，有 <code class="highlighter-rouge">Completed Frameworks</code> 一栏有执行成功的记录。</p>
+
+<p>点击 framework id 进入详情页，能看到框架下各个 task 执行成功的情况。</p>
+
+<p><img src="/images/liulantao.com/91a5daea1cabaa141eaa13f34dccc633.jpg" alt="Mesos Framework Detail"></p>
+
+<h3 id="section-6">总结</h3>
+
+<p>通过以上过程，我们学会了：</p>
+
+<ul>
+  <li>Mesos 架构的基本概念
+    <ul>
+      <li>master 和 agent</li>
+      <li>framework</li>
+      <li>zookeeper 和 HA</li>
+    </ul>
+  </li>
+  <li>实践
+    <ul>
+      <li>安装 mesos</li>
+      <li>启动 mesos-master</li>
+      <li>使用 mesos-ui</li>
+      <li>启动 mesos-agent</li>
+      <li>运行测试 framework</li>
+    </ul>
+  </li>
+</ul>
+
+        
+{% endraw %}

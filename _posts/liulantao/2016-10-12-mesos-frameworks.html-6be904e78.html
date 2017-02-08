@@ -1,0 +1,207 @@
+---
+layout: post
+title: 'Mesos 实战-2：Mesos 框架初探'
+time: 2016-10-12 00:00:00 +0800
+site_name: liulantao.com
+source_url: http://blog.liulantao.com/mesos-frameworks.html
+images:
+  4543a548d9ebc70108f73f858133e737: /images/2016/mesos-framework-init-process.jpg
+  5c3fbcc923b1690c560b4409675ce532: /images/2016/mesos-framework-scheduler-workflow.jpg
+---
+{% raw %}
+
+          <p>Mesos 提供了集群化的资源管理功能。
+为了将实际业务与 Mesos 结合起来，就需要用到 Mesos Framework（Mesos 框架），即基于 Mesos 的应用。</p>
+
+<p>基于官方的 Mesos 框架示例代码，我们来分析看框架的基本结构，并了解社区已有框架的现状。</p>
+
+<!--excerpt-->
+
+<p>随 <a href="https://github.com/apache/mesos/releases">Mesos 源码</a>发布的 Demo 有 <a href="https://github.com/apache/mesos/tree/1.0.x/src/examples">C++</a>/<a href="https://github.com/apache/mesos/tree/1.0.x/src/examples/java">Java</a>/<a href="https://github.com/apache/mesos/tree/1.0.x/src/examples/python">Python</a> 三种实现。
+我们选取其中的 Python 和 Java 代码来学习框架的基本代码结构。</p>
+
+<p>今天的学习内容有：</p>
+
+<ul>
+  <li>Mesos Framework 基础知识</li>
+  <li>Mesos Demo 源码分析（Java和Python）</li>
+  <li>Mesos Frameworks 现状概览</li>
+</ul>
+
+<h3 id="mesos-framework-">Mesos Framework 基础知识</h3>
+
+<p><a href="http://mesos.apache.org/documentation/latest/app-framework-development-guide/">Framework Development Guide</a> 是了解基础知识最直接的文档。</p>
+
+<h4 id="section">基本要求</h4>
+
+<p>Mesos 框架主要实现 scheduler 的接口，其中定义 executor 的细节。</p>
+
+<p>每一个 Mesos Framework 的实现都需要满足以下要求：</p>
+
+<ul>
+  <li>实现一个调度器类，需要继承 Scheduler 类</li>
+  <li>创建一个 SchedulerDriver 实例，用于框架和 Mesos 之间通讯，并执行 <code class="highlighter-rouge">SchedulerDriver.run()</code>
+</li>
+</ul>
+
+<h4 id="framework-">Framework 初始化流程</h4>
+
+<p>框架初始化时需要做一系列准备工作。
+Framework 初始化的流程可以用下图表示：</p>
+
+<p><img src="/images/liulantao.com/4543a548d9ebc70108f73f858133e737.jpg" alt="Mesos Framework Init"></p>
+
+<p>开发框架时，只需按照以上顺序实例化相应的类，并在最后一步调用 <code class="highlighter-rouge">SchedulerDriver.run</code>。</p>
+
+<h5 id="scheduler-api">Scheduler API</h5>
+
+<p>调度器的实现部分，是框架的主要开发工作。</p>
+
+<p>框架的调度器需要实现 Scheduler 预先定义的的回调接口。
+接口定义在 <a href="https://github.com/apache/mesos/blob/1.0.x/include/mesos/scheduler.hpp">include/mesos/scheduler.hpp</a> 这个文件中。</p>
+
+<p>以下为每个接口被调用时期的简要说明：</p>
+
+<ul>
+  <li>registered: 调度器在 mesos master 上注册成功时</li>
+  <li>reregistered: 发生 mesos master 重新选举后，将调度器注册到新的 mesos master</li>
+  <li>disconnected: 调度器从 mesos master 断开时，如 master 进程挂掉而新的 master 尚未选出时</li>
+  <li>resourceOffers: master 分配资源给框架时。注意：
+    <ul>
+      <li>每次分配只包含一个 slave 节点的资源</li>
+      <li>在框架使用资源之前，不会再被提供同一资源。除非框架拒绝使用这些资源，或者资源被取消</li>
+      <li>资源可能被同时分配给多个框架，因此只有第一个使用资源的框架能成功，其它的任务将以 TASK_LOST 状态失败</li>
+    </ul>
+  </li>
+  <li>offerRescinded: 资源不可用／被取消时</li>
+  <li>statusUpdate: 计算任务的状态发生变化</li>
+  <li>frameworkMessage: executor 发送了消息</li>
+  <li>slaveLost: slave 变为不可用</li>
+  <li>executorLost: executor 退出或被终止</li>
+  <li>error: scheduler 或者 scheduler driver 发生不可恢复错误后</li>
+</ul>
+
+<h5 id="schedulerdriver-api">SchedulerDriver API</h5>
+
+<p>SchedulerDriver 的接口一般不需要自行实现。
+可以直接使用 MesosSchedulerDriver。</p>
+
+<h3 id="mesos-demo-">Mesos Demo 源码</h3>
+
+<h4 id="javascheduler-">Java：Scheduler 类里重要的接口实现</h4>
+
+<p>以下选几个重要的接口来研究。</p>
+
+<h5 id="resourceoffers">resourceOffers</h5>
+
+<p>这个回调函数实现的功能分为三个阶段，分别是：</p>
+
+<ul>
+  <li>第一阶段，先计算这一批获得的资源量。
+    如果资源足够启动至少一个 task，则执行下一步。</li>
+  <li>第二阶段，启动新的 task，从资源池分配资源给新建的 task。重复创建 task 直至资源不足。</li>
+  <li>第三阶段，将所创建的进程信息，和使用的资源，通过 driver 标记为已用 <code class="highlighter-rouge">driver.acceptOffers(offerIds, operations, filters);</code>。</li>
+</ul>
+
+<p>这个过程的示意图如下：</p>
+
+<p><img src="/images/liulantao.com/5c3fbcc923b1690c560b4409675ce532.jpg" alt="Mesos Framework Scheduler Workflow"></p>
+
+<p>定位到<a href="https://github.com/apache/mesos/blob/1.0.x/src/examples/java/TestFramework.java#L61">对应代码</a></p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>    public void resourceOffers(SchedulerDriver driver,
+                               List&lt;Offer&gt; offers)
+</code></pre>
+</div>
+
+<p>注意这里面的创建 task 时的关键代码，展示了如何创建 task。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>          TaskID taskId = TaskID.newBuilder()
+            .setValue(Integer.toString(launchedTasks++)).build();
+
+          TaskInfo task = TaskInfo.newBuilder()
+            .setName("task " + taskId.getValue())
+            .setTaskId(taskId)
+            .setSlaveId(offer.getSlaveId())
+            .addResources(Resource.newBuilder()
+                          .setName("cpus")
+                          .setType(Value.Type.SCALAR)
+                          .setScalar(Value.Scalar.newBuilder().setValue(CPUS_PER_TASK)))
+            .addResources(Resource.newBuilder()
+                          .setName("mem")
+                          .setType(Value.Type.SCALAR)
+                          .setScalar(Value.Scalar.newBuilder().setValue(MEM_PER_TASK)))
+            .setExecutor(ExecutorInfo.newBuilder(executor))
+            .build();
+
+          launch.addTaskInfos(TaskInfo.newBuilder(task));
+</code></pre>
+</div>
+
+<h5 id="statusupdate">statusUpdate</h5>
+
+<p>定位到<a href="https://github.com/apache/mesos/blob/1.0.x/src/examples/java/TestFramework.java#L138">对应代码</a></p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>    public void statusUpdate(SchedulerDriver driver, TaskStatus status)
+</code></pre>
+</div>
+
+<p>当状态为 <code class="highlighter-rouge">TASK_FINISHED</code> 时，统计完成的 task 数量，决定是否结束框架的运行。
+当状态为 <code class="highlighter-rouge">TASK_LOST</code>/<code class="highlighter-rouge">TASK_KILLED</code>/<code class="highlighter-rouge">TASK_FAILED</code> 时，则做了不同的处理，使用<code class="highlighter-rouge">driver.abort</code>直接终止了框架的运行。</p>
+
+<h4 id="javaframework-">Java：Framework 初始化的过程</h4>
+
+<p>前面提到了框架初始化的过程。
+下面主要看一下 driver 初始化的代码。</p>
+
+<h5 id="driver-">driver 初始化</h5>
+
+<p>关注测试类的主函数中，MesosSchedulerDriver 的用法。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>      driver = new MesosSchedulerDriver(
+          scheduler,
+          frameworkBuilder.build(),
+          args[0],
+          implicitAcknowledgements,
+          credentialBuilder.build());
+    }
+</code></pre>
+</div>
+
+<p><code class="highlighter-rouge">driver</code> 初始化之后，执行 <code class="highlighter-rouge">driver.run</code> 就可以更新到框架执行的状态。</p>
+
+<h4 id="python-demo">Python Demo</h4>
+
+<p>Python Demo 的实现的功能与 Java 基本一致。
+从代码上可以看到 Python 发挥了语法的优势，节省了比较多代码量。
+多语言的接口实现一致性也是项目采用 <code class="highlighter-rouge">Protocol Buffers</code>(<code class="highlighter-rouge">protobuf</code>) 之后的一大优势。</p>
+
+<p>Python 代码不具体列出了，学习是重点关注自定义 Schedule 类的实现和框架初始化过程。</p>
+
+<h4 id="demo-">Demo 学习总结</h4>
+
+<p>通过观察现有的 Demo 实现，我们学习了一个简单 Framework 的基本代码结果，有利于以后学习更多的框架实现。</p>
+
+<p>另外，使用 Mesos Command Executor 可以很容易创建基于命令行的任务，由于非常方便，所以应用非常广泛。</p>
+
+<h3 id="mesos-framework--1">Mesos Framework 现状</h3>
+
+<p>Mesos 官网的 <a href="http://mesos.apache.org/documentation/latest/frameworks/">Software Projects Built on Mesos</a> 页面列出了基于 Mesos 的一些流行框架。
+这些框架的种类涵盖了大数据平台、批处理系统、数据存储、长期运行的服务和运维平台。
+我们可以方便的使用这些框架集成到自有的系统中。</p>
+
+<p>后面的学习过程中，我们还会比较多的接触一些常用框架，比如 Marathon、Chronos、Vamp 等。</p>
+
+<p>由于 Mesos 框架使用方便，资源调度很容易，对运维人力有显著的解放左右，也让组织可以更顺畅的建设构建发布流程。</p>
+
+<h3 id="section-1">总结</h3>
+
+<p>本文主要对 Mesos Framework 的官方 Demo 进行了简要分析。
+通过代码的学习，帮助我们了解 Mesos Frameworkd 基本结构，既有益于以后开发自己的框架，也有助于使用社区的其它框架时方便理解设计的原理。</p>
+
+        
+{% endraw %}

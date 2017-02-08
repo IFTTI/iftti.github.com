@@ -1,0 +1,203 @@
+---
+layout: post
+title: 'Mesos 实战-3：Marathon 作为运维管理平台'
+time: 2016-11-11 00:00:00 +0800
+site_name: liulantao.com
+source_url: http://blog.liulantao.com/marathon-operation-platform.html
+images:
+  4867aa20eef3877a045e188681075f88: /images/2016/marathon-ui.png
+  f1622b8ae1af7b98f2356c24c1f3fd31: /images/2016/marathon-create-application.png
+  417c3e6a9724180040297c7b9810f7f9: /images/2016/marathon-scale-application-1.png
+  1b4be9391a4e168ab2a1adb49ac9a88f: /images/2016/marathon-scale-application-2.png
+---
+{% raw %}
+
+          <p>Marathon 是运行在 Mesos 之上的应用管理平台、运维平台。
+本文将学习 Marathon 的基本概念、部署管理和使用方法。</p>
+
+<p>前文中我们已通过<a href="/mesos.html">Mesos 实战-1：Mesos 起步</a>部署一套 Mesos 集群，通过<a href="/mesos-frameworks.html">Mesos 实战-2：Mesos 框架初探</a>了解 Mesos 框架的基本结构。
+在框架的基础上，Marathon 平台的出现使得往 Mesos 上部署应用更加便捷。</p>
+
+<!--excerpt-->
+
+<p>本文主要学习内容有：</p>
+
+<ul>
+  <li>Marathon 安装
+    <ul>
+      <li>Marathon UI</li>
+    </ul>
+  </li>
+  <li>Marathon API
+    <ul>
+      <li>创建一个 Demo，运行 dstat</li>
+    </ul>
+  </li>
+  <li>运维部署流程讨论</li>
+</ul>
+
+<h3 id="why-marathon">Why Marathon?</h3>
+
+<p>我们知道了 Mesos 平台能提供资源调度的功能。</p>
+
+<p>但是具体采用什么样的策略调度，优先级怎么区分，异常情况如何处理，都需要在 <code class="highlighter-rouge">Mesos 框架</code>中实现。
+实际生产中使用的计算任务，调度需求类型相对比较固定，每个业务需求去都实现一个框架的负担会比较重。
+因此需要有一套通用的平来实现这些基本调度需求，又可以大大降低开发和运维工作量。</p>
+
+<p><strong><em>Marathon</em></strong> 就是这样一套通用型的应用管理框架／平台。</p>
+
+<h4 id="section">特性</h4>
+
+<ul>
+  <li>高可用，支持多主节点（主备模式）自动切换</li>
+  <li>支持多种容器环境</li>
+  <li>支持有状态服务，如数据库</li>
+  <li>使用 Web 管理界面用于配置操作和监控系统状态</li>
+  <li>约束规则，比如限制任务分布在特定节点</li>
+  <li>服务发现、负载均衡</li>
+  <li>支持健康检查，实现容错</li>
+  <li>支持事件订阅，用于集成到其它系统</li>
+  <li>运行指标监控接口</li>
+  <li>完善易用的 REST API</li>
+</ul>
+
+<h3 id="marathon">安装 Marathon</h3>
+
+<p>使用 Mesosphere 的软件仓库安装是比较简单的选择。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>yum install -y http://repos.mesosphere.com/el-testing/7/noarch/RPMS/mesosphere-el-repo-7-3.noarch.rpm &amp;&amp; \
+yum update -y &amp;&amp; \
+yum install -y marathon
+
+# 启动
+systemctl start marathon
+</code></pre>
+</div>
+
+<p>还可以下载安装包手动安装。
+（本文写作时版本为 1.1.1）</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>$ curl -O http://downloads.mesosphere.com/marathon/v1.1.1/marathon-1.1.1.tgz
+$ tar xzf marathon-1.1.1.tgz
+
+# 启动
+$ ./bin/start --master zk://127.0.0.1:2181/mesos --zk zk://127.0.0.1:2181/marathon
+</code></pre>
+</div>
+
+<h4 id="marathon-ui-">Marathon UI 介绍</h4>
+
+<p>默认情况下，Marathon 在 8080 端口上启动了 web 管理界面。</p>
+
+<p>Marathon UI 展示了应用的状态。</p>
+
+<p><img src="/images/liulantao.com/4867aa20eef3877a045e188681075f88.jpg" alt="Marathon UI"></p>
+
+<h3 id="section-1">创建应用</h3>
+
+<p>从最基本的任务开始，创建一个简单的应用，执行 <code class="highlighter-rouge">dstat</code> 命令。</p>
+
+<h4 id="section-2">应用定义文件</h4>
+
+<p>首先，准备应用定义文件。
+此文件为 JSON 格式，定义了应用的名称（id）、命令、资源（cpu、内存等）和实例数量等信息。</p>
+
+<p>先来看下这个文件等内容：</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dstat-demo"</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"cmd"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dstat -tapm"</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"cpus"</span><span class="p">:</span><span class="w"> </span><span class="mf">0.01</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"mem"</span><span class="p">:</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span><span class="w">
+  </span><span class="nt">"instances"</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre>
+</div>
+
+<p>注意，
+其中的 <code class="highlighter-rouge">cmd</code> 字段包含了应用将要执行的命令行。
+进程的数量 <code class="highlighter-rouge">instances</code> 为 2。</p>
+
+<h4 id="marathon-ui--1">通过 Marathon UI 创建应用</h4>
+
+<p>在 Web 页面上，点击创建（’Create Application’）按钮。
+弹出操作窗中，切换为 JSON 模式（’JSON Mode’）。</p>
+
+<p><img src="/images/liulantao.com/f1622b8ae1af7b98f2356c24c1f3fd31.jpg" alt="Create Application, JSON Mode"></p>
+
+<p>将上一步准备的 JSON 内容复制的输入框内。
+点击输入框旁的创建（’Create Application’）按钮，保存配置。
+此时新建应用的信息，将出现在 Web 页面的应用列表。</p>
+
+<h4 id="scale">伸缩（Scale）</h4>
+
+<p>便捷的操作界面，是 Marathon 的一大优势。
+让我们体验一下扩容操作，为刚创建的应用分配更多的计算资源。</p>
+
+<p>应用列表中，点击应用最右侧的图标，下拉菜单选择 <code class="highlighter-rouge">Scale</code>。</p>
+
+<p><img src="/images/liulantao.com/417c3e6a9724180040297c7b9810f7f9.jpg" alt="Scale Application 1"></p>
+
+<p>修改应用实例数量，此时我们由 2 改为 4：</p>
+
+<p><img src="/images/liulantao.com/1b4be9391a4e168ab2a1adb49ac9a88f.jpg" alt="Scale Application 2"></p>
+
+<p>等待几秒钟，在应用列表中可以看到应用实例数量已经更新。
+你可以随意修改数量，来体验伸缩的操作。</p>
+
+<h4 id="marathon-api-createscale">使用 Marathon API 操作（create/scale）</h4>
+
+<p>为了方便批量化管理，以上操作都可以通过 API 来实现。</p>
+
+<p>API 文档可以参考 <a href="https://mesosphere.github.io/marathon/docs/generated/api.html">Marathon REST API documentation</a></p>
+
+<p>我们使用其中的 <code class="highlighter-rouge">POST /v2/apps</code> 来创建应用，用 <code class="highlighter-rouge">PUT /v2/apps/{app_id}</code> 来对应用进行操作。
+其中，<code class="highlighter-rouge">PUT /v2/apps/{app_id}</code> 也可以用来创建应用，仅限该 app_id 还不存在的情况下。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>POST /v2/apps
+
+Create and start a new application. Note: This operation will create a deployment. The operation finishes, if the deployment succeeds. You can query the deployments endoint to see the status of the deployment.
+
+
+PUT /v2/apps/{app_id}
+
+Replaces parameters of a running application. If no application with the given id exists, it will be created. If there is an application with this id, all running instances get upgraded to the new definition.
+
+Note: This operation will create a deployment. The operation finishes, if the deployment succeeds. You can query the deployments endoint to see the status of the deployment.
+</code></pre>
+</div>
+
+<h3 id="section-3">应用部署流程</h3>
+
+<p>使用 Marathon 部署应用时，所有应用应尽量做到无状态（本地不保存数据），配置集中管理（本地不保存配置），支持随时迁移到其它节点（服务发现）。</p>
+
+<p>一个比较理想的流程是：</p>
+
+<ol>
+  <li>创建应用／配置更新</li>
+  <li>应用环境变量设置</li>
+  <li>安装系统／应用环境依赖</li>
+  <li>获取应用配置文件</li>
+  <li>获取应用二进制文件</li>
+  <li>启动应用进程，服务节点注册</li>
+  <li>服务节点注销，下线应用进程</li>
+</ol>
+
+<p>这个流程中，有两个重要组件：CMDB 和 Service Registry。</p>
+
+<p>其中，
+CMDB 定义应用角色数据，如每个计算资源、进程属于哪组角色；Service Registry 保存服务状态，如每个服务有哪些进程。</p>
+
+<p>关于 CMDB 和 Service Registry 的方案选型，是另一个较大的话题，以后做微服务方面分享时会涉及。</p>
+
+<h3 id="next">Next</h3>
+
+<p>作为运维平台，可用性也是重要的方面。
+关于这个话题，Mesos／Marathon 可用性方面所做的工作，后面的文章将详细介绍。</p>
+
+        
+{% endraw %}

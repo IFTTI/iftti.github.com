@@ -1,0 +1,279 @@
+---
+layout: post
+title: 'Nginx访问计数和频率控制'
+time: 2016-12-20 00:00:00 +0800
+site_name: liulantao.com
+source_url: http://blog.liulantao.com/nginx-rate-limit.html
+images:
+  e691eec648a01961f4ba716ebd6388b5: /images/diagram/loadbalancer-ratelimit-architecture.png
+---
+{% raw %}
+
+          <p>在使用了负载均衡设施的网站中，对 HTTP 请求做访问控制（频率控制）是个经常遇到的需求。</p>
+
+<p>频率控制的主要目的，传统应用场景中要<strong><em>保护后端系统</em></strong>。</p>
+
+<p>在多租户的云服务上，通过频率控制<strong>对不同租户的资源使用量进行有效分配</strong>，从而避免相互影响访问质量。</p>
+
+<p>频率控制的精细度，也需要控制在集群级别，而非传统意义的单进程级别。</p>
+
+<!--excerpt-->
+
+<h3 id="nginx-">Nginx 的频率控制</h3>
+
+<p><code class="highlighter-rouge">Nginx</code> 是现在最常见的负载均衡软件，比较早的版本即有频率控制功能。</p>
+
+<p>Nginx 中通常采用模块的形式提供各种功能，频率控制方面常用的有两个模块：</p>
+
+<ul>
+  <li><a href="http://nginx.org/en/docs/http/ngx_http_limit_req_module.html">ngx_http_limit_req_module</a></li>
+</ul>
+
+<p>针对指定的 key，限制<code class="highlighter-rouge">请求处理频率</code>。</p>
+
+<ul>
+  <li><a href="http://nginx.org/en/docs/http/ngx_http_limit_conn_module.html">ngx_http_limit_conn_module</a></li>
+</ul>
+
+<p>针对指定的 key，限制<code class="highlighter-rouge">同时连接数</code>。</p>
+
+<p>这两个模块是按秒或分的时间精度来限制，使用 <code class="highlighter-rouge">10r/s</code> 或 <code class="highlighter-rouge">1r/m</code> 这种方式能够比较容易配置。
+<code class="highlighter-rouge">Tengine</code> 改进了频率控制相关功能，但是仍然简单粗暴，支持的策略比较少，难以满足个性化的时间窗口需要。。</p>
+
+<p>另外，以上2个模块针对进程级别做控制，多个 Nginx 部署之间不共享数据。</p>
+
+<p>实际部署中，<code class="highlighter-rouge">Nginx</code> 作为负载均衡设施，一般会部署多台组成集群。
+这时的目的是对这个集群进行保护，不是对单个server的访问限制，所以基于单机的限制有了明显的局限性。</p>
+
+<h3 id="section">频率控制系统的设计目标</h3>
+
+<p>这样一个频率控制系统，我们有以下设计目标：</p>
+
+<ol>
+  <li>
+    <p>状态数据共享</p>
+
+    <p>从单机限制到集群化整体限制，需要有统一维护状态的存储</p>
+  </li>
+  <li>
+    <p>简化配置</p>
+
+    <p>数据metrics可定制key，尽量减少（各种判断）逻辑</p>
+  </li>
+  <li>
+    <p>资源消耗低</p>
+
+    <p>高效的字符串操作</p>
+
+    <p>网络流量低，使用长连接</p>
+  </li>
+  <li>
+    <p>实时反馈</p>
+
+    <p>可允许边缘情况限制部准确，但是不能有延时。</p>
+
+    <p>这也决定了基于日志分析的方案不能达到。</p>
+  </li>
+  <li>
+    <p>数据持久化</p>
+
+    <p>历史数据保存，可追溯</p>
+  </li>
+  <li>
+    <p>失败保护</p>
+
+    <p>作为辅助系统，内部失败时应该能使对外服务正常进行。</p>
+  </li>
+</ol>
+
+<p>根据实际业务需求协商确定出公认的目标，是实现的关键步骤。</p>
+
+<h3 id="section-1">架构设计</h3>
+
+<p>在设计目标指引下，选择使用稳定高效的开源软件来实现。
+最终形成了 <code class="highlighter-rouge">Nginx</code> + <code class="highlighter-rouge">Lua</code> + <code class="highlighter-rouge">Redis</code> 的方案。</p>
+
+<p>基于负载均衡层的流控系统，可以串联部署在负载均衡后端，作为应用层的代理，也可以并联部署在负载均衡后端旁路。
+我们采用了旁路的方式来部署。</p>
+
+<p>架构图：</p>
+
+<p><img src="/images/liulantao.com/e691eec648a01961f4ba716ebd6388b5.jpg" alt="Loadbalancer Ratelimit"></p>
+
+<h4 id="section-2">组件失败保护：</h4>
+
+<ul>
+  <li>Nginx 作为基础服务，有前端 keepalived 提供故障转移</li>
+  <li>Lua 作为配置的一部分，上线前经过测试环境的单元测试验证</li>
+  <li>Redis 出现宕机导致失败后，可以选择直接跳出控制逻辑，根据实际情况默认返回允许或拒绝。</li>
+</ul>
+
+<h3 id="section-3">关键配置</h3>
+
+<h4 id="section-4">1. 规范化频率控制的键</h4>
+
+<p>针对每个请求URL，使用 <code class="highlighter-rouge">nginx</code> 的 <code class="highlighter-rouge">map</code> 功能或 <code class="highlighter-rouge">location regex</code> 进行提取，并规范化为限制规则使用的键名。</p>
+
+<figure class="highlight"><pre><code class="language-nginx" data-lang="nginx"><span class="k">location</span> <span class="p">~</span><span class="sr">*</span> <span class="s">^/(?P&lt;org_name&gt;[0-9a-zA-Z-_]+)/(?P&lt;app_name&gt;[0-9a-zA-Z-]+)/users</span>$
+<span class="p">{</span>
+	<span class="kn">set</span> <span class="nv">$ratelimit_metric</span> <span class="s">"</span><span class="nv">$org_name</span><span class="c1">#$app_name#users"
+</span>
+	<span class="s">proxy_pass</span> <span class="s">http://backend_rest_servers</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>我们将 URL 中提取的信息使用 <code class="highlighter-rouge">set</code> 语法拼接，将它保存在 <code class="highlighter-rouge">$ratelimit_metric</code> 变量作为频率控制的键，</p>
+
+<h4 id="lua">2. 加载 lua</h4>
+
+<p>lua 基础功能需要在 nginx 编译阶段指定选项。如果当前版本不支持 lua 功能，需要重新编译，并在编译时至指定 <code class="highlighter-rouge">--with-lua</code> 选项。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>./configure --with-lua
+</code></pre>
+</div>
+
+<p>实现逻辑时需要访问 <code class="highlighter-rouge">redis</code>，因此还需要加载 lua 的 redis 库：<a href="https://github.com/openresty/lua-resty-redis">lua-resty-redis</a>。</p>
+
+<p>在配置文件的 <code class="highlighter-rouge">http</code> 上下文部分加一行配置：</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>lua_package_path "lua/lua-resty-redis/lib/?.lua;;";
+</code></pre>
+</div>
+
+<p>然后加载我们实现逻辑的 lua 脚本，之后的所有逻辑操作都在这个文件中完成。</p>
+
+<div class="highlighter-rouge">
+<pre class="highlight"><code>access_by_lua_file 'ratelimit-with-redis.lua';
+</code></pre>
+</div>
+
+<h4 id="redis-">3. 初始化 redis 连接</h4>
+
+<p>首先加载 lua 的 redis 库，设置合理的超时时间。
+当连接失败时，则直接从限流逻辑中跳出。</p>
+
+<figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="kd">local</span> <span class="n">cjson</span> <span class="o">=</span> <span class="nb">require</span> <span class="s2">"cjson"</span>
+<span class="kd">local</span> <span class="n">redis</span> <span class="o">=</span> <span class="nb">require</span> <span class="s2">"resty.redis"</span>
+<span class="kd">local</span> <span class="n">red</span> <span class="o">=</span> <span class="n">redis</span><span class="p">:</span><span class="n">new</span><span class="p">()</span>
+
+<span class="n">red</span><span class="p">:</span><span class="n">set_timeout</span><span class="p">(</span><span class="mi">1000</span><span class="p">)</span>
+
+<span class="kd">local</span> <span class="n">ok</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">red</span><span class="p">:</span><span class="n">connect</span><span class="p">(</span><span class="s2">"127.0.0.1"</span><span class="p">,</span> <span class="mi">6379</span><span class="p">)</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span> <span class="k">then</span>
+	<span class="c1">-- ngx.say("failed to connect: ", err)</span>
+	<span class="k">return</span>
+<span class="k">end</span></code></pre></figure>
+
+<h4 id="counter-incr-">4. counter incr 操作</h4>
+
+<p>对于每一次客户请求，都需要去更新指定的 key。</p>
+
+<figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="kd">local</span> <span class="n">counter_key</span> <span class="o">=</span> <span class="n">ngx</span><span class="p">.</span><span class="n">var</span><span class="p">.</span><span class="n">ratelimit_metric</span>
+<span class="c1">-- ngx.say("counter key: ", counter_key)</span>
+
+<span class="n">count</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">red</span><span class="p">:</span><span class="n">incr</span><span class="p">(</span><span class="n">counter_key</span><span class="p">)</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">count</span> <span class="k">then</span>
+	<span class="c1">-- ngx.say("failed to incr: ", err)</span>
+	<span class="k">return</span>
+<span class="k">end</span></code></pre></figure>
+
+<h4 id="section-5">5. 根据键值控制访问</h4>
+<p>假定默认限制超过 100 次后，对后续访问进行限制，返回状态码 429。</p>
+
+<figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="k">if</span> <span class="n">count</span> <span class="o">&gt;</span> <span class="mi">100</span> <span class="k">then</span>
+	<span class="n">ngx</span><span class="p">.</span><span class="n">status</span> <span class="o">=</span> <span class="mi">429</span>
+	<span class="c1">--ngx.say("fooc: ", ok)</span>
+	<span class="n">ngx</span><span class="p">.</span><span class="n">say</span><span class="p">(</span><span class="s2">"rate limit: "</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="s2">" &gt; "</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+	<span class="n">ngx</span><span class="p">.</span><span class="n">exit</span><span class="p">(</span><span class="n">ngx</span><span class="p">.</span><span class="n">HTTP_SERVICE_UNAVAILABLE</span><span class="p">)</span>
+<span class="k">end</span></code></pre></figure>
+
+<h4 id="redis--1">6. 与 Redis 保持长连接</h4>
+
+<figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="kd">local</span> <span class="n">ok</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">red</span><span class="p">:</span><span class="n">set_keepalive</span><span class="p">(</span><span class="mi">100000</span><span class="p">,</span> <span class="mi">20</span><span class="p">)</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span> <span class="k">then</span>
+	<span class="c1">-- ngx.say("failed to set keepalive: ", err)</span>
+	<span class="k">return</span>
+<span class="k">end</span></code></pre></figure>
+
+<h4 id="section-6">7. 时间维度限制</h4>
+
+<p>前面示例所做的限制没有考虑时间维度，即超出限制被禁后，不会随时间清零。
+现在我们改造一下 key 的格式，使得 counter 只在一个时间周期内有效。</p>
+
+<p>修改 counter_key 的定义：</p>
+
+<figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="kd">local</span> <span class="n">counter_key</span> <span class="o">=</span> <span class="n">time</span><span class="p">()</span><span class="o">/</span><span class="mi">60</span> <span class="o">..</span> <span class="s2">":"</span> <span class="o">..</span> <span class="n">ngx</span><span class="p">.</span><span class="n">var</span><span class="p">.</span><span class="n">ratelimit_metric</span></code></pre></figure>
+
+<h4 id="limit-">8. 读取 limit 上限设置</h4>
+
+<figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="n">limit</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">red</span><span class="p">:</span><span class="n">get</span><span class="p">(</span><span class="s2">"limit:"</span> <span class="o">..</span> <span class="n">ngx</span><span class="p">.</span><span class="n">var</span><span class="p">.</span><span class="n">ratelimit_metric</span><span class="p">)</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">limit</span> <span class="k">then</span>
+	<span class="c1">-- ngx.say("use default limit: ", 100)</span>
+	<span class="n">limit</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>限制默认为 100</p>
+
+<h4 id="redis-pipelininghttpredisiotopicspipelining">9. 利用 <a href="http://redis.io/topics/pipelining">Redis Pipelining</a>
+</h4>
+<p>同一次请求会产生多个 redis 操作，没有前后依赖关系，使用 redis 的 batch 方式减少交互</p>
+
+<p>red:init_pipeline</p>
+
+<p>local results, err = red:commit_pipeline()
+if not results then
+    ngx.say(“failed to commit the pipelined requests: “, err)
+    return
+end
+print(cjson.encode(results))</p>
+
+<p>for i, res in ipairs(results) do
+    if type(res) == “table” then
+        if not res[1] then
+            ngx.say(“failed to run command “, i, “: “, res[2])
+        else
+            – process the table value
+        end
+    else
+        – process the scalar value
+    end
+end</p>
+
+<h3 id="section-7">效果、功能与性能评估关键点</h3>
+
+<ul>
+  <li>nginx <code class="highlighter-rouge">响应时间</code>的对比（proxy and static）</li>
+  <li>redis <code class="highlighter-rouge">连接数</code>
+</li>
+  <li>nginx 和 redis 的 <code class="highlighter-rouge">cpu 利用率</code>
+</li>
+  <li>redis <code class="highlighter-rouge">failover</code>
+</li>
+  <li>边缘情况测试</li>
+</ul>
+
+<p>可以使用 <code class="highlighter-rouge">ab (apache benchmarking)</code> 进行测试。</p>
+
+<h3 id="section-8">思路总结</h3>
+
+<p>最终方案中，各部分功能都采用了成熟的开源方案，有一些综合的优势：</p>
+
+<ul>
+  <li>需要的代码量比较小</li>
+  <li>在性能和稳定性方面能够满足较长时间的需求</li>
+  <li>Redis 容量可以通过 codis 等工具进一步扩展</li>
+</ul>
+
+<p>但是在使用场景方面有局限性，针对 HTTP 数据都分析则不适合。
+如果遇到与业务深度分析的场景时，Nginx 端实现则会有比较大的代价，既包括人工付出，也可能有一些性能方面的退化。
+比如针对 API 请求中的 JSON 数据做有效性校验，使用 lua 去处理业务逻辑，以及容错方面的代码量将显著增加。
+从开发成本来看这不是一个好的选择，对 Nginx 维护人员的能力也是挑战。</p>
+
+<h3 id="section-9">展望</h3>
+
+<p>可以进一步优化为使用 redis scripting(也是 lua 脚本)，将所有逻辑放到 redis 中实现。
+既能够达到现有方案使用 [Redis Pipelining] 的降低延时效果，还能进一步减少 nginx &lt;-&gt; redis 之间的读写操作次数，从而进一步降低延时。</p>
+
+        
+{% endraw %}
