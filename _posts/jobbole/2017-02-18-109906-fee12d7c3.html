@@ -1,0 +1,274 @@
+---
+layout: post
+title: '坑：时间和空间的平衡'
+time: 2017-02-18 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/109906/
+images:
+  de4de2e3c69af3e98ba10d89c6297335: https://segmentfault.com/img/bVx4W8
+  e43d664cc723bbf35bd788c78c1c1b89: https://segmentfault.com/img/bVydzP
+  18326008cc57ef2439f373d4a589ff0c: https://segmentfault.com/img/bVydzW
+  c7ef4d698eb434942fa5578b62f96988: https://segmentfault.com/img/bVydAw
+  3985901888740f1d02c58f1455a28151: https://segmentfault.com/img/bVydAD
+  1ab2964dab44376e3db493db3dc32c94: https://segmentfault.com/img/bVydAV
+  e5c494a331d3d2d8cbdfce4fd6094a52: https://segmentfault.com/img/bVydA5
+  b3a36854d38bc31bfc6c92cb7a776353: https://segmentfault.com/img/bVydA8
+  1c5a7f4d32aa176bf37d0354581f632d: https://segmentfault.com/img/bVydBc
+  241b05e637f7d60f727f3007d1669192: https://segmentfault.com/img/bVydBd
+  e1a12a87984b3db2d57592e64b6321e9: https://segmentfault.com/img/bVydBo
+---
+{% raw %}
+
+
+        			<div class="textwidget">
+</div>
+		
+		<p>这是<code>坑</code>系列的最后一弹了，这篇文章非常长，希望你能看完，要是看完有很酣畅的感觉就最好了。这一篇的<code>坑</code>主要来说说架构中<code>时间和空间的平衡</code>吧，这里的时间指代比较广，可能是<code>开发时间</code>，但大部分指的是执行时间，也就是算法的<code>时间复杂度</code>了，而<code>空间</code>就是算法中经常说的<code>空间换时间</code>中的<code>空间</code>了，一个好的系统，设计出来必然是各种<code>时间复杂度</code>和<code>空间复杂度</code>平衡出来的结果，架构设计的过程，并不仅仅是模块的堆叠，在走到岔路口的时候，更多的是<code>时间和空间平衡</code>之后选的一个技术方案，这一篇，我会用一个<code>搜索提示服务设计</code>的实际例子，来说一下架构设计的过程中，<code>时间和空间</code>的各种矛盾，怎么分析，怎么选择，最后淌过这些<code>时空的坑</code>。</p>
+<h2>0. 搜索提示是什么</h2>
+<p>搜索提示是搜索引擎的重要组成部分，虽然一般是作为一个单独的服务来对外提供服务，但在一个搜索系统中，搜索提示是非常重要的组成部分，我还没看到哪个比较成熟的搜索引擎没有搜索提示功能的。</p>
+<p>首先，我们看看搜索提示是什么，大家肯定都用过，就是下面这些个东西</p>
+<p><img src="/images/jobbole.com/de4de2e3c69af3e98ba10d89c6297335.jpg"></p>
+<h2>1. 搜索提示的场景和目的</h2>
+<p>搜索提示一般情况下是为了提高用户的搜索体验，更快的选择合适的搜索词，提高检索的效率的，但是因为搜索框的流量实在是太大了，所以搜索提示也扮演着广告变现的责任，互联网嘛，有流量就有变现，比如下面这个图，明显就是一个广告啦。</p>
+<p><img src="/images/jobbole.com/e43d664cc723bbf35bd788c78c1c1b89.jpg"></p>
+<h2>2. 初步技术选型</h2>
+<h3>2.1 搜索提示的需求</h3>
+<p>要实现一个搜索提示系统，首先需要确定的是需要提示出来什么东西，有两种提示方式。</p>
+<ul>
+<li>一种是提示出其他的搜索词，这也是大部分的搜索提示所做的，提示出其他用户的类似搜索词。</li>
+<li>还有一种是提示出现有的结果集有的东西，这种实现方式比较少见，比如一个生鲜类的电商网站，商品数量比较少，那么没必要去提示一些用户的搜索词，直接把商品名称（比如苹果，桃子，橘子）提示出来就行了，这种提示方式我们这里不讨论，因为实现起来比较简单。</li>
+</ul>
+<h3>2.2 技术栈</h3>
+<p>既然知道需求了，那么开始选择技术栈了。</p>
+<ul>
+<li>首先，既然有其他用户的搜索词，那么必然有一个离线的数据收集和处理的系统来完成其他用户的搜索日志处理，生成需要的数据。</li>
+<li>其次，需要一个单独的API服务，来提供搜索提示的功能，输入为不完整的搜索词，输出为根据这个搜索词提示出来的其他搜索词，检索方式的话，一般都是使用前缀匹配的方式了，这个大家都比较认可。</li>
+<li>最后，需要前端有个js代码来实时调用后台的API，这个不在我们的讨论范围内。</li>
+</ul>
+<p>整个系统的结构图应该是下面这个样子，离线模块处理完日志数据以后，推送到API模块中，给前面的前端提供服务。</p>
+<p><img src="/images/jobbole.com/18326008cc57ef2439f373d4a589ff0c.jpg"></p>
+<p>好了，框框设计好了。也就是架构图完成了哦，真是牛逼的架构啊，三个框，离线，在线，前端全齐了。</p>
+<p>接下来，我们来看看在线API部分的设计吧，我们先假设离线数据都已经准备好了，就是一堆用户的搜索词，如何快速的前缀匹配这些词就成了API设计部分的关键了，有这么几种实现方式。</p>
+<ul>
+<li>粗暴的短平快方式</li>
+</ul>
+<blockquote></blockquote>
+<ul>
+<li>优雅点的实现方式</li>
+</ul>
+<blockquote></blockquote>
+<ul>
+<li>复杂点的实现方式</li>
+</ul>
+<blockquote></blockquote>
+<h2>3. 时间与空间的平衡一</h2>
+<p>实际工程应用中，这三种实现方式我都见过，而且有些实现方式是把这三种结合起来使用了，后面的文章我会说到。</p>
+<p>具体使用哪一种需要看你的实际场景，这三种实现方式差不多正好对应三种场景。</p>
+<ul>
+<li>如果你是个小型的电商或者论坛之类的，每天的搜索量也不是很大，而且在可见的未来也不会变得很大，而且也不差钱，那么直接第一种，说不定一天就能撸出来，速度还不错，但是这种有一些缺陷，首先，value值不能太复杂，影响效率，所以可扩展性不是很强，而现在的电商搜索提示中往往还有很多其他信息需要保存，redis作为缓存服务器提供高并发服务的前提是数据量比较小，最好在2K以内，这样的话用redis就有点不合适了。<code>这种方案是个存空间的选择了，用空间换取了检索时间和开发时间，多亏有redis这种神器。</code>
+</li>
+<li>如果是个大型的搜索引擎或者电商，搜索日志已经是巨量了，而且搜索词多种多样，那么第三种倒排索引技术为基础的实现方式可能是更好的选择，而且既然是大搜，技术都是现成的，索引分片，集群都是现成的，直接改了上就是。<code>这种方式用长期的开发时间和检索速度上稍微的降低换取了内存空间，如果从头开始做的话，时间成本比较高。</code>
+</li>
+<li>大部分时候，第二种实现方式是大家都采用的方式，首先没有第一种那么粗暴，并且能完成方案一的所以功能，单机就能达到较好的效果，也不用索引分片，也不用集群，所以工程复杂性不是很高，也能在较短的时间内实现出来。其次第二种方案可扩展性较强，后面挂个倒排文件就可以变成简化版的第三方案。<code>这种方式用算法换取了内存空间，用O(n)替代了O(1)，换取了内存空间，也是标准的计算机领域的时间换空间了。</code>
+</li>
+</ul>
+<p>通过一番分析下来，决定使用第二种实现方式，就是Trie树的方式了，好了，API的基本选型确定了，那么开始设计，准备写代码吧。</p>
+<h2>4. Trie树的多种结构</h2>
+<p>既然确定了<code>Trie树</code>的实现方式，那么首先要了解一下<code>Trie树</code>吧，以及<code>Trie树</code>的各种结构，看看具体用哪个吧。</p>
+<h3>4.1 基本Trie树</h3>
+<p><code>Trie树</code>又叫<code>字典树</code>，本质上是一个多叉树，每一个节点就是一个多叉的结构，如果是英文的匹配，那么是一个<code>26叉树</code>，每个节点一个26长度的数组，每个节点的数据结构如下</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac16f140039964013375" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" touchscreen minimize scroll-mouseover" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+type TrieNode struct{
+    flag       bool     //是否是一个完整的词
+    hasNext bool    //是否还有后继字符
+    nexts    [26]*TrieNode
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac16f140039964013375-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140039964013375-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac16f140039964013375-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140039964013375-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac16f140039964013375-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac16f140039964013375-1">
+<span class="crayon-e">type</span><span class="crayon-h"> </span><span class="crayon-e">TrieNode</span><span class="crayon-h"> </span><span class="crayon-t">struct</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140039964013375-2">
+<span class="crayon-h">    </span><span class="crayon-e">flag       </span><span class="crayon-t">bool</span><span class="crayon-h">     </span><span class="crayon-c">//是否是一个完整的词</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140039964013375-3">
+<span class="crayon-h">    </span><span class="crayon-e">hasNext </span><span class="crayon-t">bool</span><span class="crayon-h">    </span><span class="crayon-c">//是否还有后继字符</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140039964013375-4">
+<span class="crayon-h">    </span><span class="crayon-i">nexts</span><span class="crayon-h">    </span><span class="crayon-sy">[</span><span class="crayon-cn">26</span><span class="crayon-sy">]</span><span class="crayon-o">*</span><span class="crayon-i">TrieNode</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140039964013375-5"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+<p>而<code>Trie树</code>画出来就是下面这个样子。</p>
+<p><img src="/images/jobbole.com/c7ef4d698eb434942fa5578b62f96988.jpg"></p>
+<p>从画出来的图，很直观的可以看出来这棵树的构造方法和遍历方法，如果是纯英文的话，每个节点都有一个26长度的数组，来了一个字符，通过字符的编号直接就可以遍历到下一个节点，查找的时候复杂度就是O(K)，K表示查找的字符串长度，这种数据结构简单明了，实现起来也很容易。</p>
+<h3>4.2 优化后的Trie树</h3>
+<p>基本Trie树的数据结构有个问题，就是内存使用得太多了，如果是中文查找的话，需要把所有的中国字都编号到这个数组中，内存就爆了，于是有一种优化方法，就是把数组变成变长的，这种Trie树的节点数据结构变成下面的样子了，节点查找变成一个顺序查找或者二分查找了。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac16f140044298381988" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" touchscreen minimize scroll-mouseover" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+type TrieNode struct{
+    flag       bool     //是否是一个完整的词
+    hasNext bool    //是否还有后继字符
+    nexts    []*TrieNode //变成变长数组了
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac16f140044298381988-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140044298381988-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac16f140044298381988-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140044298381988-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac16f140044298381988-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac16f140044298381988-1">
+<span class="crayon-e">type</span><span class="crayon-h"> </span><span class="crayon-e">TrieNode</span><span class="crayon-h"> </span><span class="crayon-t">struct</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140044298381988-2">
+<span class="crayon-h">    </span><span class="crayon-e">flag       </span><span class="crayon-t">bool</span><span class="crayon-h">     </span><span class="crayon-c">//是否是一个完整的词</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140044298381988-3">
+<span class="crayon-h">    </span><span class="crayon-e">hasNext </span><span class="crayon-t">bool</span><span class="crayon-h">    </span><span class="crayon-c">//是否还有后继字符</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140044298381988-4">
+<span class="crayon-h">    </span><span class="crayon-i">nexts</span><span class="crayon-h">    </span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-o">*</span><span class="crayon-v">TrieNode</span><span class="crayon-h"> </span><span class="crayon-c">//变成变长数组了</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140044298381988-5"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0008 seconds] -->
+<p></p>
+<h3>4.3 双数组Trie树</h3>
+<p>所谓双数组Trie树，当然就是通过两个数组来实现这棵树了，这两个数组分别叫<code>base数组</code>和<code>check数组</code>，一个是基础数组，一个是检查数组。</p>
+<p>Trie树实际上是一种<code>有限状态机</code>，通过<code>状态转移矩阵</code>在各个状态之间跳转，双数组Trie树极大的节省了空间，大致就是下面这个样子，我后面会有一篇专门的文章来说Trie树实现的，这里就不详细展开了，实在等不及的可以自己先搜索一下相关资料看看双数组Trie树吧。</p>
+<p><img src="/images/jobbole.com/3985901888740f1d02c58f1455a28151.jpg"></p>
+<h2>5. 时间与空间的平衡二</h2>
+<p>OK，三种Trie树的实现方式都说了，现在要开始抉择了，我们先看看这三种数据结构的时间和空间。</p>
+<blockquote>
+<p>第一种空间占用大，特别是中文的情况，检索的时间效率为O(n)，其中n为<code>每次请求</code>的字符串的长度，这种实现方式基本上属于新人练手的水平，纯粹为了了解这个数据结构或者大学生做做课程设计，工程化的可能性几乎为0。</p>
+<p>第二种空间基本不浪费，但检索的时间效率如果按照二分进行每个节点的查找的话，每个节点的查找时间变成了O(lg(n))，整体的查找时间变成K*O(log(n))，同样插入效率也变低了。</p>
+</blockquote>
+<p>初看，肯定选第三种了，但是！！第三种实现方式有个致命的缺陷，就是无法向下遍历（<code>具体可以自己看看双数组的实现方式</code>），也就是说我输入<code>北京</code>，找不到<code>北京大学，北京爱上西雅图</code>，因为它已经不是一个树型结构了，无法向下遍历了。所以如果不对第三种结构进行改造的话，是无法满足我们的功能的。</p>
+<p>要改造，最简单的办法就是在每个词后面挂一个链表，表示这个词的后继词都是什么，像下图这样。</p>
+<p><img src="/images/jobbole.com/1ab2964dab44376e3db493db3dc32c94.jpg"></p>
+<p>如果按上图那么来的话，需要辅助的空间来存储后继词，那么问题又来了，又是一次时间和空间的抉择了，是选择<code>K*O(log(n))</code>的第二种方案，然后后继词实时遍历树来获取(又要耗费一定的时间)，还是选择选择第三种方案，用空间换取时间呢？</p>
+<p>好，既然这样，我们来仔细算算这个账，我们以每个节点都存一个中文来算，虽然常用的汉字大概2500个，但其中最常用的才500左右。</p>
+<p>先看第二种方案，那么我们大概估算出，每个节点的平均数组长度大概600<code>（实际上除了第一层的节点，后面的节点数组长度完全达不到这个量级，用600属于极限估算了）</code>，600的二分查找大约需要7到8次，取个平均值4次，那么每次查询的时间就是<code>4*K（K是字符串的长度）</code>，如果我们定好最长的提示词不超过8个字（太长也没意义），那么首先这个树的高度就是8了，如果50万的词量的话，使用多少内存大概能算出来，然后每次遍历下级节点的时间就是<code>600^(8-K)</code>（如果数组的每个元素都有值），我去，这么大，吓死了，好，我们即便假设每个节点的数组长度平均为60，要遍历完也要<code>60^(8-K)</code>，也吓尿了，所以实时遍历所有子节点的方式不可取，而且后继词最多也就提示出10个，遍历出这么多词还要排序，遍历全部节点实在是没有必要，所以，第二种方案要么放弃，要么也要改造，如何改造呢？</p>
+<p>因为词基本上都是离线算好的，稍微把节点的数据结构优化一下，在节点中加一个字段，表示哪个子节点有需要的数据（排序前10的词），这样往下遍历的时候就直接遍历相应的下标就可以了，就能把<code>60^(8-K)</code>这种遍历减少到几十次，从而找到10个提示词，我们把这个结构叫<code>二次优化的Trie树</code>。</p>
+<p><code>这一轮的时间和空间的比拼，第三个方案感觉就要胜利了，但第二个方案的优化版貌似也还能接受，一个耗费空间，查询速度快，一个节省空间，查询速度慢点。</code></p>
+<blockquote></blockquote>
+<h2>6. 离线数据处理</h2>
+<p>好了，我们先把检索部分放一放，来看看离线数据处理部分吧。我们先要确定一下什么东西需要在离线部分算好，什么东西需要在线处理？</p>
+<ul>
+<li>首先，日志的清洗肯定是离线部分了，我们先要把没有搜索结果的词去掉，然后去掉太长的词（假定超过8的都不要），然后保留有一定热度的词（比如每天搜索量超过10次的词），等等一些规则以后，假如剩下了50万的词，那这50万就是我们的基础数据了。</li>
+<li>其次，<code>Trie树</code>的构建是离线构建好还是实时往服务推送由服务端去构建呢？</li>
+<li>还有，排序的时候是离线给每个搜索词打个分，然后实时排序呢？还是离线把序都排好，服务端直接使用结果呢？</li>
+</ul>
+<h2>7. 时间与空间的平衡三</h2>
+<p>虽然是离线处理，但一样有时间和空间的选择。</p>
+<p>我们先来看构建部分，<code>Trie树的构建是离线构建好还是实时往服务推送由服务端去构建</code>，首先我们需要确定的是这个<code>搜索提示</code>服务需不需要实时更新，一般情况下，<code>搜索提示</code>没有那么强的实时性要求，一般一天或者两天更新一次体验也不会太差，所以做实时更新的搜索提示，要不就是你实在是太蛋疼了，要不就是遇到了一个特别让人蛋疼的产品经理（<code>卧槽，黑了一下产品经理啊</code>）。所以我们使用离线构建的方式构建好两个数组和辅助的数据结构，都存在磁盘上，服务端启动的时候读取文件就行了，这是用离线时间换取的服务端的时间，是很划得来的。</p>
+<p>再来看看排序的部分，很明显，排序离线做好也比较合适，排序的位置基本不会有太大的变化，但是如果排序离线做好的话，那么辅助的数据结构就会比较大了，因为每个前缀后面跟着的10个词都要排好序放在辅助结构中，但如果我们只是把每个词打个分（比如就按热度给个分），然后用第二个方案<code>（优化的Trie树）</code>的存储方式，在线的时候去排序，那么辅助结构就会小很多，两种情况的结构大概就是下面这样的区别。</p>
+<p><img src="/images/jobbole.com/e5c494a331d3d2d8cbdfce4fd6094a52.jpg"></p>
+<p>左边的是全排序好了的，直接使用，双数组Trie树+辅助结构方式；右边的是只是打了分的，优化的Trie树，遍历出结果以后实时排序的。</p>
+<p>离线排序的空间占用大，即便优化一下，把词都放一个地方单独存着，辅助结构中只保存词的编号，一样也比较占地方，但是查询速度快啊。在线排序的方式不怎么占地方，就是每个节点多了一个分数的字段，需要实时排序一下，虽然是实时排序，但个数就10个，不管是快排还是堆排，都很快的，所以时间效率也慢不到哪去。</p>
+<h2>8. 整体的时空平衡</h2>
+<p>综合衡量一看，我个人觉得两种方式都能接受，具体选哪一个就仁者见仁了。</p>
+<ul>
+<li>如果搜索词的量比较稳定，不会有太大的变化，那么使用<code>双数组Trie树+辅助数据结构+离线构建Trie树+离线排序</code>的方式更合适。</li>
+<li>如果搜索词虽然现在是50万，但很可能会增加得比较多，或者像下图一样，搜索提示的页面还会承载很多其他的数据的话，那么使用<code>二次优化的Trie树+离线构建Trie树+离线打分+实时排序</code>的实现方式更合适，因为能节省更多的内存给后续扩充词语用或者给其他数据用。</li>
+<li>还有如果对速度要求苛刻，那么就第一种，如果没那么苛刻，那就第二种</li>
+</ul>
+<p>架构设计没有好坏，只有合适不合适。</p>
+<h2>9. 总结</h2>
+<p>上面分析了这么一大堆，淌过三个的<code>时间与空间的坑</code>，终于基本确定了技术方案了，这其实也是系统架构设计中经常会要遇到的选择了，架构师们把这些选择做完以后，可以开始细分模块设计开发了，所以，一个小小的系统就这么多选择，各种空间和时间的平衡，你说架构师哪那么好当？呵呵，你以为就画完这篇文章的第一图就架构结束了啊。</p>
+<p>这里只是用<code>搜索提示</code>作为一个例子来说明系统设计的时候需要时时刻刻关注<code>时间</code>和<code>空间</code>这两个因素的平衡，现在很多人设计系统的时候基本上不太关注<code>时间</code>，因为高配的服务器，几十上百GB的内存随便用，所以大多数都把设计往<code>空间</code>上去靠，用更多的空间来换取执行效率，这本身并没有什么问题，谁不希望更快啊，但是有时候预估一下，有可能虽然牺牲了一点时间效率，但是换来了不少的空间，这样的系统在数据量变大时有更多的可扩展空间，我觉得是非常值得的交换。</p>
+<p>再有，对<code>数据结构和算法的了解</code>以及<code>预估算能力</code>其实是<code>平衡时间和空间</code>的重要技能，也是架构设计中避坑的基本技能，所以有公司的面试题会出现<strong>请你估算一下黄河出海口的面积</strong>这类估算题，因为<code>预估算能力</code>也是重要的架构技能吧。</p>
+<h2>10. 更深入一下</h2>
+<p>上面只是这个系统的一小部分，搜索提示需要做的远不止如此，想想下面几个场景，如果是你，你要如何设计呢？如何平衡时间和空间呢？欢迎讨论哈：）</p>
+<ul>
+<li>需要拼音支持，就像这样<br>
+<img src="/images/jobbole.com/b3a36854d38bc31bfc6c92cb7a776353.jpg">
+</li>
+<li>需要拼音首字母支持<br>
+<img src="/images/jobbole.com/1c5a7f4d32aa176bf37d0354581f632d.jpg">
+</li>
+<li>某些搜索提示需要更加详细的信息<br>
+<img src="/images/jobbole.com/241b05e637f7d60f727f3007d1669192.jpg">
+</li>
+<li>需要对每个用户的搜索历史进行搜索提示【这个比较难点】<br>
+<img src="/images/jobbole.com/e1a12a87984b3db2d57592e64b6321e9.jpg">
+</li>
+</ul>
+<h2>11. 后记</h2>
+<p>这个<code>坑</code>系列算是结束了，现在我正在做一些推荐广告相关的工作，后续也会分享一些相关的东西给大家，搜索部分也不会停，后面还有分词，相关搜索，分布式的东西会依次出来，欢迎关注哈。</p>
+
+        
+            
+
+    
+
+    
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
