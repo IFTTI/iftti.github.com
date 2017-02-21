@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>一个脚本引发的血案 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2017/2017-02-16-110225-e2d765f79.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>一个脚本引发的血案</h1>
+    <p class="meta"><span class="time">Feb 16, 2017</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/110225/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        			<div class="textwidget">
+</div>
+
+		<p>我们本身是一家互联网金融公司，公司的主流业务就是p2p，因为各种原因吧，15年底启动建设众筹平台。考虑到前期开发过程中的一些弊端和架构经验，本次架构引用了dubbo做soa服务的治理，web容器nginx+tomcat，后端语言采用java,框架选择spring+mybaits,前端模板引擎使用的是btl，app采用原生+h5的模式。这个架构可以参考我之前写的文章《<a href="http://blog.jobbole.com/110234/" target="_blank">从零到百亿互联网金融架构发展史</a>》中的第三代系统架构,之前的文章主要介绍了架构的变迁，本篇文章主要介绍在第三代平台中遇到的问题以及解决方法。</p>
+<p>首先介绍一下众筹系统的部署架构（如下图），网站和app请求都是首先到最前端的nginx,如果只是静态内容的访问nginx直接处理后返回；动态请求分别转发到后端的tomcat前端服务层，前端服务层只关注页面端业务逻辑不涉及数据库的操作，如果只是页面框架渲染以及不涉及数据库的请求，在前端服务层直接处理返回；如果涉及到数据库操作或者核心业务逻辑，前端服务层通过dubbo调用后端的接入层服务或者核心层服务。</p>
+<p><img src="/images/jobbole.com/84046a9fc101f4a4bf2ac37e5a180c29.jpg" alt=""></p>
+<p>上线在生产测试期间，发现tomcat过一段时间就会莫名奇妙的down掉，特别是后端的tomcat down掉的频率比较高。后端的tomcat down掉之后对前端的页面展示没有影响，会影响后端的交易。</p>
+<h3 id="jvm">jvm参数配置</h3>
+<p>查看tomcat业务日志，报错如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224c9c244281130" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+2016-04-14 12:01:55,025 - org.jboss.netty.channel.DefaultChannelPipeline -59679839 [New I/O worker #29] WARN  null -  [DUBBO] An exception was thrown by a user handler while handling an exception event ([id: 0x5f980c11, /xxx:55386 =&gt; /xxx:6666] EXCEPTION: com.alibaba.dubbo.remoting.ExecutionException: class com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler error when process received event .), dubbo version: 2.8.4, current host: xxx
+com.alibaba.dubbo.remoting.ExecutionException: class com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler error when process caught event .
+    at com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler.caught(AllChannelHandler.java:67)
+    at com.alibaba.dubbo.remoting.transport.AbstractChannelHandlerDelegate.caught(AbstractChannelHandlerDelegate.java:44)
+    at com.alibaba.dubbo.remoting.transport.AbstractChannelHandlerDelegate.caught(AbstractChannelHandlerDelegate.java:44)
+    at com.alibaba.dubbo.remoting.transport.AbstractPeer.caught(AbstractPeer.java:127)
+    at com.alibaba.dubbo.remoting.transport.netty.NettyHandler.exceptionCaught(NettyHandler.java:112)
+    at com.alibaba.dubbo.remoting.transport.netty.NettyCodecAdapter$InternalDecoder.exceptionCaught(NettyCodecAdapter.java:165)
+    at org.jboss.netty.channel.Channels.fireExceptionCaught(Channels.java:525)
+    at org.jboss.netty.channel.AbstractChannelSink.exceptionCaught(AbstractChannelSink.java:48)
+    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:296)
+    at com.alibaba.dubbo.remoting.transport.netty.NettyCodecAdapter$InternalDecoder.messageReceived(NettyCodecAdapter.java:148)
+    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:268)
+    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:255)
+    at org.jboss.netty.channel.socket.nio.NioWorker.read(NioWorker.java:88)
+    at org.jboss.netty.channel.socket.nio.AbstractNioWorker.process(AbstractNioWorker.java:109)
+    at org.jboss.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:312)
+    at org.jboss.netty.channel.socket.nio.AbstractNioWorker.run(AbstractNioWorker.java:90)
+    at org.jboss.netty.channel.socket.nio.NioWorker.run(NioWorker.java:178)
+    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)
+    at java.lang.Thread.run(Thread.java:745)
+Caused by: java.lang.OutOfMemoryError: unable to create new native thread
+    at java.lang.Thread.start0(Native Method)
+    at java.lang.Thread.start(Thread.java:714)
+    at java.util.concurrent.ThreadPoolExecutor.addWorker(ThreadPoolExecutor.java:949)
+    at java.util.concurrent.ThreadPoolExecutor.execute(ThreadPoolExecutor.java:1360)
+    at com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler.caught(AllChannelHandler.java:65)
+    ... 19 more</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-6">6</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-8">8</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-10">10</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-12">12</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-14">14</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-16">16</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-18">18</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-20">20</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-22">22</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-24">24</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-26">26</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224c9c244281130-28">28</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224c9c244281130-29">29</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-1">
+<span class="crayon-cn">2016</span><span class="crayon-o">-</span><span class="crayon-cn">04</span><span class="crayon-o">-</span><span class="crayon-cn">14</span><span class="crayon-h"> </span><span class="crayon-cn">12</span><span class="crayon-o">:</span><span class="crayon-cn">01</span><span class="crayon-o">:</span><span class="crayon-cn">55</span><span class="crayon-sy">,</span><span class="crayon-cn">025</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">DefaultChannelPipeline</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-cn">59679839</span><span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-r">New</span><span class="crayon-h"> </span><span class="crayon-v">I</span><span class="crayon-o">/</span><span class="crayon-i">O</span><span class="crayon-h"> </span><span class="crayon-v">worker</span><span class="crayon-h"> </span><span class="crayon-p">#29] WARN  null -  [DUBBO] An exception was thrown by a user handler while handling an exception event ([id: 0x5f980c11, /xxx:55386 =&gt; /xxx:6666] EXCEPTION: com.alibaba.dubbo.remoting.ExecutionException: class com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler error when process received event .), dubbo version: 2.8.4, current host: xxx</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-2">
+<span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">ExecutionException</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">dispatcher</span><span class="crayon-sy">.</span><span class="crayon-v">all</span><span class="crayon-sy">.</span><span class="crayon-e">AllChannelHandler </span><span class="crayon-e">error </span><span class="crayon-e">when </span><span class="crayon-e">process </span><span class="crayon-e">caught </span><span class="crayon-i">event</span><span class="crayon-h"> </span><span class="crayon-sy">.</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-3">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">dispatcher</span><span class="crayon-sy">.</span><span class="crayon-v">all</span><span class="crayon-sy">.</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">67</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-4">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">44</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-5">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">44</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-6">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractPeer</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractPeer</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">127</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-7">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">NettyHandler</span><span class="crayon-sy">.</span><span class="crayon-e">exceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">NettyHandler</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">112</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-8">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">$</span><span class="crayon-v">InternalDecoder</span><span class="crayon-sy">.</span><span class="crayon-e">exceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">165</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-9">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireExceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">525</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-10">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractChannelSink</span><span class="crayon-sy">.</span><span class="crayon-e">exceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractChannelSink</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">48</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-11">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireMessageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">296</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-12">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">$</span><span class="crayon-v">InternalDecoder</span><span class="crayon-sy">.</span><span class="crayon-e">messageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">148</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-13">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireMessageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">268</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-14">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireMessageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">255</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-15">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">read</span><span class="crayon-sy">(</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">88</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-16">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">process</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">109</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-17">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractNioSelector</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractNioSelector</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">312</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-18">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">90</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-19">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">178</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-20">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-e">runWorker</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">1145</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-21">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">$</span><span class="crayon-v">Worker</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">615</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-22">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">lang</span><span class="crayon-sy">.</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">745</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-23">
+<span class="crayon-e">Caused </span><span class="crayon-v">by</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">lang</span><span class="crayon-sy">.</span><span class="crayon-v">OutOfMemoryError</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-e">unable </span><span class="crayon-st">to</span><span class="crayon-h"> </span><span class="crayon-e">create </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-m">native</span><span class="crayon-h"> </span><span class="crayon-e">thread</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-24">
+<span class="crayon-e">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">lang</span><span class="crayon-sy">.</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-e">start0</span><span class="crayon-sy">(</span><span class="crayon-m">Native</span><span class="crayon-h"> </span><span class="crayon-v">Method</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-25">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">lang</span><span class="crayon-sy">.</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-e">start</span><span class="crayon-sy">(</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">714</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-26">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-e">addWorker</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">949</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-27">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-e">execute</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">1360</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224c9c244281130-28">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">dispatcher</span><span class="crayon-sy">.</span><span class="crayon-v">all</span><span class="crayon-sy">.</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">65</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224c9c244281130-29">
+<span class="crayon-h">    </span><span class="crayon-sy">.</span><span class="crayon-sy">.</span><span class="crayon-sy">.</span><span class="crayon-h"> </span><span class="crayon-cn">19</span><span class="crayon-h"> </span><span class="crayon-v">more</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0123 seconds] -->
+<p>查看output日志，发现其中有这么一句。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224caa656258878" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+SEVERE: The web application [/xxx] appears to have started a thread named [DubboResponseTimeoutScanTimer] but has failed to stop it. This is very likely to create a memory leak.</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-58ac1a4224caa656258878-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-58ac1a4224caa656258878-1">
+<span class="crayon-v">SEVERE</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-e">The </span><span class="crayon-e">web </span><span class="crayon-i">application</span><span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-o">/</span><span class="crayon-v">xxx</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-e">appears </span><span class="crayon-st">to</span><span class="crayon-h"> </span><span class="crayon-e">have </span><span class="crayon-i">started</span><span class="crayon-h"> </span><span class="crayon-i">a</span><span class="crayon-h"> </span><span class="crayon-e">thread </span><span class="crayon-i">named</span><span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-v">DubboResponseTimeoutScanTimer</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-e">but </span><span class="crayon-e">has </span><span class="crayon-e">failed </span><span class="crayon-st">to</span><span class="crayon-h"> </span><span class="crayon-e">stop </span><span class="crayon-v">it</span><span class="crayon-sy">.</span><span class="crayon-h"> </span><span class="crayon-r">This</span><span class="crayon-h"> </span><span class="crayon-st">is</span><span class="crayon-h"> </span><span class="crayon-e">very </span><span class="crayon-e">likely </span><span class="crayon-st">to</span><span class="crayon-h"> </span><span class="crayon-i">create</span><span class="crayon-h"> </span><span class="crayon-i">a</span><span class="crayon-h"> </span><span class="crayon-e">memory </span><span class="crayon-v">leak</span><span class="crayon-sy">.</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0012 seconds] -->
+<p>根据日志提示貌似有内存泄露，以前确实还没有碰到过这个错误，一片迷茫。重新启动后，先用命令<code>jstat -gc xxx 1000 30</code>查看java 进程的gc情况，发现在30秒的世界内minor gc了n次，随怀疑年轻代内存配置少了，查看个区域内存的配置参数如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224caf134224041" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+-Xms10g -Xmx10g -XX:PermSize=1g -XX:MaxPermSize=2g -Xshare:off -Xmn1024m</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-58ac1a4224caf134224041-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-58ac1a4224caf134224041-1">
+<span class="crayon-o">-</span><span class="crayon-v">Xms10g</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">Xmx10g</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">XX</span><span class="crayon-o">:</span><span class="crayon-v">PermSize</span><span class="crayon-o">=</span><span class="crayon-cn">1g</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">XX</span><span class="crayon-o">:</span><span class="crayon-v">MaxPermSize</span><span class="crayon-o">=</span><span class="crayon-cn">2g</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">Xshare</span><span class="crayon-o">:</span><span class="crayon-v">off</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">Xmn1024m</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0008 seconds] -->
+<p>按照年轻代为堆内存为百分之三的原则修改为<code>-Xmn4g</code>，重新启动观察之后mimor gc的频率确实有所下降，测试大约过了3小时候之后又反馈tomcat down掉了，继续分析启动参数配置的时候发现了这么一句<code>-XX:-+DisableExplicitGC</code>,显示的禁止了<code>System.gc()</code>,但是使用了java.nio的大量框架中使用<code>System.gc()</code>来执行gc期通过full gc来强迫已经无用的DirectByteBuffer对象释放掉它们关联的native memory,如果禁用会导致OOM,随即怀疑是否是这个参数引发的问题，在启动参数中去掉它。</p>
+<p>为了防止再次出现异常的时候能更加详细的分析堆内存的使用情况，在启动参数中添加了<code>-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/usr/local/logs/java/</code>，当tomcat down的时候让输出堆内存文件，一边也启动jvisualvm工具来实时的监控内存各个线程的使用情况。</p>
+<h3 id="section">数据库连接池</h3>
+<p>继续使用压测工具来压测，在压测的过程中发现名为<code>com.mchange.v2.resourcepool.ssync.ThreadPoolAsynchronousRunner$PoolThred-#xxx</code>的线程不断的增长，并且后台tomcat报错如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224cb3578679875" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+2016-04-13 16:55:15,175 - com.alibaba.dubbo.common.threadpool.support.AbortPolicyWithReport -83649035 [New I/O worker #27] WARN  -  [DUBBO] Thread pool is EXHAUSTED! Thread Name: DubboServerHandler-xxx:6666, Pool Size: 200 (active: 200, core: 200, max: 200, largest: 200), Task: 692 (completed: 492), Executor status:(isShutdown:false, isTerminated:false, isTerminating:false), in dubbo://xxx:6666!, dubbo version: 2.8.4, current host: xxx
+2016-04-13 16:55:15,176 - com.alibaba.dubbo.common.threadpool.support.AbortPolicyWithReport -83649036 [New I/O worker #27] WARN  -  [DUBBO] Thread pool is EXHAUSTED! Thread Name: DubboServerHandler-xxx:6666, Pool Size: 200 (active: 200, core: 200, max: 200, largest: 200), Task: 692 (completed: 492), Executor status:(isShutdown:false, isTerminated:false, isTerminating:false), in dubbo://xxx:6666!, dubbo version: 2.8.4, current host: xxx
+2016-04-13 16:55:15,177 - org.jboss.netty.channel.DefaultChannelPipeline -83649037 [New I/O worker #27] WARN  -  [DUBBO] An exception was thrown by a user handler while handling an exception event ([id: 0x2f345d45, /192.168.57.20:36475 =&gt; /xxx:6666] EXCEPTION: com.alibaba.dubbo.remoting.ExecutionException: class com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler error when process received event .), dubbo version: 2.8.4, current host: xxx
+com.alibaba.dubbo.remoting.ExecutionException: class com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler error when process caught event .
+    at com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler.caught(AllChannelHandler.java:67)
+    at com.alibaba.dubbo.remoting.transport.AbstractChannelHandlerDelegate.caught(AbstractChannelHandlerDelegate.java:44)
+    at com.alibaba.dubbo.remoting.transport.AbstractChannelHandlerDelegate.caught(AbstractChannelHandlerDelegate.java:44)
+    at com.alibaba.dubbo.remoting.transport.AbstractPeer.caught(AbstractPeer.java:127)
+    at com.alibaba.dubbo.remoting.transport.netty.NettyHandler.exceptionCaught(NettyHandler.java:112)
+    at com.alibaba.dubbo.remoting.transport.netty.NettyCodecAdapter$InternalDecoder.exceptionCaught(NettyCodecAdapter.java:165)
+    at org.jboss.netty.channel.Channels.fireExceptionCaught(Channels.java:525)
+    at org.jboss.netty.channel.AbstractChannelSink.exceptionCaught(AbstractChannelSink.java:48)
+    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:296)
+    at com.alibaba.dubbo.remoting.transport.netty.NettyCodecAdapter$InternalDecoder.messageReceived(NettyCodecAdapter.java:148)
+    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:268)
+    at org.jboss.netty.channel.Channels.fireMessageReceived(Channels.java:255)
+    at org.jboss.netty.channel.socket.nio.NioWorker.read(NioWorker.java:88)
+    at org.jboss.netty.channel.socket.nio.AbstractNioWorker.process(AbstractNioWorker.java:109)
+    at org.jboss.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:312)
+    at org.jboss.netty.channel.socket.nio.AbstractNioWorker.run(AbstractNioWorker.java:90)
+    at org.jboss.netty.channel.socket.nio.NioWorker.run(NioWorker.java:178)
+    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)
+    at java.lang.Thread.run(Thread.java:745)
+Caused by: java.util.concurrent.RejectedExecutionException: Thread pool is EXHAUSTED! Thread Name: DubboServerHandler-xxx:6666, Pool Size: 200 (active: 200, core: 200, max: 200, largest: 200), Task: 692 (completed: 492), Executor status:(isShutdown:false, isTerminated:false, isTerminating:false), in dubbo://xxx:6666!
+    at com.alibaba.dubbo.common.threadpool.support.AbortPolicyWithReport.rejectedExecution(AbortPolicyWithReport.java:53)
+    at java.util.concurrent.ThreadPoolExecutor.reject(ThreadPoolExecutor.java:821)
+    at java.util.concurrent.ThreadPoolExecutor.execute(ThreadPoolExecutor.java:1372)
+    at com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler.caught(AllChannelHandler.java:65)
+    ... 19 more</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-6">6</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-8">8</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-10">10</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-12">12</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-14">14</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-16">16</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-18">18</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-20">20</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-22">22</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-24">24</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-26">26</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-28">28</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cb3578679875-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cb3578679875-30">30</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-1">
+<span class="crayon-cn">2016</span><span class="crayon-o">-</span><span class="crayon-cn">04</span><span class="crayon-o">-</span><span class="crayon-cn">13</span><span class="crayon-h"> </span><span class="crayon-cn">16</span><span class="crayon-o">:</span><span class="crayon-cn">55</span><span class="crayon-o">:</span><span class="crayon-cn">15</span><span class="crayon-sy">,</span><span class="crayon-cn">175</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">common</span><span class="crayon-sy">.</span><span class="crayon-v">threadpool</span><span class="crayon-sy">.</span><span class="crayon-v">support</span><span class="crayon-sy">.</span><span class="crayon-v">AbortPolicyWithReport</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-cn">83649035</span><span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-r">New</span><span class="crayon-h"> </span><span class="crayon-v">I</span><span class="crayon-o">/</span><span class="crayon-i">O</span><span class="crayon-h"> </span><span class="crayon-v">worker</span><span class="crayon-h"> </span><span class="crayon-p">#27] WARN  -  [DUBBO] Thread pool is EXHAUSTED! Thread Name: DubboServerHandler-xxx:6666, Pool Size: 200 (active: 200, core: 200, max: 200, largest: 200), Task: 692 (completed: 492), Executor status:(isShutdown:false, isTerminated:false, isTerminating:false), in dubbo://xxx:6666!, dubbo version: 2.8.4, current host: xxx</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-2">
+<span class="crayon-cn">2016</span><span class="crayon-o">-</span><span class="crayon-cn">04</span><span class="crayon-o">-</span><span class="crayon-cn">13</span><span class="crayon-h"> </span><span class="crayon-cn">16</span><span class="crayon-o">:</span><span class="crayon-cn">55</span><span class="crayon-o">:</span><span class="crayon-cn">15</span><span class="crayon-sy">,</span><span class="crayon-cn">176</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">common</span><span class="crayon-sy">.</span><span class="crayon-v">threadpool</span><span class="crayon-sy">.</span><span class="crayon-v">support</span><span class="crayon-sy">.</span><span class="crayon-v">AbortPolicyWithReport</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-cn">83649036</span><span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-r">New</span><span class="crayon-h"> </span><span class="crayon-v">I</span><span class="crayon-o">/</span><span class="crayon-i">O</span><span class="crayon-h"> </span><span class="crayon-v">worker</span><span class="crayon-h"> </span><span class="crayon-p">#27] WARN  -  [DUBBO] Thread pool is EXHAUSTED! Thread Name: DubboServerHandler-xxx:6666, Pool Size: 200 (active: 200, core: 200, max: 200, largest: 200), Task: 692 (completed: 492), Executor status:(isShutdown:false, isTerminated:false, isTerminating:false), in dubbo://xxx:6666!, dubbo version: 2.8.4, current host: xxx</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-3">
+<span class="crayon-cn">2016</span><span class="crayon-o">-</span><span class="crayon-cn">04</span><span class="crayon-o">-</span><span class="crayon-cn">13</span><span class="crayon-h"> </span><span class="crayon-cn">16</span><span class="crayon-o">:</span><span class="crayon-cn">55</span><span class="crayon-o">:</span><span class="crayon-cn">15</span><span class="crayon-sy">,</span><span class="crayon-cn">177</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">DefaultChannelPipeline</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-cn">83649037</span><span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-r">New</span><span class="crayon-h"> </span><span class="crayon-v">I</span><span class="crayon-o">/</span><span class="crayon-i">O</span><span class="crayon-h"> </span><span class="crayon-v">worker</span><span class="crayon-h"> </span><span class="crayon-p">#27] WARN  -  [DUBBO] An exception was thrown by a user handler while handling an exception event ([id: 0x2f345d45, /192.168.57.20:36475 =&gt; /xxx:6666] EXCEPTION: com.alibaba.dubbo.remoting.ExecutionException: class com.alibaba.dubbo.remoting.transport.dispatcher.all.AllChannelHandler error when process received event .), dubbo version: 2.8.4, current host: xxx</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-4">
+<span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">ExecutionException</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">dispatcher</span><span class="crayon-sy">.</span><span class="crayon-v">all</span><span class="crayon-sy">.</span><span class="crayon-e">AllChannelHandler </span><span class="crayon-e">error </span><span class="crayon-e">when </span><span class="crayon-e">process </span><span class="crayon-e">caught </span><span class="crayon-i">event</span><span class="crayon-h"> </span><span class="crayon-sy">.</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-5">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">dispatcher</span><span class="crayon-sy">.</span><span class="crayon-v">all</span><span class="crayon-sy">.</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">67</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-6">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">44</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-7">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractChannelHandlerDelegate</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">44</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-8">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractPeer</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractPeer</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">127</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-9">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">NettyHandler</span><span class="crayon-sy">.</span><span class="crayon-e">exceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">NettyHandler</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">112</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-10">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">$</span><span class="crayon-v">InternalDecoder</span><span class="crayon-sy">.</span><span class="crayon-e">exceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">165</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-11">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireExceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">525</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-12">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractChannelSink</span><span class="crayon-sy">.</span><span class="crayon-e">exceptionCaught</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractChannelSink</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">48</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-13">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireMessageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">296</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-14">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">$</span><span class="crayon-v">InternalDecoder</span><span class="crayon-sy">.</span><span class="crayon-e">messageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">NettyCodecAdapter</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">148</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-15">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireMessageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">268</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-16">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-e">fireMessageReceived</span><span class="crayon-sy">(</span><span class="crayon-v">Channels</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">255</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-17">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">read</span><span class="crayon-sy">(</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">88</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-18">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">process</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">109</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-19">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractNioSelector</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractNioSelector</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">312</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-20">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">AbstractNioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">90</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-21">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">org</span><span class="crayon-sy">.</span><span class="crayon-v">jboss</span><span class="crayon-sy">.</span><span class="crayon-v">netty</span><span class="crayon-sy">.</span><span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-v">socket</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">NioWorker</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">178</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-22">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-e">runWorker</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">1145</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-23">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">$</span><span class="crayon-v">Worker</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">615</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-24">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">lang</span><span class="crayon-sy">.</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">745</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-25">
+<span class="crayon-e">Caused </span><span class="crayon-v">by</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">RejectedExecutionException</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-e">Thread </span><span class="crayon-e">pool </span><span class="crayon-st">is</span><span class="crayon-h"> </span><span class="crayon-v">EXHAUSTED</span><span class="crayon-o">!</span><span class="crayon-h"> </span><span class="crayon-e">Thread </span><span class="crayon-v">Name</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-v">DubboServerHandler</span><span class="crayon-o">-</span><span class="crayon-v">xxx</span><span class="crayon-o">:</span><span class="crayon-cn">6666</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">Pool </span><span class="crayon-v">Size</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">200</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">active</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">200</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">core</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">200</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">max</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">200</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">largest</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">200</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Task</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">692</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">completed</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-cn">492</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">Executor </span><span class="crayon-v">status</span><span class="crayon-o">:</span><span class="crayon-sy">(</span><span class="crayon-v">isShutdown</span><span class="crayon-o">:</span><span class="crayon-t">false</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">isTerminated</span><span class="crayon-o">:</span><span class="crayon-t">false</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">isTerminating</span><span class="crayon-o">:</span><span class="crayon-t">false</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-st">in</span><span class="crayon-h"> </span><span class="crayon-v">dubbo</span><span class="crayon-o">:</span><span class="crayon-c">//xxx:6666!</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-26">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">common</span><span class="crayon-sy">.</span><span class="crayon-v">threadpool</span><span class="crayon-sy">.</span><span class="crayon-v">support</span><span class="crayon-sy">.</span><span class="crayon-v">AbortPolicyWithReport</span><span class="crayon-sy">.</span><span class="crayon-e">rejectedExecution</span><span class="crayon-sy">(</span><span class="crayon-v">AbortPolicyWithReport</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">53</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-27">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-e">reject</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">821</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-28">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">concurrent</span><span class="crayon-sy">.</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-e">execute</span><span class="crayon-sy">(</span><span class="crayon-v">ThreadPoolExecutor</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">1372</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cb3578679875-29">
+<span class="crayon-h">    </span><span class="crayon-e">at </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">alibaba</span><span class="crayon-sy">.</span><span class="crayon-v">dubbo</span><span class="crayon-sy">.</span><span class="crayon-v">remoting</span><span class="crayon-sy">.</span><span class="crayon-v">transport</span><span class="crayon-sy">.</span><span class="crayon-v">dispatcher</span><span class="crayon-sy">.</span><span class="crayon-v">all</span><span class="crayon-sy">.</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-e">caught</span><span class="crayon-sy">(</span><span class="crayon-v">AllChannelHandler</span><span class="crayon-sy">.</span><span class="crayon-v">java</span><span class="crayon-o">:</span><span class="crayon-cn">65</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cb3578679875-30">
+<span class="crayon-h">    </span><span class="crayon-sy">.</span><span class="crayon-sy">.</span><span class="crayon-sy">.</span><span class="crayon-h"> </span><span class="crayon-cn">19</span><span class="crayon-h"> </span><span class="crayon-v">more</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0155 seconds] -->
+<p>根据这些信息随怀疑数据库连接池有问题，为了更好的监控连接池的使用，因此前期使用c3p0也会出现的一些问题，所以我们决定将数据库连接池替换成druid，已经在别的项目中使用测试过，因此非常快速的更换投产。投产后继续用压测工具来测试，根据druid的后台监控页面发现（项目地址/druid/index.html），每次前端掉用一次数据库连接就加一次,执行完成之后数据库连接并没有释放。如下图红色区域，我们将数据库连接池调整成1000,不一会就占满了。</p>
+<p><img src="/images/jobbole.com/37bdc3362bf7c99e95faf999010fe22f.jpg" alt=""></p>
+<p>根据这些信息判断出，数据库执行sql后肯定没有释放数据库连接，导致数据库连接池用满后，后续的线程无法执行，检查代码之后发现果然有问题,请看下方代码，我们最先使用的是SqlSessionFactory，如果使用SqlSessionFactory,在执行完sql后必须要执行<code>session.close()</code>来关闭连接，才会被连接池重新回收。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224cbb583922387" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+public class SessionFactory {
+    @Resource
+    private SqlSessionFactory coreSqlSessionFactory;
+    protected SqlSession getSession() {
+		return coreSqlSessionFactory.openSession();
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac1a4224cbb583922387-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cbb583922387-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cbb583922387-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cbb583922387-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cbb583922387-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cbb583922387-6">6</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cbb583922387-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac1a4224cbb583922387-1">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">SessionFactory</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cbb583922387-2">
+<span class="crayon-h">    </span><span class="crayon-sy">@</span><span class="crayon-e">Resource</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cbb583922387-3">
+<span class="crayon-e">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">SqlSessionFactory </span><span class="crayon-v">coreSqlSessionFactory</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cbb583922387-4">
+<span class="crayon-h">    </span><span class="crayon-m">protected</span><span class="crayon-h"> </span><span class="crayon-e">SqlSession </span><span class="crayon-e">getSession</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cbb583922387-5">
+<span class="crayon-h">		</span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">coreSqlSessionFactory</span><span class="crayon-sy">.</span><span class="crayon-e">openSession</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cbb583922387-6">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cbb583922387-7"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224cc1920889199" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+public class BaseDao extends SessionFactory{
+    public void add(Entity entity) {
+    	this.getSession().update(entity.getClass().getSimpleName()+"."+Thread.currentThread().getStackTrace()[2].getMethodName(), entity);
+    }
+}    </textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac1a4224cc1920889199-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc1920889199-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc1920889199-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc1920889199-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc1920889199-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac1a4224cc1920889199-1">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">BaseDao</span><span class="crayon-h"> </span><span class="crayon-r">extends</span><span class="crayon-h"> </span><span class="crayon-e">SessionFactory</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc1920889199-2">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">add</span><span class="crayon-sy">(</span><span class="crayon-e">Entity </span><span class="crayon-v">entity</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc1920889199-3">
+<span class="crayon-h">    	</span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-e">getSession</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">update</span><span class="crayon-sy">(</span><span class="crayon-v">entity</span><span class="crayon-sy">.</span><span class="crayon-e">getClass</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">getSimpleName</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-o">+</span><span class="crayon-s">"."</span><span class="crayon-o">+</span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-e">currentThread</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">getStackTrace</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">[</span><span class="crayon-cn">2</span><span class="crayon-sy">]</span><span class="crayon-sy">.</span><span class="crayon-e">getMethodName</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">entity</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc1920889199-4">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc1920889199-5">
+<span class="crayon-sy">}</span><span class="crayon-h">    </span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0015 seconds] -->
+<p>但是使用SqlSessionTemplate却不用手动执行代码来关闭session,因此我们把上面SessionFactory类中的代码改成SqlSessionTemplate（如下），此问题便解决了。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224cc5596805038" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+public class SessionFactory {
+    @Resource  
+    public SqlSessionTemplate coreSqlSession;
+    protected SqlSessionTemplate getSession() {
+    	return coreSqlSession;
+    }
+}  </textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac1a4224cc5596805038-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc5596805038-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc5596805038-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc5596805038-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc5596805038-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc5596805038-6">6</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc5596805038-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac1a4224cc5596805038-1">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">SessionFactory</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc5596805038-2">
+<span class="crayon-h">    </span><span class="crayon-sy">@</span><span class="crayon-e">Resource  </span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc5596805038-3">
+<span class="crayon-e">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">SqlSessionTemplate </span><span class="crayon-v">coreSqlSession</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc5596805038-4">
+<span class="crayon-h">    </span><span class="crayon-m">protected</span><span class="crayon-h"> </span><span class="crayon-e">SqlSessionTemplate </span><span class="crayon-e">getSession</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc5596805038-5">
+<span class="crayon-h">    	</span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">coreSqlSession</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc5596805038-6">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc5596805038-7">
+<span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+<p></p>
+<h3 id="section-1">诡异的脚本</h3>
+<p>做完上面的优化之后，我们感觉问题应该解决了，但过了一段时间后tomcat又诡异的挂了，继续分析gc情况，分阶段使用<code>jmap -dump:live,format=b,file=dump.hprof xxx</code>命令生成堆转储快照来对比堆内存使用情况，监控线程使用情况，均发现没有问题。这个问题困扰了我们好几天，每天都监控这端口，一但发现tomcat down之后马上通知运营人员重启。一方面我们也查阅了各种资料，到网上查找各种tomcat自动down的原因，一一在我们服务器进行了测试、修复均不起作用。</p>
+<p>终于在google各种tomcat down原因的时候发现了这么一篇文章<a href="http://ifeve.com/why-kill-2-cannot-stop-tomcat/">Tomcat进程意外退出的问题分析</a>，立刻想起了我们最近使用的一个脚本来，因为我们的tomcat禁止了通过bat文件来关闭，因此为了启动方便我们写了一个脚本文件，方便通过脚本来启动、停止、重启tomcat文件，这是这个脚本导致tomcat down的原因，不不，不叫原因叫元凶！脚本内容如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac1a4224cc8923040925" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+#!/bin/sh
+# eg: tomcat.sh start xxx
+#
+proc_dir="/usr/local/xxx/tomcat-zc-web/bin"
+proc_name=$2
+if [ x$proc_name != x ]
+then
+	proc_dir=${proc_dir//xxx/$proc_name}
+fi
+#echo $proc_dir
+function stop () {
+  kill -9 `ps -ef |grep $proc_dir |grep -v grep|awk '{print $2}'`
+}
+
+function start () {
+  cd $proc_dir
+  ./startup.sh
+  tail -300f /usr/local/logs/tomcat-business/$proc_name.log
+}
+
+case $1 in 
+  start)
+	start;;
+  stop)
+	stop;;
+  restart)
+	stop
+	start;;
+esac</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-6">6</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-8">8</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-10">10</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-12">12</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-14">14</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-16">16</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-18">18</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-20">20</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-22">22</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-24">24</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-26">26</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac1a4224cc8923040925-28">28</div>
+<div class="crayon-num" data-line="crayon-58ac1a4224cc8923040925-29">29</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-1"><span class="crayon-p">#!/bin/sh</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-2"><span class="crayon-p"># eg: tomcat.sh start xxx</span></div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-3"><span class="crayon-p">#</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-4">
+<span class="crayon-v">proc_dir</span><span class="crayon-o">=</span><span class="crayon-s">"/usr/local/xxx/tomcat-zc-web/bin"</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-5">
+<span class="crayon-v">proc_name</span><span class="crayon-o">=</span><span class="crayon-sy">$</span><span class="crayon-cn">2</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-6">
+<span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">[</span><span class="crayon-h"> </span><span class="crayon-v">x</span><span class="crayon-sy">$</span><span class="crayon-v">proc_name</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-i">x</span><span class="crayon-h"> </span><span class="crayon-sy">]</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-7"><span class="crayon-st">then</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-8">
+<span class="crayon-h">	</span><span class="crayon-v">proc_dir</span><span class="crayon-o">=</span><span class="crayon-sy">$</span><span class="crayon-sy">{</span><span class="crayon-v">proc_dir</span><span class="crayon-c">//xxx/$proc_name}</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-9"><span class="crayon-v">fi</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-10"><span class="crayon-p">#echo $proc_dir</span></div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-11">
+<span class="crayon-t">function</span><span class="crayon-h"> </span><span class="crayon-e">stop</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-12">
+<span class="crayon-h">  </span><span class="crayon-v">kill</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-cn">9</span><span class="crayon-h"> </span><span class="crayon-sy">`</span><span class="crayon-v">ps</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-v">ef</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-i">grep</span><span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-v">proc_dir</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-v">grep</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-i">v</span><span class="crayon-h"> </span><span class="crayon-v">grep</span><span class="crayon-o">|</span><span class="crayon-i">awk</span><span class="crayon-h"> </span><span class="crayon-s">'{print $2}'</span><span class="crayon-sy">`</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-13"><span class="crayon-sy">}</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-14"> </div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-15">
+<span class="crayon-t">function</span><span class="crayon-h"> </span><span class="crayon-e">start</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-16">
+<span class="crayon-h">  </span><span class="crayon-i">cd</span><span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-v">proc</span><span class="crayon-sy">_</span>dir</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-17">
+<span class="crayon-h">  </span><span class="crayon-sy">.</span><span class="crayon-o">/</span><span class="crayon-v">startup</span><span class="crayon-sy">.</span><span class="crayon-e">sh</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-18">
+<span class="crayon-e">  </span><span class="crayon-v">tail</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-cn">300f</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-v">usr</span><span class="crayon-o">/</span><span class="crayon-v">local</span><span class="crayon-o">/</span><span class="crayon-v">logs</span><span class="crayon-o">/</span><span class="crayon-v">tomcat</span><span class="crayon-o">-</span><span class="crayon-v">business</span><span class="crayon-o">/</span><span class="crayon-sy">$</span><span class="crayon-v">proc_name</span><span class="crayon-sy">.</span><span class="crayon-i">log</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-19"><span class="crayon-sy">}</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-20"> </div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-21">
+<span class="crayon-st">case</span><span class="crayon-h"> </span><span class="crayon-sy">$</span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-st">in</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-22">
+<span class="crayon-h">  </span><span class="crayon-v">start</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-23">
+<span class="crayon-h">	</span><span class="crayon-v">start</span><span class="crayon-sy">;</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-24">
+<span class="crayon-h">  </span><span class="crayon-v">stop</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-25">
+<span class="crayon-h">	</span><span class="crayon-v">stop</span><span class="crayon-sy">;</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-26">
+<span class="crayon-h">  </span><span class="crayon-v">restart</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-27">
+<span class="crayon-h">	</span><span class="crayon-e">stop</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac1a4224cc8923040925-28">
+<span class="crayon-e">	</span><span class="crayon-v">start</span><span class="crayon-sy">;</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-58ac1a4224cc8923040925-29"><span class="crayon-v">esac</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0030 seconds] -->
+<p>就是因为<code>tail -300f /usr/local/logs/tomcat-business/$proc_name.log</code>这一句导致的问题，在别的项目使用的时候其实是没有这一句的，一般在使用的步骤是：</p>
+<ul>
+<li>1 执行<code>tomcat.sh start xxx</code>启动tomcat,</li>
+<li>2 执行<code>tail -300f /usr/local/logs/tomcat-business/xxx.log</code> 查看启动日志是否成功。</li>
+</ul>
+<p>在这次投产的时候为了省一步操作，就将执行查看日志的命令，直接加在了启动命令的后面，当执行<code>tomcat.sh start xxx</code>这个命令的时候，即启动的tomcat，也自动会打印出tomcat的日志，那时候的想法非常好。</p>
+<p>原因是，使用脚本命令启动后因为使用了<code>tail -300f xxx</code> 命令，tomcat的进程会成为shell脚本的子进程，这样的话，如过shell脚本停止的话，系统会自动杀掉tomcat进程导致tomcat down掉，在我们的脚本中去掉这条命令tomcat就正常了，更深层次的原因参考<a href="http://ifeve.com/why-kill-2-cannot-stop-tomcat/">Tomcat进程意外退出的问题分析</a>这篇文章，文章的内容还是分析的比较透彻，最后感觉阿里的技术真的很牛X，这篇文章也是出自于阿里的员工。</p>
+<blockquote></blockquote>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2017/2017-02-16-109905-6aff21c32.html" title="Previous Post: 坑：缓存 + 哈希 = 高并发？" data-instant>&laquo; 坑：缓存 + 哈希 = 高并发？</a>
+
+    <a class="basic-alignment right" href="/posts/2017/2017-02-16-110262-6cc44fd42.html" title="Next Post: 全球分布式数据库：Google Spanner（论文翻译）" data-instant>全球分布式数据库：Google Spanner（论文翻译） &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

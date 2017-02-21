@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>坑：时间和空间的平衡 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2017/2017-02-18-109906-fee12d7c3.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>坑：时间和空间的平衡</h1>
+    <p class="meta"><span class="time">Feb 18, 2017</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/109906/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        			<div class="textwidget">
+</div>
+
+		<p>这是<code>坑</code>系列的最后一弹了，这篇文章非常长，希望你能看完，要是看完有很酣畅的感觉就最好了。这一篇的<code>坑</code>主要来说说架构中<code>时间和空间的平衡</code>吧，这里的时间指代比较广，可能是<code>开发时间</code>，但大部分指的是执行时间，也就是算法的<code>时间复杂度</code>了，而<code>空间</code>就是算法中经常说的<code>空间换时间</code>中的<code>空间</code>了，一个好的系统，设计出来必然是各种<code>时间复杂度</code>和<code>空间复杂度</code>平衡出来的结果，架构设计的过程，并不仅仅是模块的堆叠，在走到岔路口的时候，更多的是<code>时间和空间平衡</code>之后选的一个技术方案，这一篇，我会用一个<code>搜索提示服务设计</code>的实际例子，来说一下架构设计的过程中，<code>时间和空间</code>的各种矛盾，怎么分析，怎么选择，最后淌过这些<code>时空的坑</code>。</p>
+<h2>0. 搜索提示是什么</h2>
+<p>搜索提示是搜索引擎的重要组成部分，虽然一般是作为一个单独的服务来对外提供服务，但在一个搜索系统中，搜索提示是非常重要的组成部分，我还没看到哪个比较成熟的搜索引擎没有搜索提示功能的。</p>
+<p>首先，我们看看搜索提示是什么，大家肯定都用过，就是下面这些个东西</p>
+<p><img src="/images/jobbole.com/de4de2e3c69af3e98ba10d89c6297335.jpg"></p>
+<h2>1. 搜索提示的场景和目的</h2>
+<p>搜索提示一般情况下是为了提高用户的搜索体验，更快的选择合适的搜索词，提高检索的效率的，但是因为搜索框的流量实在是太大了，所以搜索提示也扮演着广告变现的责任，互联网嘛，有流量就有变现，比如下面这个图，明显就是一个广告啦。</p>
+<p><img src="/images/jobbole.com/e43d664cc723bbf35bd788c78c1c1b89.jpg"></p>
+<h2>2. 初步技术选型</h2>
+<h3>2.1 搜索提示的需求</h3>
+<p>要实现一个搜索提示系统，首先需要确定的是需要提示出来什么东西，有两种提示方式。</p>
+<ul>
+<li>一种是提示出其他的搜索词，这也是大部分的搜索提示所做的，提示出其他用户的类似搜索词。</li>
+<li>还有一种是提示出现有的结果集有的东西，这种实现方式比较少见，比如一个生鲜类的电商网站，商品数量比较少，那么没必要去提示一些用户的搜索词，直接把商品名称（比如苹果，桃子，橘子）提示出来就行了，这种提示方式我们这里不讨论，因为实现起来比较简单。</li>
+</ul>
+<h3>2.2 技术栈</h3>
+<p>既然知道需求了，那么开始选择技术栈了。</p>
+<ul>
+<li>首先，既然有其他用户的搜索词，那么必然有一个离线的数据收集和处理的系统来完成其他用户的搜索日志处理，生成需要的数据。</li>
+<li>其次，需要一个单独的API服务，来提供搜索提示的功能，输入为不完整的搜索词，输出为根据这个搜索词提示出来的其他搜索词，检索方式的话，一般都是使用前缀匹配的方式了，这个大家都比较认可。</li>
+<li>最后，需要前端有个js代码来实时调用后台的API，这个不在我们的讨论范围内。</li>
+</ul>
+<p>整个系统的结构图应该是下面这个样子，离线模块处理完日志数据以后，推送到API模块中，给前面的前端提供服务。</p>
+<p><img src="/images/jobbole.com/18326008cc57ef2439f373d4a589ff0c.jpg"></p>
+<p>好了，框框设计好了。也就是架构图完成了哦，真是牛逼的架构啊，三个框，离线，在线，前端全齐了。</p>
+<p>接下来，我们来看看在线API部分的设计吧，我们先假设离线数据都已经准备好了，就是一堆用户的搜索词，如何快速的前缀匹配这些词就成了API设计部分的关键了，有这么几种实现方式。</p>
+<ul>
+<li>粗暴的短平快方式</li>
+</ul>
+<blockquote></blockquote>
+<ul>
+<li>优雅点的实现方式</li>
+</ul>
+<blockquote></blockquote>
+<ul>
+<li>复杂点的实现方式</li>
+</ul>
+<blockquote></blockquote>
+<h2>3. 时间与空间的平衡一</h2>
+<p>实际工程应用中，这三种实现方式我都见过，而且有些实现方式是把这三种结合起来使用了，后面的文章我会说到。</p>
+<p>具体使用哪一种需要看你的实际场景，这三种实现方式差不多正好对应三种场景。</p>
+<ul>
+<li>如果你是个小型的电商或者论坛之类的，每天的搜索量也不是很大，而且在可见的未来也不会变得很大，而且也不差钱，那么直接第一种，说不定一天就能撸出来，速度还不错，但是这种有一些缺陷，首先，value值不能太复杂，影响效率，所以可扩展性不是很强，而现在的电商搜索提示中往往还有很多其他信息需要保存，redis作为缓存服务器提供高并发服务的前提是数据量比较小，最好在2K以内，这样的话用redis就有点不合适了。<code>这种方案是个存空间的选择了，用空间换取了检索时间和开发时间，多亏有redis这种神器。</code>
+</li>
+<li>如果是个大型的搜索引擎或者电商，搜索日志已经是巨量了，而且搜索词多种多样，那么第三种倒排索引技术为基础的实现方式可能是更好的选择，而且既然是大搜，技术都是现成的，索引分片，集群都是现成的，直接改了上就是。<code>这种方式用长期的开发时间和检索速度上稍微的降低换取了内存空间，如果从头开始做的话，时间成本比较高。</code>
+</li>
+<li>大部分时候，第二种实现方式是大家都采用的方式，首先没有第一种那么粗暴，并且能完成方案一的所以功能，单机就能达到较好的效果，也不用索引分片，也不用集群，所以工程复杂性不是很高，也能在较短的时间内实现出来。其次第二种方案可扩展性较强，后面挂个倒排文件就可以变成简化版的第三方案。<code>这种方式用算法换取了内存空间，用O(n)替代了O(1)，换取了内存空间，也是标准的计算机领域的时间换空间了。</code>
+</li>
+</ul>
+<p>通过一番分析下来，决定使用第二种实现方式，就是Trie树的方式了，好了，API的基本选型确定了，那么开始设计，准备写代码吧。</p>
+<h2>4. Trie树的多种结构</h2>
+<p>既然确定了<code>Trie树</code>的实现方式，那么首先要了解一下<code>Trie树</code>吧，以及<code>Trie树</code>的各种结构，看看具体用哪个吧。</p>
+<h3>4.1 基本Trie树</h3>
+<p><code>Trie树</code>又叫<code>字典树</code>，本质上是一个多叉树，每一个节点就是一个多叉的结构，如果是英文的匹配，那么是一个<code>26叉树</code>，每个节点一个26长度的数组，每个节点的数据结构如下</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac16f140039964013375" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" touchscreen minimize scroll-mouseover" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+type TrieNode struct{
+    flag       bool     //是否是一个完整的词
+    hasNext bool    //是否还有后继字符
+    nexts    [26]*TrieNode
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac16f140039964013375-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140039964013375-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac16f140039964013375-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140039964013375-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac16f140039964013375-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac16f140039964013375-1">
+<span class="crayon-e">type</span><span class="crayon-h"> </span><span class="crayon-e">TrieNode</span><span class="crayon-h"> </span><span class="crayon-t">struct</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140039964013375-2">
+<span class="crayon-h">    </span><span class="crayon-e">flag       </span><span class="crayon-t">bool</span><span class="crayon-h">     </span><span class="crayon-c">//是否是一个完整的词</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140039964013375-3">
+<span class="crayon-h">    </span><span class="crayon-e">hasNext </span><span class="crayon-t">bool</span><span class="crayon-h">    </span><span class="crayon-c">//是否还有后继字符</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140039964013375-4">
+<span class="crayon-h">    </span><span class="crayon-i">nexts</span><span class="crayon-h">    </span><span class="crayon-sy">[</span><span class="crayon-cn">26</span><span class="crayon-sy">]</span><span class="crayon-o">*</span><span class="crayon-i">TrieNode</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140039964013375-5"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+<p>而<code>Trie树</code>画出来就是下面这个样子。</p>
+<p><img src="/images/jobbole.com/c7ef4d698eb434942fa5578b62f96988.jpg"></p>
+<p>从画出来的图，很直观的可以看出来这棵树的构造方法和遍历方法，如果是纯英文的话，每个节点都有一个26长度的数组，来了一个字符，通过字符的编号直接就可以遍历到下一个节点，查找的时候复杂度就是O(K)，K表示查找的字符串长度，这种数据结构简单明了，实现起来也很容易。</p>
+<h3>4.2 优化后的Trie树</h3>
+<p>基本Trie树的数据结构有个问题，就是内存使用得太多了，如果是中文查找的话，需要把所有的中国字都编号到这个数组中，内存就爆了，于是有一种优化方法，就是把数组变成变长的，这种Trie树的节点数据结构变成下面的样子了，节点查找变成一个顺序查找或者二分查找了。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-58ac16f140044298381988" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" touchscreen minimize scroll-mouseover" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+type TrieNode struct{
+    flag       bool     //是否是一个完整的词
+    hasNext bool    //是否还有后继字符
+    nexts    []*TrieNode //变成变长数组了
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-58ac16f140044298381988-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140044298381988-2">2</div>
+<div class="crayon-num" data-line="crayon-58ac16f140044298381988-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-58ac16f140044298381988-4">4</div>
+<div class="crayon-num" data-line="crayon-58ac16f140044298381988-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-58ac16f140044298381988-1">
+<span class="crayon-e">type</span><span class="crayon-h"> </span><span class="crayon-e">TrieNode</span><span class="crayon-h"> </span><span class="crayon-t">struct</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140044298381988-2">
+<span class="crayon-h">    </span><span class="crayon-e">flag       </span><span class="crayon-t">bool</span><span class="crayon-h">     </span><span class="crayon-c">//是否是一个完整的词</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140044298381988-3">
+<span class="crayon-h">    </span><span class="crayon-e">hasNext </span><span class="crayon-t">bool</span><span class="crayon-h">    </span><span class="crayon-c">//是否还有后继字符</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-58ac16f140044298381988-4">
+<span class="crayon-h">    </span><span class="crayon-i">nexts</span><span class="crayon-h">    </span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-o">*</span><span class="crayon-v">TrieNode</span><span class="crayon-h"> </span><span class="crayon-c">//变成变长数组了</span>
+</div>
+<div class="crayon-line" id="crayon-58ac16f140044298381988-5"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0008 seconds] -->
+<p></p>
+<h3>4.3 双数组Trie树</h3>
+<p>所谓双数组Trie树，当然就是通过两个数组来实现这棵树了，这两个数组分别叫<code>base数组</code>和<code>check数组</code>，一个是基础数组，一个是检查数组。</p>
+<p>Trie树实际上是一种<code>有限状态机</code>，通过<code>状态转移矩阵</code>在各个状态之间跳转，双数组Trie树极大的节省了空间，大致就是下面这个样子，我后面会有一篇专门的文章来说Trie树实现的，这里就不详细展开了，实在等不及的可以自己先搜索一下相关资料看看双数组Trie树吧。</p>
+<p><img src="/images/jobbole.com/3985901888740f1d02c58f1455a28151.jpg"></p>
+<h2>5. 时间与空间的平衡二</h2>
+<p>OK，三种Trie树的实现方式都说了，现在要开始抉择了，我们先看看这三种数据结构的时间和空间。</p>
+<blockquote>
+<p>第一种空间占用大，特别是中文的情况，检索的时间效率为O(n)，其中n为<code>每次请求</code>的字符串的长度，这种实现方式基本上属于新人练手的水平，纯粹为了了解这个数据结构或者大学生做做课程设计，工程化的可能性几乎为0。</p>
+<p>第二种空间基本不浪费，但检索的时间效率如果按照二分进行每个节点的查找的话，每个节点的查找时间变成了O(lg(n))，整体的查找时间变成K*O(log(n))，同样插入效率也变低了。</p>
+</blockquote>
+<p>初看，肯定选第三种了，但是！！第三种实现方式有个致命的缺陷，就是无法向下遍历（<code>具体可以自己看看双数组的实现方式</code>），也就是说我输入<code>北京</code>，找不到<code>北京大学，北京爱上西雅图</code>，因为它已经不是一个树型结构了，无法向下遍历了。所以如果不对第三种结构进行改造的话，是无法满足我们的功能的。</p>
+<p>要改造，最简单的办法就是在每个词后面挂一个链表，表示这个词的后继词都是什么，像下图这样。</p>
+<p><img src="/images/jobbole.com/1ab2964dab44376e3db493db3dc32c94.jpg"></p>
+<p>如果按上图那么来的话，需要辅助的空间来存储后继词，那么问题又来了，又是一次时间和空间的抉择了，是选择<code>K*O(log(n))</code>的第二种方案，然后后继词实时遍历树来获取(又要耗费一定的时间)，还是选择选择第三种方案，用空间换取时间呢？</p>
+<p>好，既然这样，我们来仔细算算这个账，我们以每个节点都存一个中文来算，虽然常用的汉字大概2500个，但其中最常用的才500左右。</p>
+<p>先看第二种方案，那么我们大概估算出，每个节点的平均数组长度大概600<code>（实际上除了第一层的节点，后面的节点数组长度完全达不到这个量级，用600属于极限估算了）</code>，600的二分查找大约需要7到8次，取个平均值4次，那么每次查询的时间就是<code>4*K（K是字符串的长度）</code>，如果我们定好最长的提示词不超过8个字（太长也没意义），那么首先这个树的高度就是8了，如果50万的词量的话，使用多少内存大概能算出来，然后每次遍历下级节点的时间就是<code>600^(8-K)</code>（如果数组的每个元素都有值），我去，这么大，吓死了，好，我们即便假设每个节点的数组长度平均为60，要遍历完也要<code>60^(8-K)</code>，也吓尿了，所以实时遍历所有子节点的方式不可取，而且后继词最多也就提示出10个，遍历出这么多词还要排序，遍历全部节点实在是没有必要，所以，第二种方案要么放弃，要么也要改造，如何改造呢？</p>
+<p>因为词基本上都是离线算好的，稍微把节点的数据结构优化一下，在节点中加一个字段，表示哪个子节点有需要的数据（排序前10的词），这样往下遍历的时候就直接遍历相应的下标就可以了，就能把<code>60^(8-K)</code>这种遍历减少到几十次，从而找到10个提示词，我们把这个结构叫<code>二次优化的Trie树</code>。</p>
+<p><code>这一轮的时间和空间的比拼，第三个方案感觉就要胜利了，但第二个方案的优化版貌似也还能接受，一个耗费空间，查询速度快，一个节省空间，查询速度慢点。</code></p>
+<blockquote></blockquote>
+<h2>6. 离线数据处理</h2>
+<p>好了，我们先把检索部分放一放，来看看离线数据处理部分吧。我们先要确定一下什么东西需要在离线部分算好，什么东西需要在线处理？</p>
+<ul>
+<li>首先，日志的清洗肯定是离线部分了，我们先要把没有搜索结果的词去掉，然后去掉太长的词（假定超过8的都不要），然后保留有一定热度的词（比如每天搜索量超过10次的词），等等一些规则以后，假如剩下了50万的词，那这50万就是我们的基础数据了。</li>
+<li>其次，<code>Trie树</code>的构建是离线构建好还是实时往服务推送由服务端去构建呢？</li>
+<li>还有，排序的时候是离线给每个搜索词打个分，然后实时排序呢？还是离线把序都排好，服务端直接使用结果呢？</li>
+</ul>
+<h2>7. 时间与空间的平衡三</h2>
+<p>虽然是离线处理，但一样有时间和空间的选择。</p>
+<p>我们先来看构建部分，<code>Trie树的构建是离线构建好还是实时往服务推送由服务端去构建</code>，首先我们需要确定的是这个<code>搜索提示</code>服务需不需要实时更新，一般情况下，<code>搜索提示</code>没有那么强的实时性要求，一般一天或者两天更新一次体验也不会太差，所以做实时更新的搜索提示，要不就是你实在是太蛋疼了，要不就是遇到了一个特别让人蛋疼的产品经理（<code>卧槽，黑了一下产品经理啊</code>）。所以我们使用离线构建的方式构建好两个数组和辅助的数据结构，都存在磁盘上，服务端启动的时候读取文件就行了，这是用离线时间换取的服务端的时间，是很划得来的。</p>
+<p>再来看看排序的部分，很明显，排序离线做好也比较合适，排序的位置基本不会有太大的变化，但是如果排序离线做好的话，那么辅助的数据结构就会比较大了，因为每个前缀后面跟着的10个词都要排好序放在辅助结构中，但如果我们只是把每个词打个分（比如就按热度给个分），然后用第二个方案<code>（优化的Trie树）</code>的存储方式，在线的时候去排序，那么辅助结构就会小很多，两种情况的结构大概就是下面这样的区别。</p>
+<p><img src="/images/jobbole.com/e5c494a331d3d2d8cbdfce4fd6094a52.jpg"></p>
+<p>左边的是全排序好了的，直接使用，双数组Trie树+辅助结构方式；右边的是只是打了分的，优化的Trie树，遍历出结果以后实时排序的。</p>
+<p>离线排序的空间占用大，即便优化一下，把词都放一个地方单独存着，辅助结构中只保存词的编号，一样也比较占地方，但是查询速度快啊。在线排序的方式不怎么占地方，就是每个节点多了一个分数的字段，需要实时排序一下，虽然是实时排序，但个数就10个，不管是快排还是堆排，都很快的，所以时间效率也慢不到哪去。</p>
+<h2>8. 整体的时空平衡</h2>
+<p>综合衡量一看，我个人觉得两种方式都能接受，具体选哪一个就仁者见仁了。</p>
+<ul>
+<li>如果搜索词的量比较稳定，不会有太大的变化，那么使用<code>双数组Trie树+辅助数据结构+离线构建Trie树+离线排序</code>的方式更合适。</li>
+<li>如果搜索词虽然现在是50万，但很可能会增加得比较多，或者像下图一样，搜索提示的页面还会承载很多其他的数据的话，那么使用<code>二次优化的Trie树+离线构建Trie树+离线打分+实时排序</code>的实现方式更合适，因为能节省更多的内存给后续扩充词语用或者给其他数据用。</li>
+<li>还有如果对速度要求苛刻，那么就第一种，如果没那么苛刻，那就第二种</li>
+</ul>
+<p>架构设计没有好坏，只有合适不合适。</p>
+<h2>9. 总结</h2>
+<p>上面分析了这么一大堆，淌过三个的<code>时间与空间的坑</code>，终于基本确定了技术方案了，这其实也是系统架构设计中经常会要遇到的选择了，架构师们把这些选择做完以后，可以开始细分模块设计开发了，所以，一个小小的系统就这么多选择，各种空间和时间的平衡，你说架构师哪那么好当？呵呵，你以为就画完这篇文章的第一图就架构结束了啊。</p>
+<p>这里只是用<code>搜索提示</code>作为一个例子来说明系统设计的时候需要时时刻刻关注<code>时间</code>和<code>空间</code>这两个因素的平衡，现在很多人设计系统的时候基本上不太关注<code>时间</code>，因为高配的服务器，几十上百GB的内存随便用，所以大多数都把设计往<code>空间</code>上去靠，用更多的空间来换取执行效率，这本身并没有什么问题，谁不希望更快啊，但是有时候预估一下，有可能虽然牺牲了一点时间效率，但是换来了不少的空间，这样的系统在数据量变大时有更多的可扩展空间，我觉得是非常值得的交换。</p>
+<p>再有，对<code>数据结构和算法的了解</code>以及<code>预估算能力</code>其实是<code>平衡时间和空间</code>的重要技能，也是架构设计中避坑的基本技能，所以有公司的面试题会出现<strong>请你估算一下黄河出海口的面积</strong>这类估算题，因为<code>预估算能力</code>也是重要的架构技能吧。</p>
+<h2>10. 更深入一下</h2>
+<p>上面只是这个系统的一小部分，搜索提示需要做的远不止如此，想想下面几个场景，如果是你，你要如何设计呢？如何平衡时间和空间呢？欢迎讨论哈：）</p>
+<ul>
+<li>需要拼音支持，就像这样<br>
+<img src="/images/jobbole.com/b3a36854d38bc31bfc6c92cb7a776353.jpg">
+</li>
+<li>需要拼音首字母支持<br>
+<img src="/images/jobbole.com/1c5a7f4d32aa176bf37d0354581f632d.jpg">
+</li>
+<li>某些搜索提示需要更加详细的信息<br>
+<img src="/images/jobbole.com/241b05e637f7d60f727f3007d1669192.jpg">
+</li>
+<li>需要对每个用户的搜索历史进行搜索提示【这个比较难点】<br>
+<img src="/images/jobbole.com/e1a12a87984b3db2d57592e64b6321e9.jpg">
+</li>
+</ul>
+<h2>11. 后记</h2>
+<p>这个<code>坑</code>系列算是结束了，现在我正在做一些推荐广告相关的工作，后续也会分享一些相关的东西给大家，搜索部分也不会停，后面还有分词，相关搜索，分布式的东西会依次出来，欢迎关注哈。</p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2017/2017-02-17-110284-469d9c42e.html" title="Previous Post: 为什么越来越少的开源项目使用 GPL 协议" data-instant>&laquo; 为什么越来越少的开源项目使用 GPL 协议</a>
+
+    <a class="basic-alignment right" href="/posts/2017/2017-02-19-the-important-of-indepentent-thinking-bb84267a5.html" title="Next Post: 独立思考的重要性" data-instant>独立思考的重要性 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

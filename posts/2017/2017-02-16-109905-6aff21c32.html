@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>坑：缓存 + 哈希 = 高并发？ | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2017/2017-02-16-109905-6aff21c32.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>坑：缓存 + 哈希 = 高并发？</h1>
+    <p class="meta"><span class="time">Feb 16, 2017</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/109905/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        			<div class="textwidget">
+</div>
+
+		<p>这篇继续坑系列，<a href="http://blog.jobbole.com/109904/" target="_blank"><code>高可用</code>已经讲过了</a>，当前互联网时代，怎么少的了<code>高并发</code>呢？<code>高并发</code>和<code>高可用</code>一样， 已经变成各个系统的标配了，如果你的系统QPS没有个大几千上万，都不好意思跟人打招呼，虽然可能每天的调用量不超过100。</p>
+<p><code>高并发</code>这个词，我个人感觉是从电商领域开始往外流传的，特别是电商领域双11那种藐视全球的流量，再把技术架构出来分享一把，现在搞得全互联网都在说<code>高并发</code>，而且你注意回忆一下所有你看到的高并发系统，往往都逃不开一个核心概念，那就是<code>缓存+哈希</code>，一切都是以这个概念和基础的，仿佛这就是高并发的核心技术了。`</p>
+<h2>我们看到的高并发技术</h2>
+<p>围绕这个核心技术，通常我们看到的各种高并发的架构系统，在博客、论坛、现场分享出来的高并发系统，都跑不出以下几个方面的东西。</p>
+<h3>资源静态化</h3>
+<p>就是那种单个页面流量巨大无比，每秒的QPS几十万上百万的系统，确实<code>并发高的系统</code>，核心解决方案就是静态化，靠机器和带宽去抗，假如没有CDN的话，所有流量都落到同一个IP下面的话，基本上也就是用Nginx的文件静态化了，单机的承受能力主要取决于带宽和单机的性能，要再多的话，那就<code>LVS(或者F5)+集群</code>了，这种的典型场景就是搞活动时候的首页，活动页面了，还有就是引流搜索引擎的着陆页了，一般都是现成的图片和文字静态化，当然，这种还有很多前端的技巧和技术了，这一点我不是很了解，就不得瑟了，就中后台来说，大部分情况下直接Nginx搞定了，核心还是使用了<code>缓存技术</code>。</p>
+<h3>读写分离和分库分表</h3>
+<p>读写分离是大家看到的第二个高并发的架构了，也很常规，因为一般情况下读比写要多得多，所以数据库的主库写，从库们提供读操作，一下就把数据库的并发性能提高了。</p>
+<p>如果还不够，那么分库分表把，把数据分到各个数据库的各个机器上，进一步的减少单台机器的压力，从而达到<code>高并发</code>的目的。</p>
+<p>如果是分库分表，有时候使用的就是<code>哈希技术</code>了，以某个字段哈希一下然后来分库分表，读写分离的读操作，基本也是通过<code>哈希技术</code>把读落到不同的机器上去减轻单机压力。</p>
+<h3>万能的缓存</h3>
+<p>说到高并发，不得不说缓存了，现在各种缓存的工具也很多也很成熟，<code>memcache</code>,<code>redis</code>之类的KV数据库作为缓存已经非常成熟了，而且基本上都可以集群化部署，操作起来也很简单，简直变成了一个<code>高并发</code>的代言词了，核心就是<code>缓存技术</code>了，而<code>memcache</code>和<code>redis</code>只是用来实现这个缓存技术的工具而已。</p>
+<h3>无敌的哈希</h3>
+<p>但凡大数据处理，高并发系统，必言哈希，随机插入，时间复杂度O(1)，随便查询，时间复杂度O(1)，除了耗费点空间以外，几乎没什么缺点了，在现在这个内存廉价的时代，哈希表变成了一个高并发系统的标配。</p>
+<h2>正面的例子</h2>
+<p>我们来看个例子，看看一些个大家眼中标准的高并发系统的设计，这些设计大家应该都看过，无非就是上面的几个要点，最重要的就是<code>缓存+哈希</code>，这两个东西的组合好像无所不能。</p>
+<h3>活动秒杀页面</h3>
+<p>活动秒杀页面，这是个标准的高并发吧，到了搞活动的那个时刻，单页面的访问量是天量数据了，但这种系统有个特点<code>逻辑简单，只要带宽和性能够，就一定能提供稳定的服务</code><br>
+服务能迅速的返回数据即可，没有什么计算逻辑，这种高并发系统的设计基本上就是在怎么压榨机器的IO性能了，如果有CDN绝对使用CDN，能在本机读取的绝不走网络获取，能读取到内存中绝不放在硬盘上，把系统的磁盘IO和网络IO都尽可能的压榨，使用<code>缓存+哈希</code>技术，只要设计合理，99%的情况能搞定。</p>
+<p>活动页面的冲击感实在太强，想象一下几千万人同时访问网站还没有挂，让很多人觉得<code>高并发</code>应该就是这样子，这估计也是<code>高并发</code>这次经常在电商技术中出现的原因吧，因为搞个活动就可以搞出一个<code>高并发</code>事件。</p>
+<blockquote></blockquote>
+<h3>12306</h3>
+<p>接下来，我们再看看这个星球并发量最疯狂的网站，瞬间的访问量碾压其他网站的12306，这种场景下的高并发也有个特点，那就是<code>虽然量大，但其实无法给每个用户提供服务</code>。</p>
+<p>类似的其实还有商品的抢购系统，商品和车票一共就1000张，你100万的人抢，你系统做得再好，也无法给100万人提供服务，之前12306刚刚上线的时候很多人喷，说如果让某某公司来做肯定能做好，但大家很多只看到了表面，让某很厉害的公司来做，最多也只能做到大家访问的时候不会挂掉，你买不到车票还是买不到，而且现在的12306体验也已经做得很好了，也不卡了，但是还是很多人骂，为什么？还不是因为买不到票。</p>
+<p>对于这样的系统，设计关注的就不仅仅是提高性能了，因为性能瓶颈已经摆在那了，就1000张票，做得更多的是分流和限流了，除了<code>缓存+哈希</code>来保证用户体验以外，出现了奇葩验证码，各个站点分时间点放票。然后通过排队系统来以一种<code>异步</code>的方式提供最终的服务。</p>
+<blockquote></blockquote>
+<h2>高并发系统如何设计</h2>
+<p>如果把上面两个场景的情况合并一下，仿佛<code>缓存+哈希</code>变成万能的了，很多人眼中的<code>高并发</code>就是上面的场景的组合，认为<code>缓存+哈希</code>就可以解决高并发的问题，其他的场景中，加上<code>缓存</code>提高读写速度，在加上<code>哈希</code>提供分流技术，再通过一个<code>异步</code>提供最终服务，高并发就这么搞定了，但实际上是不是这样呢？显然没那么简单，那如何来设计一个高并发的系统呢？</p>
+<h3>合理的数据结构</h3>
+<p>举个例子来说吧，搜索提示功能大家都知道吧，就是下面这个图的东西。</p>
+<p>￼<br>
+<img src="/images/jobbole.com/de4de2e3c69af3e98ba10d89c6297335.jpg"><br>
+如果是google,baidu这种大型搜索系统，或者京东淘宝这种电商系统，搜索提示的调用量是搜索服务本身调用量的几倍，因为你每输入一个键盘，就要调用一次搜索提示服务，这算得上是个标准的<code>高并发</code>系统吧？那么它是怎么实现的呢？</p>
+<p>可能很多人脑子里立刻出现了<code>缓存+哈希</code>的系统，把搜索的搜索提示词存在<code>redis</code>集群中，每次来了请求直接<code>redis</code>集群中查找key，然后返回相应的value值就行了，完美解决，虽然耗费点内存，但是空间换时间嘛，也能接受，这么做行不行？恩，我觉得是可以的，但有人这么做吗？没有。</p>
+<p>了解的人应该知道，没有人会这么来实现，这种搜索提示的功能一般用<code>trie树</code>来做，耗费的内存不多，查找速度为O(k)，其中k为字符串的长度，虽然看上去没有哈希表的O(1)好，但是少了网络开销，节约了很多内存，并且实际查找时间还要不比<code>缓存+哈希</code>慢多少，一种合适当前场景的核心数据结构才是<code>高并发</code>系统的关键，<code>缓存+哈希</code>如果也看成一种数据结构，但这种数据结构并不适用于所有的<code>高并发</code>场景，所以</p>
+<blockquote></blockquote>
+<h3>不断的代码性能优化</h3>
+<p>有了上面的数据结构，并且设计出了系统了，拿到线上一跑，效果还行，但感觉没达到极限，这时候可千万不能就直接上外部工具（比如缓存）提升性能，需要做的是不断的代码性能的优化，简单的说，就是不断的review你的代码，不断的找出可以优化的性能点，然后进行优化，因为之前设计的时候就已经通过理论大概能算出来这个系统的并发量了，比如上面那个搜索提示，如果我们假定平均每个搜索词6个字符，检索一次大约需要查询6次，需要2-3毫秒，这样的话，如果8核的机器，多线程编程方式，一秒钟最多能接受3200次请求（1000ms/2.5ms*8），如果没达到这个量级，那么肯定是代码哪里有问题。</p>
+<p>这个阶段可能需要借助一些个工具了，JAVA有JAVA的性能优化工具，大家都有自己觉得好使的，我本身JAVA用得很少，也没啥可推荐的，如果是Golang的话，自带的<code>go tool pprof</code>就能很好的进行性能优化。</p>
+<p>或者最简单的，就是把各个模块的时间打印出来，压测一遍，看看哪个模块耗时，然后再去仔细review那个模块的代码，进行算法和数据结构的优化，我个人比较推崇这个办法，虽然比较笨，但是比较实在，性能差就是差，比较直观能看出来，也能看出需要优化的点，而且比较贴近代码，少了外部工具的干扰，可能也比较装逼吧。</p>
+<p>这个过程是一个长期的过程，也是《重构：改善代码的既有设计》中提到的，一个优秀的系统需要不断的进行代码级别的优化和重构，所以</p>
+<blockquote></blockquote>
+<h3>再考虑外部通用方法</h3>
+<p>以上两个都完成了，并发量也基本达到理论值了，但是还有提升的需求，这时候再来考虑外部的通用方法，比如加一个LRU缓存，把热词的查询时间变成O(1)，进一步提高性能。</p>
+<p>说起LRU，多说一句，这是个标准的<code>缓存技术</code>了，实现起来代码也不复杂，就是个<code>哈希表+链表</code>的数据结构，一个合格的开发人员，即便没有听说过，给定一个场景，应该也能自己设计出来，我见过很多简历都说自己有<strong>大型高并发系统的开发经验，能熟练运用各种缓存技术，也对缓存技术有深入的了解</strong>，但是一面试的时候我让他写个LRU，首先有50%的人没听说过，OK，没听过没关系，我描述一下，然后给一个场景，<code>硬盘上有N条数据，并且有一个程序包，提供GET和SET方法，可以操作磁盘读写数据，但是速度太慢，请设计一个内存中的数据结构，也提供GET和SET方法，保存最近访问的前100条数据</code>，这个数据结构就是一个LRU了，让面试者实现出来，如果觉得写代码麻烦，可以把数据结构设计出来描述一下就行了，就这样，还很多人不会，这怎么能说是对缓存技术有深入了解呢？就这样，怎么能说有过大型高并发系统的经验呢？这只是开源工具的使用经验罢了。</p>
+<blockquote></blockquote>
+<h3>最后靠运维技术了</h3>
+<p>上面几种都已经弄完了，还需要提升性能，这时候再考虑运维的技术了，比如常规的加负载均衡，部署成集群之类的，通过运维和部署的方法提高服务的并发性。</p>
+<p><code>高并发</code>系统只是相对的，没有什么无上限的高并发，流量的洪流来了，再高的高并发一样挂，新浪微博的<code>高并发</code>应该做得很好吧？但是<code>林心如</code>发条微博说她和<code>霍建华</code>谈恋爱了，一样把微博搞挂了（非官方消息啊，我猜测的，呵呵，那天下午新浪微博正好挂了），呵呵，你说要是<code>TFBOY</code>明天过生日，微博是不是要连夜加几个<code>redis</code>集群啊？如果有微博的朋友，留个言溜溜呗：）</p>
+<h2>总结</h2>
+<p>罗里吧嗦说了这么多，其实我就想表达一个意思，不管是前面的<code>高可用</code>，还是今天的<code>高并发</code>。</p>
+<blockquote></blockquote>
+<p>代码的健壮性决定了高可用，这些印度人就能做到，而高性能，高并发需要的不仅仅是代码的健壮性，还有数据结构的设计和代码的调优能力了。</p>
+<p>架构模式是大家总结出来的，和你的系统可能关系不是很大，学习太多的架构，脑袋会乱，还不如实打实的看几本书，然后对着架构多推敲练习，很多人对数据结构嗤之以鼻，觉得对于现有的开发来说，数据结构没那么重要了，但对于后端开发来说，数据结构是很重要的技能，虽然面试的时候不会让你去翻转一棵二叉树，但二叉树是什么，什么场景下用还是应该知道的吧？</p>
+<p>找准合适的数据结构，不断的优化代码，这样来提升你的系统性能，这样的系统才是你可控的，才有不断优化的空间，更好的<code>高并发</code>，如果一开始就上外部的<code>缓存技术</code>，很可能如果性能达不到要求，就没有优化空间了，因为要修改外部的系统还是很困难的。</p>
+<p>这几篇我觉得我都在瞎扯淡，虽然比较虚，但也是我工作这么些年淌坑无数以后的总结吧，后面的文章会写一些实际的了，我的搜索引擎部分还没写完呢。敬请期待。</p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2017/2017-02-15-110234-4a914dfe6.html" title="Previous Post: 从零到百亿互联网金融架构发展史" data-instant>&laquo; 从零到百亿互联网金融架构发展史</a>
+
+    <a class="basic-alignment right" href="/posts/2017/2017-02-16-110225-e2d765f79.html" title="Next Post: 一个脚本引发的血案" data-instant>一个脚本引发的血案 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>

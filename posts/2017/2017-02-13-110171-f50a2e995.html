@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>误删 300G，GitLab 官方对删库事故的事后分析 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2017/2017-02-13-110171-f50a2e995.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+
+          <a class="page-link" href="/about/">About</a>
+
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>误删 300G，GitLab 官方对删库事故的事后分析</h1>
+    <p class="meta"><span class="time">Feb 13, 2017</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/110171/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+
+        			<div class="textwidget">
+</div>
+
+		<p>2017年1月31日，我们的在线服务 GitLab.com 发生了严重的事故。这次事故由误删引起，导致了我们的主数据库数据丢失。</p>
+<p><img title="B)X)FD$`5X(XWI5)P0FRYSV.png" src="/images/jobbole.com/8500acdfabefe5be64ca3ee4c30cdb84.jpg"></p>
+<p>这次事故导致了GitLab服务长时间中断。我们还永久损失了部分生产数据，无法恢复。更严重的是，我们还损失了数据库的相关记录数据，包括项目、注释、用户账户、问题和代码段，这些事情都是在2017年1月31日17:20至00:00发生的。即使是乐观地估计，本次事故也影响到了约5000个项目，5000个评论和700个新用户账户。在事故发生之后，GitLab.com上的代码仓库和wiki都无法使用，不过这些服务并没有丢失数据。GitLab.com的企业级用户，GitHost用户以及自托管的GitLab CE用户则没有收到此次事故的影响，也没有数据丢失。</p>
+<p><strong>丢失生产数据是不可接受的。</strong>为了确保以后不再发生这种事故，我们对GitLab.com上的操作和数据恢复流程做了多项调整。<strong>在本文中，我们会分析发生事故的问题出在哪里，我们如何补救，以及我们要如何才能在以后的时间杜绝此类事故再次发生。</strong></p>
+<p>对所有在此次GitLab.com事故中受到影响或丢失数据的用户：我们万分抱歉。我本人作为GitLab的CEO，代表GitLab的每一个人，向大家真诚道歉。</p>
+<h2 id="database-setup">数据库设置</h2>
+<p>GitLab.com目前使用的是一台主服务器和一台备用服务器的双机热备模式。备用服务器只在主机失效时实现援备。在这种设置下，所有的负载平时都是由主数据库服务器来完成的，这并不是一个理想的架构。主数据库服务器的域名是<code>db1.cluster.gitlab.com</code>，备用数据库服务器的域名是<code>db2.cluster.gitlab.com</code>。</p>
+<p>其实早在以前，因为采用<code>db1.cluster.gitlab.com</code>一台主服务器为主的架构（单点故障模式），我们就遇到过很多问题。例如：</p>
+<ul>
+<li><a href="https://gitlab.com/gitlab-com/infrastructure/issues/791">2016年11月28日，因project_authorizations表体积膨胀导致数据库宕机</a></li>
+<li><a href="https://gitlab.com/gitlab-com/infrastructure/issues/514">CI短时间内发起大量的轮询和排它锁，拖慢GitLab.com速度</a></li>
+<li><a href="https://gitlab.com/gitlab-com/infrastructure/issues/364">恐怖的数据库负载峰值分布</a></li>
+</ul>
+<h2 id="timeline">事件经过</h2>
+<p>1月31日，一名工程师在我们的工作环境中对多台PostgreSQL服务器进行了设置。原本的计划是使用 <a href="http://www.pgpool.net/mediawiki/index.php/Main_Page">pgpool-II</a> 来试试看能不能通过把查询请求分配给可用主机（负载均衡），从而降低数据库整体的负载。这个操作要解决的问题如这里所示：<a href="https://gitlab.com/gitlab-com/infrastructure/issues/259">Infrastructure#259</a>。</p>
+<p><strong>± 17:20 UTC:</strong> 在开始操作之前，我们的工程师做了一个生产数据库的LVM快照，然后把它导入到了工作环境里。这么做的目的是为了确保工作数据库备份最新，从而能得到更加精确的负载测试结果。本来这项操作每24小时都要执行一次（定在每天01:00 UTC），而工程师没有用自动操作的版本，因为他想要和生产数据库最接近的备份。</p>
+<p><strong>± 19:00 UTC:</strong> GitLabs.com开始产生数据库负载上升的情况，我们怀疑是spam造成的。这种现象在本次事件之前也发生过，只是没有这么严重。这次负载上升造成的问题是，一些用户无法对问题进行评论，或者无法进行merge request。我们花了几个小时才让负载重新得到控制。</p>
+<p>后来我们发现，造成这次负载飙升的原因是，后台有个作业在移除一个GitLib员工和他相关的用户数据。这些账户数据被错误标记，然后错误地被计划删除，这是负载上升的导火索。这个问题的具体信息可以在这里查到：<a href="https://gitlab.com/gitlab-org/gitlab-ce/issues/27581">“移除spam用户时不应该使用硬删除”</a>.</p>
+<p><strong>± 23:00 UTC:</strong> 因为负载上升了，我们的备用PostgreSQL数据库的备份进程就被拖得非常缓慢。因为备份服务器需要WAL段才能完成备份过程，但是WAL段已经从主服务器上移除了，所以备份失败。GitLab.com没有使用WAL存档，所以备用服务器只能手动重新同步。而这又需要从备用服务器上移除现有的数据和目录，并运行 <a href="https://www.postgresql.org/docs/9.6/static/app-pgbasebackup.html">pg_basebackup</a>，才能实现将数据库从主服务器拷贝到备用服务器。</p>
+<p>我们的一个工程师于是把备用服务器上的数据目录全部删除了，然后运行了<code>pg_basebackup</code>。很不幸的是<code>pg_basebackup</code>运行以后就挂起不动了，尽管已经加了–verbose 选项，但还是没有产生任何有意义的输出。尝试了几次<code>pg_basebackup</code>之后，因为没有足够的备份连接数量（由<code>max_wal_senders</code>限制），就无法连接到主服务器了。</p>
+<p>为了解决这个问题，我们的工程师决定临时增加 max_wal_senders 的数量，将默认数量从 3 调整到了 32。可是应用这一改变时，PostgreSQL又不能重启了，说创建了太多 semaphores。这种情况很可能在例如 max_connection 设置数量太高的时候发生。在我们的案例里面，这个数值设置是8000。这个值显然设置得太高了，可是它是在一年之前设置的，而且之后运行也一直没问题。为了解决这个问题，我们又把这个设置的值调到了2000，这回PostgreSQL终于可以正常重启了。</p>
+<p>很不幸，之前做的事情并没能解决 <code>pg_basebackup无法马上</code>执行备份的问题。一名工程师决定运行一下strace，看看到底卡在哪里。strace显示， <code>pg_basebackup</code>在一个poll call里面挂起了，但是除此之外也提供不了什么更有用的信息了。</p>
+<p><strong>± 23:30 UTC:</strong> 一名工程师认为，可能是 <code>pg_basebackup</code>在上一次运行的时候，在备份服务器的数据目录里上创建了一些数据文件而导致运行无反应。可是如果是这种情况的话，<code>pg_basebackup</code>应该会报错并打印出错误信息（然而并没有）。所以这名工程师也不敢肯定自己是对的。这个问题稍后才被另外一个工程师解决（一开始他没在周围），说这是正常行为： <code>pg_basebackup</code>会等待主服务器发送备份数据时才会有反应，否则它就这么一直安静地等待。很遗憾，这些东西在工程师运维手册里都没写， <code>pg_basebackup</code>官方文档里也没有。</p>
+<p><span style="color: #ff0000">为了让备份进程能够恢复，一名工程师清空了PostgreSQL的数据库目录，他漫不经心地以为这个操作是在备份服务器上做的。可要命的是，恰恰这个进程是在主服务器上运行的。这名工程师花了一两秒的时间发现了错误，但是这是已经有300G的数据被删除了。</span></p>
+<p>工程师们各处寻找了数据库备份，并且在Slack上求助。遗憾的是，所有的寻找备份的努力都彻底失败了。</p>
+<h2 id="broken-recovery-procedures">Broken Recovery Procedures 事故后的恢复过程</h2>
+<p>这种局面，我们只能尝试恢复数据了。通常对于这样的事情，人们只需要用最近的数据库备份来恢复就好了，尽管并不能保证100%没有数据丢失。对于GitLab.com，我们本来是有下列手段来支持数据恢复的：</p>
+<ol>
+<li>每24小时使用pg_dum进行一次备份，配备上传到Amazon S3。旧的备份则在某时自动删除。</li>
+<li>每24小时对生产数据库做一次LVM快照。将快照导入工作环境，这样使得我们能够在不影响生产环境的情况下进行安全的测试。不允许直接操作工作数据库和生产数据库。</li>
+<li>我们针对多个服务（比如用来存储Git数据的NFS服务）采用了Azure磁盘快照。这些快照每24小时获取一次。</li>
+<li>对PostgreSQL主机之间的数据拷贝，主要目的是失效备援，而不是灾备。</li>
+</ol>
+<p>这次事故的情况，因为备份过程失败，而且数据已经从主服务器和备份服务器上都删除了，所以我们无法从任何一个服务器恢复数据了。</p>
+<h3 id="database-backups-using-pg_dump">Database Backups Using pg_dump 使用pg_dump进行数据库备份</h3>
+<p>这次事故发生后我们想通过<code>pg_dump</code>备份来恢复，但是根本没找到备份数据。S3 bucket是空的，里面没有可以用来恢复的近期备份。通过更新一步的检查，我们发现在备份过程中使用的是<code>pg_dump</code> 9.2版本，因为沃恩的的数据库是PostgreSQL 9.6版本（对于Postgres来说，9.x版本号是目前发行的主力版本）。就是这个版本号的微小差异造成了pg_dump备份过程中产生错误，从而也终止了备份过程。</p>
+<p>之所以会有数据库版本的差异，是源自于我们的Omnibus packages的工作方式。Omnibus packages目前同时支持PostgreSQL 9.2和9.6两个版本，并允许用户升级（同时支持手动升级或者通过包提供的命令来升级）。为了侦测正确的数据库版本号，Omnibus package需要去检查数据库集群对应的PostgreSQL 版本（通过<code>$PGDIR/PG_VERSION</code>，以及数据目录下的<code>$PGDIR来获取</code>）。当发现是PostgreSQL 9.6版本时，Omnibus就会让所有二进制代码使用PostgreSQL 9.6，否则就用 PostgreSQL 9.2。</p>
+<p>pg_dump备份过程是在常规应用服务器上执行的，而不是数据库服务器。因为PostgreSQL数据肯定不在应用服务器上运行，Omnibus（没找到PostgreSQL版本号）所以自动设置成了PostgreSQL 9.2。这一行为就造成了（版本差异）导致pg_dump因错误而终止。</p>
+<p>本来这类错误发生后，cronjob是可以通过邮件把错误通知发送出来的。但对于GitLab.com来说，因为我们用的是<a href="https://dmarc.org/">DMARC</a>。很不幸的是DMARC不允许cronjob发邮件，结果就导致了所有错误消息通知的邮件被拒。这就意味着我们从来就没能意识到备份过程失败了，直到大事不好。</p>
+<h3 id="azure-disk-snapshots">Azure Disk Snapshots Azure 磁盘快照</h3>
+<p>Azure磁盘快照服务是用来对整盘生成快照的。其实要从这些快照中恢复特定的数据块（比如丢失的用户账户信息）是并不容易的，尽管理论上可以恢复。快照的主要作用是当磁盘坏掉的时候直接对整盘进行恢复。</p>
+<p>在Azure中，快照有一个对应的存储账户，然后存储账户又和一个或多个主机依次对应。每个存储账户有大约30T的空间限制。当从恢复快照到对应相同存储账户的主机时，这是很快就能完成的。但是如果你用不同存储账户的主机来恢复快照的时候，这个过程估计要几小时甚至几天才能搞定了。例如，我们就遇到一次这种情况结果花了一个星期才恢复。这也让我们不敢太依赖于快照这种方式。</p>
+<p>NFS服务开了快照功能，但是其他的数据库服务器则没开。因为我们觉得我们的其他备份手段足以让我们完成所有的备份和恢复工作了。</p>
+<h3 id="lvm-snapshots">LVM Snapshots LVM快照</h3>
+<p>LVM快照主要是用来从生产坏境拷贝数据到工作环境的。正式因为出于这样的目的，所以产生的快照从来就不是用来做灾备恢复的。在宕机发生的时候，我们手头有两个快照：</p>
+<ol>
+<li>一个快照是我们的工作环境每24小时自动创建的，但是基本上是在宕机发生前24小时左右创建的。</li>
+<li>一个快照是我们的工程师在宕机前6小时左右创建的。</li>
+</ol>
+<p>在生成快照时，我们会采取以下步骤：</p>
+<ol>
+<li>对生产环境产生一个快照</li>
+<li>把生产环境快照拷贝到工作环境</li>
+<li>使用这个快照新建一个磁盘</li>
+<li>针对快照产生的数据库，断掉一切网络连接，防止意外事件发生。</li>
+</ol>
+<h2 id="recovering-gitlabcom">恢复GitLab.com</h2>
+<p>为了恢复GitLab.com，我们决定用事故前6小时产生的那个LVM快照，其实这也是我们减少数据损失唯一的选择（因为另外一个快照是事故前24小时左右产生的，恢复效果肯定不如6小时这个好）。这个恢复过程我们采取了以下步骤：</p>
+<ol>
+<li>将现有的工作数据库拷贝到生产环境，但是断掉所有网络连接。</li>
+<li>同步地，拷贝曾经用来配置数据库的快照，并假设这个快照还包含网络连接信息（其实包含不包含我们也不确认）。</li>
+<li>使用步骤1中的快照设置生产数据库。</li>
+<li>使用步骤2中的快照设置分库。</li>
+<li>使用上一步中的数据库设置来恢复网络连接。</li>
+<li>将所有数据库序列上调100000，确保重新产生的用户ID不会和宕机前的用户ID重复。</li>
+<li>逐渐恢复GitLab.com。</li>
+</ol>
+<p>我们的工作环境使用的是Azure classic，并没有开通Premium Storage。这么选择是因为Premium Storage确实很贵。这样的结果是让磁盘操作非常慢，慢到它成为了恢复过程的主要瓶颈。因为LVM快照本身就存储在其产生的主机上，所以我们有两个恢复数据的选择：</p>
+<ol>
+<li>从LVM快照恢复</li>
+<li>从PostgreSQL 数据目录中恢复</li>
+</ol>
+<p>无论哪种情况都会涉及到大量的数据拷贝，所以其实也没什么差别。因为拷贝数据目录要简单一些，所以我们选择了第二种。</p>
+<p>把数据从工作环境拷贝到生产环境主机花了大约18小时。因为这些存储磁盘都是网盘的形式，所以通信速度非常低（大约60Mbps），而且也没法把这些便宜的存储服务变成premium了，所以就是性能的问题。我们的网络带宽和处理器都不是瓶颈，（造成这么慢的）瓶颈就在存储性能上。2017年1月31日 17:20 UTC ，拷贝完数据以后，我们终于能开始进行数据库恢复（包括网络连接）了。</p>
+<p>2017年2月1日 17:00 UTC ， 我们努力恢复了Gitlab.com数据库，但是网络连接还没搞好。对于网络连接的恢复是在单独创建的工作数据库环境里用LVM快照来实现的，这样不会触发对网络连接的移除。这种方法能产生一个针对数据库表的SQL dump，然后可以把它导入到我们恢复的GitLab.com数据库里。</p>
+<p>大约在18:00 UTC左右，我们完成了最终的恢复操作，包括网络连接操作，并最终确认一切都如预期一样。</p>
+<h2 id="publication-of-the-outage">关于宕机事故的公开说明</h2>
+<p>本着开诚布公的目的，我们把所有的过程都记录在了<a href="https://docs.google.com/document/d/1GCK53YDcBWQveod9kfzW-VCxIABGiryG7_z_6jHdVik/pub">公开的Google文档里</a>。我们还把恢复的过程在Youtube上进行了直播，最高的时候有5000人同时在线收看（收看人数创下了当时段第二）。视频的方式很好地给我们用户传递了整个恢复过程的最新情况。最后，我们还是用了<a href="https://twitter.com/gitlabstatus">Twitter</a>来向那些看不了直播的受众传递信息。</p>
+<p><img id="pic" class="" src="/images/jobbole.com/7b077062a04ab6c9e2b188bd2bb1e7ea.jpg"></p>
+<p>上述的文档一开始是只对GitLab员工开放的私有文件，因为它包含了当初误删数据导致事故的工程师的名字。名字是工程师自己加上去的（因为他能够直面公众），不过我们还是会对其他名字做了编辑，以免其他工程师因为看到自己的名字出现在公众视野而感到不快。</p>
+<h2 id="data-loss-impact">数据丢失造成的影响</h2>
+<p>日期范围在2017年1月31日17:20 UTC 到23:30 UTC 之间创建的项目、问题、代码段等数据因本次事故而丢失。Git仓库和WiKi因为是单独存放的，所以没有受到影响。</p>
+<p>目前很难估计到数据丢失的精确值，但是我们预计至少丢失了5000个项目，5000条注释，预计大约700个用户的数据信息。本次事故只影响GitLab.com的用户，而对自托管的实例或GitHost实例并无影响。</p>
+<h2 id="impact-on-gitlab-itself">对GitLab自身的影响</h2>
+<p>因为GitLab本身也是依托于GitLab.com在管理开发工作，所以宕机事故从某种意义上也给我们的工作带来了困难。部分开发者可以用本地的代码仓库继续工作，但是创建问题等行为却不得不推迟。我们使用了私有GitLab实例发布了一篇博文《<span style="color: #0066cc"><a href="https://about.gitlab.com/2017/02/01/gitlab-dot-com-database-incident/">GitLab.com数据库事件</a>》</span>，这种私有实例一般在我们涉及到私有/敏感工作流程时就会启用（比如涉及到安全发布事宜）。这样能让我们在GitLab.com无法运行时继续新版本网站的开发工作。</p>
+<p>我们还有一个对外开放的站点 <a href="http://monitor.gitlab.net/">http://monitor.gitlab.net/</a> 来做监控。目前这个站点不能处理网站在服务停用期间所产生的用户负载。但幸运的是，我们的内部监控系统（开放站点也是基于我们的内部系统开发的）没有收到此次事故的影响。</p>
+<h2 id="root-cause-analysis">根源分析</h2>
+<p>为了对产生的各种问题进行根源分析，我们采用了一种叫做<a href="https://en.wikipedia.org/wiki/5_Whys"><span style="color: #0066cc">“5个为什么“</span></a>的技术。我们把整个事件分成两个主要问题：“GitLab.com宕机”和“花了很长时间才恢复GitLab.com”。</p>
+<h3>问题1：GitLab.com宕机长达18小时</h3>
+<ol>
+<li>
+<strong>为什么Gitlab.com会宕机？</strong>——因为主服务器上数据库目录下的主数据库被人为错误地删除了。本来是要删备份服务器上的数据库的，结果不小心删成了主服务器上的数据库。</li>
+<li>
+<strong>为什么数据库目录被删除了？</strong>——因为数据库备份过程停掉了，要求重启或重新构建备份服务器。因此就要求PostgreSQL数据库目录必须为空。这一清空操作系统不能自动完成，必须手动，而且在运维文档里也没有明确说明。</li>
+<li>
+<strong>为什么备份过程会停止？</strong>——是因为数据库的一次异常负载峰值造成了数据库备份进程停止工作。这很可能是因为主服务器的WAL段在备份之前就被删除而造成的。</li>
+<li>
+<strong>为什么数据库会出现负载突然上升的情况？</strong>——这一现象是由于两个事件同时发生造成的：spam数量的增多，以及后台进程企图删除一个GitLab员工数据以及相关的数据。</li>
+<li>
+<strong>为什么GitLab员工数据会被删除？</strong>——被删除的员工账号被举报滥用。我们当前用来处理这类举报的系统太忽视报告和细节，因此对该员工信息产生了误删。</li>
+</ol>
+<h3>问题2：恢复GitLab.com花了18个小时。</h3>
+<ol>
+<li>
+<strong>为什么恢复GitLab需要花这么长的时间？</strong>——GitLab.com的恢复使用的是工作数据库的拷贝。这个拷贝是托管在速度较慢的Azure虚拟机上的，并且还是不同区（因此更慢）。</li>
+<li>
+<strong>为什么要从工作数据库中去恢复GitLab.com ？</strong> —— 因为数据库服务器没开Azure磁盘快照，使用pg_dump从常规的数据库备份中恢复又不成功。</li>
+<li>
+<strong>为什么我们无法从备份服务器数据库中实现恢复？</strong>—— 为了让备份过程正常运行，备份数据库服务器上的数据内容被清空了。所以这样就无法从备份服务器上实现灾备恢复了。</li>
+<li>
+<strong>为什么不使用标准的恢复流程？</strong> —— 标准的恢复流程需要使用pg_dump来执行数据库的逻辑备份。这个过程因为使用了PostgreSQL 9.2版本而失败，并且没给出任何提示。GitLab.com使用的是PostgreSQL 9.6版本（与9.2有版本差异）。</li>
+<li>
+<strong>为什么备份过程失败却没有任何提示？</strong> —— 备份失败后系统是发出了错误消息的，但是这个消息是通过邮件发出，由于邮件被拒收而造成了没人收到错误提示。邮件是系统自动发送的，而且除了邮件之外没有别的方式能接到错误信息了。</li>
+<li>
+<strong>为什么邮件会被拒收？</strong> —— 邮件被拒收是因为接收邮件的服务器的问题，这些邮件并不符合DMARC的签收要求。</li>
+<li>
+<strong>为什么Azure磁盘快照功能没有（对数据库）打开？</strong> —— 因为我们认为我们其他的备份方式足以应付各种情况了。还有一个原因是，从快照中恢复数据库会非常慢（可能要花几天时间）。</li>
+<li>
+<strong>为什么备份过程（的问题）没有在日常的测试中反应出来？</strong> —— 因为这个测试过程根本就没有主人，也就是说在日常的工作中没有人对检验备份过程是否有效负责。</li>
+</ol>
+<h2 id="improving-recovery-procedures">对恢复过程的改进</h2>
+<p>我们目前的主要工作是要对我们的各种恢复流程进行修订和改进。这项工作包括了以下几个问题：</p>
+<ol>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1094">Update PS1 across all hosts to more clearly differentiate between hosts and environments (#1094)</a> 在所有主机上更新PS1，使得主机与环境之间的差异更加明显</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1095">Prometheus monitoring for backups (#1095)</a> 使用普罗米修斯系统来监测备份过程（缩短备份周期以及解决DMARC报警邮件发不出去的问题）</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1096">Set PostgreSQL’s max_connections to a sane value (#1096)</a> 将PostgreSQL的最大连接数设置到合理的范围
+<ol>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1097">Investigate Point in time recovery &amp; continuous archiving for PostgreSQL (#1097)</a>  启用PostgreSQL检查点恢复以及持续归档功能</li>
+</ol>
+</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1098">Hourly LVM snapshots of the production databases (#1098)</a> 对生产数据库开启周期为一小时的LVM快照</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1099">Azure disk snapshots of production databases (#1099)</a>  对上产数据库开启Azure磁盘快照</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1100">Move staging to the ARM environment (#1100)</a> 将工作环境移至ARM（Azure Resource Manager ）环境</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1101">Recover production replica(s) (#1101)</a> 恢复生产环境备份</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1102">Automated testing of recovering PostgreSQL database backups (#1102)</a> 自动测试对PostgreSQL数据库备份的恢复</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1103">Improve PostgreSQL replication documentation/runbooks (#1103)</a> 改进PostgreSQL备份文档/操作手册</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1105">Investigate pgbarman for creating PostgreSQL backups (#1105)</a> 调研评估使用pgbarman来创建PostgreSQL备份的方法（宕机过程中，有人建议GitLab使用pgbarman来进行数据恢复，但是当时GitLab并没有人用过这种方法）</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/494">Investigate using WAL-E as a means of Database Backup and Realtime Replication (#494)</a> 调研使用WAL-E来做数据库备份和实时备份的方案</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1152">Build Streaming Database Restore</a> 构建流式数据库恢复机制</li>
+<li>
+<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1163">Assign an owner for data durability</a> 指定专人负责数据的持久性</li>
+</ol>
+<p>我们目前还着手搭建多个备用服务器以及配置负载均衡，你可以在下面的列表中找到细节：</p>
+<ul>
+<li><a href="https://gitlab.com/gitlab-org/omnibus-gitlab/merge_requests/1251">Bundle pgpool-II 3.6.1 (!1251)</a></li>
+<li><a href="https://gitlab.com/gitlab-com/infrastructure/issues/259">Connection pooling/load balancing for PostgreSQL (#259)</a></li>
+</ul>
+<p>我们关注的重点在于如何改进我们的灾备机制，并在主机上凸显出数据恢复的作用。所以，我们并不会从“阻止工程师在生产主机上运行某个命令“这种角度来实现安全。因为，即使我们把禁用rm命令，也只能是阻止工程师不要犯运行 rm -rf /important-data 命令的错误，但是这种方式并不能阻止诸如磁盘损坏，或者其他可能导致数据丢失的情况发生。</p>
+<p>我们认为理想的环境，应该是那种即使你犯了错误删了数据，也能轻易恢复，并保证对系统影响最小的环境。这就要求你要日常执行一些流程，并且要容易测试，容易回滚。例如，我们现在就在着手建立一些流程，让开发者可以对数据库迁移进行测试。具体细节可见：<a href="https://gitlab.com/gitlab-com/infrastructure/issues/811">“在工作环境中执行和撤销Rials迁移的工具”</a>.</p>
+<p>我们还有一个研究目标，就是针对整个GitLab.com基础设施（不仅仅是数据库），如何构建一个更好的恢复机制。并保证该机制有专人负责。详细信息见：<a href="https://gitlab.com/gitlab-com/infrastructure/issues/1161">“如何灾备恢复除数据库以外的其他资源”</a>.</p>
+<p>为了让备份监控更智能，我们开始创建监控仪表板，你可以在<a href="http://monitor.gitlab.net/dashboard/db/backups">http://monitor.gitlab.net/dashboard/db/backups</a>看到。当前的仪表板仅包含我们对pg_dump备份的监控，但是我们打算把更多的数据加进来。</p>
+<p>人们可能会注意到，目前我们的pg_dump备份的日期还是3天前。我们是在备用服务器上执行这些pg_dump备份的，所以可能会给数据库造成很大的压力。因为我们目前正在着手重建我们的备用服务器，所以pg_dump流程现在会停用一段时间。不过也不用过于担心，因为我们现在把LVM快照的时间从原来的一天一次提高到一小时一次。启用Azure磁盘快照也是我们最近在考虑的事情。</p>
+<p>最后，我们还研究了如何改进我们的举报和响应系统。详细信息可见：<a href="https://gitlab.com/gitlab-org/gitlab-ce/issues/27581">“被spam的用户移除不应该使用硬删除”</a></p>
+<p>如果你还有关于如何阻止类似事件再发生的好办法，请在评论中留言。</p>
+
+        <!-- BEGIN #author-bio -->
+
+<!-- END #author-bio -->
+
+  </article>
+
+  <div class="meta">
+
+    <a class="basic-alignment left" href="/posts/2017/2017-02-13-110165-df6f6fa96.html" title="Previous Post: 一次 DNS 缓存引发的惨案" data-instant>&laquo; 一次 DNS 缓存引发的惨案</a>
+
+    <a class="basic-alignment right" href="/posts/2017/2017-02-14-110144-79e1d6320.html" title="Next Post: 9 个超酷的深度学习案例" data-instant>9 个超酷的深度学习案例 &raquo;</a>
+
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+
+      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
+
+      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
+
+  </ul>
+</div>
+
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+</footer>
+
+    </body>
+</html>
