@@ -1,0 +1,858 @@
+---
+layout: post
+title: 'Redis源码阅读：sds字符串实现'
+time: 2018-04-04 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/113798/
+---
+{% raw %}
+
+
+        			<div class="textwidget"></div>
+		
+		<h2 id="初衷">初衷</h2>
+<p>从开始工作就开始使用Redis，也有一段时间了，但都只是停留在使用阶段，没有往更深的角度探索，每次想读源码都止步在阅读书籍上，因为看完书很快又忘了，这次逼自己先读代码。因为个人觉得写作需要阅读文字来增强灵感，那么写代码的，就阅读更多代码来增强灵感吧。</p>
+<p>redis的实现原理，在《Redis设计与实现》一书中讲得很详细了，但是想通过结合代码的形式再深入探索，加深自己的理解，现在将自己探索的心得写在这儿。</p>
+<h2 id="sds结构体的定义">sds结构体的定义</h2>
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e31193323727897" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+#define SDS_TYPE_5  0
+#define SDS_TYPE_8  1
+#define SDS_TYPE_16 2
+#define SDS_TYPE_32 3
+#define SDS_TYPE_64 4
+#define SDS_TYPE_MASK 7
+
+// sds结构体，使用不同的结构体来保存不同长度大小的字符串
+typedef char *sds;
+
+struct __attribute__ ((__packed__)) sdshdr5 {
+    unsigned char flags; /* flags共8位，低三位保存类型标志，高5位保存字符串长度，小于32(2^5-1) */
+    char buf[]; // 保存具体的字符串
+};
+struct __attribute__ ((__packed__)) sdshdr8 {
+    uint8_t len; /* 字符串长度，buf已用的长度 */
+    uint8_t alloc; /* 为buf分配的总长度，alloc-len就是sds结构体剩余的空间 */
+    unsigned char flags; /* 低三位保存类型标志 */
+    char buf[];
+};
+struct __attribute__ ((__packed__)) sdshdr16 {
+    uint16_t len; /* used */
+    uint16_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};
+struct __attribute__ ((__packed__)) sdshdr32 {
+    uint32_t len; /* used */
+    uint32_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};
+struct __attribute__ ((__packed__)) sdshdr64 {
+    uint64_t len; /* used */
+    uint64_t alloc; /* excluding the header and null terminator */
+    unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    char buf[];
+};</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-16">16</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-18">18</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-20">20</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-22">22</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-24">24</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-26">26</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-28">28</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-30">30</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-32">32</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-34">34</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-36">36</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e31193323727897-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e31193323727897-38">38</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-1"><span class="crayon-p">#define SDS_TYPE_5  0</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-2"><span class="crayon-p">#define SDS_TYPE_8  1</span></div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-3"><span class="crayon-p">#define SDS_TYPE_16 2</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-4"><span class="crayon-p">#define SDS_TYPE_32 3</span></div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-5"><span class="crayon-p">#define SDS_TYPE_64 4</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-6"><span class="crayon-p">#define SDS_TYPE_MASK 7</span></div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-7"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-8"><span class="crayon-c">// sds结构体，使用不同的结构体来保存不同长度大小的字符串</span></div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-9">
+<span class="crayon-r">typedef</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">sds</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-10"> </div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-11">
+<span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-e">__attribute__</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">__packed__</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">sdshdr5</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-12">
+<span class="crayon-h">    </span><span class="crayon-t">unsigned</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">flags</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* flags共8位，低三位保存类型标志，高5位保存字符串长度，小于32(2^5-1) */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-13">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">buf</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">// 保存具体的字符串</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-14">
+<span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-15">
+<span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-e">__attribute__</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">__packed__</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">sdshdr8</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-16">
+<span class="crayon-h">    </span><span class="crayon-e">uint8_t </span><span class="crayon-v">len</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* 字符串长度，buf已用的长度 */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-17">
+<span class="crayon-h">    </span><span class="crayon-e">uint8_t </span><span class="crayon-v">alloc</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* 为buf分配的总长度，alloc-len就是sds结构体剩余的空间 */</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-18">
+<span class="crayon-h">    </span><span class="crayon-t">unsigned</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">flags</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* 低三位保存类型标志 */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-19">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">buf</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-20">
+<span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-21">
+<span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-e">__attribute__</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">__packed__</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">sdshdr16</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-22">
+<span class="crayon-h">    </span><span class="crayon-e">uint16_t </span><span class="crayon-v">len</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* used */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-23">
+<span class="crayon-h">    </span><span class="crayon-e">uint16_t </span><span class="crayon-v">alloc</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* excluding the header and null terminator */</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-24">
+<span class="crayon-h">    </span><span class="crayon-t">unsigned</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">flags</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* 3 lsb of type, 5 unused bits */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-25">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">buf</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-26">
+<span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-27">
+<span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-e">__attribute__</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">__packed__</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">sdshdr32</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-28">
+<span class="crayon-h">    </span><span class="crayon-e">uint32_t </span><span class="crayon-v">len</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* used */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-29">
+<span class="crayon-h">    </span><span class="crayon-e">uint32_t </span><span class="crayon-v">alloc</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* excluding the header and null terminator */</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-30">
+<span class="crayon-h">    </span><span class="crayon-t">unsigned</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">flags</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* 3 lsb of type, 5 unused bits */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-31">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">buf</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-32">
+<span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-33">
+<span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-e">__attribute__</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">__packed__</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">sdshdr64</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-34">
+<span class="crayon-h">    </span><span class="crayon-e">uint64_t </span><span class="crayon-v">len</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* used */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-35">
+<span class="crayon-h">    </span><span class="crayon-e">uint64_t </span><span class="crayon-v">alloc</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* excluding the header and null terminator */</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-36">
+<span class="crayon-h">    </span><span class="crayon-t">unsigned</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">flags</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">/* 3 lsb of type, 5 unused bits */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e31193323727897-37">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">buf</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e31193323727897-38">
+<span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0047 seconds] -->
+<p>sds结构体从4.0开始就使用了5种header定义，节省内存的使用，但是不会用到sdshdr5，我认为是因为sdshdr5能保存的大小较少，2^5=32，因此就不使用它。</p>
+<p>其他的结构体保存了len、alloc、flags以及buf四个属性。各自的含义见代码的注释。</p>
+<h2 id="sds结构体的获取">sds结构体的获取</h2>
+<p>上面可以看到有5种结构体的定义，在使用的时候是通过一个宏来获取的：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e3119e879881602" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+#define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5ad7d19e3119e879881602-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5ad7d19e3119e879881602-1"><span class="crayon-p">#define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))</span></div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p><strong>”##”</strong>被称为连接符，它是一种预处理运算符， 用来把两个语言符号(Token)组合成单个语言符号。比如<code>SDS_HDR(8, s)</code>，根据宏定义展开是：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e311a2988263240" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+((struct sdshdr8 *)((s)-(sizeof(struct sdshdr8))))</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5ad7d19e311a2988263240-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5ad7d19e311a2988263240-1">
+<span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-e ">sdshdr8 *</span><span class="crayon-sy">)</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-o">-</span><span class="crayon-sy">(</span><span class="crayon-e">sizeof</span><span class="crayon-sy">(</span><span class="crayon-t">struct</span><span class="crayon-h"> </span><span class="crayon-v">sdshdr8</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0007 seconds] -->
+<p>而具体使用哪一个结构体，sds底层是通过flags属性与<code>SDS_TYPE_MASK</code>做与运算得出具体的类型（具体的实现可见下面的sdslen函数），然后再根据类型去获取具体的结构体。</p>
+<h2 id="sds特性的实现">sds特性的实现</h2>
+<p>在Redis设计与实现一书中讲到，相比C字符串而言，sds的特性如下：</p>
+<blockquote>
+<ul>
+<li>常数复杂度获取字符串长度</li>
+<li>杜绝缓冲区溢出</li>
+<li>减少内存重新分配次数</li>
+<li>二进制安全</li>
+</ul>
+</blockquote>
+<p>那么，它是怎么做到的呢？看代码。</p>
+<h3 id="常数复杂度获取字符串长度">常数复杂度获取字符串长度</h3>
+<p>因为sds将长度属性保存在结构体中，所以只需要读取这个属性就能获取到sds的长度，具体调用的函数时sdslen，实现如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e311a6796480412" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+static inline size_t sdslen(const sds s) {
+    unsigned char flags = s[-1];
+    switch(flags&amp;SDS_TYPE_MASK) {
+        case SDS_TYPE_5:
+            return SDS_TYPE_5_LEN(flags);
+        case SDS_TYPE_8:
+            return SDS_HDR(8,s)-&gt;len;
+        case SDS_TYPE_16:
+            return SDS_HDR(16,s)-&gt;len;
+        case SDS_TYPE_32:
+            return SDS_HDR(32,s)-&gt;len;
+        case SDS_TYPE_64:
+            return SDS_HDR(64,s)-&gt;len;
+    }
+    return 0;
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311a6796480412-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311a6796480412-16">16</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-1">
+<span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-e">inline </span><span class="crayon-e">size_t </span><span class="crayon-e">sdslen</span><span class="crayon-sy">(</span><span class="crayon-m">const</span><span class="crayon-h"> </span><span class="crayon-i">sds</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-2">
+<span class="crayon-h">    </span><span class="crayon-t">unsigned</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">flags</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-cn">1</span><span class="crayon-sy">]</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-3">
+<span class="crayon-h">    </span><span class="crayon-st">switch</span><span class="crayon-sy">(</span><span class="crayon-v">flags</span><span class="crayon-o">&amp;</span><span class="crayon-v">SDS_TYPE_MASK</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-4">
+<span class="crayon-h">        </span><span class="crayon-st">case</span><span class="crayon-h"> </span><span class="crayon-v">SDS_TYPE_5</span><span class="crayon-o">:</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-5">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-e">SDS_TYPE_5_LEN</span><span class="crayon-sy">(</span><span class="crayon-v">flags</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-6">
+<span class="crayon-h">        </span><span class="crayon-st">case</span><span class="crayon-h"> </span><span class="crayon-v">SDS_TYPE_8</span><span class="crayon-o">:</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-7">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-e">SDS_HDR</span><span class="crayon-sy">(</span><span class="crayon-cn">8</span><span class="crayon-sy">,</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-o">-&gt;</span><span class="crayon-v">len</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-8">
+<span class="crayon-h">        </span><span class="crayon-st">case</span><span class="crayon-h"> </span><span class="crayon-v">SDS_TYPE_16</span><span class="crayon-o">:</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-9">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-e">SDS_HDR</span><span class="crayon-sy">(</span><span class="crayon-cn">16</span><span class="crayon-sy">,</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-o">-&gt;</span><span class="crayon-v">len</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-10">
+<span class="crayon-h">        </span><span class="crayon-st">case</span><span class="crayon-h"> </span><span class="crayon-v">SDS_TYPE_32</span><span class="crayon-o">:</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-11">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-e">SDS_HDR</span><span class="crayon-sy">(</span><span class="crayon-cn">32</span><span class="crayon-sy">,</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-o">-&gt;</span><span class="crayon-v">len</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-12">
+<span class="crayon-h">        </span><span class="crayon-st">case</span><span class="crayon-h"> </span><span class="crayon-v">SDS_TYPE_64</span><span class="crayon-o">:</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-13">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-e">SDS_HDR</span><span class="crayon-sy">(</span><span class="crayon-cn">64</span><span class="crayon-sy">,</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-o">-&gt;</span><span class="crayon-v">len</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-14">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311a6796480412-15">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311a6796480412-16"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0027 seconds] -->
+<p>可以看到，函数是根据类型调用SDS_HDR宏来获取具体的sds结构，然后直接返回结构体的len属性。</p>
+<h3 id="杜绝缓冲区溢出">杜绝缓冲区溢出</h3>
+<p>对于C字符串的操作函数来说，如果在修改字符串的时候忘了为字符串分配足够的空间，就有可能出现缓冲区溢出的情况。而sds中的API就不会出现这种情况，因为它在修改sds之前，都会判断它是否有足够的空间完成接下来的操作。</p>
+<p>拿书中举例的<code>sdscat</code>函数来看，如果<code>strcat</code>想在原来的”Redis”字符串的基础上进行字符串拼接的操作，但是没有检查空间是否满足，就有可能会修改了”Redis”字符串之后使用到的内存，可能是其他结构使用了，也有可能是一段没有被使用的空间，因此有可能会出现缓冲区溢出。但是<code>sdscat</code>就不会，如下面代码所示：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e311ac465597374" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+sds sdscatlen(sds s, const void *t, size_t len) {
+    size_t curlen = sdslen(s);
+
+    s = sdsMakeRoomFor(s,len);
+    if (s == NULL) return NULL;
+    memcpy(s+curlen, t, len);
+    sdssetlen(s, curlen+len);
+    s[curlen+len] = '\0';
+    return s;
+}
+
+sds sdscat(sds s, const char *t) {
+    return sdscatlen(s, t, strlen(t));
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7d19e311ac465597374-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311ac465597374-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311ac465597374-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311ac465597374-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311ac465597374-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311ac465597374-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311ac465597374-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311ac465597374-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311ac465597374-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311ac465597374-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311ac465597374-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311ac465597374-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311ac465597374-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311ac465597374-14">14</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7d19e311ac465597374-1">
+<span class="crayon-e">sds </span><span class="crayon-e">sdscatlen</span><span class="crayon-sy">(</span><span class="crayon-i">sds</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-m">const</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">t</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">size_t </span><span class="crayon-v">len</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311ac465597374-2">
+<span class="crayon-h">    </span><span class="crayon-e">size_t </span><span class="crayon-v">curlen</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">sdslen</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311ac465597374-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311ac465597374-4">
+<span class="crayon-h">    </span><span class="crayon-v">s</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">sdsMakeRoomFor</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-v">len</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311ac465597374-5">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311ac465597374-6">
+<span class="crayon-h">    </span><span class="crayon-e">memcpy</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-o">+</span><span class="crayon-v">curlen</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">len</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311ac465597374-7">
+<span class="crayon-h">    </span><span class="crayon-e">sdssetlen</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">curlen</span><span class="crayon-o">+</span><span class="crayon-v">len</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311ac465597374-8">
+<span class="crayon-h">    </span><span class="crayon-v">s</span><span class="crayon-sy">[</span><span class="crayon-v">curlen</span><span class="crayon-o">+</span><span class="crayon-v">len</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-s">'\0'</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311ac465597374-9">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311ac465597374-10"><span class="crayon-sy">}</span></div>
+<div class="crayon-line" id="crayon-5ad7d19e311ac465597374-11"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311ac465597374-12">
+<span class="crayon-e">sds </span><span class="crayon-e">sdscat</span><span class="crayon-sy">(</span><span class="crayon-i">sds</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-m">const</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">t</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311ac465597374-13">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-e">sdscatlen</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">t</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">strlen</span><span class="crayon-sy">(</span><span class="crayon-v">t</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311ac465597374-14"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0028 seconds] -->
+<p>从代码中可以看到，在执行<code>memcpy</code>将字符串写入sds之前会调用<code>sdsMakeRoomFor</code>函数去检查sds字符串s是否有足够的空间，如果没有足够空间，就为其分配足够的空间，从而杜绝了缓冲区溢出。<code>sdsMakeRoomFor</code>函数的实现如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e311b0443494490" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+sds sdsMakeRoomFor(sds s, size_t addlen) {
+    void *sh, *newsh;
+    size_t avail = sdsavail(s);
+    size_t len, newlen;
+    char type, oldtype = s[-1] &amp; SDS_TYPE_MASK;
+    int hdrlen;
+
+    /* 只有有足够空间就马上返回，否则就继续执行分配空间的操作 */
+    if (avail &gt;= addlen) return s;
+
+    len = sdslen(s);
+    sh = (char*)s-sdsHdrSize(oldtype);
+    newlen = (len+addlen);
+    // SDS_MAX_PREALLOC == 1MB，如果修改后的长度小于1M，则分配的空间是原来的2倍，否则增加1MB的空间
+    if (newlen</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b0443494490-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b0443494490-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b0443494490-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b0443494490-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b0443494490-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b0443494490-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b0443494490-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b0443494490-15">15</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-1">
+<span class="crayon-e">sds </span><span class="crayon-e">sdsMakeRoomFor</span><span class="crayon-sy">(</span><span class="crayon-i">sds</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">size_t </span><span class="crayon-v">addlen</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b0443494490-2">
+<span class="crayon-h">    </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">sh</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">newsh</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-3">
+<span class="crayon-h">    </span><span class="crayon-e">size_t </span><span class="crayon-v">avail</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">sdsavail</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b0443494490-4">
+<span class="crayon-h">    </span><span class="crayon-e">size_t </span><span class="crayon-v">len</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">newlen</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-5">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-v">type</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">oldtype</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">[</span><span class="crayon-o">-</span><span class="crayon-cn">1</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-o">&amp;</span><span class="crayon-h"> </span><span class="crayon-v">SDS_TYPE_MASK</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b0443494490-6">
+<span class="crayon-h">    </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">hdrlen</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-7"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b0443494490-8">
+<span class="crayon-h">    </span><span class="crayon-c">/* 只有有足够空间就马上返回，否则就继续执行分配空间的操作 */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-9">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">avail</span><span class="crayon-h"> </span><span class="crayon-o">&gt;=</span><span class="crayon-h"> </span><span class="crayon-v">addlen</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b0443494490-10"> </div>
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-11">
+<span class="crayon-h">    </span><span class="crayon-v">len</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">sdslen</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b0443494490-12">
+<span class="crayon-h">    </span><span class="crayon-v">sh</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-t">char</span><span class="crayon-o">*</span><span class="crayon-sy">)</span><span class="crayon-v">s</span><span class="crayon-o">-</span><span class="crayon-e">sdsHdrSize</span><span class="crayon-sy">(</span><span class="crayon-v">oldtype</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-13">
+<span class="crayon-h">    </span><span class="crayon-v">newlen</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">len</span><span class="crayon-o">+</span><span class="crayon-v">addlen</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b0443494490-14">
+<span class="crayon-h">    </span><span class="crayon-c">// SDS_MAX_PREALLOC == 1MB，如果修改后的长度小于1M，则分配的空间是原来的2倍，否则增加1MB的空间</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b0443494490-15">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">newlen</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0028 seconds] -->
+<p></p>
+<h3 id="减少内存分配操作">减少内存分配操作</h3>
+<p>sds字符串的很多操作都涉及到修改字符串内容，比如<code>sdscat</code>拼接字符串、<code>sdscpy</code>拷贝字符串等等。这时候就需要内存的分配与释放，如果每次操作都分配刚刚好的大小，那么对程序的性能必定有影响，因为内存分配涉及到系统调用以及一些复杂的算法。</p>
+<p>sds使用了空间预分配以及惰性空间释放的策略来减少内存分配操作。</p>
+<h4 id="空间预分配">空间预分配</h4>
+<p>前面提到，每次涉及到字符串的修改时，都会调用<code>sdsMakeRoomFor</code>检查sds字符串，如果大小不够再进行大小的重新分配。<code>sdsMakeRoomFor</code>函数有下面这几行判断：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e311b4739197907" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+// SDS_MAX_PREALLOC == 1MB，如果修改后的长度小于1M，则分配的空间是原来的2倍，否则增加1MB的空间
+if (newlen</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7d19e311b4739197907-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b4739197907-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7d19e311b4739197907-1"><span class="crayon-c">// SDS_MAX_PREALLOC == 1MB，如果修改后的长度小于1M，则分配的空间是原来的2倍，否则增加1MB的空间</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b4739197907-2">
+<span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">newlen</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>函数判断字符串修改后的大小，如果修改后的长度小于1M，则分配给sds的空间是原来的2倍，否则增加1MB的空间。</p>
+<h4 id="惰性空间释放">惰性空间释放</h4>
+<p>如果操作后减少了字符串的大小，比如下面的<code>sdstrim</code>函数，只是在最后修改len属性，不会马上释放多余的空间，而是继续保留多余的空间，这样在下次需要增加sds字符串的大小时，就不需要再为其分配空间了。当然，如果之后检查到sds的大小实在太大，也会调用<code>sdsRemoveFreeSpac</code>e函数释放多余的空间。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e311b8555640877" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+sds sdstrim(sds s, const char *cset) {
+    char *start, *end, *sp, *ep;
+    size_t len;
+
+    sp = start = s;
+    ep = end = s+sdslen(s)-1;
+    /* 从头部和尾部逐个字符遍历往中间靠拢，如果字符在cest中，则继续前进 */
+    while(sp  sp &amp;&amp; strchr(cset, *ep)) ep--;
+    len = (sp &gt; ep) ? 0 : ((ep-sp)+1); // 全部被去除了，长度就是0
+    if (s != sp) memmove(s, sp, len); // 拷贝内容
+    s[len] = '\0';
+    sdssetlen(s,len);
+    return s;
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7d19e311b8555640877-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b8555640877-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b8555640877-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b8555640877-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b8555640877-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b8555640877-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b8555640877-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b8555640877-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b8555640877-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b8555640877-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b8555640877-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b8555640877-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311b8555640877-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311b8555640877-14">14</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7d19e311b8555640877-1">
+<span class="crayon-e">sds </span><span class="crayon-e">sdstrim</span><span class="crayon-sy">(</span><span class="crayon-i">sds</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-m">const</span><span class="crayon-h"> </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">cset</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b8555640877-2">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">start</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-st">end</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">sp</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">ep</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b8555640877-3">
+<span class="crayon-h">    </span><span class="crayon-e">size_t </span><span class="crayon-v">len</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b8555640877-4"> </div>
+<div class="crayon-line" id="crayon-5ad7d19e311b8555640877-5">
+<span class="crayon-h">    </span><span class="crayon-v">sp</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">start</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b8555640877-6">
+<span class="crayon-h">    </span><span class="crayon-v">ep</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-st">end</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-o">+</span><span class="crayon-e">sdslen</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">)</span><span class="crayon-o">-</span><span class="crayon-cn">1</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b8555640877-7">
+<span class="crayon-h">    </span><span class="crayon-c">/* 从头部和尾部逐个字符遍历往中间靠拢，如果字符在cest中，则继续前进 */</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b8555640877-8">
+<span class="crayon-h">    </span><span class="crayon-st">while</span><span class="crayon-sy">(</span><span class="crayon-e">sp  </span><span class="crayon-v">sp</span><span class="crayon-h"> </span><span class="crayon-o">&amp;&amp;</span><span class="crayon-h"> </span><span class="crayon-e">strchr</span><span class="crayon-sy">(</span><span class="crayon-v">cset</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">ep</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">ep</span><span class="crayon-o">--</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b8555640877-9">
+<span class="crayon-h">    </span><span class="crayon-v">len</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">sp</span><span class="crayon-h"> </span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">ep</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">?</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">ep</span><span class="crayon-o">-</span><span class="crayon-v">sp</span><span class="crayon-sy">)</span><span class="crayon-o">+</span><span class="crayon-cn">1</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">// 全部被去除了，长度就是0</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b8555640877-10">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-h"> </span><span class="crayon-o">!=</span><span class="crayon-h"> </span><span class="crayon-v">sp</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">memmove</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">sp</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">len</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">// 拷贝内容</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b8555640877-11">
+<span class="crayon-h">    </span><span class="crayon-v">s</span><span class="crayon-sy">[</span><span class="crayon-v">len</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-s">'\0'</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b8555640877-12">
+<span class="crayon-h">    </span><span class="crayon-e">sdssetlen</span><span class="crayon-sy">(</span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-v">len</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311b8555640877-13">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">s</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311b8555640877-14"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0034 seconds] -->
+<p></p>
+<h3 id="二进制安全">二进制安全</h3>
+<p>二进制安全指的是只关心二进制化的字符串，不关心具体格式。只会严格的按照二进制的数据存取，不会妄图以某种特殊格式解析数据。比如遇到’\0’字符不会停止解析。</p>
+<p>对于C字符串来说，<code>strlen</code>是判断遇到’\0’之前的字符数量。如果需要保存二进制的数据，就不能通过传统的C字符串来保存，因为获取不到它真实的长度。而sds字符串是通过len属性保存字符串的大小，所以它是二进制安全的。</p>
+<h2 id="其他小函数实现">其他小函数实现</h2>
+<p>在阅读源码的过程中，也发现了两个个人比较感兴趣趣的函数：</p>
+<blockquote>
+<ul>
+<li>sdsll2str（将long long类型的整型数字转成字符串）</li>
+<li>sdstrim （去除头部和尾部的指定字符）</li>
+</ul>
+</blockquote>
+<p>我这两个函数拉出来做了测试，在项目的<code>redis-4.0/tests</code>目录下。<code>sdstrim</code>函数的实现源码上面有列出，看看<code>sdsll2str</code>的实现：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7d19e311be446061724" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+int sdsll2str(char *s, long long value) {
+    char *p, aux;
+    unsigned long long v;
+    size_t l;
+
+    /* 通过取余数得到原字符串的逆转形式 */
+    v = (value</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7d19e311be446061724-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311be446061724-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311be446061724-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311be446061724-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311be446061724-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7d19e311be446061724-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7d19e311be446061724-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7d19e311be446061724-1">
+<span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-e">sdsll2str</span><span class="crayon-sy">(</span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">s</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-v">value</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311be446061724-2">
+<span class="crayon-h">    </span><span class="crayon-t">char</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-v">p</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">aux</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311be446061724-3">
+<span class="crayon-h">    </span><span class="crayon-t">unsigned</span><span class="crayon-h"> </span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311be446061724-4">
+<span class="crayon-h">    </span><span class="crayon-v">size</span><span class="crayon-sy">_</span>t<span class="crayon-h"> </span><span class="crayon-v">l</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311be446061724-5"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7d19e311be446061724-6">
+<span class="crayon-h">    </span><span class="crayon-c">/* 通过取余数得到原字符串的逆转形式 */</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7d19e311be446061724-7">
+<span class="crayon-h">    </span><span class="crayon-v">v</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">value</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0013 seconds] -->
+<p>函数是通过不断取余数，得到原字符串的逆转形式，接着，通过从尾部开始将字符逐个放到字符串s中，看起来像是一个反转操作，从而实现了将整型转为字符串的操作。</p>
+<p>觉得感兴趣是因为<code>sdsll2str</code>这个函数在之前学习C语言的时候经常能看到作为问题出现，能看到如此简洁的实现，表示眼前一亮。而在PHP开发时经常使用trim函数，所以想看看它们的区别。</p>
+<h2 id="总结">总结</h2>
+<p>通过详细地阅读sds的源码，不仅学习到sds的实现细节，还学习到了一些常用字符串操作函数的实现。如果只是仅仅看看数据结构的定义也可以初步了解，但是要深入了解的话还是需要详细的阅读具体函数的实现代码。还是那句，写代码的，需要阅读更多代码来增强灵感。</p>
+<p>我在github有对Redis源码更详细的注解。感兴趣的可以围观一下，给个star。<a href="https://github.com/hoohack/read-redis-src">Redis4.0源码注解</a>。可以通过<a href="https://github.com/hoohack/read-redis-src/commits/master">commit记录</a>查看已添加的注解。</p>
+<p>原创文章，文笔有限，才疏学浅，文中若有不正之处，万望告知。</p>
+
+        
+            
+
+    
+
+    
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
