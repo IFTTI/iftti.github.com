@@ -14,6 +14,7 @@
 
 </head>
 
+
     <body>
 
     <header class="site-header">
@@ -35,15 +36,22 @@
         </svg>
       </a>
       <div class="trigger">
-
+        
+          
+        
           <a class="page-link" href="/about/">About</a>
-
+        
+          
+        
+          
+        
       </div>
     </nav>
 
   </div>
 
 </header>
+
 
     <div class="page-content">
       <div class="wrap">
@@ -55,6 +63,7 @@
   </header>
 
   <article class="post-content">
+  
 
         <!-- div style="margin-bottom: 10px;">
             <script language=javascript>
@@ -80,7 +89,8 @@
 <li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
 </div>
 </div>
-
+		
+		
 <p><strong>前言</strong></p>
 <p>上几篇文章我们介绍了如何<a href="http://blog.jobbole.com/81176/" target="_blank">查看查询计划的方式</a>、常用运算符（<a href="http://blog.jobbole.com/81182/" target="_blank">连接运算符</a>、<a href="http://blog.jobbole.com/81184/" target="_blank">联合运算符</a>）的介绍、并行运算的方式（<a href="http://blog.jobbole.com/81186/" target="_blank">1</a>、<a href="http://blog.jobbole.com/81189/" target="_blank">2</a>），有兴趣的可以点击查看。 本篇将分析在SQL Server中，如何利用先有索引项进行查询性能优化，通过了解这些索引项的应用方式可以指导我们如何建立索引、调整我们的查询语句，达到性能优化的目的。 闲言少叙，进入本篇的正题。</p>
 <p><strong>技术准备</strong> 基于SQL Server2008R2版本，利用微软的一个更简洁的案例库（Northwind）进行解析。</p>
@@ -96,7 +106,6 @@ GO
 SELECT OrderID
 FROM Orders
 WHERE ShipPostalCode IN (N'05022',N'99362')</pre>
-
 <p><img alt="" src="/images/jobbole.com/959475861d0ef7ebba7b411da09ea32b.jpg"></p>
 <p>因为我们在表Orders的列ShipPostalCode列中建立了非聚集索引列，所以这里查询的计划利用了索引查找的方式。这也是需要建立索引的地方。 我们来利用文本的方式来查看该语句的详细的执行计划脚本，语句比较长，我用记事本换行，格式化查看 <img alt="" src="/images/jobbole.com/f83962f492e6673824acebcc8893c34a.jpg">我们知道这张表的该列里存在一个非聚集索引，所以在查询的时候要尽量使用，如果通过索引扫描的方式消耗就比价大了，所以SQL Server尽量想采取索引查找的方式，其实IN关键字和OR关键字逻辑是一样的。</p>
 <p>于是上面的查询条件就转换成了：</p>
@@ -113,7 +122,6 @@ SELECT @Parameter1=N'05022',@Parameter2=N'99362'
 SELECT OrderID
 FROM Orders
 WHERE ShipPostalCode IN (@Parameter1,@Parameter2)</pre>
-
 <p>我们将这两个静态的筛序值改成参数，有时候我们写的存储过程灰常喜欢这么做！我们来看这种方式的生成的查询计划 <img alt="" src="/images/jobbole.com/fbc7f2e2425189ed01a993aa2b8cf8f1.jpg">本来很简单的一个非聚集索引查找搞定的执行计划，我们只是将这两个数值没有直接写入IN关键字中，而是利用了两个变量来代替。</p>
 <p>看看上面SQL Server生成的查询计划！尼玛…这都是些啥？？？还用起来嵌套循环，我就查询了一个Orders表…你嵌套循环个啥….上面动态索引查找的能力去哪了？？？ 好吧，我们用文本查询计划来查看下，这个简单的语句到底在干些啥…</p>
 <div>
@@ -128,7 +136,6 @@ WHERE ShipPostalCode IN (@Parameter1,@Parameter2)</pre>
        |                   |--Compute Scalar(DEFINE:([Expr1007]=[@Parameter1], [Expr1008]=[@Parameter1], [Expr1006]=(62)))
        |                        |--Constant Scan
        |--Index Seek(OBJECT:([Northwind].[dbo].[Orders].[ShipPostalCode]), SEEK:([Northwind].[dbo].[Orders].[ShipPostalCode] &gt; [Expr1009] AND [Northwind].[dbo].[Orders].[ShipPostalCode] &lt; [Expr1010]) ORDERED FORWARD)</pre>
-
 </div>
 <div></div>
 </div>
@@ -160,7 +167,6 @@ SELECT OrderID
 FROM ORDERS
 WHERE OrderDate BETWEEN @Parameter1 AND DATEADD(DAY,6,@Parameter1)
 OR OrderDate BETWEEN @Parameter2 AND DATEADD(DAY,6,@Parameter2)</pre>
-
 <p>我们看看这个生成的查询计划项 <img alt="" src="/images/jobbole.com/47c1a3d7eb97048994de1d1ae9ba62d6.jpg">可以看到，SQL Server为我们生成的查询计划，和前面我们写的语句是一模一样的，当然我们的语句也没做多少改动，改动的地方就是查询条件上。</p>
 <p>我们来分析下这个查询条件：</p>
 <p>WHERE OrderDate BETWEEN @Parameter1 AND DATEADD(DAY,6,@Parameter1)</p>
@@ -174,7 +180,6 @@ OR OrderDate BETWEEN @Parameter2 AND DATEADD(DAY,6,@Parameter2)</pre>
 FROM ORDERS
 WHERE OrderDate BETWEEN '1998-01-01' AND '1998-01-07'
 OR ShippedDate BETWEEN '1998-01-01' AND '1998-01-07'</pre>
-
 <p>这段代码是查询出订单中的订单日期在1998年1月1日到1998年1月7日的或者发货日期同样在1998年1月1日到1998年1月7日的。</p>
 <p>逻辑很简单，我们知道在这种表里面这两个字段都有索引项。所以这个查询在SQL Server中就有了两个选择：</p>
 <p>1、一次性的来个索引扫描根据匹配结果项输出，这样简单有效，但是如果订单表数据量比较大的话，性能就会很差，因为大部分数据就根本不是我们想要的，还要浪费时间去扫描。</p>
@@ -191,7 +196,6 @@ UNION
 SELECT OrderID 
 FROM ORDERS
 WHERE  ShippedDate BETWEEN '1998-01-01' AND '1998-01-07'</pre>
-
 </div>
 <div></div>
 </div>
@@ -200,7 +204,6 @@ WHERE  ShippedDate BETWEEN '1998-01-01' AND '1998-01-07'</pre>
 FROM ORDERS
 WHERE OrderDate = '1998-01-01' 
 OR ShippedDate = '1998-01-01'</pre>
-
 <p>我们将上面的Between and不等式筛选条件改成等式筛选条件，我们来看一下这样形成的执行计划</p>
 <p><img alt="" src="/images/jobbole.com/242b70cdee9e76d80a6c2fa6be3982ab.jpg">基本相同的语句，只是我们改变了不同的查询条件，但是生成的查询计划还是变化蛮大的，有几点不同之处：</p>
 <p>1、前面的用between…and  的筛选条件，通过索引查找返回的值进行组合是用的串联的方式，所谓的串联就是两个数据集拼凑在一起就行，无所谓顺序连接什么的。</p>
@@ -216,14 +219,12 @@ OR ShippedDate = '1998-01-01'</pre>
 FROM ORDERS
 WHERE OrderDate = '1998-01-01' 
 OR ShippedDate = '1998-01-01'</pre>
-
 <p><img alt="" src="/images/jobbole.com/3ac389d29ae91913e9790cc1ed0824fd.jpg"></p>
 <p>最后，奉上一个AND的一个连接谓词的操作方式，这个方式被称为：索引交叉，意思就是说如果两个或多个筛选条件如果采用的索引是交叉进行的，那么使用一个就可以进行查询。 来看个语句就明白了</p>
 <pre class="brush: actionscript3; gutter: true">SELECT OrderID 
 FROM ORDERS
 WHERE OrderDate = '1998-01-01' 
 AND ShippedDate = '1998-03-05'</pre>
-
 <p><img alt="" src="/images/jobbole.com/9bc407cf9b8ab45689330c9cfb764165.jpg">这里我们采用了的谓词连接方式为AND，所以在实际执行的时候，虽然两列都存在非聚集索引，理论都可以使用，但是我们只要选一个最优的索引进行查找，另外一个直接使用书签查找出来就可以。省去了前面介绍的各种神马排序去重….流聚合去重….等等不人性的操作。 看来AND连接符是一个很帅的运算符…所以很多时候我们在尝试写OR的情况下，不如换个思路改用AND更高效。   <strong>参考文献</strong></p>
 <ul>
 <li>微软联机丛书<a href="http://msdn.microsoft.com/zh-cn/library/ms191158(SQL.90).aspx" target="_blank">逻辑运算符和物理运算符引用</a>
@@ -232,31 +233,38 @@ AND ShippedDate = '1998-03-05'</pre>
 </ul>
 <p><strong>结语</strong> 此篇文章主要介绍了索引运算的一些方式，主要是描述了我们平常在写语句的时候所应用的方式，并且举了几个例子，算作抛砖引玉吧，其实我们平常所写的语句中无非也就本篇文章中介绍的各种方式的更改，拼凑。而且根据此，我们该怎样建立索引也作为一个指导项。 下一篇我们介绍子查询一系列的内容，有兴趣可提前关注，关于SQL Server性能调优的内容涉及面很广，后续文章中依次展开分析。 有问题可以留言或者私信，随时恭候有兴趣的童鞋加入SQL SERVER的深入研究。共同学习，一起进步。</p>
 
+        
         			<div class="textwidget">
 </div>
+		
+
+	
+
 
   </article>
 
   <div class="meta">
-
+  
     <a class="basic-alignment left" href="/posts/2014/2014-12-12-81189-e246d0739.html" title="Previous Post: SQL Server调优系列基础篇（并行运算总结篇二）" data-instant>&laquo; SQL Server调优系列基础篇（并行运算总结篇二）</a>
-
+  
+  
     <a class="basic-alignment right" href="/posts/2014/2014-12-12-81196-6bf51109d.html" title="Next Post: 一个成功的 Git 分支模型" data-instant>一个成功的 Git 分支模型 &raquo;</a>
-
+  
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
-
-      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
-
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
   </ul>
 </div>
 
+  
 <comments>
 
 <!-- UY BEGIN -->
@@ -384,7 +392,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
 
     <div class="footer-col-3 column">
-
+      
 <!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
 
     </div>
@@ -397,6 +405,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
   </div>
 
+  
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -409,7 +418,9 @@ var jiathis_config = {data_track_clickback:'true'
 
 </script>
 
+
 </footer>
+
 
     </body>
 </html>

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>PRML读书会第十一章  Sampling Methods | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2015/2015-01-31-prml-e8-af-bb-e4-b9-a6-e4-bc-9a-e7-ac-ac-e5-8d-81-e4-b8-80-e7-ab-a0-sampling-methods-ed6b661c1.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>PRML读书会第十一章  Sampling Methods</h1>
+    <p class="meta"><span class="time">Jan 31, 2015</span><span class="source_url"> • 来自 52nlp.cn <a name="52nlp.cn" href="http://www.52nlp.cn/prml%e8%af%bb%e4%b9%a6%e4%bc%9a%e7%ac%ac%e5%8d%81%e4%b8%80%e7%ab%a0-sampling-methods" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+  
+
+						<p style="text-align: center"><span style="font-family: 微软雅黑;font-size: 15pt"><strong>PRML读书会第十一章 Sampling Methods<br>
+</strong></span></p>
+<p style="text-align: center"><span style="font-family: 微软雅黑;font-size: 15pt"><strong>主讲人 网络上的尼采<br>
+</strong></span></p>
+<p style="text-align: center"><span style="font-family: 微软雅黑;font-size: 12pt"><strong>（新浪微博: <a href="http://weibo.com/dmalgorithms">@Nietzsche_复杂网络机器学习</a>）<br>
+</strong></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">网络上的尼采(813394698) 9:05:00<br>
+今天的主要内容：Markov Chain Monte Carlo，Metropolis-Hastings，Gibbs Sampling，Slice Sampling，Hybrid Monte Carlo。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">上一章讲到的平均场是统计物理学中常用的一种思想，将无法处理的复杂多体问题分解成可以处理的单体问题来近似，变分推断便是在平均场的假设约束下求泛函L(Q)极值的最优化问题，好处在于求解过程中可以推出精致的解析解。变分是从最优化的角度通过坐标上升法收敛到局部最优，这一章我们将通过计算从动力学角度见证Markov Chain Monte Carlo收敛到平稳分布。<br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">先说sampling的原因，因为统计学中经常会遇到对复杂的分布做加和与积分，这往往是intractable的。MCMC方法出现后贝叶斯方法才得以发展，因为在那之前对不可观测变量（包括隐变量和参数）后验分布积分非常困难，对于这个问题上一章变分用的解决办法是通过最优化方法寻找一个和不可观测变量后验分布p(Z|X)近似的分布，这一章我们看下sampling的解决方法，举个简单的例子：比如我们遇到这种形式<img src="/images/52nlp.cn/403848d79299f16681f756c183f294e8.jpg" alt="">，z是个连续随机变量，p(z)是它的分布，我们求f(z)的期望。如果我们从p(z)中sampling一个数据集z<sup>(l)</sup>，然后再求个平均<img src="/images/52nlp.cn/40bc5237d7d56eb35313e29f1918be21.jpg" alt="">来近似f(z)的期望</span><span style="font-family: 宋体">，</span><span style="font-family: 微软雅黑">so,问题就解决了，关键是如何从p(z)中做无偏的sampling。<br>
+为了说明sampling的作用，我们先举个EM的例子，最大似然计算中求分布的积分问题，我们在第九章提到了，完整数据的log似然函数是对隐变量Z的积分：<br>
+</span></span><span id="more-7819"></span></p>
+<p><img src="/images/52nlp.cn/2befd35915d9d7a1851998c8f0d678f1.jpg" alt=""><span style="font-family: 宋体;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">如果Z是比较复杂的分布，我们就需要对Z进行采样，从而得到：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/aab3f5484f4a783a42609d85beaa65da.jpg" alt=""><span style="font-family: 宋体;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">具体就是从Z的后验分布<img src="/images/52nlp.cn/b0d8daa13a9ec6dd954900ecbab087f0.jpg" alt="">中进行采样。</span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">如果我们从贝叶斯的观点，把EM参数theta也当成一个分布的话，有下面一个IP算法:<br>
+<img src="/images/52nlp.cn/5bb6a4be5a345d2c28bce43d999b282a.jpg" alt=""><br>
+I步，我们无法直接对P(Z|X)取样，我们可以先对P(theta|X)取样<img src="/images/52nlp.cn/862e08e601f43c7d6dc5e98249b1d214.jpg" alt="">，然后再对Z的后验分布进行取样：<img src="/images/52nlp.cn/e2d7356be52b9da625381a8771583b23.jpg" alt=""></span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">P步，利用上一步对P(Z|X)的取样，来确定新的参数分布：<br>
+<img src="/images/52nlp.cn/1127c38c07bef5ee109bb58cb1afbc96.jpg" alt=""><br>
+然后按这个I步和P步的方式迭代。</span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">接下来我们讲sampling methods，为了节省时间，两个基本的rejection sampling和Importance sampling不讲了，这两种方法在高维下都会失效，我们直奔主题MCMC（Markov Chain Monte Carlo ）。蒙特卡洛，是个地中海海滨城市，气候宜人，欧洲富人们的聚集地，更重要的是它是世界三大赌城之一，用这个命名就知道这种方法是基于随机的，过会我们会讲到。马尔科夫大神就不用多说了，他当时用自己的名字命名马尔科夫链是预见到这个模型巨大作用。他还有一个师弟叫李雅普洛夫，控制论里面的李雅普洛夫函数说的就是这位，他们的老师叫契比雪夫，都是圣彼得堡学派的。俄国数学家对人类的贡献是无价的orz<br>
+最早的MCMC方法是美国科学家在研制原子弹时算积分发明的。我们先介绍一个最基本的Metropolis方法，这种方法的接受率是：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/19827aa245ca32df88df427f17ef2a8a.jpg" alt=""><span style="font-family: 宋体;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">但有个要求，就是proposal distribution满足<img src="/images/52nlp.cn/5335f7eddc1bfc94459525f21a64cccd.jpg" alt=""></span><span style="font-family: 宋体">。</span><span style="font-family: 微软雅黑">过程很简单，我们先找个比较容易采样的分布即proposal分布，然后从这个分布中取一个样本Z*，如果<img src="/images/52nlp.cn/bebb478dcdf6559527166d7d2eeae9a7.jpg" alt="">大于1直接接受，如果小于1就接着算出接受率，并且从（0，1）之间取一个随机数和这个接受率做比较来决定是否接受这个样本。过会会在Metropolis-Hastings algorithm方法中具体说。下图是一个简单的例子，对高斯分布做采样，绿线是表示接受的步骤，红线表示拒绝的：</span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><img src="/images/52nlp.cn/be6f1a0e3a7113b99b62a610cae45fc8.jpg" alt=""><span style="font-family: 宋体;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">讲Metropolis-Hastings方法前，我们先来回顾下马尔科夫链的性质，这个很重要。markov chains最基本的性质就是无后效性，就是这条链的下一个节点的状态由当前节点状态完全决定：<br>
+<img src="/images/52nlp.cn/2694fdfd3436300d514911d13a803268.jpg" alt=""></span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">特定的齐次马尔科夫链可以收敛到平稳分布，也就是经过相当长的一段时间转移，收敛到的分布和初始值无关，转移核起着决定的作用。关于马尔科夫链的收敛，<strong>我们将介绍一个充分条件：detailed balance细致平稳条件。</strong><br>
+先介绍两个公式，马尔科夫链节点状态的marginal distribution计算公式，由于无后效性我们可以得到<img src="/images/52nlp.cn/1d6a27c28ab04731de7c087ee837c6f4.jpg" alt=""></span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">上面公式的加和结合马儿科夫链的状态转移矩阵是比较容易理解。</span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">平稳分布的定义就是下面的形式：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/d78b12f5959dfd4faa56b688d0355c16.jpg" alt=""><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">其中<img src="/images/52nlp.cn/13ef8b65acbb6c5782d1a38d05ba22c8.jpg" alt="">是z’到z的转移概率，上面的公式不难理解，就是转移后分布不再发生变化。<br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">下面我们给出细致平稳条件的公式：<img src="/images/52nlp.cn/3e73a3f73a4ae00c4525c56c919ea969.jpg" alt=""></span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">满足细致平稳条件就能收敛到平稳分布，下面是推导：<img src="/images/52nlp.cn/c5c385f4dadcde1a5c514aac42d46626.jpg" alt=""></span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">我们把上面细致平稳条件的公式11.40代入公式11.41最左边，从左朝右推导就是平稳分布的公式11.39。细致平稳条件的好处，就是我们能控制马尔科夫链收敛到我们指定的分布<img src="/images/52nlp.cn/745780e669e082ab95e5743434069663.jpg" alt="">。以后的Metropolis-Hastings方法及改进都是基于这个基础的。<br>
+前面我们提到，Metropolis方法需要先选一个比较容易取样的proposal distribution，从这个分布里取样，然后通过接受率决定是否采用这个样本。一个简单的例子就是对于proposal distribution我们可以采用Gaussian centred on the current state，其实很好理解，就是上一步节点的值可以做下一步节点需要采样的proposal distribution即高斯分布的均值，这样下一步节点的状态由上一步完全决定，这就是一个马尔科夫链。马尔科夫链有了，我们怎么保证能收敛到目标分布呢？就是前面说的细致平稳条件，我们可以通过设置接受率的形式来满足这个条件。Metropolis-Hastings接受率的形式：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/46700a50239af108971dd994f4bc8ce7.jpg" alt=""><span style="font-family: 宋体;font-size: 12pt"><br>
+</span></p>
+<p><img src="/images/52nlp.cn/a542e621f3bf2e87bfcb62f8a649867e.jpg" alt=""><span style="font-size: 12pt"><span style="font-family: 微软雅黑">来自于<img src="/images/52nlp.cn/fbb5026f786fdd4a8f69ca775ae7cb31.jpg" alt="">，分布q便是proposal distribution。<br>
+范涛@推荐系统(289765648) 10:49:15<br>
+Zp 是什么？</span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">网络上的尼采(813394698) 10:52:04<br>
+Zp是分布中和z无关的部分。<br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">为了使各位有个形象的理解，我描述一下过程，我们把<img src="/images/52nlp.cn/123d877f6137540dea4f50c8e35c4ef3.jpg" alt="">当做高斯分布的均值，方差是固定的。然后从这个分布取一个样本就是<img src="/images/52nlp.cn/1dbeae49b015e112fa68aaa8394dca06.jpg" alt="">，如果<img src="/images/52nlp.cn/92f62a05c5a9d50f29284ea484573598.jpg" alt="">大于1肯定接受，如果小于1，我们便从（0，1）之间取一个随机数，和这个接受率做比较，如果接受率大于这个随机数便接受，反之便拒绝。接受率这么设就能满足细致平稳条件的原因，看这个（11.45）公式：<br>
+<img src="/images/52nlp.cn/e8a50f727e2d016e0ec9241fbdb6f15f.jpg" alt=""></span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><img src="/images/52nlp.cn/1bd403dbc35da9c2fb9fc0eeedeb503f.jpg" alt=""><span style="font-family: 宋体;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">我们把接受率公式11.44代入上面的公式的左边，会推出左右两边就是细致平稳条件的形式，红框部分便是细致平稳条件公式11.40的转移核，书上的公式明显错了，上面的这个是勘误过的。<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">刚才说了proposal distribution一般采用Gaussian centred on the current state，高斯分布的方差是固定的，其实方差就是步长，如何选择步长这是一个state of the art问题，步子太小扩散太慢，步子太大，拒绝率会很高，原地踏步。书中的一个例子，当用Gaussian centred on the current state作proposal distribution时，步长设为目标高斯分布的最小标准差最合适：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/d61e7cec7d48d02a32bd1649a06bb723.jpg" alt=""><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+下面讲Gibbs Sampling，Gibbs Sampling其实是每次只对一个维度的变量进行采样，固定住其他维度的变量，然后迭代，可以看做是Metropolis-Hastings的特例，它的接受率一直是1.<br>
+<img src="/images/52nlp.cn/afb3bb9efe55fc209e8d6c2bd3bb67d7.jpg" alt=""><br>
+步骤是比较容易理解的，跟上一章的变分法的有相似之处。假设有三个变量的分布<img src="/images/52nlp.cn/39d35252c7d5101688c653dc77a5bc6b.jpg" alt="">，<br>
+先固定住z2 z3对z1进行采样，<img src="/images/52nlp.cn/fd85725b2c7551c38fae8b4d049590d8.jpg" alt="">；<br>
+然后固定住z1 z3对z2进行采样，<img src="/images/52nlp.cn/6fa7d4ba80f631b03b0ba44af688a1b4.jpg" alt="">；<br>
+然后是Z3，<img src="/images/52nlp.cn/43f041743feebf9f9fb85fbda0f7f055.jpg" alt=""><br>
+如此迭代。<br>
+</span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">根据Metropolis-Hastings，它的接受率恒为1。看下面的推导：<br>
+<img src="/images/52nlp.cn/5cbe9b3a26b7f54360235cc295972e53.jpg" alt=""></span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><span style="font-size: 12pt"><span style="font-family: 微软雅黑">因为其他维度是固定不变的，所以<img src="/images/52nlp.cn/6866031857945261a263ec440bcda57b.jpg" alt="">，代入上式就都约去了，等于1.<br>
+最后对于图模型采用gibbs sampling，条件概率<img src="/images/52nlp.cn/f2dffc8b35ae69f3ec91ff391feebe57.jpg" alt="">可以根据马尔科夫毯获得，下面一个是无向图，一个是有向图，蓝色的节点是和要采样的变量有关的其他变量：</span><span style="font-family: 宋体"><br>
+</span></span></p>
+<p><img src="/images/52nlp.cn/b41a8dcffb6a465a9daddaf99f1e9915.jpg" alt=""><span style="font-family: 宋体;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">关于更多的gibbs sampling的内容可以看MLAPP，里面有blocked gibbs和collapsed gibbs。<br>
+</span></p>
+<p> </p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">刚才提到Metropolis-Hastings对步长敏感，针对这个问题，下面介绍两个增加辅助变量的方法，这些方法也是满足细致平稳条件的。先介绍slice sampling，这种方法增加了一个变量U，可以根据分布的特征自动调整步长： <img src="/images/52nlp.cn/fea441012b2279b7a7add118c00680ce.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">步骤很简单：在<img src="/images/52nlp.cn/fa1a0f9f6a42445b34ff92d298222341.jpg" alt="">与<img src="/images/52nlp.cn/e76e926fcdd5a41e89e1b5e5717eebba.jpg" alt="">之间的这段距离随机取个值U，然后通过U画个横线，然后在包含<img src="/images/52nlp.cn/eb3c00a7a887dd30d35a1c89136c74b1.jpg" alt="">并且<img src="/images/52nlp.cn/f9126f7a0e11d7840df4fe185614473e.jpg" alt="">这段横线对z进行随机采样，然后按这种方式迭代。图(b)为了实际中便于操作，有时还需要多出那么一段，因为我们事先不知道目标分布的具体形式，所以包含<img src="/images/52nlp.cn/6d2aa7a1adb367e291d45b5bc73f48ad.jpg" alt="">并且<img src="/images/52nlp.cn/f360c1132f5201b2bdf507123c2569ae.jpg" alt="">这段横线没法确定，只能朝外延伸加单位长度进行试，最后会多出来一段，这一点书上并没有介绍详细。<br>
+下面介绍The Hybrid Monte Carlo Algorithm （Hamiltonian MCMC）：哈密顿，神童，经典力学三巨头之一，这个算法引入了哈密顿动力系统的概念，计算接受率时考虑的是系统的总能量。Hybrid Monte Carlo 定义了势能和动能两种能量，它们的和便是系统总能量哈密顿量。先看势能，分布可以写成这种形式：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/2b92099fb5b39c580dead8c51756c99e.jpg" alt=""><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+E(z)便是系统的势能。<br>
+另外增加一个变量，状态变量变化的速率：<img src="/images/52nlp.cn/814297d12db74fb385879441cbe84e94.jpg" alt=""><br>
+系统的动能便是：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/d137edac3fa62e5cc47b709b150f8977.jpg" alt=""><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+总的能量便是：<img src="/images/52nlp.cn/73826eb9c507562224a31264b60af43b.jpg" alt=""><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">比如高斯分布的哈密顿量就可表示为：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/7253cc1668ee4f62803c9cde7ce41132.jpg" alt=""><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">下面这个公式便是Hybrid Monte Carlo 的接受率：<br>
+</span></p>
+<p><img src="/images/52nlp.cn/55a81f9a2ddd8ff7532cf8da0ef0970e.jpg" alt=""><span style="font-family: 微软雅黑;font-size: 12pt"><br>
+可以证明 这种接受率是满足detailed balance条件的。<br>
+ORC(267270520) 12:14:03<br>
+推荐一本相关的书 Introducing Monte Carlo Methods with R (use R) ，PS：R做MCMC很方便。<br>
+赞尼采讲的很精彩，学习了，嘿嘿<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">网络上的尼采(813394698) 12:36:37<br>
+Markov Chain Monte Carlo In Practice(Gilks)这本书也挺不错。<br>
+红烧鱼(403774317) 12:38:06<br>
+这本读研的时候生读过，非常实用，随书附带code<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">网络上的尼采(813394698)<br>
+</span></p>
+<p><span style="font-family: 微软雅黑;font-size: 12pt">最后需要补充的是：判断MCMC的burn-in何时收敛是个问题，koller介绍了两种方法，即同一条链上设置不同的时间窗做比较，另一种同时跑多条链然后作比较。当然也有一条链跑到黑的。<br>
+</span></p>
+<p>注：PRML读书会系列文章由 <a href="http://weibo.com/dmalgorithms">@Nietzsche_复杂网络机器学习</a> 同学授权发布，转载请注明原作者和相关的主讲人，谢谢。</p>
+<p>PRML读书会讲稿PDF版本以及更多资源下载地址：<a href="http://vdisk.weibo.com/u/1841149974">http://vdisk.weibo.com/u/1841149974</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/prml%E8%AF%BB%E4%B9%A6%E4%BC%9A%E7%AC%AC%E5%8D%81%E4%B8%80%E7%AB%A0-sampling-methods">http://www.52nlp.cn/prml读书会第十一章-sampling-methods</a></p>
+<p><span style="font-family: 微软雅黑;font-size: 9pt"><br>
+</span></p>
+
+											
+
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2015/2015-01-31-prml-e8-af-bb-e4-b9-a6-e4-bc-9a-e7-ac-ac-e5-85-ab-e7-ab-a0-graphical-models-7cc076ef3.html" title="Previous Post: PRML读书会第八章  Graphical Models" data-instant>&laquo; PRML读书会第八章  Graphical Models</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2015/2015-01-31-prml-e8-af-bb-e4-b9-a6-e4-bc-9a-e7-ac-ac-e5-8d-81-e4-b8-89-e7-ab-a0sequential-data-c6348f8fd.html" title="Next Post: PRML读书会第十三章 Sequential Data" data-instant>PRML读书会第十三章 Sequential Data &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>

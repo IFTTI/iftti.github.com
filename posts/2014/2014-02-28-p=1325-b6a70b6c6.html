@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>流式日志系统启示录-Xlog-系统集成与组件选型 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2014/2014-02-28-p=1325-b6a70b6c6.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>流式日志系统启示录-Xlog-系统集成与组件选型</h1>
+    <p class="meta"><span class="time">Feb 28, 2014</span><span class="source_url"> • 来自 noops.me <a name="noops.me" href="http://noops.me/?p=1325" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+                  <ul>
+<li>
+<h1><strong><span style="color: #ffcc00">背景</span></strong></h1>
+</li>
+</ul>
+<p><span style="color: #333333">    如果你是一名SRE兄弟，收到告警短信，你是否还在疯狂的敲着ssh | grep | sed | awk 这些命令的组合排查问题呢？如果1台，2台，3台机器，ok；如果有n台机器，你会不会抓狂？</span></p>
+<p><span style="color: #333333">    如果你是一名DEV兄弟，开发一套高性能的分布式数据处理平台，你是不是还在考虑数据如何传输，中间件如何配置，资源如何调度的问题，Oops ，你应该将重点放在业务逻辑的开发而不是外围框架的Integration上， 考虑的问题太多了，你会不会抓狂？</span></p>
+<p><span style="color: #333333">很不幸，我是名SRE，我们需要使用一套日志分析工具来帮助我们快速定位问题。</span></p>
+<p><span style="color: #333333">Ops makes No Ops.</span></p>
+<ul>
+<li>
+<h1><strong><span style="line-height: 26px;color: #ffcc00">系统设计</span></strong></h1>
+</li>
+</ul>
+<p><span style="color: #ff0000"><strong>这是一张组件构建图</strong></span></p>
+<p><a href="http://noops.me/wp-content/uploads/2014/02/%E7%B3%BB%E7%BB%9F%E9%9B%86%E6%88%90.png"><img class="aligncenter size-full wp-image-1336" alt="logging系统集成设计" src="http://noops.me/wp-content/uploads/2014/02/%E7%B3%BB%E7%BB%9F%E9%9B%86%E6%88%90.png" width="1004" height="971"></a></p>
+<p>我们设想了2条数据流处理方式：</p>
+<p>1，实时日志分析系统（Xlog）：分为5层，数据采集层，数据持久化层，数据处理层，结果数据持久化层，数据展示层。</p>
+<p>2，tracing系统：分为5层，数据采集层，数据持久化层，数据处理层，indexing层，数据检索展示层。</p>
+<p>本文将重点介绍下“实时日志分析系统”的构建过程和一些内部实现细节，希望对读者有些帮助。</p>
+<ul>
+<li>
+<h1><strong><span style="line-height: 13px;color: #ffcc00">组件选型</span></strong></h1>
+</li>
+</ul>
+<p>作为一名SRE，Reuse Infrustracture的能力也是一种核心竞争力！</p>
+<p>Xlog使用下列组件来构建分布式流式日志处理系统：</p>
+<ul>
+<li><strong><span style="line-height: 13px;color: #ff0000">Fluentd–日志采集处理Agent</span></strong></li>
+</ul>
+<p><a href="http://noops.me/wp-content/uploads/2014/02/fluentd.jpg"><img class="alignnone size-full wp-image-1347" alt="fluentd" src="http://noops.me/wp-content/uploads/2014/02/fluentd.jpg" width="165" height="59"></a></p>
+<p><a title="fluentd" href="http://www.fluentd.org/" target="_blank">http://www.fluentd.org/</a></p>
+<ul>
+<li><strong><span style="line-height: 13px;color: #ff0000">Kafka–消息持久化队列</span></strong></li>
+</ul>
+<p><a href="http://kafka.apache.org/images/kafka_logo.png"><img class="alignnone" alt="" src="http://kafka.apache.org/images/kafka_logo.png" width="75" height="117"></a></p>
+<p><a title="kafka" href="http://www.kafka.org/" target="_blank">http://kafka.apache.org/</a></p>
+<ul>
+<li><strong><span style="line-height: 13px;color: #ff0000">Storm–分布式HPC框架</span></strong></li>
+</ul>
+<p><a href="http://noops.me/wp-content/uploads/2014/02/storm.png"><img class="alignnone size-full wp-image-1352" alt="storm" src="http://noops.me/wp-content/uploads/2014/02/storm.png" width="201" height="48"></a></p>
+<p><a title="storm" href="http://storm.incubator.apache.org/" target="_blank">http://storm.incubator.apache.org/</a></p>
+<ul>
+<li><strong><span style="line-height: 13px;color: #ff0000">Mongodb–结果缓存</span></strong></li>
+</ul>
+<div class="wp-caption alignnone" style="width: 416px">
+<a href="http://media.mongodb.org/logo-mongodb-header.png"><img alt="" src="http://media.mongodb.org/logo-mongodb-header.png" width="406" height="116"></a><p class="wp-caption-text">mongodb</p>
+</div>
+<p><a title="mongodb" href="http://www.mongodb.org/" target="_blank">http://www.mongodb.org/</a></p>
+<ul>
+<li><strong><span style="color: #ff0000">Xperf–数据展示平台 </span></strong></li>
+</ul>
+<p>Xlog组件选型简单说明</p>
+<p>A. Agent选型</p>
+<p>说到日志采集，无非三种模式</p>
+<ol>
+<li>通过tail文件的方式采集滚动日志;</li>
+<li>通过listen TCP/UDP端口进行收集;</li>
+<li>通过request HTTP/HTTPS协议提供的URL进行采集；</li>
+</ol>
+<p>说到组件选型，目前开源的收集组件</p>
+<p>syslog/rsyslog/syslog-ng一般用于收集Linux系统日志，收集应用日志配置复杂且不利于二次开发；</p>
+<p>scribe facebook开源的高性能日志收集组件，但是一年多无更新，bug fixing都成问题，c写的，不利于二次开发；</p>
+<p>目前最火的三类Agent：logslash，fluentd，flume；分别用jruby，ruby，java实现，我个人觉得flume过于重了，先不考虑，logslash是     jruby实现的，二次开发不太熟悉，所以考虑fluentd</p>
+<p>fluentd的优点：</p>
+<ol>
+<li>结构化日志</li>
+<li>支持插件的架构</li>
+<li>消息可靠传输机制</li>
+</ol>
+<p>通过使用，个人认为fluentd最方便的2点在于</p>
+<p><span style="line-height: 13px"> a，配置十分便捷</span></p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53d1c507af8ea" class="crayon-syntax crayon-theme-github crayon-font-courier-new crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">fluentd配置</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Ruby</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+## tail gallery log from nginx log
+&lt;source&gt;
+  type          tail
+  path          /home/work/opdir/nginx/logs/access.log
+  pos_file      /tmp/micloud.xiaomi.com.pos
+  format        /^$/ 
+  tag           kafka.micloud.xiaomi.com.gallery.access
+&lt;/source&gt;
+
+## match tag=kafka* and write to kafka
+&lt;match *.**&gt;                                                                                                                                                                                 
+  type                          kafka
+  brokers                       127.0.0.1
+  default_topic         gallery
+  output_data_type      json
+&lt;/match&gt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-2">2</div>
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-4">4</div>
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-6">6</div>
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-8">8</div>
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-10">10</div>
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-12">12</div>
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-14">14</div>
+<div class="crayon-num" data-line="crayon-53d1c507af8ea-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af8ea-16">16</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53d1c507af8ea-1"><span class="c">## tail gallery log from nginx log</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-2">
+<span class="o">&lt;</span><span class="i">source</span><span class="o">&gt;</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af8ea-3">
+<span class="h">  </span><span class="i">type</span><span class="h">          </span><span class="i">tail</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-4">
+<span class="h">  </span><span class="i">path</span><span class="h">          </span><span class="o">/</span><span class="i">home</span><span class="o">/</span><span class="i">work</span><span class="o">/</span><span class="i">opdir</span><span class="o">/</span><span class="i">nginx</span><span class="o">/</span><span class="i">logs</span><span class="o">/</span><span class="i">access</span><span class="sy">.</span><span class="v">log</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af8ea-5">
+<span class="h">  </span><span class="i">pos_file</span><span class="h">      </span><span class="o">/</span><span class="i">tmp</span><span class="o">/</span><span class="i">micloud</span><span class="sy">.</span><span class="v">xiaomi</span><span class="sy">.</span><span class="v">com</span><span class="sy">.</span><span class="v">pos</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-6">
+<span class="h">  </span><span class="i">format</span><span class="h">        </span><span class="o">/</span><span class="o">^</span><span class="r">$/</span><span class="h"> </span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af8ea-7">
+<span class="h">  </span><span class="i">tag</span><span class="h">           </span><span class="i">kafka</span><span class="sy">.</span><span class="v">micloud</span><span class="sy">.</span><span class="v">xiaomi</span><span class="sy">.</span><span class="v">com</span><span class="sy">.</span><span class="v">gallery</span><span class="sy">.</span><span class="v">access</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-8">
+<span class="o">&lt;</span><span class="o">/</span><span class="i">source</span><span class="o">&gt;</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af8ea-9"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-10"><span class="c">## match tag=kafka* and write to kafka</span></div>
+<div class="crayon-line" id="crayon-53d1c507af8ea-11">
+<span class="o">&lt;</span><span class="i">match</span><span class="h"> </span><span class="o">*</span><span class="sy">.</span><span class="o">*</span><span class="o">*</span><span class="o">&gt;</span><span class="h">                                                                                                                                                                                 </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-12">
+<span class="h">  </span><span class="i">type</span><span class="h">                          </span><span class="i">kafka</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af8ea-13">
+<span class="h">  </span><span class="i">brokers</span><span class="h">                       </span><span class="cn">127.0.0.1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-14">
+<span class="h">  </span><span class="r">def</span>ault<span class="sy">_</span>topic<span class="h">         </span><span class="i">gallery</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af8ea-15">
+<span class="h">  </span><span class="i">output_data_type</span><span class="h">      </span><span class="i">json</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af8ea-16">
+<span class="o">&lt;</span><span class="o">/</span><span class="i">match</span><span class="o">&gt;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0037 seconds] -->
+<p>配置一个souce用于日志的输入</p>
+<p>配置一个match用于日志的输出</p>
+<p>souce/match对的组合十分灵活，可以实现多对多，1对多，多对1的日志收集模式。</p>
+<p>b，插件式架构，支持二次开发，满足不同组件系统的集成和私有化定制</p>
+<p>比如我们需要开发一个non-buffered的out_plugin，只需要重写下列代码的method</p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53d1c507af99d" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">plugin</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Ruby</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+class SomeOutput &lt; Fluent::Output
+  # First, register the plugin. NAME is the name of this plugin
+  # and identifies the plugin in the configuration file.
+  Fluent::Plugin.register_output('NAME', self)
+
+  # This method is called before starting.
+  def configure(conf)
+    super
+    ...
+  end
+
+  # This method is called when starting.
+  def start
+    super
+    ...
+  end
+
+  # This method is called when shutting down.
+  def shutdown
+    super
+    ...
+  end
+
+  # This method is called when an event reaches Fluentd.
+  # 'es' is a Fluent::EventStream object that includes multiple events.
+  # You can use 'es.each {|time,record| ... }' to retrieve events.
+  # 'chain' is an object that manages transactions. Call 'chain.next' at
+  # appropriate points and rollback if it raises an exception.
+  def emit(tag, es, chain)
+    chain.next
+    es.each {|time,record|
+      $stderr.puts "OK!"
+    }
+  end
+end</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53d1c507af99d-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-2">2</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-4">4</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-6">6</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-8">8</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-10">10</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-12">12</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-14">14</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-16">16</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-18">18</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-20">20</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-22">22</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-24">24</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-26">26</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-28">28</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-30">30</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-32">32</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507af99d-34">34</div>
+<div class="crayon-num" data-line="crayon-53d1c507af99d-35">35</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53d1c507af99d-1">
+<span class="r">class</span><span class="h"> </span><span class="i">SomeOutput</span><span class="h"> </span><span class="o">&lt;</span><span class="h"> </span><span class="i">Fluent</span><span class="o">::</span><span class="i">Output</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-2">
+<span class="h">  </span><span class="c"># First, register the plugin. NAME is the name of this plugin</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-3">
+<span class="h">  </span><span class="c"># and identifies the plugin in the configuration file.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-4">
+<span class="h">  </span><span class="i">Fluent</span><span class="o">::</span><span class="i">Plugin</span><span class="sy">.</span><span class="e">register_output</span><span class="sy">(</span><span class="s">'NAME'</span><span class="sy">,</span><span class="h"> </span><span class="r">self</span><span class="sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-5"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-6">
+<span class="h">  </span><span class="c"># This method is called before starting.</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-7">
+<span class="h">  </span><span class="r">def</span><span class="h"> </span><span class="e">configure</span><span class="sy">(</span><span class="i">conf</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-8">
+<span class="h">    </span><span class="r">super</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-9">
+<span class="h">    </span><span class="sy">.</span><span class="sy">.</span><span class="sy">.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-10">
+<span class="h">  </span><span class="st">end</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-11"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-12">
+<span class="h">  </span><span class="c"># This method is called when starting.</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-13">
+<span class="h">  </span><span class="r">def</span><span class="h"> </span><span class="i">start</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-14">
+<span class="h">    </span><span class="r">super</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-15">
+<span class="h">    </span><span class="sy">.</span><span class="sy">.</span><span class="sy">.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-16">
+<span class="h">  </span><span class="st">end</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-17"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-18">
+<span class="h">  </span><span class="c"># This method is called when shutting down.</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-19">
+<span class="h">  </span><span class="r">def</span><span class="h"> </span><span class="i">shutdown</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-20">
+<span class="h">    </span><span class="r">super</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-21">
+<span class="h">    </span><span class="sy">.</span><span class="sy">.</span><span class="sy">.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-22">
+<span class="h">  </span><span class="st">end</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-23"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-24">
+<span class="h">  </span><span class="c"># This method is called when an event reaches Fluentd.</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-25">
+<span class="h">  </span><span class="c"># 'es' is a Fluent::EventStream object that includes multiple events.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-26">
+<span class="h">  </span><span class="c"># You can use 'es.each {|time,record| ... }' to retrieve events.</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-27">
+<span class="h">  </span><span class="c"># 'chain' is an object that manages transactions. Call 'chain.next' at</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-28">
+<span class="h">  </span><span class="c"># appropriate points and rollback if it raises an exception.</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-29">
+<span class="h">  </span><span class="r">def</span><span class="h"> </span><span class="e">emit</span><span class="sy">(</span><span class="i">tag</span><span class="sy">,</span><span class="h"> </span><span class="i">es</span><span class="sy">,</span><span class="h"> </span><span class="i">chain</span><span class="sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-30">
+<span class="h">    </span><span class="i">chain</span><span class="sy">.</span><span class="st">next</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-31">
+<span class="h">    </span><span class="i">es</span><span class="sy">.</span><span class="e">each</span><span class="h"> </span><span class="k ">{</span><span class="o">|</span><span class="t">time</span><span class="sy">,</span><span class="i">record</span><span class="o">|</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-32">
+<span class="h">      </span><span class="r">$stderr</span><span class="sy">.</span><span class="v">puts</span><span class="h"> </span><span class="s">"OK!"</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-33">
+<span class="h">    </span><span class="k ">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507af99d-34">
+<span class="h">  </span><span class="st">end</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507af99d-35"><span class="st">end</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0047 seconds] -->
+<p>你只需要在</p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53d1c507afa4c" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+register_output('NAME', self)中注册一个“NMAE"
+分别实现configure()和emit()接口即可</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53d1c507afa4c-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afa4c-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53d1c507afa4c-1">
+<span class="e">register_output</span><span class="sy">(</span><span class="s">'NAME'</span><span class="sy">,</span><span class="h"> </span><span class="r">self</span><span class="sy">)</span>中注册一个“<span class="i">NMAE</span>"</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afa4c-2">分别实现<span class="e">configure</span><span class="sy">(</span><span class="sy">)</span>和<span class="e">emit</span><span class="sy">(</span><span class="sy">)</span>接口即可</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+<p>B. 持久化组件</p>
+<p>mongodb和kafka就不多说了，mongodb在这里主要利用其“Capped”的特性来缓存storm处理完毕的消息；kafka是目前当之无愧的最高性能分布式消息队列，我们在这里用kafka主要考虑到3点：</p>
+<ol>
+<li><span style="line-height: 13px">对数据源进行topic分流，实现Category;<br>
+</span></li>
+<li>作为一层buffer来适配输入输出的消息速率，解除系统耦合度;</li>
+<li>考虑后期集群数据量规模和可扩展性；</li>
+</ol>
+<p>C. 计算组件</p>
+<p>Storm是twitter开源的分布式内存计算框架，目前已经作为apache的incubator项目，与之相提并论的有yahoo的S4，apache的spark，目前商用比较成熟的，Storm是其中之一，采用thrift c/s的框架，核心代码采用clojure编写，外围框架采用java编写，统一暴露java的api，同时还提供多语言的开发支持，同类产品还有一个twitter用ruby实现的storm，叫redstorm，国产的是淘宝用java实现的jstorm。</p>
+<p>Hadoop的M/R这样的large-scale数据集处理大家并不陌生，但是，Hadoop的定位在于batch处理历史数据集，对于分钟级的实时不间断数据集处理并不擅长，所以，Storm是用来填补Hadoop的”空洞“的。</p>
+<p>因此，还有一个开源项目，是twitter开源的summingbird，旨在综合了批处理和实时处理的2类需求。</p>
+<p>选择Storm作为开发组件原因在于，Storm的支持下列特性：</p>
+<ol>
+<li><span style="line-height: 13px">提供丰富的应用case场景支持：比如流式处理，持续计算 , 分布式RPC，支持事务，数据聚合等；</span></li>
+<li>集群易于扩展：根据数据量来控制集群规模非常容易，当计算能力不够时，只需要增加node节点动态扩容；</li>
+<li>消息不丢，不重，和S4不同，Storm保证对每条消息进行处理，事务功能保证不重复处理消息，对于对精准性有要求的业务case，比如计费日志过滤，统计的需求是可以满足的；</li>
+<li>高可靠：Storm中各个component通过zk进行交互，state信息都存在zk中，除了nimbus是一个SPOF外，其他组件都不是SPOF；其实nimbus也是个伪单点，只是在提交代码和UI展示时需要，对于已经提交集群running的代码不会有影响；</li>
+<li>多语言支持：基于thrift的好处在于Storm允许你使用多语言进行编程，不仅仅说你是一个javaer才能搞定；</li>
+</ol>
+<p>开发基于spout,bolt原语的程序就是这么简单！</p>
+<p>比如我们想实现一个从kafka读取数据，然后在storm内存中对日志字段计算，最好push到mongodb中的这条业务功能只需要1个spout和2个bolt的组装即可</p>
+<!-- Crayon Syntax Highlighter v2.1.2 -->
+
+		<div id="crayon-53d1c507afaf6" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes" data-settings=" minimize scroll-mouseover wrap" style=" margin-top: 12px; margin-bottom: 12px; float: none; clear: both; font-size: 12px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" mouseover overlay hide delay" style="height: 18px !important; line-height: 18px !important;">
+<span class="crayon-title">topology construction</span>
+			<div class="crayon-tools">
+<div class="crayon-button crayon-nums-button" title="切换显示行编号"></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"></div>
+<div class="crayon-button crayon-expand-button" title="Expand Code"></div>
+<div class="crayon-button crayon-copy-button" title="Expand Code"></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"></div>
+<span class="crayon-language">Java</span>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 15px !important; line-height: 15px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 12px !important; line-height: 15px !important;">
+//config storm topology
+                        builder.setSpout(
+                                        "xiaomi-log",
+                                        kafkaSpout,
+                                        1);
+                        builder.setBolt(
+                                        "account",
+                                        accoutBolt,
+                                        1).allGrouping("xiaomi-log");
+                        builder.setBolt(
+                                        "mongoInserter",
+                                        mongoInserter,
+                                        1).fieldsGrouping("account", new Fields("records"));
+
+                        Config conf = new Config();
+                        conf.setDebug(config.debugMode);
+                        if(args != null &amp;&amp; args.length &gt; 0) {
+                                conf.setNumAckers(1);
+                                conf.setNumWorkers(1);
+                                StormSubmitter.submitTopology(
+                                                args[0],
+                                                conf,
+                                                builder.createTopology());
+                                latch.countDown();
+                        } else {
+                                LocalCluster cluster = new LocalCluster();
+
+                                cluster.submitTopology(
+                                                "mongoStorm",
+                                                conf,
+                                                builder.createTopology());
+
+                                latch.countDown();
+                        }</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="hide">
+					<div class="crayon-nums-content" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-2">2</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-4">4</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-6">6</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-8">8</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-10">10</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-12">12</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-14">14</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-16">16</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-18">18</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-20">20</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-22">22</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-24">24</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-26">26</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-28">28</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-30">30</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-32">32</div>
+<div class="crayon-num" data-line="crayon-53d1c507afaf6-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-53d1c507afaf6-34">34</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 12px !important; line-height: 15px !important;">
+<div class="crayon-line" id="crayon-53d1c507afaf6-1"><span class="c">//config storm topology</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-2">
+<span class="h">                        </span><span class="i">builder</span><span class="sy">.</span><span class="e">setSpout</span><span class="sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-3">
+<span class="h">                                        </span><span class="s">"xiaomi-log"</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-4">
+<span class="h">                                        </span><span class="i">kafkaSpout</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-5">
+<span class="h">                                        </span><span class="cn">1</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-6">
+<span class="h">                        </span><span class="i">builder</span><span class="sy">.</span><span class="e">setBolt</span><span class="sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-7">
+<span class="h">                                        </span><span class="s">"account"</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-8">
+<span class="h">                                        </span><span class="i">accoutBolt</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-9">
+<span class="h">                                        </span><span class="cn">1</span><span class="sy">)</span><span class="sy">.</span><span class="e">allGrouping</span><span class="sy">(</span><span class="s">"xiaomi-log"</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-10">
+<span class="h">                        </span><span class="i">builder</span><span class="sy">.</span><span class="e">setBolt</span><span class="sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-11">
+<span class="h">                                        </span><span class="s">"mongoInserter"</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-12">
+<span class="h">                                        </span><span class="i">mongoInserter</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-13">
+<span class="h">                                        </span><span class="cn">1</span><span class="sy">)</span><span class="sy">.</span><span class="e">fieldsGrouping</span><span class="sy">(</span><span class="s">"account"</span><span class="sy">,</span><span class="h"> </span><span class="r">new</span><span class="h"> </span><span class="e">Fields</span><span class="sy">(</span><span class="s">"records"</span><span class="sy">)</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-14"> </div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-15">
+<span class="h">                        </span><span class="e">Config </span><span class="v">conf</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="r">new</span><span class="h"> </span><span class="e">Config</span><span class="sy">(</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-16">
+<span class="h">                        </span><span class="i">conf</span><span class="sy">.</span><span class="e">setDebug</span><span class="sy">(</span><span class="i">config</span><span class="sy">.</span><span class="v">debugMode</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-17">
+<span class="h">                        </span><span class="st">if</span><span class="sy">(</span><span class="i">args</span><span class="h"> </span><span class="o">!=</span><span class="h"> </span><span class="t">null</span><span class="h"> </span><span class="o">&amp;&amp;</span><span class="h"> </span><span class="i">args</span><span class="sy">.</span><span class="v">length</span><span class="h"> </span><span class="o">&gt;</span><span class="h"> </span><span class="cn">0</span><span class="sy">)</span><span class="h"> </span><span class="sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-18">
+<span class="h">                                </span><span class="i">conf</span><span class="sy">.</span><span class="e">setNumAckers</span><span class="sy">(</span><span class="cn">1</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-19">
+<span class="h">                                </span><span class="i">conf</span><span class="sy">.</span><span class="e">setNumWorkers</span><span class="sy">(</span><span class="cn">1</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-20">
+<span class="h">                                </span><span class="i">StormSubmitter</span><span class="sy">.</span><span class="e">submitTopology</span><span class="sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-21">
+<span class="h">                                                </span><span class="i">args</span><span class="sy">[</span><span class="cn">0</span><span class="sy">]</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-22">
+<span class="h">                                                </span><span class="i">conf</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-23">
+<span class="h">                                                </span><span class="i">builder</span><span class="sy">.</span><span class="e">createTopology</span><span class="sy">(</span><span class="sy">)</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-24">
+<span class="h">                                </span><span class="i">latch</span><span class="sy">.</span><span class="e">countDown</span><span class="sy">(</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-25">
+<span class="h">                        </span><span class="sy">}</span><span class="h"> </span><span class="st">else</span><span class="h"> </span><span class="sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-26">
+<span class="h">                                </span><span class="e">LocalCluster </span><span class="v">cluster</span><span class="h"> </span><span class="o">=</span><span class="h"> </span><span class="r">new</span><span class="h"> </span><span class="e">LocalCluster</span><span class="sy">(</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-27"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-28">
+<span class="h">                                </span><span class="i">cluster</span><span class="sy">.</span><span class="e">submitTopology</span><span class="sy">(</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-29">
+<span class="h">                                                </span><span class="s">"mongoStorm"</span><span class="sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-30">
+<span class="h">                                                </span><span class="i">conf</span><span class="sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-31">
+<span class="h">                                                </span><span class="i">builder</span><span class="sy">.</span><span class="e">createTopology</span><span class="sy">(</span><span class="sy">)</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-32"> </div>
+<div class="crayon-line" id="crayon-53d1c507afaf6-33">
+<span class="h">                                </span><span class="i">latch</span><span class="sy">.</span><span class="e">countDown</span><span class="sy">(</span><span class="sy">)</span><span class="sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-53d1c507afaf6-34">
+<span class="h">                        </span><span class="sy">}</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0062 seconds] -->
+<p>kafkaSpout对象实现了从Kafka中读取数据的功能；</p>
+<p>accoutBolt对象实现了解析tuple数据，统计基数业务功能；</p>
+<p>mongoInserter对象实现了对统计完毕数据push到Mongodb的功能；</p>
+<p>上述不同对象组装成一个Topology即可完成一个streaming的功能。</p>
+<p>今后我们不不同应用可以抽象出commons的需求算子，不同算子通过Topology组装成不同的服务完成各种业务功能，非常灵活。</p>
+<p>下节预告。。。</p>
+<p>“流式日志系统启示录-Xlog-集群部署”</p>
+<p> </p>
+            
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2014/2014-02-28-2014-02-28-troubleshooting-redis-high-iops-when-bgsave.html-aedf5d826.html" title="Previous Post: 一次服务器IOPS偏高的追踪过程" data-instant>&laquo; 一次服务器IOPS偏高的追踪过程</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2014/2014-03-01-chapter-3-this.html-9c93b6306.html" title="Next Post: 「深入ECMA-262-3」第三章、This" data-instant>「深入ECMA-262-3」第三章、This &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>

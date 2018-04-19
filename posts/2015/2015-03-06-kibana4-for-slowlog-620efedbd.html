@@ -14,6 +14,7 @@
 
 </head>
 
+
     <body>
 
     <header class="site-header">
@@ -35,15 +36,22 @@
         </svg>
       </a>
       <div class="trigger">
-
+        
+          
+        
           <a class="page-link" href="/about/">About</a>
-
+        
+          
+        
+          
+        
       </div>
     </nav>
 
   </div>
 
 </header>
+
 
     <div class="page-content">
       <div class="wrap">
@@ -55,7 +63,9 @@
   </header>
 
   <article class="post-content">
+  
 
+  
   <div style="background-color: #FFF;">
     <p>标题说是 PHP 的慢日志，其实所有函数堆栈的调试日志都可以做，比如 Java 的调试日志等等。要用 Kibana ，首先得把日志数据解析并输入到 Elasticsearch 里。所以，本文分为几个部分：多行合并，堆栈解析，Nested Aggs 处理，Kibana4 的可视化效果。</p>
 <h2 id="section">多行合并</h2>
@@ -138,8 +148,7 @@
 <span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">'__main__'</span><span class="p">:</span>
     <span class="n">options</span><span class="p">,</span><span class="n">args</span> <span class="o">=</span> <span class="n">getOptions</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">options</span><span class="o">.</span><span class="n">logTag</span> <span class="o">==</span> <span class="s">''</span><span class="p">:</span>
-        <span class="n">get_log</span><span class="p">(</span><span class="n">grokFpmSlow</span><span class="o">.</span><span class="n">fpmSlow</span><span class="p">(</span><span class="n">options</span><span class="o">.</span><span class="n">logTag</span><span class="p">))</span></code></pre>
-</div>
+        <span class="n">get_log</span><span class="p">(</span><span class="n">grokFpmSlow</span><span class="o">.</span><span class="n">fpmSlow</span><span class="p">(</span><span class="n">options</span><span class="o">.</span><span class="n">logTag</span><span class="p">))</span></code></pre></div>
 <p>python 水平很烂，大家看看就好，大概流程其实跟 Logstash 差不多。</p>
 <h2 id="section-1">堆栈解析</h2>
 <p>上面的 python 脚本，只是做到根据正则表达式合并多行数据，以及收到处理结果后发送给 ES 集群。具体的处理，则在 common/grokFpmSlow.py 中完成:</p>
@@ -156,8 +165,7 @@
         <span class="n">ret</span> <span class="o">=</span> <span class="n">match</span><span class="o">.</span><span class="n">groupdict</span><span class="p">()</span>
         <span class="n">ret</span><span class="p">[</span><span class="s">'slow'</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">r'\[\w{18}\] '</span><span class="p">,</span> <span class="n">ret</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">'message'</span><span class="p">)))</span> <span class="k">if</span> <span class="n">k</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="p">}</span>
         <span class="n">ret</span><span class="p">[</span><span class="s">"@timestamp"</span><span class="p">]</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">ret</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">"timestamp"</span><span class="p">),</span> <span class="s">"</span><span class="si">%d</span><span class="s">-%b-%Y %H:%M:%S"</span><span class="p">)</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s">"</span><span class="si">%F</span><span class="s">T%T+0800"</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">ret</span></code></pre>
-</div>
+        <span class="k">return</span> <span class="n">ret</span></code></pre></div>
 <p>类属性中的 <code>start_regexp</code> 对应 Logstash/Codecs/MultiLine 中的 pattern，<code>msg_regexp</code> 对应 Logstash/Filters/Grok 中的 match。这些都是标准的正则，根据日志的实际情况写就好了。</p>
 <p><code>grokData()</code> 方法里，把 <code>message</code> 里存的整个堆栈，首先切割成数组，然后转换成对应行号为键的字典，存入 <code>slow</code> 字段。</p>
 <p>也就是说，原本一段这样的 PHP-FPM 慢日志：</p>
@@ -176,7 +184,6 @@ script_filename = /opt/www/inkebook/index.php
 [0x000000000292a378] drupal_deliver_page() /opt/www/inkebook/includes/menu.inc:532
 [0x000000000292a198] menu_execute_active_handler() /opt/www/inkebook/index.php:21
 </code></pre>
-
 <p>会转换成下面这样的字典：</p>
 <div class="highlight"><pre><code class="language-python" data-lang="python"><span class="p">{</span>
   <span class="s">"pool"</span><span class="p">:</span> <span class="s">"www"</span><span class="p">,</span>
@@ -199,8 +206,7 @@ script_filename = /opt/www/inkebook/index.php
     <span class="s">"11"</span><span class="p">:</span> <span class="s">"drupal_deliver_page() /opt/www/inkebook/includes/menu.inc:532"</span><span class="p">,</span>
     <span class="s">"12"</span><span class="p">:</span> <span class="s">"menu_execute_active_handler() /opt/www/inkebook/index.php:21"</span>
   <span class="p">}</span>
-<span class="p">}</span></code></pre>
-</div>
+<span class="p">}</span></code></pre></div>
 <p>现在，数据就算处理完毕，可以写入 ES 了。</p>
 <h2 id="nested-aggs">Nested Aggs</h2>
 <p>Elasticsearch 从 1.0 版本开始，改用 Agg 替换了 Facet 接口。其中最重要的特性，就是 Agg 可以叠加。还是以本文为例。因为我们只需要对函数做 Terms Agg 计数，所以 Nested Aggs 都是“桶(bucket)”类型的聚合。Elasticsearch 先按照第一级聚合的要求划分数据到桶内，也就是按照 <code>slow.1</code> 的 TopN 划成 10 个桶；然后在这 10 个桶内，按照第二级聚合的要求再划分数据到第二级桶，也就是在前面 10 个桶里按照 <code>slow.2</code> 的 TopN 各自又划分成 10 个桶，以此类推。</p>
@@ -224,7 +230,7 @@ script_filename = /opt/www/inkebook/index.php
 <p>事实上，掌握 URL 方式非常有用！因为 Kibana 4 中，Visualize 页的字段都是下拉菜单选择的方式，不像 Kibana 3 里是文本框任意输入。菜单选择方式，可以根据聚合的要求过滤不符合要求的类型的字段，一般来说是更方便的。但是：如果你的数据量很大，结构很复杂，可能这个下拉菜单你滚轴滚上几十秒都找不到想要的字段(因为需要提前准备好字段的细节，Kibana 4 在初次访问的时候会从 ES 下载当前索引模式下整个的字段映射数据<code>/_mapping/fields/*</code>，字段一多，这个数据就很大，又要保存在浏览器内存里，可以想象浏览器会多卡)！我的实际环境中，有 22000+ 个字段，映射请求的响应体大小高达 70MB，最后只好放弃在菜单里寻找需要的字段，随意选了一个，然后在 URL 里改成自己要的……</p>
 <p>btw: 以上在 safari 上正常完成，在 chrome 40 上有 “Maximum call stack size exceeded” 报错，尚不知道根源。</p>
     <hr>
-
+    
     <hr>
   <!-- JiaThis Button BEGIN -->
 <div class="jiathis_style">
@@ -257,31 +263,35 @@ var jiathis_config={
 <!-- JiaThis Button END -->
 <!-- UY BEGIN -->
 
+
 <!-- UY END -->
   </div>
+
 
   </article>
 
   <div class="meta">
-
+  
     <a class="basic-alignment left" href="/posts/2015/2015-03-05-84683-8a6fceeb3.html" title="Previous Post: 一些不起眼但非常有用的 Vim 命令" data-instant>&laquo; 一些不起眼但非常有用的 Vim 命令</a>
-
+  
+  
     <a class="basic-alignment right" href="/posts/2015/2015-03-06-kibana4-for-slowlog-8e228d410.html" title="Next Post: 用 Kibana4 实现 PHP 慢日志函数堆栈分析" data-instant>用 Kibana4 实现 PHP 慢日志函数堆栈分析 &raquo;</a>
-
+  
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
-
-      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
-
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
   </ul>
 </div>
 
+  
 <comments>
 
 <!-- UY BEGIN -->
@@ -409,7 +419,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
 
     <div class="footer-col-3 column">
-
+      
 <!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
 
     </div>
@@ -422,6 +432,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
   </div>
 
+  
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -434,7 +445,9 @@ var jiathis_config = {data_track_clickback:'true'
 
 </script>
 
+
 </footer>
+
 
     </body>
 </html>

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>如何计算两个文档的相似度（二） | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2013/2013-05-27-e5-a6-82-e4-bd-95-e8-ae-a1-e7-ae-97-e4-b8-a4-e4-b8-aa-e6-96-87-e6-a1-a3-e7-9a-84-e7-9b-b8-e4-bc-bc-e5-ba-a6-e4-ba-8c-4c7de5a13.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>如何计算两个文档的相似度（二）</h1>
+    <p class="meta"><span class="time">May 27, 2013</span><span class="source_url"> • 来自 52nlp.cn <a name="52nlp.cn" href="http://www.52nlp.cn/%e5%a6%82%e4%bd%95%e8%ae%a1%e7%ae%97%e4%b8%a4%e4%b8%aa%e6%96%87%e6%a1%a3%e7%9a%84%e7%9b%b8%e4%bc%bc%e5%ba%a6%e4%ba%8c" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+  
+
+						<p><a href="http://www.52nlp.cn/%E5%A6%82%E4%BD%95%E8%AE%A1%E7%AE%97%E4%B8%A4%E4%B8%AA%E6%96%87%E6%A1%A3%E7%9A%84%E7%9B%B8%E4%BC%BC%E5%BA%A6%E4%B8%80">上一节</a>我们介绍了一些背景知识以及<a href="http://radimrehurek.com/gensim/">gensim</a> , 相信很多同学已经尝试过了。这一节将从gensim最基本的安装讲起，然后举一个非常简单的例子用以说明如何使用gensim，下一节再介绍其在<a href="http://coursegraph.com">课程图谱</a>上的应用。</p>
+<p>二、gensim的安装和使用</p>
+<p>1、安装<br>
+gensim依赖<a href="http://www.numpy.org/">NumPy</a>和<a href="http://scipy.org/">SciPy</a>这两大Python科学计算工具包，一种简单的安装方法是pip install，但是国内因为网络的缘故常常失败。所以我是下载了gensim的源代码包安装的。gensim的这个<a href="http://radimrehurek.com/gensim/install.html">官方安装页面</a>很详细的列举了兼容的Python和NumPy, SciPy的版本号以及安装步骤，感兴趣的同学可以直接参考。下面我仅仅说明在Ubuntu和Mac OS下的安装：</p>
+<p>1）我的VPS是64位的Ubuntu 12.04，所以安装numpy和scipy比较简单”sudo apt-get install python-numpy python-scipy”, 之后解压gensim的安装包，直接“sudo python setup.py install”即可；</p>
+<p>2）我的本是macbook pro，在mac os上安装numpy和scipy的源码包废了一下周折，特别是后者，一直提示fortran相关的东西没有，google了一下，发现很多人在mac上安装scipy的时候都遇到了这个问题，最后通过homebrew安装了gfortran才搞定：“brew install gfortran”,之后仍然是“sudo python setpy.py install” numpy 和 scipy即可；</p>
+<p>2、使用<br>
+gensim的官方<a href="http://radimrehurek.com/gensim/tutorial.html">tutorial</a>非常详细，英文ok的同学可以直接参考。以下我会按自己的理解举一个例子说明如何使用gensim，这个例子不同于gensim官方的例子，可以作为一个补充。上一节提到了一个文档：<a href="http://vdisk.weibo.com/s/Da06d">Latent Semantic Indexing (LSI) A Fast Track Tutorial</a> , 这个例子的来源就是这个文档所举的3个一句话doc。首先让我们在命令行中打开python，做一些准备工作:</p>
+<p>&gt;&gt;&gt; from gensim import corpora, models, similarities<br>
+&gt;&gt;&gt; import logging<br>
+&gt;&gt;&gt; logging.basicConfig(format=’%(asctime)s : %(levelname)s : %(message)s’, level=logging.INFO)</p>
+<p>然后将上面那个文档中的例子作为文档输入，在Python中用document list表示：</p>
+<p>&gt;&gt;&gt; documents = ["Shipment of gold damaged in a fire",<br>
+... "Delivery of silver arrived in a silver truck",<br>
+... "Shipment of gold arrived in a truck"]</p>
+<p>正常情况下，需要对英文文本做一些预处理工作，譬如去停用词，对文本进行tokenize，stemming以及过滤掉低频的词，但是为了说明问题，也是为了和这篇”LSI Fast Track Tutorial”保持一致，以下的预处理仅仅是将英文单词小写化：</p>
+<p>&gt;&gt;&gt; texts = [[word for word in document.lower().split()] for document in documents]<br>
+&gt;&gt;&gt; print texts<br>
+[['shipment', 'of', 'gold', 'damaged', 'in', 'a', 'fire'], ['delivery', 'of', 'silver', 'arrived', 'in', 'a', 'silver', 'truck'], ['shipment', 'of', 'gold', 'arrived', 'in', 'a', 'truck']]</p>
+<p>我们可以通过这些文档抽取一个“<a href="http://en.wikipedia.org/wiki/Bag_of_words">词袋（bag-of-words)</a>“，将文档的token映射为id：</p>
+<p>&gt;&gt;&gt; dictionary = corpora.Dictionary(texts)<br>
+&gt;&gt;&gt; print dictionary<br>
+Dictionary(11 unique tokens)<br>
+&gt;&gt;&gt; print dictionary.token2id<br>
+{‘a’: 0, ‘damaged’: 1, ‘gold’: 3, ‘fire’: 2, ‘of’: 5, ‘delivery’: 8, ‘arrived’: 7, ‘shipment’: 6, ‘in’: 4, ‘truck’: 10, ‘silver’: 9}</p>
+<p>然后就可以将用字符串表示的文档转换为用id表示的文档向量：</p>
+<p>&gt;&gt;&gt; corpus = [dictionary.doc2bow(text) for text in texts]<br>
+&gt;&gt;&gt; print corpus<br>
+[[(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)], [(0, 1), (4, 1), (5, 1), (7, 1), (8, 1), (9, 2), (10, 1)], [(0, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1), (10, 1)]]</p>
+<p>例如（9，2）这个元素代表第二篇文档中id为9的单词“silver”出现了2次。</p>
+<p>有了这些信息，我们就可以基于这些“训练文档”计算一个TF-IDF“模型”：</p>
+<p>&gt;&gt;&gt; tfidf = models.TfidfModel(corpus)<br>
+2013-05-27 18:58:15,831 : INFO : collecting document frequencies<br>
+2013-05-27 18:58:15,881 : INFO : PROGRESS: processing document #0<br>
+2013-05-27 18:58:15,881 : INFO : calculating IDF weights for 3 documents and 11 features (21 matrix non-zeros)</p>
+<p>基于这个TF-IDF模型，我们可以将上述用词频表示文档向量表示为一个用tf-idf值表示的文档向量：</p>
+<p>&gt;&gt;&gt; corpus_tfidf = tfidf[corpus]<br>
+&gt;&gt;&gt; for doc in corpus_tfidf:<br>
+…     print doc<br>
+…<br>
+[(1, 0.6633689723434505), (2, 0.6633689723434505), (3, 0.2448297500958463), (6, 0.2448297500958463)]<br>
+[(7, 0.16073253746956623), (8, 0.4355066251613605), (9, 0.871013250322721), (10, 0.16073253746956623)]<br>
+[(3, 0.5), (6, 0.5), (7, 0.5), (10, 0.5)]</p>
+<p>发现一些token貌似丢失了，我们打印一下tfidf模型中的信息：</p>
+<p>&gt;&gt;&gt; print tfidf.dfs<br>
+{0: 3, 1: 1, 2: 1, 3: 2, 4: 3, 5: 3, 6: 2, 7: 2, 8: 1, 9: 1, 10: 2}<br>
+&gt;&gt;&gt; print tfidf.idfs<br>
+{0: 0.0, 1: 1.5849625007211563, 2: 1.5849625007211563, 3: 0.5849625007211562, 4: 0.0, 5: 0.0, 6: 0.5849625007211562, 7: 0.5849625007211562, 8: 1.5849625007211563, 9: 1.5849625007211563, 10: 0.5849625007211562}</p>
+<p>我们发现由于包含id为0， 4， 5这3个单词的文档数（df)为3，而文档总数也为3，所以idf被计算为0了，看来gensim没有对分子加1，做一个平滑。不过我们同时也发现这3个单词分别为a, in, of这样的介词，完全可以在预处理时作为停用词干掉，这也从另一个方面说明TF-IDF的有效性。</p>
+<p>有了tf-idf值表示的文档向量，我们就可以训练一个LSI模型，和<a href="http://vdisk.weibo.com/s/Da06d">Latent Semantic Indexing (LSI) A Fast Track Tutorial</a>中的例子相似，我们设置topic数为2：</p>
+<p>&gt;&gt;&gt; lsi = models.LsiModel(corpus_tfidf, id2word=dictionary, num_topics=2)<br>
+&gt;&gt;&gt; lsi.print_topics(2)<br>
+2013-05-27 19:15:26,467 : INFO : topic #0(1.137): 0.438*”gold” + 0.438*”shipment” + 0.366*”truck” + 0.366*”arrived” + 0.345*”damaged” + 0.345*”fire” + 0.297*”silver” + 0.149*”delivery” + 0.000*”in” + 0.000*”a”<br>
+2013-05-27 19:15:26,468 : INFO : topic #1(1.000): 0.728*”silver” + 0.364*”delivery” + -0.364*”fire” + -0.364*”damaged” + 0.134*”truck” + 0.134*”arrived” + -0.134*”shipment” + -0.134*”gold” + -0.000*”a” + -0.000*”in”</p>
+<p>lsi的物理意义不太好解释，不过最核心的意义是将训练文档向量组成的矩阵SVD分解，并做了一个秩为2的近似SVD分解，可以参考那篇英文tutorail。有了这个lsi模型，我们就可以将文档映射到一个二维的topic空间中：</p>
+<p>&gt;&gt;&gt; corpus_lsi = lsi[corpus_tfidf]<br>
+&gt;&gt;&gt; for doc in corpus_lsi:<br>
+…     print doc<br>
+…<br>
+[(0, 0.67211468809878649), (1, -0.54880682119355917)]<br>
+[(0, 0.44124825208697727), (1, 0.83594920480339041)]<br>
+[(0, 0.80401378963792647)]</p>
+<p>可以看出，文档1，3和topic1更相关，文档2和topic2更相关；</p>
+<p>我们也可以顺手跑一个LDA模型：</p>
+<p>&gt;&gt;&gt; lda = models.LdaModel(copurs_tfidf, id2word=dictionary, num_topics=2)<br>
+&gt;&gt;&gt; lda.print_topics(2)<br>
+2013-05-27 19:44:40,026 : INFO : topic #0: 0.119*silver + 0.107*shipment + 0.104*truck + 0.103*gold + 0.102*fire + 0.101*arrived + 0.097*damaged + 0.085*delivery + 0.061*of + 0.061*in<br>
+2013-05-27 19:44:40,026 : INFO : topic #1: 0.110*gold + 0.109*silver + 0.105*shipment + 0.105*damaged + 0.101*arrived + 0.101*fire + 0.098*truck + 0.090*delivery + 0.061*of + 0.061*in</p>
+<p>lda模型中的每个主题单词都有概率意义，其加和为1，值越大权重越大，物理意义比较明确，不过反过来再看这三篇文档训练的2个主题的LDA模型太平均了，没有说服力。</p>
+<p>好了，我们回到LSI模型，有了LSI模型，我们如何来计算文档直接的相思度，或者换个角度，给定一个查询Query，如何找到最相关的文档？当然首先是建索引了：</p>
+<p>&gt;&gt;&gt; index = similarities.MatrixSimilarity(lsi[corpus])<br>
+2013-05-27 19:50:30,282 : INFO : scanning corpus to determine the number of features<br>
+2013-05-27 19:50:30,282 : INFO : creating matrix for 3 documents and 2 features</p>
+<p>还是以这篇英文tutorial中的查询Query为例：gold silver truck。首先将其向量化：</p>
+<p>&gt;&gt;&gt; query = “gold silver truck”<br>
+&gt;&gt;&gt; query_bow = dictionary.doc2bow(query.lower().split())<br>
+&gt;&gt;&gt; print query_bow<br>
+[(3, 1), (9, 1), (10, 1)]</p>
+<p>再用之前训练好的LSI模型将其映射到二维的topic空间：</p>
+<p>&gt;&gt;&gt; query_lsi = lsi[query_bow]<br>
+&gt;&gt;&gt; print query_lsi<br>
+[(0, 1.1012835748628467), (1, 0.72812283398049593)]</p>
+<p>最后就是计算其和index中doc的余弦相似度了：</p>
+<p>&gt;&gt;&gt; sims = index[query_lsi]<br>
+&gt;&gt;&gt; print list(enumerate(sims))<br>
+[(0, 0.40757114), (1, 0.93163693), (2, 0.83416492)]</p>
+<p>当然，我们也可以按相似度进行排序：</p>
+<p>&gt;&gt;&gt; sort_sims = sorted(enumerate(sims), key=lambda item: -item[1])<br>
+&gt;&gt;&gt; print sort_sims<br>
+[(1, 0.93163693), (2, 0.83416492), (0, 0.40757114)]</p>
+<p>可以看出，这个查询的结果是doc2 &gt; doc3 &gt; doc1，和fast tutorial是一致的，虽然数值上有一些差别：</p>
+<p><a href="http://www.52nlp.cn/wp-content/uploads/2013/05/2dlsi.png"><img src="http://www.52nlp.cn/wp-content/uploads/2013/05/2dlsi.png" alt="2dlsi" width="554" height="272" class="alignnone size-full wp-image-5562"></a></p>
+<p>好了，这个例子就到此为止，下一节我们将主要说明如何基于gensim计算<a href="http://coursegraph.com">课程图谱</a>上课程之间的主题相似度，同时考虑一些改进方法，包括借助英文的自然语言处理工具包<a href="http://nltk.org/">NLTK</a>以及用更大的维基百科的语料来看看效果。</p>
+<p>未完待续…</p>
+<p>注：原创文章，转载请注明出处“<a href="http://www.52nlp.cn">我爱自然语言处理</a>”：<a href="http://www.52nlp.cn">www.52nlp.cn</a></p>
+<p>本文链接地址：<a href="http://www.52nlp.cn/%E5%A6%82%E4%BD%95%E8%AE%A1%E7%AE%97%E4%B8%A4%E4%B8%AA%E6%96%87%E6%A1%A3%E7%9A%84%E7%9B%B8%E4%BC%BC%E5%BA%A6%E4%BA%8C">http://www.52nlp.cn/如何计算两个文档的相似度二</a></p>
+
+											
+
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2013/2013-05-21-2013-05-21-online-books-for-programmers.html-97cf83772.html" title="Previous Post: 推荐给程序员的在线文档" data-instant>&laquo; 推荐给程序员的在线文档</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2013/2013-06-07-e5-a6-82-e4-bd-95-e8-ae-a1-e7-ae-97-e4-b8-a4-e4-b8-aa-e6-96-87-e6-a1-a3-e7-9a-84-e7-9b-b8-e4-bc-bc-e5-ba-a6-e4-b8-89-40a882543.html" title="Next Post: 如何计算两个文档的相似度（三）" data-instant>如何计算两个文档的相似度（三） &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>

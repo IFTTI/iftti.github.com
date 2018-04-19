@@ -1,0 +1,1769 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>如何实现一个基本的微信文章分类器 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2018/2018-04-04-113691-56e79f596.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>如何实现一个基本的微信文章分类器</h1>
+    <p class="meta"><span class="time">Apr 4, 2018</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/113691/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+  
+
+
+        			<div class="textwidget"></div>
+		
+		<p>微信公众号发布的文章和一般门户网站的新闻文本类型有所不同，通常不能用现有的文本分类器直接对这些文章进行分类，不过文本分类的原理是相通的，本文以微信公众号文章为对象，介绍朴素贝叶斯分类器的实现过程。</p>
+<p>文本分类的科学原理和数学证明在网上有很多，这里就不做赘述，本文尽量使用通熟易懂的表述方式，简明扼要地梳理一下文本分类器的各个知识点。</p>
+<p>参考了一下Github，发现少有Java 8风格的实现，所以这里的实现尽量利用Java 8的特性，相比之前优势有很多，例如stream在统计聚合等运算上比较方便，代码不仅简洁，而且更加语义化，另外在多线程并行控制上也省去不少的工作。</p>
+<p>本项目的地址：<a href="https://github.com/fullstackyang/article-classifier">https://github.com/fullstacky…</a></p>
+<h1>一、文本分类器的概述</h1>
+<p>文本分类器可以看作是一个预测函数，在给定的文本时，在预定的类别集合中，判断该文本最可能属于哪个类。</p>
+<p>这里需要注意两个问题：</p>
+<ul>
+<li>在文本中含有比较多的标点符号和停用词（的，是，了等），直接使用整段文本处理肯定会产生很多不必要的计算，而且计算量也非常大，因此需要把给定的文本有效地进行表示，也就是选择一系列的特征词来代表这篇文本，这些特征词既可以比较好地反应所属文本的内容，又可以对不同文本有比较好的区分能力。</li>
+<li>在进行文本表示之后，如何对这些特征词进行预测，这就是分类器的算法设计问题了，比较常见的模型有朴素贝叶斯，基于支持向量机（SVM），K-近邻（KNN），决策树等分类算法。这里我们选择简单易懂的朴素贝叶斯算法。在机器学习中，朴素贝叶斯建模属于有监督学习，因此需要收集大量的文本作为训练语料，并标注分类结果</li>
+</ul>
+<p>综上，实现一个分类器通常分为以下几个步骤：</p>
+<ol>
+<li>收集并处理训练语料，以及最后测试用的测试语料</li>
+<li>在训练集上进行特征选择，得到一系列的特征项（词），这些特征项组成了所谓的特征空间</li>
+<li>为了表示某个特征项在不同文档中的重要程度，计算该特征项的权重，常用的计算方法有TF-IDF，本文采用的是“经典”朴素贝叶斯模型，这里不考虑特征项的权重（当然，一定要做也可以）</li>
+<li>训练模型，对于朴素贝叶斯模型来说，主要的是计算每个特征项在不同类别中的条件概率，这点下面再做解释。</li>
+<li>预测文本，模型训练完成之后可以保存到文件中，在预测时直接读入模型的数据进行计算。</li>
+</ol>
+<h1>二、准备训练语料</h1>
+<p>这里需要的语料就是微信公众号的文章，我们可以抓取搜狗微信搜索网站（<a href="http://weixin.sogou.com/">http://weixin.sogou.com/</a>）首页上已经分类好的文章，直接采用其分类结果，这样也省去了标注的工作。至于如何开发爬虫去抓取文章，这里就不再讨论了。</p>
+<p><img src="/images/jobbole.com/9cc9281b0082d6c952b538ea57f8e89f.jpg" width="936" height="245"></p>
+<p>“热门”这类别下的文章不具有一般性，因此不把它当作一个类别。剔除“热门”类别之后，最终我们抓取了30410篇文章，总共20个类别，每个类别的文章数并不均衡，其中最多 的是“养生堂”类别，有2569篇文章，最少的是“军事”类别，有654篇，大体符合微信上文章的分布情况。在保存时，我们保留了文章的标题，公众号名称，文章正文。</p>
+<h1>三、特征选择</h1>
+<p>如前文所述，特征选择的目的是降低特征空间的维度，避免维度灾难。简单地说，假设我们选择了2万个特征词，也就是说计算机通过学习，得到了一张有2万个词的“单词表”，以后它遇到的所有文本可以够用这张单词表中的词去表示其内容大意。这些特征词针对不同的类别有一定的区分能力，举例来说，“歼击机”可能来自“军事”，“越位”可能来自“体育”，“涨停”可能来自“财经”等等，而通常中文词汇量要比这个数字大得多，一本常见的汉语词典收录的词条数可达数十万。</p>
+<p>常见的特征选择方法有两个，信息增益法和卡方检验法。</p>
+<h2>3.1 信息增益</h2>
+<p>信息增益法的衡量标准是，这个特征项可以为分类系统带来多少信息量，所谓的信息增益就是该特征项包含的能够帮预测类别的信息量，这里所说的信息量可以用熵来衡量，计算信息增益时还需要引入条件熵的概念，公式如下</p>
+<p><img src="/images/jobbole.com/123d1212786a732af98a09cc6e2b986c.jpg" width="967" height="287"></p>
+<p>可能有些见到公式就头大的小伙伴不太友好，不过这个公式虽然看起来有点复杂，其实在计算中还是比较简单的，解释一下：</p>
+<p>P(Cj)：Cj类文档在整个语料中出现的概率；</p>
+<p>P(ti)：语料中包含特征项ti的文档的概率，取反就是不包含特征项ti的文档的概率；</p>
+<p>P(Cj|ti)：文档包含特征项ti且属于Cj类的条件概率，取反就是文档不包含特征项ti且属于Cj类的条件概率</p>
+<p>上面几个概率值，都可以比较方便地从训练语料上统计得到。若还有不明白的小伙伴，推荐阅读这篇博客：<a href="http://www.blogjava.net/zhenandaci/archive/2009/03/24/261701.html">文本分类入门（十一）特征选择方法之信息增益</a></p>
+<h2>3.2 卡方检验</h2>
+<p>卡方检验，基于χ2统计量(CHI)来衡量特征项ti和类别Cj之间的相关联程度，CHI统计值越高，该特征项与该类的相关性越大，如果两者相互独立，则CHI统计值接近零。计算时需要根据一张相依表（contingency table），公式也比较简单：</p>
+<p><img class="aligncenter" src="/images/jobbole.com/01d98a90e6ee0e4af69a7e22a092e594.jpg" width="1061" height="183"></p>
+<p><img class="aligncenter" src="/images/jobbole.com/a30333761aaaab9513d0898e8967d798.jpg" width="517" height="90"></p>
+<p>其中N就是文档总数，如果想继续讨论这个公式，推荐阅读这篇博客：<a href="http://www.deeplearn.me/1446.html">特征选择（3）-卡方检验</a></p>
+<h2>3.3 算法实现</h2>
+<p>不论何种方式都需要对每个特征项进行估算，然后根据所得的数值进行筛选，通常可以设定一个阈值，低于阈值的特征项可以直接从特征空间中移除，另外也可以按照数值从高到低排序，并指定选择前N个。这里我们采用后者，总共截取前2万个特征项。</p>
+<p>特征选择实现类的代码如下，其中，不同特征选择方法需实现Strategy接口，以获得不同方法计算得到的估值，这里在截取特征项时为了避免不必要的麻烦，剔除了字符串长度为1的词。</p>
+<p>Doc对象表示一篇文档，其中包含了该文档的所属分类，以及分词结果（已经滤掉了停用词等），即Term集合；</p>
+<p>Term对象主要包含3个字段，词本身的字符串，词性（用于过滤），词频TF；</p>
+<p>Feature表示特征项，一个特征项对应一个Term对象，还包含两个hashmap，一个用来统计不同类别下该特征项出现的文档数量（categoryDocCounter），另一个用来统计不同类别下该特征项出现的频度（categoryTermCounter）（对应朴素贝叶斯两种不同模型，下文详述）</p>
+<p><strong>统计时引入FeatureCounter对象，使用stream的reduce方法进行归约。主要的思想就是把每一个文档中的Term集合，映射为Term和Feature的键值对，然后再和已有的Map进行合并，合并时如果遇到相同的Term，则调用Feature的Merge方法，该方法会将双方term的词频，以及categoryDocCounter和categoryTermCounter中的统计结果进行累加。最终将所有文档全部统计完成返回Feature集合。</strong></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7c2b6d5081551509712" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+@AllArgsConstructor
+public class FeatureSelection {
+
+    interface Strategy {
+        Feature estimate(Feature feature);
+    }
+
+    private final Strategy strategy;
+    private final static int FEATURE_SIZE = 20000;
+
+    public List select(List docs) {
+        return createFeatureSpace(docs.stream())
+                .stream()
+                .map(strategy::estimate)
+                .filter(f -&gt; f.getTerm().getWord().length() &gt; 1)
+                .sorted(comparing(Feature::getScore).reversed())
+                .limit(FEATURE_SIZE)
+                .collect(toList());
+    }
+
+    private Collection createFeatureSpace(Stream docs) {
+
+        @AllArgsConstructor
+        class FeatureCounter {
+            private final Map featureMap;
+
+            private FeatureCounter accumulate(Doc doc) {
+                Map temp = doc.getTerms().parallelStream()
+                        .map(t -&gt; new Feature(t, doc.getCategory()))
+                        .collect(toMap(Feature::getTerm, Function.identity()));
+                if (!featureMap.isEmpty())
+                    featureMap.values().forEach(f -&gt; temp.merge(f.getTerm(), f, Feature::merge));
+                return new FeatureCounter(temp);
+            }
+
+            private FeatureCounter combine(FeatureCounter featureCounter) {
+                Map temp = Maps.newHashMap(featureMap);
+                featureCounter.featureMap.values().forEach(f -&gt; temp.merge(f.getTerm(), f, Feature::merge));
+                return new FeatureCounter(temp);
+            }
+        }
+
+        FeatureCounter counter = docs.parallel()
+                .reduce(new FeatureCounter(Maps.newHashMap()),
+                        FeatureCounter::accumulate,
+                        FeatureCounter::combine);
+        return counter.featureMap.values();
+    }
+}
+public class Feature {
+...
+    public Feature merge(Feature feature) {
+        if (this.term.equals(feature.getTerm())) {
+            this.term.setTf(this.term.getTf() + feature.getTerm().getTf());
+            feature.getCategoryDocCounter()
+                    .forEach((k, v) -&gt; categoryDocCounter.merge(k, v, (oldValue, newValue) -&gt; oldValue + newValue));
+            feature.getCategoryTermCounter()
+                    .forEach((k, v) -&gt; categoryTermCounter.merge(k, v, (oldValue, newValue) -&gt; oldValue + newValue));
+        }
+        return this;
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-16">16</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-18">18</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-20">20</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-22">22</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-24">24</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-26">26</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-28">28</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-30">30</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-32">32</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-34">34</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-36">36</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-38">38</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-40">40</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-42">42</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-44">44</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-46">46</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-48">48</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-50">50</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-52">52</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-53">53</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-54">54</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-55">55</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-56">56</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-57">57</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-58">58</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-59">59</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-60">60</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5081551509712-61">61</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5081551509712-62">62</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-1">
+<span class="crayon-sy">@</span><span class="crayon-e">AllArgsConstructor</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-2">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">FeatureSelection</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-4">
+<span class="crayon-h">    </span><span class="crayon-t">interface</span><span class="crayon-h"> </span><span class="crayon-e">Strategy</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-5">
+<span class="crayon-h">        </span><span class="crayon-e">Feature </span><span class="crayon-e">estimate</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-6">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-7"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-8">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Strategy </span><span class="crayon-v">strategy</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-9">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">FEATURE_SIZE</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">20000</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-10"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-11">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">List </span><span class="crayon-e">select</span><span class="crayon-sy">(</span><span class="crayon-e">List </span><span class="crayon-v">docs</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-12">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-e">createFeatureSpace</span><span class="crayon-sy">(</span><span class="crayon-v">docs</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-13">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-14">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">strategy</span><span class="crayon-o">::</span><span class="crayon-v">estimate</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-15">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">filter</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">f</span><span class="crayon-sy">.</span><span class="crayon-e">getTerm</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">getWord</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">length</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-cn">1</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-16">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">sorted</span><span class="crayon-sy">(</span><span class="crayon-e">comparing</span><span class="crayon-sy">(</span><span class="crayon-v">Feature</span><span class="crayon-o">::</span><span class="crayon-v">getScore</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">reversed</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-17">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">limit</span><span class="crayon-sy">(</span><span class="crayon-v">FEATURE_SIZE</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-18">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toList</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-19">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-20"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-21">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">Collection </span><span class="crayon-e">createFeatureSpace</span><span class="crayon-sy">(</span><span class="crayon-e">Stream </span><span class="crayon-v">docs</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-22"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-23">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-e">AllArgsConstructor</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-24">
+<span class="crayon-h">        </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">FeatureCounter</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-25">
+<span class="crayon-h">            </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Map </span><span class="crayon-v">featureMap</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-26"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-27">
+<span class="crayon-h">            </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">FeatureCounter </span><span class="crayon-e">accumulate</span><span class="crayon-sy">(</span><span class="crayon-e">Doc </span><span class="crayon-v">doc</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-28">
+<span class="crayon-h">                </span><span class="crayon-e">Map </span><span class="crayon-v">temp</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">doc</span><span class="crayon-sy">.</span><span class="crayon-e">getTerms</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">parallelStream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-29">
+<span class="crayon-h">                        </span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">t</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">Feature</span><span class="crayon-sy">(</span><span class="crayon-v">t</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">doc</span><span class="crayon-sy">.</span><span class="crayon-e">getCategory</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-30">
+<span class="crayon-h">                        </span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toMap</span><span class="crayon-sy">(</span><span class="crayon-v">Feature</span><span class="crayon-o">::</span><span class="crayon-v">getTerm</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">Function</span><span class="crayon-sy">.</span><span class="crayon-e">identity</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-31">
+<span class="crayon-h">                </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-o">!</span><span class="crayon-v">featureMap</span><span class="crayon-sy">.</span><span class="crayon-e">isEmpty</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-32">
+<span class="crayon-h">                    </span><span class="crayon-v">featureMap</span><span class="crayon-sy">.</span><span class="crayon-e">values</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-st">forEach</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">temp</span><span class="crayon-sy">.</span><span class="crayon-e">merge</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-sy">.</span><span class="crayon-e">getTerm</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">f</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Feature</span><span class="crayon-o">::</span><span class="crayon-v">merge</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-33">
+<span class="crayon-h">                </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">FeatureCounter</span><span class="crayon-sy">(</span><span class="crayon-v">temp</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-34">
+<span class="crayon-h">            </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-35"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-36">
+<span class="crayon-h">            </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">FeatureCounter </span><span class="crayon-e">combine</span><span class="crayon-sy">(</span><span class="crayon-e">FeatureCounter </span><span class="crayon-v">featureCounter</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-37">
+<span class="crayon-h">                </span><span class="crayon-e">Map </span><span class="crayon-v">temp</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">Maps</span><span class="crayon-sy">.</span><span class="crayon-e">newHashMap</span><span class="crayon-sy">(</span><span class="crayon-v">featureMap</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-38">
+<span class="crayon-h">                </span><span class="crayon-v">featureCounter</span><span class="crayon-sy">.</span><span class="crayon-v">featureMap</span><span class="crayon-sy">.</span><span class="crayon-e">values</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-st">forEach</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">temp</span><span class="crayon-sy">.</span><span class="crayon-e">merge</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-sy">.</span><span class="crayon-e">getTerm</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">f</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Feature</span><span class="crayon-o">::</span><span class="crayon-v">merge</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-39">
+<span class="crayon-h">                </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">FeatureCounter</span><span class="crayon-sy">(</span><span class="crayon-v">temp</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-40">
+<span class="crayon-h">            </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-41">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-42"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-43">
+<span class="crayon-h">        </span><span class="crayon-e">FeatureCounter </span><span class="crayon-v">counter</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">docs</span><span class="crayon-sy">.</span><span class="crayon-e">parallel</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-44">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">reduce</span><span class="crayon-sy">(</span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">FeatureCounter</span><span class="crayon-sy">(</span><span class="crayon-v">Maps</span><span class="crayon-sy">.</span><span class="crayon-e">newHashMap</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-45">
+<span class="crayon-h">                        </span><span class="crayon-v">FeatureCounter</span><span class="crayon-o">::</span><span class="crayon-v">accumulate</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-46">
+<span class="crayon-h">                        </span><span class="crayon-v">FeatureCounter</span><span class="crayon-o">::</span><span class="crayon-v">combine</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-47">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">counter</span><span class="crayon-sy">.</span><span class="crayon-v">featureMap</span><span class="crayon-sy">.</span><span class="crayon-e">values</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-48">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-49"><span class="crayon-sy">}</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-50">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">Feature</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-51">
+<span class="crayon-sy">.</span><span class="crayon-sy">.</span><span class="crayon-sy">.</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-52">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">Feature </span><span class="crayon-e">merge</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-53">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">term</span><span class="crayon-sy">.</span><span class="crayon-e">equals</span><span class="crayon-sy">(</span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getTerm</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-54">
+<span class="crayon-h">            </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">term</span><span class="crayon-sy">.</span><span class="crayon-e">setTf</span><span class="crayon-sy">(</span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">term</span><span class="crayon-sy">.</span><span class="crayon-e">getTf</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getTerm</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">getTf</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-55">
+<span class="crayon-h">            </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getCategoryDocCounter</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-56">
+<span class="crayon-h">                    </span><span class="crayon-sy">.</span><span class="crayon-st">forEach</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">k</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">categoryDocCounter</span><span class="crayon-sy">.</span><span class="crayon-e">merge</span><span class="crayon-sy">(</span><span class="crayon-v">k</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">oldValue</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">newValue</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">oldValue</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">newValue</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-57">
+<span class="crayon-h">            </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getCategoryTermCounter</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-58">
+<span class="crayon-h">                    </span><span class="crayon-sy">.</span><span class="crayon-st">forEach</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">k</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">categoryTermCounter</span><span class="crayon-sy">.</span><span class="crayon-e">merge</span><span class="crayon-sy">(</span><span class="crayon-v">k</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">oldValue</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">newValue</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">oldValue</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">newValue</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-59">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-60">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-r">this</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5081551509712-61">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5081551509712-62"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0117 seconds] -->
+<p>信息增益实现如下，在计算条件熵时，利用了stream的collect方法，将包含和不包含特征项的两种情况用一个hashmap分开再进行归约。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7c2b6d508c783610505" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+@AllArgsConstructor
+public class IGStrategy implements FeatureSelection.Strategy {
+
+    private final Collection categories;
+
+    private final int total;
+
+    public Feature estimate(Feature feature) {
+        double totalEntropy = calcTotalEntropy();
+        double conditionalEntrogy = calcConditionEntropy(feature);
+        feature.setScore(totalEntropy - conditionalEntrogy);
+        return feature;
+    }
+
+    private double calcTotalEntropy() {
+        return Calculator.entropy(categories.stream().map(c -&gt; (double) c.getDocCount() / total).collect(toList()));
+    }
+
+    private double calcConditionEntropy(Feature feature) {
+        int featureCount = feature.getFeatureCount();
+        double Pfeature = (double) featureCount / total;
+
+        Map&gt; Pcondition = categories.parallelStream().collect(() -&gt; new HashMap&gt;() {{
+                    put(true, Lists.newArrayList());
+                    put(false, Lists.newArrayList());
+                }}, (map, category) -&gt; {
+                    int countDocWithFeature = feature.getDocCountByCategory(category);
+                    //出现该特征词且属于类别key的文档数量/出现该特征词的文档总数量
+                    map.get(true).add((double) countDocWithFeature / featureCount);
+                    //未出现该特征词且属于类别key的文档数量/未出现该特征词的文档总数量
+                    map.get(false).add((double) (category.getDocCount() - countDocWithFeature) / (total - featureCount));
+                },
+                (map1, map2) -&gt; {
+                    map1.get(true).addAll(map2.get(true));
+                    map1.get(false).addAll(map2.get(false));
+                }
+        );
+        return Calculator.conditionalEntrogy(Pfeature, Pcondition.get(true), Pcondition.get(false));
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-16">16</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-18">18</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-20">20</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-22">22</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-24">24</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-26">26</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-28">28</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-30">30</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-32">32</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-34">34</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-36">36</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-38">38</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d508c783610505-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d508c783610505-40">40</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-1">
+<span class="crayon-sy">@</span><span class="crayon-e">AllArgsConstructor</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-2">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">IGStrategy </span><span class="crayon-r">implements</span><span class="crayon-h"> </span><span class="crayon-v">FeatureSelection</span><span class="crayon-sy">.</span><span class="crayon-i">Strategy</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-4">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Collection </span><span class="crayon-v">categories</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-5"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-6">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-7"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-8">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">Feature </span><span class="crayon-e">estimate</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-9">
+<span class="crayon-h">        </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-v">totalEntropy</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">calcTotalEntropy</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-10">
+<span class="crayon-h">        </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-v">conditionalEntrogy</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">calcConditionEntropy</span><span class="crayon-sy">(</span><span class="crayon-v">feature</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-11">
+<span class="crayon-h">        </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">setScore</span><span class="crayon-sy">(</span><span class="crayon-v">totalEntropy</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">conditionalEntrogy</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-12">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-13">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-14"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-15">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-e">calcTotalEntropy</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-16">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">Calculator</span><span class="crayon-sy">.</span><span class="crayon-e">entropy</span><span class="crayon-sy">(</span><span class="crayon-v">categories</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">c</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">c</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toList</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-17">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-18"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-19">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-e">calcConditionEntropy</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-20">
+<span class="crayon-h">        </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">featureCount</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getFeatureCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-21">
+<span class="crayon-h">        </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-v">Pfeature</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">featureCount</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-22"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-23">
+<span class="crayon-h">        </span><span class="crayon-v">Map</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">Pcondition</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">categories</span><span class="crayon-sy">.</span><span class="crayon-e">parallelStream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-v">HashMap</span><span class="crayon-o">&gt;</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-24">
+<span class="crayon-h">                    </span><span class="crayon-e">put</span><span class="crayon-sy">(</span><span class="crayon-t">true</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Lists</span><span class="crayon-sy">.</span><span class="crayon-e">newArrayList</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-25">
+<span class="crayon-h">                    </span><span class="crayon-e">put</span><span class="crayon-sy">(</span><span class="crayon-t">false</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Lists</span><span class="crayon-sy">.</span><span class="crayon-e">newArrayList</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-26">
+<span class="crayon-h">                </span><span class="crayon-sy">}</span><span class="crayon-sy">}</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">map</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-27">
+<span class="crayon-h">                    </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">countDocWithFeature</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCountByCategory</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-28">
+<span class="crayon-h">                    </span><span class="crayon-c">//出现该特征词且属于类别key的文档数量/出现该特征词的文档总数量</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-29">
+<span class="crayon-h">                    </span><span class="crayon-v">map</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">true</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">add</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">countDocWithFeature</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-v">featureCount</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-30">
+<span class="crayon-h">                    </span><span class="crayon-c">//未出现该特征词且属于类别key的文档数量/未出现该特征词的文档总数量</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-31">
+<span class="crayon-h">                    </span><span class="crayon-v">map</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">false</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">add</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">countDocWithFeature</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">total</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">featureCount</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-32">
+<span class="crayon-h">                </span><span class="crayon-sy">}</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-33">
+<span class="crayon-h">                </span><span class="crayon-sy">(</span><span class="crayon-v">map1</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">map2</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-34">
+<span class="crayon-h">                    </span><span class="crayon-v">map1</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">true</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">addAll</span><span class="crayon-sy">(</span><span class="crayon-v">map2</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">true</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-35">
+<span class="crayon-h">                    </span><span class="crayon-v">map1</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">false</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">addAll</span><span class="crayon-sy">(</span><span class="crayon-v">map2</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">false</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-36">
+<span class="crayon-h">                </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-37">
+<span class="crayon-h">        </span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-38">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">Calculator</span><span class="crayon-sy">.</span><span class="crayon-e">conditionalEntrogy</span><span class="crayon-sy">(</span><span class="crayon-v">Pfeature</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Pcondition</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">true</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Pcondition</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">false</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d508c783610505-39">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d508c783610505-40"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0082 seconds] -->
+<p>卡方检验实现如下，每个特征项要在每个类别上分别计算CHI值，最终保留其最大值</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7c2b6d5092654206914" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+@AllArgsConstructor
+public class ChiSquaredStrategy implements Strategy {
+
+    private final Collection categories;
+
+    private final int total;
+
+    @ Override
+    public Feature estimate(Feature feature) {
+
+        class ContingencyTable {
+            private final int A, B, C, D;
+
+            private ContingencyTable(Feature feature, Category category) {
+                A = feature.getDocCountByCategory(category);
+                B = feature.getFeatureCount() - A;
+                C = category.getDocCount() - A;
+                D = total - A - B - C;
+            }
+        }
+
+        Double chisquared = categories.stream()
+                .map(c -&gt; new ContingencyTable(feature, c))
+                .map(ct -&gt; Calculator.chisquare(ct.A, ct.B, ct.C, ct.D))
+                .max(Comparator.comparingDouble(Double::valueOf)).get();
+        feature.setScore(chisquared);
+        return feature;
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-16">16</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-18">18</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-20">20</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-22">22</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-24">24</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-26">26</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5092654206914-28">28</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5092654206914-29">29</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-1">
+<span class="crayon-sy">@</span><span class="crayon-e">AllArgsConstructor</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-2">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">ChiSquaredStrategy</span><span class="crayon-h"> </span><span class="crayon-r">implements</span><span class="crayon-h"> </span><span class="crayon-e">Strategy</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-4">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Collection </span><span class="crayon-v">categories</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-5"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-6">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-7"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-8">
+<span class="crayon-h">    </span><span class="crayon-sy">@</span><span class="crayon-h"> </span><span class="crayon-e">Override</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-9">
+<span class="crayon-e">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">Feature </span><span class="crayon-e">estimate</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-10"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-11">
+<span class="crayon-h">        </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">ContingencyTable</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-12">
+<span class="crayon-h">            </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">A</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">B</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">C</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">D</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-13"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-14">
+<span class="crayon-h">            </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">ContingencyTable</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">Category </span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-15">
+<span class="crayon-h">                </span><span class="crayon-v">A</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCountByCategory</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-16">
+<span class="crayon-h">                </span><span class="crayon-v">B</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getFeatureCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">A</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-17">
+<span class="crayon-h">                </span><span class="crayon-v">C</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">A</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-18">
+<span class="crayon-h">                </span><span class="crayon-v">D</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">A</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">B</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">C</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-19">
+<span class="crayon-h">            </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-20">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-21"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-22">
+<span class="crayon-h">        </span><span class="crayon-t">Double</span><span class="crayon-h"> </span><span class="crayon-v">chisquared</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">categories</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-23">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">c</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">ContingencyTable</span><span class="crayon-sy">(</span><span class="crayon-v">feature</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">c</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-24">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">ct</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">Calculator</span><span class="crayon-sy">.</span><span class="crayon-e">chisquare</span><span class="crayon-sy">(</span><span class="crayon-v">ct</span><span class="crayon-sy">.</span><span class="crayon-v">A</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">ct</span><span class="crayon-sy">.</span><span class="crayon-v">B</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">ct</span><span class="crayon-sy">.</span><span class="crayon-v">C</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">ct</span><span class="crayon-sy">.</span><span class="crayon-v">D</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-25">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">max</span><span class="crayon-sy">(</span><span class="crayon-v">Comparator</span><span class="crayon-sy">.</span><span class="crayon-e">comparingDouble</span><span class="crayon-sy">(</span><span class="crayon-t">Double</span><span class="crayon-o">::</span><span class="crayon-v">valueOf</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-26">
+<span class="crayon-h">        </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">setScore</span><span class="crayon-sy">(</span><span class="crayon-v">chisquared</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-27">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5092654206914-28">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5092654206914-29"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0050 seconds] -->
+<p></p>
+<h1>四、朴素贝叶斯模型</h1>
+<h2>4.1 原理简介</h2>
+<p>朴素贝叶斯模型之所以称之“朴素”，是因为其假设特征之间是相互独立的，在文本分类中，也就是说，一篇文档中出现的词都是相互独立，彼此没有关联，显然文档中出现的词都是有逻辑性的，这种假设在现实中几乎是不成立的，但是这种假设却大大简化了计算，根据贝叶斯公式，文档Doc属于类别Ci的概率为：</p>
+<p><img class="aligncenter" src="/images/jobbole.com/d9adf7bc4f2f3cabe3aba3b6fa6f92e5.jpg" width="405" height="86"></p>
+<p>P(Ci|Doc)是所求的后验概率，我们在判定分类时，根据每个类别计算P(Ci|Doc)，最终把P(Ci|Doc)取得最大值的那个分类作为文档的类别。其中，P(Doc)对于类别Ci来说是常量，在比较大小时可以不用参与计算，而P(Ci)表示类别Ci出现的概率，我们称之为先验概率，这可以方便地从训练集中统计得出，至于P(Doc|Ci)，也就是类别的条件概率，如果没有朴素贝叶斯的假设，那么计算是非常困难的。</p>
+<p>举例来说，假设有一篇文章，内容为“王者荣耀：两款传说品质皮肤将优化，李白最新模型海报爆料”，经过特征选择，文档可以表示为Doc=(王者荣耀，传说，品质，皮肤，优化，李白，最新，模型，海报，爆料)，那么在预测时需要计算P(王者荣耀，传说，品质，皮肤，优化，李白，最新，模型，海报，爆料|Ci)，这样一个条件概率是不可计算的，因为第一个特征取值为“王者荣耀”，第二个特征取值“传说”……第十个特征取值“爆料”的文档很可能为没有，那么概率就为零，而基于朴素贝叶斯的假设，这个条件概率可以转化为：</p>
+<p>P(王者荣耀，传说，品质，皮肤，优化，李白，最新，模型，海报，爆料|Ci)=P(王者荣耀|Ci)<em>P(传说|Ci)……</em>P(爆料|Ci)</p>
+<p>于是我们就可以统计这些特征词在每个类别中出现的概率了，在这个例子中，游戏类别中“王者荣耀”这个特征项会频繁出现，因此P(王者荣耀|游戏)的条件概率要明显高于其他类别，这就是朴素贝叶斯模型的朴素之处，粗鲁的聪明。</p>
+<h2>4.2 多项式模型与伯努利模型</h2>
+<p>在具体实现中，朴素贝叶斯又可以分为两种模型，多项式模型（Multinomial）和伯努利模型（Bernoulli），另外还有高斯模型，主要用于处理连续型变量，在文本分类中不讨论。</p>
+<p>多项式模型和伯努利模型的区别在于对词频的考察，在多项式模型中文档中特征项的频度是参与计算的，这对于长文本来说是比较公平的，例如上面的例子，“王者荣耀”在游戏类的文档中频度会比较高，而伯努利模型中，所有特征词都均等地对待，只要出现就记为1，未出现就记为0，两者公式如下：</p>
+<p><img class="aligncenter" src="/images/jobbole.com/c8e93e6c83c2393c259c9fc93b9690a3.jpg" width="755" height="238"></p>
+<p>在伯努利模型计算公式中，N(Doc(tj)|Ci)表示Ci类文档中特征tj出现的文档数，|D|表示类别Ci的文档数，P(Ci)可以用类别Ci的文档数/文档总数来计算，</p>
+<p>在多项式模型计算公式中，TF(ti,Doc)是文档Doc中特征ti出现的频度，TF(ti,Ci)就表示类别Ci中特征ti出现的频度，|V|表示特征空间的大小，也就是特征选择之后，不同（即去掉重复之后）的特征项的总个数，而P(Ci)可以用类别Ci中特征词的总数/所有特征词的总数，所有特征词的总数也就是所有特征词的词频之和。</p>
+<p>至于分子和分母都加上一定的常量，这是为了防止数据稀疏而产生结果为零的现象，这种操作称为拉普拉斯平滑，至于背后的原理，推荐阅读这篇博客：<a href="https://zhuanlan.zhihu.com/p/24291822">贝叶斯统计观点下的拉普拉斯平滑</a></p>
+<h2>4.3 算法实现</h2>
+<p>这里使用了枚举类来封装两个模型，并实现了分类器NaiveBayesClassifier和训练器NaiveBayesLearner中的两个接口，其中Pprior和Pcondition是训练器所需的方法，前者用来计算先验概率，后者用来计算不同特征项在不同类别下的条件概率；getConditionProbability是分类器所需的方法，NaiveBayesKnowledgeBase对象是模型数据的容器，它的getPconditionByWord方法就是用于查询不同特征词在不同类别下的条件概率</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7c2b6d5098288565857" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+public enum NaiveBayesModels implements NaiveBayesClassifier.Model, NaiveBayesLearner.Model {
+    Bernoulli {
+        @ Override
+        public double Pprior(int total, Category category) {
+            int Nc = category.getDocCount();
+            return Math.log((double) Nc / total);
+        }
+
+        @ Override
+        public double Pcondition(Feature feature, Category category, double smoothing) {
+            int Ncf = feature.getDocCountByCategory(category);
+            int Nc = category.getDocCount();
+            return Math.log((double) (1 + Ncf) / (Nc + smoothing));
+        }
+
+        @ Override
+        public List getConditionProbability(String category, List terms, final NaiveBayesKnowledgeBase knowledgeBase) {
+            return terms.stream().map(term -&gt; knowledgeBase.getPconditionByWord(category, term.getWord())).collect(toList());
+        }
+    },
+    Multinomial {
+        @ Override
+        public double Pprior(int total, Category category) {
+            int Nt = category.getTermCount();
+            return Math.log((double) Nt / total);
+        }
+
+        @ Override
+        public double Pcondition(Feature feature, Category category, double smoothing) {
+            int Ntf = feature.getTermCountByCategory(category);
+            int Nt = category.getTermCount();
+            return Math.log((double) (1 + Ntf) / (Nt + smoothing));
+        }
+
+        @ Override
+        public List getConditionProbability(String category, List terms, final NaiveBayesKnowledgeBase knowledgeBase) {
+            return terms.stream().map(term -&gt; term.getTf() * knowledgeBase.getPconditionByWord(category, term.getWord())).collect(toList());
+        }
+    };
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-16">16</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-18">18</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-20">20</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-22">22</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-24">24</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-26">26</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-28">28</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-30">30</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-32">32</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-34">34</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-36">36</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-38">38</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d5098288565857-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d5098288565857-40">40</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-1">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">enum</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesModels </span><span class="crayon-r">implements</span><span class="crayon-h"> </span><span class="crayon-v">NaiveBayesClassifier</span><span class="crayon-sy">.</span><span class="crayon-v">Model</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">NaiveBayesLearner</span><span class="crayon-sy">.</span><span class="crayon-i">Model</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-2">
+<span class="crayon-h">    </span><span class="crayon-e">Bernoulli</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-3">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-h"> </span><span class="crayon-e">Override</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-4">
+<span class="crayon-e">        </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-e">Pprior</span><span class="crayon-sy">(</span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">Category </span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-5">
+<span class="crayon-h">            </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">Nc</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-6">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">Math</span><span class="crayon-sy">.</span><span class="crayon-e">log</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">Nc</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-7">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-8"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-9">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-h"> </span><span class="crayon-e">Override</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-10">
+<span class="crayon-e">        </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-e">Pcondition</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">Category </span><span class="crayon-v">category</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-v">smoothing</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-11">
+<span class="crayon-h">            </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">Ncf</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCountByCategory</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-12">
+<span class="crayon-h">            </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">Nc</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">getDocCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-13">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">Math</span><span class="crayon-sy">.</span><span class="crayon-e">log</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">Ncf</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Nc</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">smoothing</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-14">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-15"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-16">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-h"> </span><span class="crayon-e">Override</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-17">
+<span class="crayon-e">        </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">List </span><span class="crayon-e">getConditionProbability</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">List </span><span class="crayon-v">terms</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesKnowledgeBase </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-18">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">terms</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">term</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">getPconditionByWord</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">term</span><span class="crayon-sy">.</span><span class="crayon-e">getWord</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toList</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-19">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-20">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-21">
+<span class="crayon-h">    </span><span class="crayon-e">Multinomial</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-22">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-h"> </span><span class="crayon-e">Override</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-23">
+<span class="crayon-e">        </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-e">Pprior</span><span class="crayon-sy">(</span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">Category </span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-24">
+<span class="crayon-h">            </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">Nt</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">getTermCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-25">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">Math</span><span class="crayon-sy">.</span><span class="crayon-e">log</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">Nt</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-26">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-27"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-28">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-h"> </span><span class="crayon-e">Override</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-29">
+<span class="crayon-e">        </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-e">Pcondition</span><span class="crayon-sy">(</span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">Category </span><span class="crayon-v">category</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-v">smoothing</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-30">
+<span class="crayon-h">            </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">Ntf</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">feature</span><span class="crayon-sy">.</span><span class="crayon-e">getTermCountByCategory</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-31">
+<span class="crayon-h">            </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">Nt</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">getTermCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-32">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">Math</span><span class="crayon-sy">.</span><span class="crayon-e">log</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-t">double</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-cn">1</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">Ntf</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">/</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">Nt</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">smoothing</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-33">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-34"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-35">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-h"> </span><span class="crayon-e">Override</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-36">
+<span class="crayon-e">        </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">List </span><span class="crayon-e">getConditionProbability</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">List </span><span class="crayon-v">terms</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesKnowledgeBase </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-37">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">terms</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">term</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">term</span><span class="crayon-sy">.</span><span class="crayon-e">getTf</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">getPconditionByWord</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">term</span><span class="crayon-sy">.</span><span class="crayon-e">getWord</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toList</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-38">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d5098288565857-39">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d5098288565857-40"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0087 seconds] -->
+<p></p>
+<h2>五、训练模型</h2>
+<p>根据朴素贝叶斯模型的定义，训练模型的过程就是计算每个类的先验概率，以及每个特征项在不同类别下的条件概率，NaiveBayesKnowledgeBase对象将训练器在训练时得到的结果都保存起来，训练完成时写入文件，启动分类时从文件中读入数据交由分类器使用，那么在分类时就可以直接参与到计算过程中。</p>
+<p>训练器的实现如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7c2b6d509d619988201" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+public class NaiveBayesLearner {
+    ……
+    ……
+    public NaiveBayesLearner statistics() {
+        log.info("开始统计...");
+        this.total = total();
+        log.info("total : " + total);
+        this.categorySet = trainSet.getCategorySet();
+        featureSet.forEach(f -&gt; f.getCategoryTermCounter().forEach((category, count) -&gt; category.setTermCount(category.getTermCount() + count)));
+        return this;
+    }
+
+    public NaiveBayesKnowledgeBase build() {
+        this.knowledgeBase.setCategories(createCategorySummaries(categorySet));
+        this.knowledgeBase.setFeatures(createFeatureSummaries(featureSet, categorySet));
+        return knowledgeBase;
+    }
+
+    private Map createFeatureSummaries(final Set featureSet, final Set categorySet) {
+        return featureSet.parallelStream()
+                .map(f -&gt; knowledgeBase.createFeatureSummary(f, getPconditions(f, categorySet)))
+                .collect(toMap(NaiveBayesKnowledgeBase.FeatureSummary::getWord, Function.identity()));
+    }
+
+    private Map createCategorySummaries(final Set categorySet) {
+        return categorySet.stream().collect(toMap(Category::getName, c -&gt; model.Pprior(total, c)));
+    }
+
+    private Map getPconditions(final Feature feature, final Set categorySet) {
+        final double smoothing = smoothing();
+        return categorySet.stream()
+                .collect(toMap(Category::getName, c -&gt; model.Pcondition(feature, c, smoothing)));
+    }
+
+    private int total() {
+        if (model == Multinomial)
+            return featureSet.parallelStream().map(Feature::getTerm).mapToInt(Term::getTf).sum();//总词频数
+        else if (model == Bernoulli)
+            return trainSet.getTotalDoc();//总文档数
+        return 0;
+    }
+
+    private double smoothing() {
+        if (model == Multinomial)
+            return this.featureSet.size();
+        else if (model == Bernoulli)
+            return 2.0;
+        return 0.0;
+    }
+
+    public static void main(String[] args) {
+        TrainSet trainSet = new TrainSet(System.getProperty("user.dir") + "/trainset/");
+
+        log.info("特征选择开始...");
+        FeatureSelection featureSelection = new FeatureSelection(new ChiSquaredStrategy(trainSet.getCategorySet(), trainSet.getTotalDoc()));
+        List features = featureSelection.select(trainSet.getDocs());
+        log.info("特征选择完成,特征数:[" + features.size() + "]");
+
+        NaiveBayesModels model = NaiveBayesModels.Multinomial;
+        NaiveBayesLearner learner = new NaiveBayesLearner(model, trainSet, Sets.newHashSet(features));
+        learner.statistics().build().write(model.getModelPath());
+        log.info("模型文件写入完成,路径:" + model.getModelPath());
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-16">16</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-18">18</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-20">20</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-22">22</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-24">24</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-26">26</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-28">28</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-29">29</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-30">30</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-31">31</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-32">32</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-33">33</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-34">34</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-35">35</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-36">36</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-37">37</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-38">38</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-39">39</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-40">40</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-41">41</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-42">42</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-43">43</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-44">44</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-45">45</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-46">46</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-47">47</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-48">48</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-49">49</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-50">50</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-51">51</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-52">52</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-53">53</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-54">54</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-55">55</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-56">56</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-57">57</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-58">58</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-59">59</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-60">60</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-61">61</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-62">62</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d509d619988201-63">63</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d509d619988201-64">64</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-1">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesLearner</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-2">
+<span class="crayon-h">    </span>……</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-3">
+<span class="crayon-h">    </span>……</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-4">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesLearner </span><span class="crayon-e">statistics</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-5">
+<span class="crayon-h">        </span><span class="crayon-v">log</span><span class="crayon-sy">.</span><span class="crayon-e">info</span><span class="crayon-sy">(</span><span class="crayon-s">"开始统计..."</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-6">
+<span class="crayon-h">        </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">total</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">total</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-7">
+<span class="crayon-h">        </span><span class="crayon-v">log</span><span class="crayon-sy">.</span><span class="crayon-e">info</span><span class="crayon-sy">(</span><span class="crayon-s">"total : "</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">total</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-8">
+<span class="crayon-h">        </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">categorySet</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">trainSet</span><span class="crayon-sy">.</span><span class="crayon-e">getCategorySet</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-9">
+<span class="crayon-h">        </span><span class="crayon-v">featureSet</span><span class="crayon-sy">.</span><span class="crayon-st">forEach</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">f</span><span class="crayon-sy">.</span><span class="crayon-e">getCategoryTermCounter</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-st">forEach</span><span class="crayon-sy">(</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">count</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">setTermCount</span><span class="crayon-sy">(</span><span class="crayon-v">category</span><span class="crayon-sy">.</span><span class="crayon-e">getTermCount</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">count</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-10">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-r">this</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-11">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-12"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-13">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesKnowledgeBase </span><span class="crayon-e">build</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-14">
+<span class="crayon-h">        </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">setCategories</span><span class="crayon-sy">(</span><span class="crayon-e">createCategorySummaries</span><span class="crayon-sy">(</span><span class="crayon-v">categorySet</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-15">
+<span class="crayon-h">        </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">setFeatures</span><span class="crayon-sy">(</span><span class="crayon-e">createFeatureSummaries</span><span class="crayon-sy">(</span><span class="crayon-v">featureSet</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">categorySet</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-16">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-17">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-18"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-19">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">Map </span><span class="crayon-e">createFeatureSummaries</span><span class="crayon-sy">(</span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Set </span><span class="crayon-v">featureSet</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Set </span><span class="crayon-v">categorySet</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-20">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">featureSet</span><span class="crayon-sy">.</span><span class="crayon-e">parallelStream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-21">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">createFeatureSummary</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">getPconditions</span><span class="crayon-sy">(</span><span class="crayon-v">f</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">categorySet</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-22">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toMap</span><span class="crayon-sy">(</span><span class="crayon-v">NaiveBayesKnowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-v">FeatureSummary</span><span class="crayon-o">::</span><span class="crayon-v">getWord</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">Function</span><span class="crayon-sy">.</span><span class="crayon-e">identity</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-23">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-24"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-25">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">Map </span><span class="crayon-e">createCategorySummaries</span><span class="crayon-sy">(</span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Set </span><span class="crayon-v">categorySet</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-26">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">categorySet</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toMap</span><span class="crayon-sy">(</span><span class="crayon-v">Category</span><span class="crayon-o">::</span><span class="crayon-v">getName</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">c</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">model</span><span class="crayon-sy">.</span><span class="crayon-e">Pprior</span><span class="crayon-sy">(</span><span class="crayon-v">total</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">c</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-27">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-28"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-29">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-e">Map </span><span class="crayon-e">getPconditions</span><span class="crayon-sy">(</span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Feature </span><span class="crayon-v">feature</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Set </span><span class="crayon-v">categorySet</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-30">
+<span class="crayon-h">        </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-v">smoothing</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-e">smoothing</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-31">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">categorySet</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-32">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toMap</span><span class="crayon-sy">(</span><span class="crayon-v">Category</span><span class="crayon-o">::</span><span class="crayon-v">getName</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">c</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">model</span><span class="crayon-sy">.</span><span class="crayon-e">Pcondition</span><span class="crayon-sy">(</span><span class="crayon-v">feature</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">c</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">smoothing</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-33">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-34"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-35">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-e">total</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-36">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">model</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-v">Multinomial</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-37">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">featureSet</span><span class="crayon-sy">.</span><span class="crayon-e">parallelStream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">Feature</span><span class="crayon-o">::</span><span class="crayon-v">getTerm</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">mapToInt</span><span class="crayon-sy">(</span><span class="crayon-v">Term</span><span class="crayon-o">::</span><span class="crayon-v">getTf</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">sum</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-c">//总词频数</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-38">
+<span class="crayon-h">        </span><span class="crayon-st">else</span><span class="crayon-h"> </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">model</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-v">Bernoulli</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-39">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">trainSet</span><span class="crayon-sy">.</span><span class="crayon-e">getTotalDoc</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-c">//总文档数</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-40">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-41">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-42"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-43">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-e">smoothing</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-44">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">model</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-v">Multinomial</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-45">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">featureSet</span><span class="crayon-sy">.</span><span class="crayon-e">size</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-46">
+<span class="crayon-h">        </span><span class="crayon-st">else</span><span class="crayon-h"> </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">model</span><span class="crayon-h"> </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-v">Bernoulli</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-47">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-cn">2.0</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-48">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-cn">0.0</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-49">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-50"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-51">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">main</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-v">args</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-52">
+<span class="crayon-h">        </span><span class="crayon-e">TrainSet </span><span class="crayon-v">trainSet</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">TrainSet</span><span class="crayon-sy">(</span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-e">getProperty</span><span class="crayon-sy">(</span><span class="crayon-s">"user.dir"</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-s">"/trainset/"</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-53"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-54">
+<span class="crayon-h">        </span><span class="crayon-v">log</span><span class="crayon-sy">.</span><span class="crayon-e">info</span><span class="crayon-sy">(</span><span class="crayon-s">"特征选择开始..."</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-55">
+<span class="crayon-h">        </span><span class="crayon-e">FeatureSelection </span><span class="crayon-v">featureSelection</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">FeatureSelection</span><span class="crayon-sy">(</span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">ChiSquaredStrategy</span><span class="crayon-sy">(</span><span class="crayon-v">trainSet</span><span class="crayon-sy">.</span><span class="crayon-e">getCategorySet</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">trainSet</span><span class="crayon-sy">.</span><span class="crayon-e">getTotalDoc</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-56">
+<span class="crayon-h">        </span><span class="crayon-e">List </span><span class="crayon-v">features</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">featureSelection</span><span class="crayon-sy">.</span><span class="crayon-e">select</span><span class="crayon-sy">(</span><span class="crayon-v">trainSet</span><span class="crayon-sy">.</span><span class="crayon-e">getDocs</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-57">
+<span class="crayon-h">        </span><span class="crayon-v">log</span><span class="crayon-sy">.</span><span class="crayon-e">info</span><span class="crayon-sy">(</span><span class="crayon-s">"特征选择完成,特征数:["</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">features</span><span class="crayon-sy">.</span><span class="crayon-e">size</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-s">"]"</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-58"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-59">
+<span class="crayon-h">        </span><span class="crayon-e">NaiveBayesModels </span><span class="crayon-v">model</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">NaiveBayesModels</span><span class="crayon-sy">.</span><span class="crayon-v">Multinomial</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-60">
+<span class="crayon-h">        </span><span class="crayon-e">NaiveBayesLearner </span><span class="crayon-v">learner</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesLearner</span><span class="crayon-sy">(</span><span class="crayon-v">model</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">trainSet</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Sets</span><span class="crayon-sy">.</span><span class="crayon-e">newHashSet</span><span class="crayon-sy">(</span><span class="crayon-v">features</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-61">
+<span class="crayon-h">        </span><span class="crayon-v">learner</span><span class="crayon-sy">.</span><span class="crayon-e">statistics</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">build</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">write</span><span class="crayon-sy">(</span><span class="crayon-v">model</span><span class="crayon-sy">.</span><span class="crayon-e">getModelPath</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-62">
+<span class="crayon-h">        </span><span class="crayon-v">log</span><span class="crayon-sy">.</span><span class="crayon-e">info</span><span class="crayon-sy">(</span><span class="crayon-s">"模型文件写入完成,路径:"</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">model</span><span class="crayon-sy">.</span><span class="crayon-e">getModelPath</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d509d619988201-63">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d509d619988201-64"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0134 seconds] -->
+<p>在main函数中执行整个训练过程，首先执行特征选择，这里使用卡方检验法，然后将得到特征空间，朴素贝叶斯模型（多项式模型），以及训练集TrainSet对象作为参数，初始化训练器，接着训练器开始进行统计的工作，事实上有一部分的统计工作，在初始化训练集对象时，就已经完成了，例如总文档数，每个类别下的文档数等，这些可以直接拿过来使用，最终将数据都装载到NaiveBayesKnowledgeBase对象当中去，并写入文件，格式为第一行是不同类别的先验概率，余下每一行对应一个特征项，每一列对应不同类别的条件概率值。</p>
+<h1>六，测试模型</h1>
+<p>分类器预测过程就相对于比较简单了，通过NaiveBayesKnowledgeBase读入数据，然后将指定的文本进行分词，匹配特征项，然后计算在不同类别下的后验概率，返回取得最大值对应的那个类别。</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7c2b6d50a2553197189" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+public class NaiveBayesClassifier {
+    ……
+    private final Model model;
+
+    private final NaiveBayesKnowledgeBase knowledgeBase;
+
+    public NaiveBayesClassifier(Model model) {
+        this.model = model;
+        this.knowledgeBase = new NaiveBayesKnowledgeBase(model.getModelPath());
+    }
+
+    public String predict(String content) {
+        Set allFeatures = knowledgeBase.getFeatures().keySet();
+        List terms = NLPTools.instance().segment(content).stream()
+                .filter(t -&gt; allFeatures.contains(t.getWord())).distinct().collect(toList());
+
+        @AllArgsConstructor
+        class Result {
+            final String category;
+            final double probability;
+        }
+
+        Result result = knowledgeBase.getCategories().keySet().stream()
+                .map(c -&gt; new Result(c, Calculator.Ppost(knowledgeBase.getCategoryProbability(c),
+                        model.getConditionProbability(c, terms, knowledgeBase))))
+                .max(Comparator.comparingDouble(r -&gt; r.probability)).get();
+        return result.category;
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-10">10</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-12">12</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-14">14</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-16">16</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-18">18</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-20">20</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-22">22</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-24">24</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-26">26</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7c2b6d50a2553197189-28">28</div>
+<div class="crayon-num" data-line="crayon-5ad7c2b6d50a2553197189-29">29</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-1">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesClassifier</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-2">
+<span class="crayon-h">    </span>……</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-3">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">Model </span><span class="crayon-v">model</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-4"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-5">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesKnowledgeBase </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-6"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-7">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesClassifier</span><span class="crayon-sy">(</span><span class="crayon-e">Model </span><span class="crayon-v">model</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-8">
+<span class="crayon-h">        </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">model</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">model</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-9">
+<span class="crayon-h">        </span><span class="crayon-r">this</span><span class="crayon-sy">.</span><span class="crayon-v">knowledgeBase</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">NaiveBayesKnowledgeBase</span><span class="crayon-sy">(</span><span class="crayon-v">model</span><span class="crayon-sy">.</span><span class="crayon-e">getModelPath</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-10">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-11"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-12">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-e">predict</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">content</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-13">
+<span class="crayon-h">        </span><span class="crayon-e">Set </span><span class="crayon-v">allFeatures</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">getFeatures</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">keySet</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-14">
+<span class="crayon-h">        </span><span class="crayon-e">List </span><span class="crayon-v">terms</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">NLPTools</span><span class="crayon-sy">.</span><span class="crayon-e">instance</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">segment</span><span class="crayon-sy">(</span><span class="crayon-v">content</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-15">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">filter</span><span class="crayon-sy">(</span><span class="crayon-v">t</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">allFeatures</span><span class="crayon-sy">.</span><span class="crayon-e">contains</span><span class="crayon-sy">(</span><span class="crayon-v">t</span><span class="crayon-sy">.</span><span class="crayon-e">getWord</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">distinct</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">collect</span><span class="crayon-sy">(</span><span class="crayon-e">toList</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-16"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-17">
+<span class="crayon-h">        </span><span class="crayon-sy">@</span><span class="crayon-e">AllArgsConstructor</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-18">
+<span class="crayon-h">        </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">Result</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-19">
+<span class="crayon-h">            </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">category</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-20">
+<span class="crayon-h">            </span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-t">double</span><span class="crayon-h"> </span><span class="crayon-v">probability</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-21">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-22"> </div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-23">
+<span class="crayon-h">        </span><span class="crayon-e">Result </span><span class="crayon-v">result</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">getCategories</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">keySet</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">stream</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-24">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">map</span><span class="crayon-sy">(</span><span class="crayon-v">c</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">Result</span><span class="crayon-sy">(</span><span class="crayon-v">c</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">Calculator</span><span class="crayon-sy">.</span><span class="crayon-e">Ppost</span><span class="crayon-sy">(</span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">.</span><span class="crayon-e">getCategoryProbability</span><span class="crayon-sy">(</span><span class="crayon-v">c</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-25">
+<span class="crayon-h">                        </span><span class="crayon-v">model</span><span class="crayon-sy">.</span><span class="crayon-e">getConditionProbability</span><span class="crayon-sy">(</span><span class="crayon-v">c</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">terms</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">knowledgeBase</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-26">
+<span class="crayon-h">                </span><span class="crayon-sy">.</span><span class="crayon-e">max</span><span class="crayon-sy">(</span><span class="crayon-v">Comparator</span><span class="crayon-sy">.</span><span class="crayon-e">comparingDouble</span><span class="crayon-sy">(</span><span class="crayon-v">r</span><span class="crayon-h"> </span><span class="crayon-o">-&gt;</span><span class="crayon-h"> </span><span class="crayon-v">r</span><span class="crayon-sy">.</span><span class="crayon-v">probability</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-27">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">result</span><span class="crayon-sy">.</span><span class="crayon-v">category</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7c2b6d50a2553197189-28">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7c2b6d50a2553197189-29"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0054 seconds] -->
+<p>在实际测试时，我们又单独抓取了搜狗微信搜索网站上的文章，按照100篇一组，一共30组进行分类的测试，最终结果每一组的准确率均在90%以上，最高达98%，效果良好。当然正规的评测需要同时评估准确率和召回率，这里就偷懒不做了。</p>
+<p>另外还需要说明一点的是，由于训练集是来源于搜狗微信搜索网站的文章，类别仅限于这20个，这不足以覆盖所有微信公众号文章的类别，因此在测试其他来源的微信文章准确率一定会有所影响。当然如果有更加丰富的微信文章训练集的话，也可以利用这个模型重新训练，那么效果也会越来越好。</p>
+<h1>七、参考文献与引用</h1>
+<ol>
+<li>宗成庆. 统计自然语言处理[M]. 清华大学出版社, 2013.</li>
+<li>T.M.Mitchell. 机器学习[M]. 机械工业出版社, 2003.</li>
+<li>吴军. 数学之美[M]. 人民邮电出版社, 2012.</li>
+<li>Raoul-Gabriel Urma, Mario Fusco, Alan Mycroft. Java 8 实战[M]. 人民邮电出版社, 2016.</li>
+<li>Ansj中文分词器，<a href="https://github.com/NLPchina/ansj_seg">https://github.com/NLPchina/a…</a>
+</li>
+<li>HanLP中文分词器，<a href="https://github.com/hankcs/HanLP">https://github.com/hankcs/HanLP</a>
+</li>
+</ol>
+
+        
+        
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+
+<!-- END #author-bio -->
+	
+
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2018/2018-03-25-job-choices-0b4487596.html" title="Previous Post: 码农们，你一小时值多少钱？" data-instant>&laquo; 码农们，你一小时值多少钱？</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2018/2018-04-04-113745-19e4dca03.html" title="Next Post: 计算机如何感知大数据——聚类算法" data-instant>计算机如何感知大数据——聚类算法 &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>

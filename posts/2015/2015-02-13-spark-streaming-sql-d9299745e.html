@@ -14,6 +14,7 @@
 
 </head>
 
+
     <body>
 
     <header class="site-header">
@@ -35,15 +36,22 @@
         </svg>
       </a>
       <div class="trigger">
-
+        
+          
+        
           <a class="page-link" href="/about/">About</a>
-
+        
+          
+        
+          
+        
       </div>
     </nav>
 
   </div>
 
 </header>
+
 
     <div class="page-content">
       <div class="wrap">
@@ -55,7 +63,9 @@
   </header>
 
   <article class="post-content">
+  
 
+  
   <div style="background-color: #FFF;">
     <p>之前在博客上演示过如果在 spark 里读取 elasticsearch 中的数据。自然往下一步想，是不是可以把一些原先需要定期请求 elasticsearch 的监控内容挪到 spark 里完成？这次就是探讨一下 spark streaming 环境上如何快速统计各维度的数据。期望目标是，可以实现对流数据的异常模式过滤。平常只需要简单调整模式即可。</p>
 <h2 id="spark-">spark 基础预备</h2>
@@ -63,15 +73,13 @@
 <p>spark 是用 scala 写的，scala 的打包工具叫 sbt。首先通过 <code>sudo port install sbt</code> 安装好。然后创建目录：</p>
 <pre><code>mkdir -p ./logstash/src/main/scala/
 </code></pre>
-
 <p>sbt 打包的配置文件则放在 <code>./logstash/logstash.sbt</code> 位置。内容如下(注意之间的空行是必须的)：</p>
 <div class="highlight"><pre><code class="language-java" data-lang="java"><span class="n">name</span> <span class="o">:=</span> <span class="s">"LogStash Project"</span>
 <span class="n">version</span> <span class="o">:=</span> <span class="s">"1.0"</span>
 <span class="n">scalaVersion</span> <span class="o">:=</span> <span class="s">"2.10.4"</span>
 <span class="n">libraryDependencies</span> <span class="o">+=</span> <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-core"</span> <span class="o">%</span> <span class="s">"1.2.0"</span>
 <span class="n">libraryDependencies</span> <span class="o">+=</span> <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-streaming"</span> <span class="o">%</span> <span class="s">"1.2.0"</span>
-<span class="n">libraryDependencies</span> <span class="o">+=</span> <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-sql"</span> <span class="o">%</span> <span class="s">"1.2.0"</span></code></pre>
-</div>
+<span class="n">libraryDependencies</span> <span class="o">+=</span> <span class="s">"org.apache.spark"</span> <span class="o">%%</span> <span class="s">"spark-sql"</span> <span class="o">%</span> <span class="s">"1.2.0"</span></code></pre></div>
 <p>然后是程序主文件 <code>./logstash/src/main/scala/LogStash.scala</code>，先来一个最简单的，从 logstash/output/tcp 收数据并解析出来。注意，因为 spark 只能用 pull 方式获取数据，所以 logstash/output/tcp 必须以 <code>mode =&gt; 'server'</code> 方式运行。 </p>
 <pre><code>output {
     tcp {
@@ -81,7 +89,6 @@
     }
 }
 </code></pre>
-
 <h2 id="spark-streaming-">spark streaming 基础示例</h2>
 <p>编辑主文件如下：</p>
 <div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.SparkConf</span>
@@ -105,13 +112,11 @@
     <span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
     <span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span>
   <span class="o">}</span>
-<span class="o">}</span></code></pre>
-</div>
+<span class="o">}</span></code></pre></div>
 <p>非常一目了然，每 10 秒挪动一次 window，window 宽度是 30 秒，把 JSON 数据解析出来以后，做过滤和循环输出。这里需要提示一下的是 <code>.foreachRDD</code> 方法。这是一个 output 方法。spark streaming 里对 input 收到的 DStream 一定要有 output 处理，那么最常见的就是用 foreachRDD 把 DStream 里的 RDDs 循环一遍，做 save 啊，print 啊等等后续。</p>
 <p>然后用 sbt 工具编译后就可以运行了：</p>
 <pre><code>sbt package &amp;&amp; ./spark-1.2.0-bin-hadoop2.4/bin/spark-submit --class "LogStash" --master local[2] target/scala-2.10/logstash-project_2.10-1.0.jar
 </code></pre>
-
 <h2 id="sql-">进阶：数据映射和 SQL 处理</h2>
 <p>下面看如何在 spark streaming 上使用 spark SQL。前面通过解析 JSON，得到的是 Map 类型的数据，这个无法直接被 SQL 使用。通常的做法是，通过预定的 scala 里的 <code>cast class</code>，来转换成 spark SQL 支持的表类型。主文件改成这样：</p>
 <div class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">import</span> <span class="nn">org.apache.spark.SparkConf</span>
@@ -142,8 +147,7 @@
     <span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
     <span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span>
   <span class="o">}</span>
-<span class="o">}</span></code></pre>
-</div>
+<span class="o">}</span></code></pre></div>
 <p>通过加载 SQLContext，就可以把 RDD 转换成 table，然后通过 SQL 方式写请求了。这里有一个地方需要注意的是，因为最开始转换 JSON 的时候，键值对的 value 类型是 Any(因为要兼容复杂结构)，所以后面赋值的时候需要具体转换成合适的类型。于是悲催的就有了 <code>.toString.toInt</code> 这样的写法。。。</p>
 <h2 id="sql--1">同样效果的非 SQL 实现</h2>
 <p>不用 spark SQL 当然也能做到，而且如果需要复杂处理的时候，还少不了自己写。如果把上例中那段 foreachRDD 替换成下面这样，效果是完全一样的：</p>
@@ -151,8 +155,7 @@
     <span class="n">val</span> <span class="n">host_c</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">message</span> <span class="o">-&gt;</span> <span class="mi">1</span><span class="o">).</span><span class="na">reduceByKey</span><span class="o">(</span><span class="n">_</span><span class="o">+</span><span class="n">_</span><span class="o">).</span><span class="na">groupByKey</span><span class="o">()</span>
     <span class="n">r</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">l</span> <span class="o">=&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">message</span> <span class="o">-&gt;</span> <span class="n">l</span><span class="o">.</span><span class="na">lineno</span><span class="o">).</span><span class="na">reduceByKey</span><span class="o">(</span><span class="n">_</span><span class="o">+</span><span class="n">_</span><span class="o">).</span><span class="na">groupByKey</span><span class="o">().</span><span class="na">join</span><span class="o">(</span><span class="n">host_c</span><span class="o">).</span><span class="na">foreachRDD</span><span class="o">(</span> <span class="n">rdd</span> <span class="o">=&gt;</span> <span class="o">{</span>
         <span class="n">rdd</span><span class="o">.</span><span class="na">map</span><span class="o">(</span><span class="n">t</span> <span class="o">=&gt;</span> <span class="n">AlertMsg</span><span class="o">(</span><span class="n">t</span><span class="o">.</span><span class="na">_1</span><span class="o">,</span> <span class="n">t</span><span class="o">.</span><span class="na">_2</span><span class="o">.</span><span class="na">_2</span><span class="o">.</span><span class="na">head</span><span class="o">,</span> <span class="n">t</span><span class="o">.</span><span class="na">_2</span><span class="o">.</span><span class="na">_1</span><span class="o">.</span><span class="na">head</span><span class="o">)).</span><span class="na">collect</span><span class="o">().</span><span class="na">foreach</span><span class="o">(</span><span class="n">println</span><span class="o">)</span>
-    <span class="o">})</span></code></pre>
-</div>
+    <span class="o">})</span></code></pre></div>
 <p>这里面用到的 <code>.groupByKey</code> 和 <code>.reduceByKey</code> 方法，都是专门针对 PairsDStream 对象的，所以前面必须通过 <code>.map</code> 方法把普通 DStream 转换一下。</p>
 <p>这里还有一个很厉害的方法，叫 <code>.updatestateByKey</code> 。可以有一个 checkpoint 存上一个 window 的数据，具体示例稍后更新。</p>
 <h2 id="jsonrdd-">更简洁的 jsonRDD 方法</h2>
@@ -185,8 +188,7 @@
     <span class="n">ssc</span><span class="o">.</span><span class="na">start</span><span class="o">()</span>
     <span class="n">ssc</span><span class="o">.</span><span class="na">awaitTermination</span><span class="o">()</span>
   <span class="o">}</span>
-<span class="o">}</span></code></pre>
-</div>
+<span class="o">}</span></code></pre></div>
 <p>这样，不用自己解析 JSON，直接加载到 SQLContext 里。可以通过 <code>.printSchema</code> 方法查看到 JSON 被转换成了什么样的表结构。</p>
 <h2 id="todo">TODO</h2>
 <p>SQL 的方式可以很方便的做到对实时数据的阈值监控处理，但是 SQL 是建立在 RDD 上的如何利用 DStream 的上一个 window 的 state 状态实现比如环比变化处理，移动均线处理，还没找到途径。</p>
@@ -197,7 +199,7 @@
   <li><a href="http://databricks.gitbooks.io/databricks-spark-reference-applications/content/logs_analyzer/chapter1/windows.html">http://databricks.gitbooks.io/databricks-spark-reference-applications/content/logs_analyzer/chapter1/windows.html</a></li>
 </ul>
     <hr>
-
+    
     <hr>
   <!-- JiaThis Button BEGIN -->
 <div class="jiathis_style">
@@ -230,31 +232,35 @@ var jiathis_config={
 <!-- JiaThis Button END -->
 <!-- UY BEGIN -->
 
+
 <!-- UY END -->
   </div>
+
 
   </article>
 
   <div class="meta">
-
+  
     <a class="basic-alignment left" href="/posts/2015/2015-02-12-rsyslog-forwarder-testing-537b33082.html" title="Previous Post: rsyslog 的 TCP 转发性能测试" data-instant>&laquo; rsyslog 的 TCP 转发性能测试</a>
-
+  
+  
     <a class="basic-alignment right" href="/posts/2015/2015-02-14-spark-streaming-state-4e57fc126.html" title="Next Post: spark streaming 的 state 操作示例" data-instant>spark streaming 的 state 操作示例 &raquo;</a>
-
+  
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
-
-      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
-
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
   </ul>
 </div>
 
+  
 <comments>
 
 <!-- UY BEGIN -->
@@ -382,7 +388,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
 
     <div class="footer-col-3 column">
-
+      
 <!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
 
     </div>
@@ -395,6 +401,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
   </div>
 
+  
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -407,7 +414,9 @@ var jiathis_config = {data_track_clickback:'true'
 
 </script>
 
+
 </footer>
+
 
     </body>
 </html>

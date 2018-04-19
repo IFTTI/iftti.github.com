@@ -14,6 +14,7 @@
 
 </head>
 
+
     <body>
 
     <header class="site-header">
@@ -35,15 +36,22 @@
         </svg>
       </a>
       <div class="trigger">
-
+        
+          
+        
           <a class="page-link" href="/about/">About</a>
-
+        
+          
+        
+          
+        
       </div>
     </nav>
 
   </div>
 
 </header>
+
 
     <div class="page-content">
       <div class="wrap">
@@ -55,6 +63,7 @@
   </header>
 
   <article class="post-content">
+  
 
         <!-- div style="margin-bottom: 10px;">
             <script language=javascript>
@@ -80,7 +89,8 @@
 <li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
 </div>
 </div>
-
+		
+		
 <p align="left">在上一期的超酷算法中，我们聊到了BK树，这是一种非常聪明的索引结构，能够在搜索过程中进行模糊匹配，它基于编辑距离（Levenshtein distance），或者任何其它服从三角不等式的度量标准。今天，我将继续介绍另一种方法，它能够在常规索引中进行模糊匹配搜索，我们将它称之为Levenshtein自动机。</p>
 <h1>简介</h1>
 <p>Levenshtein自动机背后的基本理念是：能够构建一个有限状态自动机，准确识别出和某个目标单词相距在给定编辑距离内的所有字符串集合。之后就好办了，我们可以输入任意单词，自动机能够判断这个单词到目标单词的距离是否大于我们在构建时指定的距离，并选择接收或拒绝。更进一步说，根据FSA的自然特性，这项工作可以在O(n)时间内完成，取决于测试字符串的长度。与此相比，标准动态编程距离向量算法需要消耗O(mn)时间，m和n分别是两个输入单词的长度。因此很显然，起码Levenshtein向量机提供了一种更快的方式，供我们针对一个目标单词和最大距离，检查所有的单词，这是一个不错的改进的开端。<br>
@@ -107,7 +117,6 @@
       nfa.add_transition((len(term), e), NFA.ANY, (len(term), e + 1))
     nfa.add_final_state((len(term), e))
   return nfa</pre>
-
 <p align="left">这应该很容易实现，基本上我们用了一种最直接了当的方式构建前图中表示的变换，同时也指出了最终正确的状态集。状态标签是元组，而不是字符串，这与我们前面的描述是一致的。</p>
 <p align="left">由于这是一个NFA，可以有多个活跃状态，它们表示目前被处理过的字符串的可能解释。举个例子，考虑一下，在处理字符f和x之后的活跃状态：<br>
 <a href="http://jbcdn2.b0.upaiyun.com/2014/12/3682a608e5f46e40f44bbfd6a42c5f1b.png" rel="lightbox[80659]" title="超酷算法：Levenshtein自动机"><img class="alignnone size-full wp-image-80664" alt="levenstein-nfa-food-fx" src="/images/jobbole.com/19167bafc87acf89bff84640194770ff.jpg"></a></p>
@@ -131,7 +140,6 @@
         stack.append((s, state1, state2))
         if dfa1.is_final(state1) and dfa2.is_final(state2):
           yield s</pre>
-
 <p align="left">好了，我们按照两个DFA共有的边界同时进行遍历，并记录遍历的路径轨迹。只要两个DFA处于最终状态，单词在输出集内，我们就将其输出。</p>
 <p align="left">如果你的索引是以DFA（或字典树，或有向非循环字图）的形式存储的话，这非常完美，但遗憾的是许多索引并不是：如果在内存中，它们很可能位于一个排序列表中；如果在磁盘上，它们很可能位于BTree或类似结构中。有没有办法可以让我们修改方案适应这些排序索引，继而继续提供一种速度极快的方法？事实证明是有的。</p>
 <p align="left">这里的关键点在于，根据我们目前以DFA表示的标准，我们可以，对于一个不匹配的输入字符串，找到下一个（按字母排序）匹配的字符串。凭直觉来说，这相当容易：我们基于DFA去评估输入字符串，直到我们无法进一步处理为止，比如说没有针对下一个字符的有效变换，之后，我们可以反复遵照字母排序的最小标签的边界，直到到达终态。在这里我们应用了两个特殊事件：首先，在第一次变换中，我们需要遵照按字母排序的最小标签，同时这些标签要大于在准备步骤中没有有效变换的特性。第二，如果我们达到了一个状态而其没有有效的外边界，那么我们要回溯到之前的状态，并重试。这差不多是解决迷宫问题的一种“循墙”算法，应用在DFA上。</p>
@@ -165,7 +173,6 @@
           return path
         stack.append((path, state, None))
     return None</pre>
-
 <p align="left">在这个方法的第一部分，我们以常见的方式评价DFA，记录下访问过的状态，这些状态包括它们的路径以及我们尝试寻找遵循它们的边界。之后，假设没有找到一个准确的匹配项，那么就进行一次回溯，尝试去寻找一个可以到达接收状态的最小变换集。关于这个方法的一般性说明，请继续阅读……</p>
 <p align="left">同时我们还需要一个工具函数find_next_edge，找出一个状态中按字母排序比指定输入大的最小外边界：</p>
 <pre class="brush: python; gutter: true">def find_next_edge(self, s, x):
@@ -181,7 +188,6 @@
     if pos &lt; len(labels):
       return labels[pos]
     return None</pre>
-
 <p align="left">经过一些预处理，这可以更高效，打个比方，我们可以对每个字符和第一个大于它的外边界建立一个映射关系，而不是在茫茫大海中进行二进制检索。再强调一次，我会把这些优化工作作为练习题留给读者。</p>
 <p align="left">既然我们已经找到了这一过程，那么我们就可以最终描述如何使用这一过程进行索引搜索，算法出人意料的简单：</p>
 <p align="left">1. 取得索引中的第一个元素，或者，比索引任意有效字符串更小的一个字符串，将其称之为“当前”字符串。</p>
@@ -210,7 +216,6 @@
       yield match
       next = next + u''
     match = lev.next_valid_string(next)</pre>
-
 <p align="left">理解这一算法的一种方式是将Levenshtein DFA和索引都视为排序列表，那么以上过程就类似于App引擎中的“拉链合并连接”策略。我们重复地在一侧查找字符串，再跳转到另一侧的合适位置，等等。结果是，我们省去了大量不匹配的索引实体，以及大量不匹配的Levenshtein字符串，节省了枚举它们的工作量。这些描述表明，这一过程有潜力避免去评估所有的索引实体，或所有的候选Levenshtein字符串。</p>
 <p align="left">补充说明一下，所有的DFA针对任意字符串都可以找到按字母排序的最小后继，这句话是错误的。比如说，考虑一下DFA中字符串a的后继，识别模式为a+b，答案是没有这样的后继，它必须由无限多的a字符跟随单个b字符构成！不过我们可以基于以上过程做一些简单的修改，比如返回一个字符串，确保它是DFA可以识别的下一个字符串的一个前缀，这能满足我们的需求。由于Levenshtein DFA总是有限的，因此我们总是会得到一个有限长度的后继（当然，除了最后一个字符串），我们把这样的扩展留给读者作为练习题。使用这种方法，会产生一些很有意思的应用程序，比如索引化正则表达式搜索。</p>
 <h1>测试</h1>
@@ -227,17 +232,14 @@
       return self.l[pos]
     else:
       return None</pre>
-
 <p align="left">记住，在此我们实现一个可调用的类的唯一理由是：我们想要从程序中提取一些信息，比如探针的个数。通常来说，一个常规或嵌套函数已经足够完美，现在，我们需要一个简单的数据集，让我们加载web2字典：</p>
 <pre class="brush: text; gutter: true">&gt;&gt;&gt; words = [x.strip().lower().decode('utf-8') for x in open('/usr/share/dict/web2')]
 &gt;&gt;&gt; words.sort()
 &gt;&gt;&gt; len(words)
 234936</pre>
-
 <p align="left">我们也可以使用几个子集测试随着数据规模的变化，会发生什么：</p>
 <pre class="brush: text; gutter: true">&gt;&gt;&gt; words10 = [x for x in words if random.random() &lt;= 0.1]
 &gt;&gt;&gt; words100 = [x for x in words if random.random() &lt;= 0.01]</pre>
-
 <p align="left">这里，我们看到了实践结果：</p>
 <pre class="brush: text; gutter: true">&gt;&gt;&gt; m = Matcher(words)
 &gt;&gt;&gt; list(automata.find_all_matches('nice', 1, m))
@@ -246,7 +248,6 @@
 23
 &gt;&gt;&gt; m.probes
 142</pre>
-
 <p align="left">大赞啊！在拥有235000个单词的字典中找到了针对nice的23个模拟匹配，需要142个探针。注意，如果我们假设一个字母表包含26个字母，那么会有4+26*4+26*5=238个字符串在一个Levenshtein距离内是有效的，因此与详尽的测试相比，我们做出了合理的节省。考虑到有更大的字母表，更长的字符串，或更大的编辑距离，这种节省的效果应该会更明显。如果我们使用不同种类的输入去测试，看一下探针的个数随着单词长度和字典大小的变化情况，可能会更受启发：</p>
 <table border="1" cellpadding="0">
 <thead>
@@ -475,31 +476,38 @@
 <p align="left">最后一点：我们在这篇文章中参考的第二篇论文，[<a href="http://blog.notdot.net/2010/07/Damn-Cool-Algorithms-Levenshtein-Automata#mihov2004fast">MIHOV2004FAST</a>]描述了一个非常棒的结构：一个广义的Levenshtein自动机。这是一种DFA，它能在线性时间内判断，任意一组单词对互相之间的距离是否小于给定的编辑距离。改造一下我们前面的方案，使其能适应这种自动机，这也是我们留给读者的练习。</p>
 <p align="left">这篇文章是涉及的完整的源代码都可以在<a href="http://gist.github.com/491973">这里</a>找到。</p>
 
+        
         			<div class="textwidget">
 </div>
+		
+
+	
+
 
   </article>
 
   <div class="meta">
-
-    <a class="basic-alignment left" href="/posts/2014/2014-12-10--p=1778-c0a873ab4.html" title="Previous Post: HBase SSD优化案例：读策略优化和中断多核绑定" data-instant>&laquo; HBase SSD优化案例：读策略优化和中断多核绑定</a>
-
-    <a class="basic-alignment right" href="/posts/2014/2014-12-12--id=19-96752c478.html" title="Next Post: What Happened to NSMethodSignature?" data-instant>What Happened to NSMethodSignature? &raquo;</a>
-
+  
+    <a class="basic-alignment left" href="/posts/2014/2014-12-09-80658-c67556c21.html" title="Previous Post: 如何研究学习一个机器学习算法" data-instant>&laquo; 如何研究学习一个机器学习算法</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2014/2014-12-10-p=1778-c0a873ab4.html" title="Next Post: HBase SSD优化案例：读策略优化和中断多核绑定" data-instant>HBase SSD优化案例：读策略优化和中断多核绑定 &raquo;</a>
+  
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
-
-      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
-
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
   </ul>
 </div>
 
+  
 <comments>
 
 <!-- UY BEGIN -->
@@ -627,7 +635,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
 
     <div class="footer-col-3 column">
-
+      
 <!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
 
     </div>
@@ -640,6 +648,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
   </div>
 
+  
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -652,7 +661,9 @@ var jiathis_config = {data_track_clickback:'true'
 
 </script>
 
+
 </footer>
+
 
     </body>
 </html>

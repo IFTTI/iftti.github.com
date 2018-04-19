@@ -14,6 +14,7 @@
 
 </head>
 
+
     <body>
 
     <header class="site-header">
@@ -35,15 +36,22 @@
         </svg>
       </a>
       <div class="trigger">
-
+        
+          
+        
           <a class="page-link" href="/about/">About</a>
-
+        
+          
+        
+          
+        
       </div>
     </nav>
 
   </div>
 
 </header>
+
 
     <div class="page-content">
       <div class="wrap">
@@ -55,6 +63,7 @@
   </header>
 
   <article class="post-content">
+  
 
         <!-- div style="margin-bottom: 10px;">
             <script language=javascript>
@@ -80,7 +89,8 @@
 <li style="width: 310px;display: inline;"><a target="_blank" href="http://www.imooc.com/learn/181">专为开发者打造的Linux学习视频教程</a></li>
 </div>
 </div>
-
+		
+		
 <ul>
 <li><a href="http://blog.jobbole.com/75842/" target="_blank">实现键值对存储（0）：目录</a></li>
 <li><a href="http://blog.jobbole.com/75844/" target="_blank">实现键值对存储（1）：什么是键值对存储，为什么要实现它</a></li>
@@ -124,7 +134,6 @@ template
     _Value       _M_v;
     _Hash_node*  _M_next;
   };</pre>
-
 <p>如果键和值都是整型，其可以直接存储在<code>_M_v</code>结构体中。否则将会存储指针，同时需要额外的内存。Bucket数组是在堆中一次性分配的，但并不分配节点的空间，节点的空间是通过各自调用C++内存分配器来分配的。</p>
 <pre class="brush: cpp; gutter: true">/* from gcc-4.8.0/libstdc++-v3/include/tr1/hashtable.h */ 
 Node* _M_allocate_node(const value_type&amp; __v)
@@ -140,7 +149,6 @@ Node* _M_allocate_node(const value_type&amp; __v)
     {
       _M_node_allocator.deallocate(__n, 1);
       __throw_exception_again;</pre>
-
 <p>因为这些节点是各自分配的，分配过程中可能浪费大量的内存。这取决于编译器和操作系统使用的内存分配过程。我甚至还没说每次分配中系统执行的调用。SGI哈希表的原始实现为这些节点做了一些资源预分配工作，但这个方法没有保留在TR1的 unordered_map实现中。</p>
 <p>下文的图5.1展示了TR1中unordered_map的内存和访问模式。让我们来看看当我们访问和键名“Johannesburg”相关的GPS坐标的时候会发生什么。这个键名被哈希并映射到了bucket #0。在那我们跳到了此bucket的链表的第一个节点（bucket #0左边的橙色箭头），我们可以访问堆中存储了键“Johannesburg”所属数据的内存区域（节点右侧的黑色箭头）。如果键名所指向的第一个节点不可用，就必须遍历其他的节点来访问。</p>
 <p>至于CPU性能，不能指望所有的数据都在处理器的同一个缓存行中。实际上，基于bucket数组的大小，初始bucket和初始节点不会在同一个缓存行中，而和节点相关的外部数据同样不太可能在同一个缓存行中。而随后的节点机器相关数据同样不会在同一个缓存行中并且需要从RAM中取回。如果你不熟悉CPU优化和缓存行，维基上的“CPU Cache”文章是一个很好的介绍<a href="#ref">[20]</a>。</p>
@@ -182,7 +190,6 @@ Kyoto Cabinet使用每个bucket中独立的二叉树处理碰撞。Bucket数组�
     int64_t boff;                        ///&lt; offset of the body
     char* bbuf;                          ///&lt; buffer of the body
   };</pre>
-
 <p>图5.4可以看到记录在硬盘上的组织。我从kchashdb.h中的<code>write_record()</code>方法中得到组织方法。注意其和Record结构体不同：保存在硬盘上的目标是最小化硬盘占用，然而结构体的目标是使记录在编程的时候用起来比较方便。图5.4的所有变量都有固定长度，除了<code>key</code>、<code>value</code>、 和<code>padding</code>，其当然是取决于数据条目中数据的尺寸。变量<code>left</code> 和<code>righ</code>t是二叉树节点的一部分，储存文件中其他记录的offset。</p>
 <p><img id="pic" alt="" src="/images/jobbole.com/b2ed0471f7ae7023f703ff0705f7ba2c.jpg"></p>
 <p>图5.3</p>
@@ -194,7 +201,6 @@ uint32_t fold_hash(uint64_t hash) {
   return (((hash &amp; 0xffff000000000000ULL) &gt;&gt; 48) | ((hash &amp; 0x0000ffff00000000ULL) &gt;&gt; 16)) ^
       (((hash &amp; 0x000000000000ffffULL) &lt;&lt; 16) | ((hash &amp; 0x00000000ffff0000ULL) &gt;&gt; 16));
 }</pre>
-
 <p>把数据条目和节点一起存储在单一记录中，乍一看像是设计失误，但其实是相当聪明的。为了存储一个条目的数据，总是需要保持三种不同的数据：bucket、碰撞和条目。既然bucket数组中的bucket必须顺序存储，其需要就这样存储并且没有任何该进的方法。假设我们保存的不是整型而是不能存储在bucket中的字符或可变长度字节数组，这使其必须访问此bucket数组区域之外的其他内存。这样当添加一个新条目的时候，需要即保存冲突数据结构的数据，又要保存该条目键名和键值的数据。</p>
 <p>如果冲突和条目数据分开保存，其需要访问硬盘两次，再加上必须的对bucket的访问。如果要设置新值，其需要总计3次写入，并且写入的位置可能相差很远。这表示是在硬盘上的随机写入，这差不多是I/O的最糟糕的情况了。现在既然Kyoto Cabinet的HashDB中节点数据和条目数据存储在一起，其就可以只用一次写入写到硬盘中。当然，仍然必须访问bucket，但如果bucket数组足够小，就可以通过操作系统将其从硬盘中缓存到RAM中。如规范中”Effective Implementation of Hash Database”一节<a href="#ref">[17]</a>声明的，Kyoto Cabinet可能采用这种方式。</p>
 <p>然而在硬盘上用二叉树存储条目需要注意的一点是，其会降低读取速度，至少当碰撞出现的时候会是这样。实际上，因为节点和条目存储在一起，处理一个bucket中的碰撞实际上是在一个二叉树中寻找要找的条目，这可能需要大量的对硬盘的随机读取。这可以让我们理解当条目的数量超过bucket数量时Kyoto Cabinet的性能急剧下降的原因。</p>
@@ -214,7 +220,6 @@ uint32_t fold_hash(uint64_t hash) {
       return false;
     }
   };</pre>
-
 <p>所有的FreeBlock实例都加载在std::set中，其可以像<code>fetch_free_block()</code>方法中那样使用std::set的upper_bound()方法来释放内存块，从而实现“最佳拟合”的内存分配策略。当可用空间显得过分细碎或者FreeBlock池中没有空间了，文件将进行碎片整理。此碎片整理过程通过移动各条记录来减少数据库文件的整体大小。</p>
 <h1>3.结论</h1>
 <p>本文中，我展示了三个不同哈希表库的数据组织和内存访问模式。TR1的unordered_map和SparseHash的dense_hash_map是在内存中的，而Kyoto Cabinet的HashDB是在硬盘上的。此三者用不同的访问处理碰撞，并对性能有不同的英雄。将bucket数据、碰撞数据和条目数据各自分开将影响性能，这是unordered_map中出现的情况。如dense_hash_map及其二次内部探测那样，将碰撞数据和bucket存储在一起；或者像HashDB那样，将碰撞数据和条目数据存储在一起都可以大幅提高速度。此两者都可以提高写入速度，但将碰撞数据和bucket存储在一起可以使读取更快。</p>
@@ -242,31 +247,38 @@ uint32_t fold_hash(uint64_t hash) {
 [1\9] http://sparsehash.googlecode.com/svn/trunk/doc/implementation.html<br>
 [20] http://en.wikipedia.org/wiki/CPU_cache</p>
 
+        
         			<div class="textwidget">
 </div>
+		
+
+	
+
 
   </article>
 
   <div class="meta">
-
+  
     <a class="basic-alignment left" href="/posts/2014/2014-12-12-81083-a39d9afd4.html" title="Previous Post: 实现键值对存储（四）：API设计" data-instant>&laquo; 实现键值对存储（四）：API设计</a>
-
+  
+  
     <a class="basic-alignment right" href="/posts/2014/2014-12-12-81176-ff22b67f4.html" title="Next Post: SQL Server调优系列基础篇" data-instant>SQL Server调优系列基础篇 &raquo;</a>
-
+  
 </div>
   <div id="related">
   <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
   <ul class="posts">
-
-      <li><span>21 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-21-110297-be818fb6f.html">为什么不能每周发布一次？</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110304-22b366460.html">代码发布系统实现</a></li>
-
-      <li><span>20 Feb 2017</span> &raquo; <a href="http://iftti.com/posts/2017/2017-02-20-110301-bf04f2314.html">记录一次 MySQL 死锁排查过程</a></li>
-
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
   </ul>
 </div>
 
+  
 <comments>
 
 <!-- UY BEGIN -->
@@ -394,7 +406,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
 
     <div class="footer-col-3 column">
-
+      
 <!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
 
     </div>
@@ -407,6 +419,7 @@ var jiathis_config = {data_track_clickback:'true'
     </div>
   </div>
 
+  
 <script>
   (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
   (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -419,7 +432,9 @@ var jiathis_config = {data_track_clickback:'true'
 
 </script>
 
+
 </footer>
+
 
     </body>
 </html>

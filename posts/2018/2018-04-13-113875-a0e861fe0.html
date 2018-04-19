@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>使用 Graylog 和 Prometheus 监视 Kubernetes 集群 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2018/2018-04-13-113875-a0e861fe0.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>使用 Graylog 和 Prometheus 监视 Kubernetes 集群</h1>
+    <p class="meta"><span class="time">Apr 13, 2018</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/113875/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+  
+
+
+        			<div class="textwidget"></div>
+		
+		<p>这篇文章最初发表在 <a href="https://medium.com/@kwmonroe/monitor-your-kubernetes-cluster-a856d2603ec3">Kevin Monroe 的博客</a> 上。</p>
+<p>监视日志和指标状态是集群管理员的重点工作。它的好处很明显：指标能帮你设置一个合理的性能目标，而日志分析可以发现影响你工作负载的问题。然而，困难的是如何找到一个与大量运行的应用程序一起工作的监视解决方案。</p>
+<p>在本文中，我将使用 <a href="https://www.graylog.org/">Graylog</a> （用于日志）和 <a href="https://prometheus.io/">Prometheus</a> （用于指标）去打造一个 Kubernetes 集群的监视解决方案。当然了，这不仅是将三个东西连接起来那么简单，实现上，最终结果看起来应该如题图所示：</p>
+<p><img src="/images/jobbole.com/542e46de32f32fd46e1743cf9e3ae902.jpg" alt=""></p>
+<p>正如你所了解的，Kubernetes 不是一件东西 —— 它由主控节点、工作节点、网络连接、配置管理等等组成。同样，Graylog 是一个配角（apache2、mongodb、等等），Prometheus 也一样（telegraf、grafana 等等）。在部署中连接这些点看起来似乎有些让人恐惧，但是使用合适的工具将不会那么困难。</p>
+<p>我将使用 <a href="https://conjure-up.io/">conjure-up</a> 和 <a href="https://jujucharms.com/canonical-kubernetes">Canonical 版本的 Kubernetes</a> (CDK) 去探索 Kubernetes。我发现 <code>conjure-up</code> 接口对部署大型软件很有帮助，但是我知道一些人可能不喜欢 GUI、TUI 以及其它用户界面。对于这些人，我将用命令行再去部署一遍。</p>
+<p>在开始之前需要注意的一点是，Graylog 和 Prometheus 是部署在 Kubernetes 外侧而不是集群上。像 Kubernetes 仪表盘和 Heapster 是运行的集群的非常好的信息来源，但是我的目标是为日志/指标提供一个分析机制，而不管集群运行与否。</p>
+<h3 id="toc_1">开始探索</h3>
+<p>如果你的系统上没有 <code>conjure-up</code>，首先要做的第一件事情是，请先安装它，在 Linux 上，这很简单：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6caf9561244067" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+sudo snap install conjure-up --classic
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6caf9561244067-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6caf9561244067-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6caf9561244067-1">
+<span class="crayon-e">sudo </span><span class="crayon-e">snap </span><span class="crayon-e">install </span><span class="crayon-v">conjure</span><span class="crayon-o">-</span><span class="crayon-v">up</span><span class="crayon-h"> </span><span class="crayon-o">--</span><span class="crayon-i">classic</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6caf9561244067-2"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0015 seconds] -->
+<p>对于 macOS 用户也提供了 brew 包：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb03156925827" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+brew install conjure-up
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb03156925827-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb03156925827-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb03156925827-1">
+<span class="crayon-e">brew </span><span class="crayon-e">install </span><span class="crayon-v">conjure</span><span class="crayon-o">-</span><span class="crayon-i">up</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb03156925827-2"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0005 seconds] -->
+<p>你需要最新的 2.5.2 版，它的好处是添加了 CDK spell，因此，如果你的系统上已经安装了旧的版本，请使用 <code>sudo snap refresh conjure-up</code> 或者 <code>brew update &amp;&amp; brew upgrade conjure-up</code> 去更新它。</p>
+<p>安装完成后，运行它：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb07000272522" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+conjure-up
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb07000272522-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb07000272522-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb07000272522-1">
+<span class="crayon-v">conjure</span><span class="crayon-o">-</span><span class="crayon-i">up</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb07000272522-2"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p><img src="/images/jobbole.com/a61445c7c980445a4ce37fa3578421ec.jpg" alt=""></p>
+<p>你将发现有一个 spell 列表。选择 CDK 然后按下回车。</p>
+<p><img src="/images/jobbole.com/d881a6a78998af49de814852738f2832.jpg" alt=""></p>
+<p>这个时候，你将看到 CDK spell 可用的附加组件。我们感兴趣的是 Graylog 和 Prometheus，因此选择这两个，然后点击 “Continue”。</p>
+<p>它将引导你选择各种云，以决定你的集群部署的地方。之后，你将看到一些部署的后续步骤，接下来是回顾屏幕，让你再次确认部署内容：</p>
+<p><img src="/images/jobbole.com/b4d4b149b2497328e0dd711864a97e74.jpg" alt=""></p>
+<p>除了典型的 K8s 相关的应用程序（etcd、flannel、load-balancer、master 以及 workers）之外，你将看到我们选择的日志和指标相关的额外应用程序。</p>
+<p>Graylog 栈包含如下：</p>
+<ul>
+<li>apache2：graylog web 界面的反向代理</li>
+<li>elasticsearch：日志使用的文档数据库</li>
+<li>filebeat：从 K8s master/workers 转发日志到 graylog</li>
+<li>graylog：为日志收集器提供一个 api，以及提供一个日志分析界面</li>
+<li>mongodb：保存 graylog 元数据的数据库</li>
+</ul>
+<p>Prometheus 栈包含如下：</p>
+<ul>
+<li>grafana：指标相关的仪表板的 web 界面</li>
+<li>prometheus：指标收集器以及时序数据库</li>
+<li>telegraf：发送主机的指标到 prometheus 中</li>
+</ul>
+<p>你可以在回顾屏幕上微调部署，但是默认组件是必选 的。点击 “Deploy all Remaining Applications” 继续。</p>
+<p>部署工作将花费一些时间，它将部署你的机器和配置你的云。完成后，<code>conjure-up</code> 将展示一个摘要屏幕，它包含一些链接，你可以用你的终端去浏览各种感兴趣的内容：</p>
+<p><img src="/images/jobbole.com/c67265c1be1ae24daad94cb0d8c2b408.jpg" alt=""></p>
+<h4 id="toc_2">浏览日志</h4>
+<p>现在，Graylog 已经部署和配置完成，我们可以看一下采集到的一些数据。默认情况下，filebeat 应用程序将从 Kubernetes 的 master 和 worker 中转发系统日志（ <code>/var/log/*.log</code> ）和容器日志（<code>/var/log/containers/*.log</code>）到 graylog 中。</p>
+<p>记住如下的 apache2 的地址和 graylog 的 admin 密码：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb0c647731425" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+juju status --format yaml apache2/0 | grep public-address
+ public-address: &lt;your-apache2-ip&gt;
+juju run-action --wait graylog/0 show-admin-password
+ admin-password: &lt;your-graylog-password&gt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb0c647731425-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb0c647731425-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb0c647731425-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb0c647731425-4">4</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb0c647731425-1">
+<span class="crayon-e">juju </span><span class="crayon-v">status</span><span class="crayon-h"> </span><span class="crayon-o">--</span><span class="crayon-e">format </span><span class="crayon-e">yaml </span><span class="crayon-v">apache2</span><span class="crayon-o">/</span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-e">grep </span><span class="crayon-m">public</span><span class="crayon-o">-</span><span class="crayon-e">address</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb0c647731425-2">
+<span class="crayon-e"> </span><span class="crayon-m">public</span><span class="crayon-o">-</span><span class="crayon-v">address</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-v">your</span><span class="crayon-o">-</span><span class="crayon-v">apache2</span><span class="crayon-o">-</span><span class="crayon-v">ip</span><span class="crayon-o">&gt;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb0c647731425-3">
+<span class="crayon-e">juju </span><span class="crayon-v">run</span><span class="crayon-o">-</span><span class="crayon-v">action</span><span class="crayon-h"> </span><span class="crayon-o">--</span><span class="crayon-e">wait </span><span class="crayon-v">graylog</span><span class="crayon-o">/</span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-v">show</span><span class="crayon-o">-</span><span class="crayon-v">admin</span><span class="crayon-o">-</span><span class="crayon-e">password</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb0c647731425-4">
+<span class="crayon-e"> </span><span class="crayon-v">admin</span><span class="crayon-o">-</span><span class="crayon-v">password</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-v">your</span><span class="crayon-o">-</span><span class="crayon-v">graylog</span><span class="crayon-o">-</span><span class="crayon-v">password</span><span class="crayon-o">&gt;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0013 seconds] -->
+<p>在浏览器中输入 <code>http://&lt;your-apache2-ip&gt;</code> ，然后以管理员用户名（admin）和密码（&lt;your-graylog-password&gt;）登入。</p>
+<p><strong>注意：</strong> 如果这个界面不可用，请等待大约 5 分钟时间，以便于配置的反向代理生效。</p>
+<p>登入后，顶部的 “Sources” 选项卡可以看到从 K8s 的 master 和 workers 中收集日志的概述：</p>
+<p><img src="/images/jobbole.com/83ac4ec6749e76a58b92d07c8147624b.jpg" alt=""></p>
+<p>通过点击 “System / Inputs” 选项卡深入这些日志，选择 “Show received messages” 查看 filebeat 的输入：</p>
+<p><img src="/images/jobbole.com/0ff46ca854d771352848363e85e153c0.jpg" alt=""></p>
+<p>在这里，你可以应用各种过滤或者设置 Graylog 仪表板去帮助识别大多数比较重要的事件。查看 <a href="http://docs.graylog.org/en/2.3/pages/dashboards.html">Graylog Dashboard</a> 文档，可以了解如何定制你的视图的详细资料。</p>
+<h4 id="toc_3">浏览指标</h4>
+<p>我们的部署通过 grafana 仪表板提供了两种类型的指标：系统指标，包括像 K8s master 和 worker 的 CPU /内存/磁盘使用情况，以及集群指标，包括像从 K8s cAdvisor 端点上收集的容器级指标。</p>
+<p>记住如下的 grafana 的地址和 admin 密码：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb11608533956" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+juju status --format yaml grafana/0 | grep public-address
+ public-address: &lt;your-grafana-ip&gt;
+juju run-action --wait grafana/0 get-admin-password
+ password: &lt;your-grafana-password&gt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb11608533956-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb11608533956-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb11608533956-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb11608533956-4">4</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb11608533956-1">
+<span class="crayon-e">juju </span><span class="crayon-v">status</span><span class="crayon-h"> </span><span class="crayon-o">--</span><span class="crayon-e">format </span><span class="crayon-e">yaml </span><span class="crayon-v">grafana</span><span class="crayon-o">/</span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-e">grep </span><span class="crayon-m">public</span><span class="crayon-o">-</span><span class="crayon-e">address</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb11608533956-2">
+<span class="crayon-e"> </span><span class="crayon-m">public</span><span class="crayon-o">-</span><span class="crayon-v">address</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-v">your</span><span class="crayon-o">-</span><span class="crayon-v">grafana</span><span class="crayon-o">-</span><span class="crayon-v">ip</span><span class="crayon-o">&gt;</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb11608533956-3">
+<span class="crayon-e">juju </span><span class="crayon-v">run</span><span class="crayon-o">-</span><span class="crayon-v">action</span><span class="crayon-h"> </span><span class="crayon-o">--</span><span class="crayon-e">wait </span><span class="crayon-v">grafana</span><span class="crayon-o">/</span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-v">get</span><span class="crayon-o">-</span><span class="crayon-v">admin</span><span class="crayon-o">-</span><span class="crayon-e">password</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb11608533956-4">
+<span class="crayon-e"> </span><span class="crayon-v">password</span><span class="crayon-o">:</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-v">your</span><span class="crayon-o">-</span><span class="crayon-v">grafana</span><span class="crayon-o">-</span><span class="crayon-v">password</span><span class="crayon-o">&gt;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0022 seconds] -->
+<p>在浏览器中输入 <code>http://&lt;your-grafana-ip&gt;:3000</code>，输入管理员用户（admin）和密码（&lt;your-grafana-password&gt;）登入。成功登入后，点击 “Home” 下拉框，选取 “Kubernetes Metrics (via Prometheus)” 去查看集群指标仪表板：</p>
+<p><img src="/images/jobbole.com/056e8334235805ead942b70a26d21eaf.jpg" alt=""></p>
+<p>我们也可以通过下拉框切换到 “Node Metrics (via Telegraf) ” 去查看 K8s 主机的系统指标。</p>
+<p><img src="/images/jobbole.com/eda23277f6ff8de6fd1b34fee8a7e60c.jpg" alt=""></p>
+<h3 id="toc_4">另一种方法</h3>
+<p>正如在文章开始的介绍中提到的，我喜欢用 <code>conjure-up</code> 的向导去完成像 Kubernetes 这种复杂软件的部署。现在，我们来看一下 <code>conjure-up</code> 的另一种方法，你可能希望去看到实现相同结果的一些命令行的方法。还有其它的可能已经部署了前面的 CDK，并想去扩展使用上述的 Graylog/Prometheus 组件。不管什么原因你既然看到这了，既来之则安之，继续向下看吧。</p>
+<p>支持 <code>conjure-up</code> 的工具是 <a href="https://jujucharms.com/">Juju</a>。CDK spell 所做的一切，都可以使用 <code>juju</code> 命令行来完成。我们来看一下，如何一步步完成这些工作。</p>
+<h4 id="toc_5">从 Scratch 中启动</h4>
+<p>如果你使用的是 Linux，安装 Juju 很简单，命令如下：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb15047637674" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+sudo snap install juju --classic
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb15047637674-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb15047637674-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb15047637674-1">
+<span class="crayon-e">sudo </span><span class="crayon-e">snap </span><span class="crayon-e">install </span><span class="crayon-v">juju</span><span class="crayon-h"> </span><span class="crayon-o">--</span><span class="crayon-i">classic</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb15047637674-2"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>对于 macOS，Juju 也可以从 brew 中安装：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb18479106378" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+brew install juju
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb18479106378-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb18479106378-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb18479106378-1">
+<span class="crayon-e">brew </span><span class="crayon-e">install </span><span class="crayon-i">juju</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb18479106378-2"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0005 seconds] -->
+<p>现在为你选择的云配置一个控制器。你或许会被提示请求一个凭据（用户名密码）：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb1b221065316" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+juju bootstrap
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb1b221065316-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb1b221065316-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb1b221065316-1">
+<span class="crayon-e">juju </span><span class="crayon-i">bootstrap</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb1b221065316-2"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0003 seconds] -->
+<p>我们接下来需要基于 CDK 捆绑部署：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb1e455479825" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+juju deploy canonical-kubernetes
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb1e455479825-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb1e455479825-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb1e455479825-1">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">canonical</span><span class="crayon-o">-</span><span class="crayon-i">kubernetes</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb1e455479825-2"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0006 seconds] -->
+<p></p>
+<h4 id="toc_6">从 CDK 开始</h4>
+<p>使用我们部署的 Kubernetes 集群，我们需要去添加 Graylog 和 Prometheus 所需要的全部应用程序：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb22213534067" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+## deploy graylog-related applications
+juju deploy xenial/apache2
+juju deploy xenial/elasticsearch
+juju deploy xenial/filebeat
+juju deploy xenial/graylog
+juju deploy xenial/mongodb
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb22213534067-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb22213534067-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb22213534067-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb22213534067-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb22213534067-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb22213534067-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb22213534067-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb22213534067-1"><span class="crayon-p">## deploy graylog-related applications</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb22213534067-2">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-e">apache2</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb22213534067-3">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-e">elasticsearch</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb22213534067-4">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-e">filebeat</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb22213534067-5">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-e">graylog</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb22213534067-6">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-i">mongodb</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb22213534067-7"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0008 seconds] -->
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb25611470111" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+## deploy prometheus-related applications
+juju deploy xenial/grafana
+juju deploy xenial/prometheus
+juju deploy xenial/telegraf
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb25611470111-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb25611470111-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb25611470111-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb25611470111-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb25611470111-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb25611470111-1"><span class="crayon-p">## deploy prometheus-related applications</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb25611470111-2">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-e">grafana</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb25611470111-3">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-e">prometheus</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb25611470111-4">
+<span class="crayon-e">juju </span><span class="crayon-e">deploy </span><span class="crayon-v">xenial</span><span class="crayon-o">/</span><span class="crayon-i">telegraf</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb25611470111-5"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0006 seconds] -->
+<p>现在软件已经部署完毕，将它们连接到一起，以便于它们之间可以相互通讯：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb28774332068" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+## relate graylog applications
+juju relate apache2:reverseproxy graylog:website
+juju relate graylog:elasticsearch elasticsearch:client
+juju relate graylog:mongodb mongodb:database
+juju relate filebeat:beats-host kubernetes-master:juju-info
+juju relate filebeat:beats-host kubernetes-worker:jujuu-info
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb28774332068-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb28774332068-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb28774332068-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb28774332068-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb28774332068-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb28774332068-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb28774332068-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb28774332068-1"><span class="crayon-p">## relate graylog applications</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb28774332068-2">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">apache2</span><span class="crayon-o">:</span><span class="crayon-e">reverseproxy </span><span class="crayon-v">graylog</span><span class="crayon-o">:</span><span class="crayon-e">website</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb28774332068-3">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">graylog</span><span class="crayon-o">:</span><span class="crayon-e">elasticsearch </span><span class="crayon-v">elasticsearch</span><span class="crayon-o">:</span><span class="crayon-e">client</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb28774332068-4">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">graylog</span><span class="crayon-o">:</span><span class="crayon-e">mongodb </span><span class="crayon-v">mongodb</span><span class="crayon-o">:</span><span class="crayon-e">database</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb28774332068-5">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">filebeat</span><span class="crayon-o">:</span><span class="crayon-v">beats</span><span class="crayon-o">-</span><span class="crayon-e">host </span><span class="crayon-v">kubernetes</span><span class="crayon-o">-</span><span class="crayon-v">master</span><span class="crayon-o">:</span><span class="crayon-v">juju</span><span class="crayon-o">-</span><span class="crayon-e">info</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb28774332068-6">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">filebeat</span><span class="crayon-o">:</span><span class="crayon-v">beats</span><span class="crayon-o">-</span><span class="crayon-e">host </span><span class="crayon-v">kubernetes</span><span class="crayon-o">-</span><span class="crayon-v">worker</span><span class="crayon-o">:</span><span class="crayon-v">jujuu</span><span class="crayon-o">-</span><span class="crayon-i">info</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb28774332068-7"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0014 seconds] -->
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb2b177399074" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+## relate prometheus applications
+juju relate prometheus:grafana-source grafana:grafana-source
+juju relate telegraf:prometheus-client prometheus:target
+juju relate kubernetes-master:juju-info telegraf:juju-info
+juju relate kubernetes-worker:juju-info telegraf:juju-info
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2b177399074-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb2b177399074-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2b177399074-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb2b177399074-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2b177399074-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb2b177399074-6">6</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2b177399074-1"><span class="crayon-p">## relate prometheus applications</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb2b177399074-2">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">prometheus</span><span class="crayon-o">:</span><span class="crayon-v">grafana</span><span class="crayon-o">-</span><span class="crayon-e">source </span><span class="crayon-v">grafana</span><span class="crayon-o">:</span><span class="crayon-v">grafana</span><span class="crayon-o">-</span><span class="crayon-e">source</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2b177399074-3">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">telegraf</span><span class="crayon-o">:</span><span class="crayon-v">prometheus</span><span class="crayon-o">-</span><span class="crayon-e">client </span><span class="crayon-v">prometheus</span><span class="crayon-o">:</span><span class="crayon-e">target</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb2b177399074-4">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">kubernetes</span><span class="crayon-o">-</span><span class="crayon-v">master</span><span class="crayon-o">:</span><span class="crayon-v">juju</span><span class="crayon-o">-</span><span class="crayon-e">info </span><span class="crayon-v">telegraf</span><span class="crayon-o">:</span><span class="crayon-v">juju</span><span class="crayon-o">-</span><span class="crayon-e">info</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2b177399074-5">
+<span class="crayon-e">juju </span><span class="crayon-e">relate </span><span class="crayon-v">kubernetes</span><span class="crayon-o">-</span><span class="crayon-v">worker</span><span class="crayon-o">:</span><span class="crayon-v">juju</span><span class="crayon-o">-</span><span class="crayon-e">info </span><span class="crayon-v">telegraf</span><span class="crayon-o">:</span><span class="crayon-v">juju</span><span class="crayon-o">-</span><span class="crayon-i">info</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb2b177399074-6"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0014 seconds] -->
+<p>这个时候，所有的应用程序已经可以相互之间进行通讯了，但是我们还需要多做一点配置（比如，配置 apache2 反向代理、告诉 prometheus 如何从 K8s 中取数、导入到 grafana 仪表板等等）：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb2e243272575" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+## configure graylog applications
+juju config apache2 enable_modules="headers proxy_html proxy_http"
+juju config apache2 vhost_http_template="$(base64 &lt;vhost-tmpl&gt;)"
+juju config elasticsearch firewall_enabled="false"
+juju config filebeat \
+ logpath="/var/log/*.log /var/log/containers/*.log"
+juju config filebeat logstash_hosts=&lt;graylog-ip&gt;":5044"
+juju config graylog elasticsearch_cluster_name="&lt;es-cluster&gt;"
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2e243272575-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb2e243272575-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2e243272575-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb2e243272575-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2e243272575-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb2e243272575-6">6</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2e243272575-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb2e243272575-8">8</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb2e243272575-9">9</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2e243272575-1"><span class="crayon-p">## configure graylog applications</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb2e243272575-2">
+<span class="crayon-e">juju </span><span class="crayon-e">config </span><span class="crayon-e">apache2 </span><span class="crayon-v">enable_modules</span><span class="crayon-o">=</span><span class="crayon-s">"headers proxy_html proxy_http"</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2e243272575-3">
+<span class="crayon-e">juju </span><span class="crayon-e">config </span><span class="crayon-e">apache2 </span><span class="crayon-v">vhost_http_template</span><span class="crayon-o">=</span><span class="crayon-s">"$(base64 &lt;vhost-tmpl&gt;)"</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb2e243272575-4">
+<span class="crayon-e">juju </span><span class="crayon-e">config </span><span class="crayon-e">elasticsearch </span><span class="crayon-v">firewall_enabled</span><span class="crayon-o">=</span><span class="crayon-s">"false"</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2e243272575-5">
+<span class="crayon-e">juju </span><span class="crayon-e">config </span><span class="crayon-i">filebeat</span><span class="crayon-h"> </span><span class="crayon-sy">\</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb2e243272575-6">
+<span class="crayon-h"> </span><span class="crayon-v">logpath</span><span class="crayon-o">=</span><span class="crayon-s">"/var/log/*.log /var/log/containers/*.log"</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2e243272575-7">
+<span class="crayon-e">juju </span><span class="crayon-e">config </span><span class="crayon-e">filebeat </span><span class="crayon-v">logstash_hosts</span><span class="crayon-o">=</span><span class="crayon-o">&lt;</span><span class="crayon-v">graylog</span><span class="crayon-o">-</span><span class="crayon-v">ip</span><span class="crayon-o">&gt;</span><span class="crayon-s">":5044"</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb2e243272575-8">
+<span class="crayon-e">juju </span><span class="crayon-e">config </span><span class="crayon-e">graylog </span><span class="crayon-v">elasticsearch_cluster_name</span><span class="crayon-o">=</span><span class="crayon-s">"&lt;es-cluster&gt;"</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb2e243272575-9"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0013 seconds] -->
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb32033510348" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+## configure prometheus applications
+juju config prometheus scrape-jobs="&lt;scraper-yaml&gt;"
+juju run-action --wait grafana/0 import-dashboard \
+ dashboard="$(base64 &lt;dashboard-json&gt;)"
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb32033510348-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb32033510348-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb32033510348-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb32033510348-4">4</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb32033510348-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb32033510348-1"><span class="crayon-p">## configure prometheus applications</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb32033510348-2">
+<span class="crayon-e">juju </span><span class="crayon-e">config </span><span class="crayon-e">prometheus </span><span class="crayon-v">scrape</span><span class="crayon-o">-</span><span class="crayon-v">jobs</span><span class="crayon-o">=</span><span class="crayon-s">"&lt;scraper-yaml&gt;"</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb32033510348-3">
+<span class="crayon-e">juju </span><span class="crayon-v">run</span><span class="crayon-o">-</span><span class="crayon-v">action</span><span class="crayon-h"> </span><span class="crayon-o">--</span><span class="crayon-e">wait </span><span class="crayon-v">grafana</span><span class="crayon-o">/</span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-v">import</span><span class="crayon-o">-</span><span class="crayon-i">dashboard</span><span class="crayon-h"> </span><span class="crayon-sy">\</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb32033510348-4">
+<span class="crayon-h"> </span><span class="crayon-v">dashboard</span><span class="crayon-o">=</span><span class="crayon-s">"$(base64 &lt;dashboard-json&gt;)"</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb32033510348-5"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0010 seconds] -->
+<p>以上的步骤需要根据你的部署来指定一些值。你可以用与 <code>conjure-up</code> 相同的方法得到这些：</p>
+<ul>
+<li>
+<code>&lt;vhost-tmpl&gt;</code>： 从 github 获取我们的示例 <a href="https://raw.githubusercontent.com/conjure-up/spells/master/canonical-kubernetes/addons/graylog/steps/01_install-graylog/graylog-vhost.tmpl">模板</a>
+</li>
+<li>
+<code>&lt;graylog-ip&gt;</code>： <code>juju run --unit graylog/0 'unit-get private-address'</code>
+</li>
+<li>
+<code>&lt;es-cluster&gt;</code>： <code>juju config elasticsearch cluster-name</code>
+</li>
+<li>
+<code>&lt;scraper-yaml&gt;</code>： 从 github 获取我们的示例 <a href="https://raw.githubusercontent.com/conjure-up/spells/master/canonical-kubernetes/addons/prometheus/steps/01_install-prometheus/prometheus-scrape-k8s.yaml">scraper</a> ；<code>[K8S_PASSWORD][20]</code> 和 <code>[K8S_API_ENDPOINT][21]</code> <a href="https://github.com/conjure-up/spells/blob/master/canonical-kubernetes/addons/prometheus/steps/01_install-prometheus/after-deploy#L25">substitute</a> 的正确值</li>
+<li>
+<code>&lt;dashboard-json&gt;</code>： 从 github 获取我们的 <a href="https://raw.githubusercontent.com/conjure-up/spells/master/canonical-kubernetes/addons/prometheus/steps/01_install-prometheus/grafana-telegraf.json">主机</a> 和 <a href="https://raw.githubusercontent.com/conjure-up/spells/master/canonical-kubernetes/addons/prometheus/steps/01_install-prometheus/grafana-k8s.json">k8s</a> 仪表板</li>
+</ul>
+<p>最后，发布 apache2 和 grafana 应用程序，以便于可以通过它们的 web 界面访问：</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5ad7ff2d6cb36372127437" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+## expose relevant endpoints
+juju expose apache2
+juju expose grafana
+</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb36372127437-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb36372127437-2">2</div>
+<div class="crayon-num" data-line="crayon-5ad7ff2d6cb36372127437-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5ad7ff2d6cb36372127437-4">4</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5ad7ff2d6cb36372127437-1"><span class="crayon-p">## expose relevant endpoints</span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb36372127437-2">
+<span class="crayon-e">juju </span><span class="crayon-e">expose </span><span class="crayon-e">apache2</span>
+</div>
+<div class="crayon-line" id="crayon-5ad7ff2d6cb36372127437-3">
+<span class="crayon-e">juju </span><span class="crayon-e">expose </span><span class="crayon-i">grafana</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5ad7ff2d6cb36372127437-4"> </div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>现在我们已经完成了所有的部署、配置、和发布工作，你可以使用与上面的<strong>浏览日志</strong>和<strong>浏览指标</strong>部分相同的方法去查看它们。</p>
+<h3 id="toc_7">总结</h3>
+<p>我的目标是向你展示如何去部署一个 Kubernetes 集群，很方便地去监视它的日志和指标。无论你是喜欢向导的方式还是命令行的方式，我希望你清楚地看到部署一个监视系统并不复杂。关键是要搞清楚所有部分是如何工作的，并将它们连接到一起工作，通过断开/修复/重复的方式，直到它们每一个都能正常工作。</p>
+<p>这里有一些像 conjure-up 和 Juju 一样非常好的工具。充分发挥这个生态系统贡献者的专长让管理大型软件变得更容易。从一套可靠的应用程序开始，按需定制，然后投入到工作中！</p>
+<p>大胆去尝试吧，然后告诉我你用的如何。你可以在 Freenode IRC 的 <strong>#conjure-up</strong> 和 <strong>#juju</strong> 中找到像我这样的爱好者。感谢阅读！</p>
+<h3 id="toc_8">关于作者</h3>
+<p>Kevin 在 2014 年加入 Canonical 公司，他专注于复杂软件建模。他在 Juju 大型软件团队中找到了自己的位置，他的任务是将大数据和机器学习应用程序转化成可重复的（可靠的）解决方案。</p>
+<p> </p>
+
+        
+        
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2018/2018-04-13-113854-c4047562c.html" title="Previous Post: 命令行乐趣：嘲讽输错 Bash 命令的用户" data-instant>&laquo; 命令行乐趣：嘲讽输错 Bash 命令的用户</a>
+  
+  
+    <a class="basic-alignment right" href="/posts/2018/2018-04-14-113879-fcc6df41d.html" title="Next Post: SQL 入门" data-instant>SQL 入门 &raquo;</a>
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>18 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-18-113905-617147c25.html">可怕的万圣节 Linux 命令</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113901-984d2095c.html">彩票的数学知识</a></li>
+    
+      <li><span>17 Apr 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-04-17-113896-8e61db3f3.html">工程师如何在工作中提升自己?</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>
