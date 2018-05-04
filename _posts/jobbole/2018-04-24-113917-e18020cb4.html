@@ -1,0 +1,394 @@
+---
+layout: post
+title: '线上账务系统余额并发更新问题记录'
+time: 2018-04-24 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/113917/
+---
+{% raw %}
+
+
+        			<div class="textwidget"></div>
+		
+		<p>某电商平台，某天线上用户报bug说账户余额信息与交易流水对不上。可以认为是数据库并发更新问题，由此定位出具体原因，并给出解决方案。</p>
+<h2>问题现象</h2>
+<h3>场景描述</h3>
+<p>线上账务系统，在定时结算给卖家钱时，且高并发量的情况下，出现提现x元（假设当前用户余额为x元）余额为0后，再转入该账户一笔钱（假设为y元），结果账户余额变为了<strong>x+y</strong> 元，导致用户余额错误。 ps：账户余额的变更都是在事务中update的</p>
+<p><strong>环境说明</strong></p>
+<p>mysql5.7 + innodb，事务隔离级别是<strong>REPEATABLE-READ</strong></p>
+<h3>场景模拟</h3>
+<p>我们简化下线上的数据结构，进行场景模拟。 数据表如下： ‘账户主表’</p>
+<p> </p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5aec01ac573df557675961" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+CREATE TABLE user (
+uid int(11) NOT NULL COMMENT '类型id+自增序列',
+name varchar(32) DEFAULT NULL,
+PRIMARY KEY (uid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='账户主表'</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5aec01ac573df557675961-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573df557675961-2">2</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573df557675961-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573df557675961-4">4</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573df557675961-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5aec01ac573df557675961-1">
+<span class="crayon-e">CREATE </span><span class="crayon-e">TABLE </span><span class="crayon-e">user</span><span class="crayon-h"> </span><span class="crayon-sy">(</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573df557675961-2">
+<span class="crayon-e">uid </span><span class="crayon-t">int</span><span class="crayon-sy">(</span><span class="crayon-cn">11</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">NOT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-h"> </span><span class="crayon-i">COMMENT</span><span class="crayon-h"> </span><span class="crayon-s">'类型id+自增序列'</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573df557675961-3">
+<span class="crayon-e">name </span><span class="crayon-e">varchar</span><span class="crayon-sy">(</span><span class="crayon-cn">32</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573df557675961-4">
+<span class="crayon-e">PRIMARY </span><span class="crayon-e">KEY</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">uid</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573df557675961-5">
+<span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">ENGINE</span><span class="crayon-o">=</span><span class="crayon-e">InnoDB </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-v">CHARSET</span><span class="crayon-o">=</span><span class="crayon-e">utf8 </span><span class="crayon-v">COMMENT</span><span class="crayon-o">=</span><span class="crayon-s">'账户主表'</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0013 seconds] -->
+<p>‘账户余额明细表’</p>
+<p> </p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5aec01ac573e9733380207" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+CREATE TABLE user_account (
+uid int(11) NOT NULL,
+amount decimal(19,4) DEFAULT 0 COMMENT '账户余额',
+PRIMARY KEY (uid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='账户余额明细表'</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5aec01ac573e9733380207-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573e9733380207-2">2</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573e9733380207-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573e9733380207-4">4</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573e9733380207-5">5</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5aec01ac573e9733380207-1">
+<span class="crayon-e">CREATE </span><span class="crayon-e">TABLE </span><span class="crayon-e">user_account</span><span class="crayon-h"> </span><span class="crayon-sy">(</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573e9733380207-2">
+<span class="crayon-e">uid </span><span class="crayon-t">int</span><span class="crayon-sy">(</span><span class="crayon-cn">11</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">NOT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573e9733380207-3">
+<span class="crayon-e">amount </span><span class="crayon-e">decimal</span><span class="crayon-sy">(</span><span class="crayon-cn">19</span><span class="crayon-sy">,</span><span class="crayon-cn">4</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-h"> </span><span class="crayon-i">COMMENT</span><span class="crayon-h"> </span><span class="crayon-s">'账户余额'</span><span class="crayon-sy">,</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573e9733380207-4">
+<span class="crayon-e">PRIMARY </span><span class="crayon-e">KEY</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">uid</span><span class="crayon-sy">)</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573e9733380207-5">
+<span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">ENGINE</span><span class="crayon-o">=</span><span class="crayon-e">InnoDB </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-v">CHARSET</span><span class="crayon-o">=</span><span class="crayon-e">utf8 </span><span class="crayon-v">COMMENT</span><span class="crayon-o">=</span><span class="crayon-s">'账户余额明细表'</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0012 seconds] -->
+<p>账户类型配置</p>
+<p> </p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5aec01ac573ed696620699" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+CREATE TABLE user_conf (
+type_id int(11) NOT NULL, description varchar(32) DEFAULT NULL COMMENT '类型描述', PRIMARY KEY (type_id) ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='账户类型配置'</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5aec01ac573ed696620699-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573ed696620699-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5aec01ac573ed696620699-1">
+<span class="crayon-e">CREATE </span><span class="crayon-e">TABLE </span><span class="crayon-e">user_conf</span><span class="crayon-h"> </span><span class="crayon-sy">(</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573ed696620699-2">
+<span class="crayon-e">type_id </span><span class="crayon-t">int</span><span class="crayon-sy">(</span><span class="crayon-cn">11</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">NOT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">description </span><span class="crayon-e">varchar</span><span class="crayon-sy">(</span><span class="crayon-cn">32</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-t">NULL</span><span class="crayon-h"> </span><span class="crayon-i">COMMENT</span><span class="crayon-h"> </span><span class="crayon-s">'类型描述'</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-e">PRIMARY </span><span class="crayon-e">KEY</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">type_id</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-v">ENGINE</span><span class="crayon-o">=</span><span class="crayon-e">InnoDB </span><span class="crayon-st">DEFAULT</span><span class="crayon-h"> </span><span class="crayon-v">CHARSET</span><span class="crayon-o">=</span><span class="crayon-e">utf8 </span><span class="crayon-v">COMMENT</span><span class="crayon-o">=</span><span class="crayon-s">'账户类型配置'</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0014 seconds] -->
+<p>具体数据为：</p>
+<p> </p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5aec01ac573f1209032487" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+select * from user;
++-------+------+ | uid | name | +-------+------+
+| 10001 | a |
+| 10002 | b |
+select * from user_account;
++-------+----------+ | uid | amount | +-------+----------+
+| 10001 | 10.0000 |
+| 10002 | 108.9900 |
+select * from user_conf;
++---------+--------------+ | type_id | description | +---------+--------------+
+| 100 | 外部账户 |
+| 200 | 内部账户 |</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5aec01ac573f1209032487-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573f1209032487-2">2</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573f1209032487-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573f1209032487-4">4</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573f1209032487-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573f1209032487-6">6</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573f1209032487-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573f1209032487-8">8</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573f1209032487-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573f1209032487-10">10</div>
+<div class="crayon-num" data-line="crayon-5aec01ac573f1209032487-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5aec01ac573f1209032487-12">12</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5aec01ac573f1209032487-1">
+<span class="crayon-e ">select *</span><span class="crayon-h"> </span><span class="crayon-e">from </span><span class="crayon-v">user</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573f1209032487-2">
+<span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">uid</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">name</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573f1209032487-3">
+<span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">10001</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">a</span><span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573f1209032487-4">
+<span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">10002</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">b</span><span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573f1209032487-5">
+<span class="crayon-e ">select *</span><span class="crayon-h"> </span><span class="crayon-e">from </span><span class="crayon-v">user_account</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573f1209032487-6">
+<span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">uid</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">amount</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573f1209032487-7">
+<span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">10001</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">10.0000</span><span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573f1209032487-8">
+<span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">10002</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">108.9900</span><span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573f1209032487-9">
+<span class="crayon-e ">select *</span><span class="crayon-h"> </span><span class="crayon-e">from </span><span class="crayon-v">user_conf</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573f1209032487-10">
+<span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">type_id</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-v">description</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">-</span><span class="crayon-o">+</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">--</span><span class="crayon-o">+</span>
+</div>
+<div class="crayon-line" id="crayon-5aec01ac573f1209032487-11">
+<span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">100</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span>外部账户<span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5aec01ac573f1209032487-12">
+<span class="crayon-o">|</span><span class="crayon-h"> </span><span class="crayon-cn">200</span><span class="crayon-h"> </span><span class="crayon-o">|</span><span class="crayon-h"> </span>内部账户<span class="crayon-h"> </span><span class="crayon-o">|</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0034 seconds] -->
+<p><strong>模拟</strong>提现（即余额减）和入账（即余额加）<strong>并发操作的事务</strong>如下：</p>
+<table>
+<thead>
+<tr>
+<th>session1-提现10元</th>
+<th>session2-入账20元</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>begin；</td>
+<td></td>
+</tr>
+<tr>
+<td>select description from user_conf where type_id = 100;</td>
+<td></td>
+</tr>
+<tr>
+<td>select * from user where uid = 10001 for update; // user表用来做互斥</td>
+<td></td>
+</tr>
+<tr>
+<td>select amount from user_account where uid = 10001; // 10.00</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>begin;</td>
+</tr>
+<tr>
+<td></td>
+<td>select description from user_conf where type_id = 100;</td>
+</tr>
+<tr>
+<td></td>
+<td>select * from user where uid = 10001 for update; // <strong>wating</strong>
+</td>
+</tr>
+<tr>
+<td></td>
+<td>//wating</td>
+</tr>
+<tr>
+<td>update user_account set amount = 0.00 where uid = 10001;</td>
+<td></td>
+</tr>
+<tr>
+<td>commit;</td>
+<td></td>
+</tr>
+<tr>
+<td></td>
+<td>拿到锁</td>
+</tr>
+<tr>
+<td></td>
+<td>select amount from user_account where uid = 10001; //<strong>10.00</strong>
+</td>
+</tr>
+<tr>
+<td></td>
+<td>入账20元，代码中计算后应该为30元</td>
+</tr>
+<tr>
+<td></td>
+<td>update user_account set amount = 30.00 where uid = 10001;</td>
+</tr>
+<tr>
+<td></td>
+<td>commit;</td>
+</tr>
+</tbody>
+</table>
+<p>问题出现了，后面再查询该用户余额为30元，即用户提现的10元未反映在余额中</p>
+<h2>原因定位</h2>
+<p>熟悉mysql的同学或许已经知道问题是<strong>由REPEATABLE-READ隔离级别下快照读导致</strong>。</p>
+<p><strong>具体解释：</strong></p>
+<p>RR级别下，第一次读操作会生成快照，对于可见性来说，只有当第一次读之前其他事务提交的修改和自己的修改可见，其他的均不可见。</p>
+<blockquote>
+<p>官网文档：<a href="https://dev.mysql.com/doc/refman/5.7/en/glossary.html">https://dev.mysql.com/doc/refman/5.7/en/glossary.html</a> snapshot A representation of data at a particular time, which remains the same even as changes are committed by other transactions.</p>
+</blockquote>
+<p><strong>可见性原理</strong></p>
+<p>可参考文章：<a href="http://hedengcheng.com/?p=148">http://hedengcheng.com/?p=148</a></p>
+<p>回到上述模拟场景中，session2在sql语句<code>select description from user_conf where type_id = 100;</code> 时已生成快照，虽然session1提交了，但仍然不可见，导致并发更新问题。</p>
+<p>另外，开启事务后，<strong>SELECT … FOR UPDATE 是不会生成快照的</strong>，大家可自行实验</p>
+<h2>解决方案</h2>
+<h3>方案一</h3>
+<p>将REPEATABLE-READ隔离级别改为READ-COMMITTED，这样即能看到最新提交的数据。</p>
+<h3>方案二</h3>
+<p>在读’账户余额明细表’user_account 的时候加 for update，这样会 1.强制读该行记录的最新版本数据，2.且若其他事务未commit，本事务将阻塞，保证串行更新</p>
+<h3>方案三</h3>
+<p>延时生成快照。开启事务后，首先就通过user表做互斥，直接for update加锁，针对多个事务并发更新即变为串行。</p>
+<h2>附：定位过程</h2>
+<ol>
+<li>针对上报bug用户，查询其交易流水明细与余额变更明细，确认账务存在问题</li>
+<li>查询账务系统近几天是否有上线变更，检查无</li>
+<li>拉取账务数据库mysql general log，找到并发更新的两个事务session</li>
+<li>查询数据库设置的隔离级别为RR，查询应用数据库连接池配置即<strong>session的隔离级别未配置</strong>，采用数据库配置</li>
+<li>确认由RR级别导致（当然也可以认为是代码问题导致）</li>
+<li>确认是一个月前账务系统分库分表上线，改用其他<strong>连接池且未设置session隔离级别</strong>。而之前是有配置session的隔离级别为READ-COMMITTED。</li>
+</ol>
+<h2>延伸思考</h2>
+<p>mysql RR级别适用的业务场景是什么，应该怎么选择？ 有兴趣或有见解的同学可以留言回复或私信~~</p>
+<h2>参考</h2>
+<blockquote>
+<p><a href="http://blog.csdn.net/chen77716/article/details/6742128#comments">http://blog.csdn.net/chen77716/article/details/6742128#comments</a></p>
+<p><a href="http://hedengcheng.com/?p=148">http://hedengcheng.com/?p=148</a></p>
+</blockquote>
+
+        
+        
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
