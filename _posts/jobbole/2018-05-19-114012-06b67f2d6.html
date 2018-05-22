@@ -1,0 +1,1032 @@
+---
+layout: post
+title: '分布式之缓存击穿'
+time: 2018-05-19 00:00:00 +0800
+site_name: jobbole.com
+source_url: http://blog.jobbole.com/114012/
+images:
+  2fd9bedef2ec8bbab8f119c90fe18159: http://jbcdn2.b0.upaiyun.com/2018/05/927e850b8c5ae23d93f46b212108ca38.png
+  6d24781b2940b66c13860487a6431ac5: http://jbcdn2.b0.upaiyun.com/2018/05/416c99b6f355c9d20931df6027f4a21c.png
+  6cf5b9376c3c3d9225939db3b8b81b16: http://jbcdn2.b0.upaiyun.com/2018/05/6aa626ab277b7657acfdd791d67b2af4.png
+  f8ca87c741254b91bf27ad8922d52871: http://jbcdn2.b0.upaiyun.com/2018/05/9dacf0001bc1cd6cb26465d1b752b95f.png
+  d6650e8f23e4b2ed1b19af008e308116: http://jbcdn2.b0.upaiyun.com/2018/05/75b9db0a2fee851bec9d7f6ac505bc63.png
+  8541b95b2f86fcb6fbe2e51c41d3afe1: http://jbcdn2.b0.upaiyun.com/2018/05/7e2c12c502f40a42548913672b197171.png
+  fb9c112e69258c11fb4eed2e9ae2003d: http://jbcdn2.b0.upaiyun.com/2018/05/b3087588fd2780c158760d1e703c351c.png
+  3bacf7bef46f7c1b2de268d29735d41a: http://jbcdn2.b0.upaiyun.com/2018/05/d55492c1278a634aeea2d32c2440e379.png
+  03e68a363cf10f1807db6cb41c827951: http://jbcdn2.b0.upaiyun.com/2018/05/ef43eacdd2710eff0fbe24e391486c82.png
+---
+{% raw %}
+
+
+        			<div class="textwidget"></div>
+		
+		<h2 id="什么是缓存击穿">什么是缓存击穿</h2>
+<p>在谈论缓存击穿之前，我们先来回忆下从缓存中加载数据的逻辑，如下图所示<br>
+<img class="aligncenter" src="/images/jobbole.com/2fd9bedef2ec8bbab8f119c90fe18159.jpg" alt="image"></p>
+<p>因此，如果黑客每次故意查询一个在缓存内必然不存在的数据，导致每次请求都要去存储层去查询，这样缓存就失去了意义。如果在大流量下数据库可能挂掉。这就是缓存击穿。<br>
+场景如下图所示:<br>
+<img class="aligncenter" src="/images/jobbole.com/6d24781b2940b66c13860487a6431ac5.jpg" alt="image"></p>
+<p>我们正常人在登录首页的时候，都是根据userID来命中数据，然而黑客的目的是破坏你的系统，黑客可以随机生成一堆userID,然后将这些请求怼到你的服务器上，这些请求在缓存中不存在，就会穿过缓存，直接怼到数据库上,从而造成数据库连接异常。</p>
+<h2 id="解决方案">解决方案</h2>
+<p>在这里我们给出三套解决方案，大家根据项目中的实际情况，选择使用.</p>
+<p>讲下述三种方案前，我们先回忆下redis的setnx方法</p>
+<p><strong>SETNX</strong> <strong>key</strong> <strong>value</strong></p>
+<p>将 key 的值设为 value ，当且仅当 key 不存在。</p>
+<p>若给定的 key 已经存在，则 SETNX 不做任何动作。</p>
+<p>SETNX 是『SET if Not eXists』(如果不存在，则 SET)的简写。</p>
+<p><strong>可用版本</strong>：&gt;= 1.0.0</p>
+<p><strong>时间复杂度：</strong> O(1)</p>
+<p><strong>返回值：</strong> 设置成功，返回 1。设置失败，返回 0 。</p>
+<p>效果如下</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39b6898460381" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+redis&gt; EXISTS job                # job 不存在
+(integer) 0
+
+redis&gt; SETNX job "programmer"    # job 设置成功
+(integer) 1
+
+redis&gt; SETNX job "code-farmer"   # 尝试覆盖 job ，失败
+(integer) 0
+
+redis&gt; GET job                   # 没有被覆盖
+"programmer"</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39b6898460381-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39b6898460381-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39b6898460381-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39b6898460381-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39b6898460381-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39b6898460381-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39b6898460381-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39b6898460381-8">8</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39b6898460381-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39b6898460381-10">10</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39b6898460381-11">11</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39b6898460381-1">
+<span class="crayon-v">redis</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-e">EXISTS </span><span class="crayon-v">job</span><span class="crayon-h">                </span><span class="crayon-p"># job 不存在</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39b6898460381-2">
+<span class="crayon-sy">(</span><span class="crayon-t">integer</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39b6898460381-3"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39b6898460381-4">
+<span class="crayon-v">redis</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-e">SETNX </span><span class="crayon-i">job</span><span class="crayon-h"> </span><span class="crayon-s">"programmer"</span><span class="crayon-h">    </span><span class="crayon-p"># job 设置成功</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39b6898460381-5">
+<span class="crayon-sy">(</span><span class="crayon-t">integer</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-cn">1</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39b6898460381-6"> </div>
+<div class="crayon-line" id="crayon-5b03a4f9e39b6898460381-7">
+<span class="crayon-v">redis</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-e">SETNX </span><span class="crayon-i">job</span><span class="crayon-h"> </span><span class="crayon-s">"code-farmer"</span><span class="crayon-h">   </span><span class="crayon-p"># 尝试覆盖 job ，失败</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39b6898460381-8">
+<span class="crayon-sy">(</span><span class="crayon-t">integer</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-cn">0</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39b6898460381-9"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39b6898460381-10">
+<span class="crayon-v">redis</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-e">GET </span><span class="crayon-v">job</span><span class="crayon-h">                   </span><span class="crayon-p"># 没有被覆盖</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39b6898460381-11"><span class="crayon-s">"programmer"</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0038 seconds] -->
+<p></p>
+<h3 id="使用互斥锁">1、使用互斥锁</h3>
+<p>该方法是比较普遍的做法，即，在根据key获得的value值为空时，先锁上，再从数据库加载，加载完毕，释放锁。若其他线程发现获取锁失败，则睡眠50ms后重试。</p>
+<p>至于锁的类型，单机环境用并发包的Lock类型就行，集群环境则使用分布式锁( redis的setnx)</p>
+<p>集群环境的redis的代码如下所示:</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39c2029776276" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+String get(String key) {  
+   String value = redis.get(key);  
+   if (value  == null) {  
+    if (redis.setnx(key_mutex, "1")) {  
+        // 3 min timeout to avoid mutex holder crash  
+        redis.expire(key_mutex, 3 * 60)  
+        value = db.get(key);  
+        redis.set(key, value);  
+        redis.delete(key_mutex);  
+    } else {  
+        //其他线程休息50毫秒后重试  
+        Thread.sleep(50);  
+        get(key);  
+    }  
+  }  
+}  </textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-8">8</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-10">10</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-12">12</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-14">14</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c2029776276-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c2029776276-16">16</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-1">
+<span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-2">
+<span class="crayon-h">   </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">value</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-3">
+<span class="crayon-h">   </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">value</span><span class="crayon-h">  </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-t">null</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-4">
+<span class="crayon-h">    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">setnx</span><span class="crayon-sy">(</span><span class="crayon-v">key_mutex</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-s">"1"</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-5">
+<span class="crayon-h">        </span><span class="crayon-c">// 3 min timeout to avoid mutex holder crash  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-6">
+<span class="crayon-h">        </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">expire</span><span class="crayon-sy">(</span><span class="crayon-v">key_mutex</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">3</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-cn">60</span><span class="crayon-sy">)</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-7">
+<span class="crayon-h">        </span><span class="crayon-v">value</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">db</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-8">
+<span class="crayon-h">        </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">set</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">value</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-9">
+<span class="crayon-h">        </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">delete</span><span class="crayon-sy">(</span><span class="crayon-v">key_mutex</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-10">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span><span class="crayon-st">else</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-11">
+<span class="crayon-h">        </span><span class="crayon-c">//其他线程休息50毫秒后重试  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-12">
+<span class="crayon-h">        </span><span class="crayon-v">Thread</span><span class="crayon-sy">.</span><span class="crayon-e">sleep</span><span class="crayon-sy">(</span><span class="crayon-cn">50</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-13">
+<span class="crayon-h">        </span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-14">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c2029776276-15">
+<span class="crayon-h">  </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c2029776276-16">
+<span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0029 seconds] -->
+<p><strong>优点:</strong></p>
+<ol>
+<li>思路简单</li>
+<li>保证一致性</li>
+</ol>
+<p><strong>缺点</strong></p>
+<ol>
+<li>代码复杂度增大</li>
+<li>存在死锁的风险</li>
+</ol>
+<h3 id="异步构建缓存">2、异步构建缓存</h3>
+<p>在这种方案下，构建缓存采取异步策略，会从线程池中取线程来异步构建缓存，从而不会让所有的请求直接怼到数据库上。该方案redis自己维护一个timeout，当timeout小于System.currentTimeMillis()时，则进行缓存更新，否则直接返回value值。<br>
+集群环境的redis代码如下所示:</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39c7204016907" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+String get(final String key) {  
+        V v = redis.get(key);  
+        String value = v.getValue();  
+        long timeout = v.getTimeout();  
+        if (v.timeout &lt;= System.currentTimeMillis()) {  
+            // 异步更新后台异常执行  
+            threadPool.execute(new Runnable() {  
+                public void run() {  
+                    String keyMutex = "mutex:" + key;  
+                    if (redis.setnx(keyMutex, "1")) {  
+                        // 3 min timeout to avoid mutex holder crash  
+                        redis.expire(keyMutex, 3 * 60);  
+                        String dbValue = db.get(key);  
+                        redis.set(key, dbValue);  
+                        redis.delete(keyMutex);  
+                    }  
+                }  
+            });  
+        }  
+        return value;  
+    }</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-8">8</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-10">10</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-12">12</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-14">14</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-16">16</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-18">18</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39c7204016907-20">20</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39c7204016907-21">21</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-1">
+<span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-m">final</span><span class="crayon-h"> </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-2">
+<span class="crayon-h">        </span><span class="crayon-i">V</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-3">
+<span class="crayon-h">        </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">value</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-sy">.</span><span class="crayon-e">getValue</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-4">
+<span class="crayon-h">        </span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-v">timeout</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">v</span><span class="crayon-sy">.</span><span class="crayon-e">getTimeout</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-5">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">v</span><span class="crayon-sy">.</span><span class="crayon-v">timeout</span><span class="crayon-h"> </span><span class="crayon-o">&lt;=</span><span class="crayon-h"> </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-e">currentTimeMillis</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-6">
+<span class="crayon-h">            </span><span class="crayon-c">// 异步更新后台异常执行  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-7">
+<span class="crayon-h">            </span><span class="crayon-v">threadPool</span><span class="crayon-sy">.</span><span class="crayon-e">execute</span><span class="crayon-sy">(</span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">Runnable</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-8">
+<span class="crayon-h">                </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">run</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-9">
+<span class="crayon-h">                    </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">keyMutex</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-s">"mutex:"</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">key</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-10">
+<span class="crayon-h">                    </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">setnx</span><span class="crayon-sy">(</span><span class="crayon-v">keyMutex</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-s">"1"</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-11">
+<span class="crayon-h">                        </span><span class="crayon-c">// 3 min timeout to avoid mutex holder crash  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-12">
+<span class="crayon-h">                        </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">expire</span><span class="crayon-sy">(</span><span class="crayon-v">keyMutex</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">3</span><span class="crayon-h"> </span><span class="crayon-o">*</span><span class="crayon-h"> </span><span class="crayon-cn">60</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-13">
+<span class="crayon-h">                        </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">dbValue</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">db</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-14">
+<span class="crayon-h">                        </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">set</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">dbValue</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-15">
+<span class="crayon-h">                        </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">delete</span><span class="crayon-sy">(</span><span class="crayon-v">keyMutex</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-16">
+<span class="crayon-h">                    </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-17">
+<span class="crayon-h">                </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-18">
+<span class="crayon-h">            </span><span class="crayon-sy">}</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-19">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39c7204016907-20">
+<span class="crayon-h">        </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-v">value</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39c7204016907-21">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0104 seconds] -->
+<p><strong>优点:</strong></p>
+<ol>
+<li>性价最佳，用户无需等待</li>
+</ol>
+<p><strong>缺点</strong></p>
+<ol>
+<li>无法保证缓存一致性</li>
+</ol>
+<h3 id="布隆过滤器">3、布隆过滤器</h3>
+<h4 id="原理">1、原理</h4>
+<p>布隆过滤器的巨大用处就是，能够迅速判断一个元素是否在一个集合中。因此他有如下三个使用场景:</p>
+<ol>
+<li>网页爬虫对URL的去重，避免爬取相同的URL地址</li>
+<li>反垃圾邮件，从数十亿个垃圾邮件列表中判断某邮箱是否垃圾邮箱（同理，垃圾短信）</li>
+<li>缓存击穿，将已存在的缓存放到布隆过滤器中，当黑客访问不存在的缓存时迅速返回避免缓存及DB挂掉。</li>
+</ol>
+<p>OK，接下来我们来谈谈布隆过滤器的原理<br>
+其内部维护一个全为0的bit数组，需要说明的是，布隆过滤器有一个误判率的概念，误判率越低，则数组越长，所占空间越大。误判率越高则数组越小，所占的空间越小。</p>
+<p>假设，根据误判率，我们生成一个10位的bit数组，以及2个hash函数（(f_1,f_2)），如下图所示(生成的数组的位数和hash函数的数量，我们不用去关心是如何生成的，有数学论文进行过专业的证明)。<br>
+<img class="aligncenter" src="/images/jobbole.com/6cf5b9376c3c3d9225939db3b8b81b16.jpg" alt="image"></p>
+<p>假设输入集合为((N_1,N_2)),经过计算(f_1(N_1))得到的数值得为2，(f_2(N_1))得到的数值为5，则将数组下标为2和下表为5的位置置为1，如下图所示<br>
+<img class="aligncenter" src="/images/jobbole.com/f8ca87c741254b91bf27ad8922d52871.jpg" alt="image"></p>
+<p>同理，经过计算(f_1(N_2))得到的数值得为3，(f_2(N_2))得到的数值为6，则将数组下标为3和下表为6的位置置为1，如下图所示<br>
+<img class="aligncenter" src="/images/jobbole.com/d6650e8f23e4b2ed1b19af008e308116.jpg" alt="image"></p>
+<p>这个时候，我们有第三个数(N_3)，我们判断(N_3)在不在集合((N_1,N_2))中，就进行(f_1(N_3)，f_2(N_3))的计算</p>
+<ol>
+<li>若值恰巧都位于上图的红色位置中，我们则认为，(N_3)在集合((N_1,N_2))中</li>
+<li>若值有一个不位于上图的红色位置中，我们则认为，(N_3)不在集合((N_1,N_2))中</li>
+</ol>
+<p>以上就是布隆过滤器的计算原理，下面我们进行性能测试，</p>
+<h4 id="性能测试">2、性能测试</h4>
+<p>代码如下:</p>
+<h5 id="新建一个maven工程引入guava包">(1)新建一个maven工程，引入guava包</h5>
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39cd018247676" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+&lt;dependencies&gt;  
+        &lt;dependency&gt;  
+            &lt;groupId&gt;com.google.guava&lt;/groupId&gt;  
+            &lt;artifactId&gt;guava&lt;/artifactId&gt;  
+            &lt;version&gt;22.0&lt;/version&gt;  
+        &lt;/dependency&gt;  
+    &lt;/dependencies&gt;</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39cd018247676-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39cd018247676-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39cd018247676-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39cd018247676-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39cd018247676-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39cd018247676-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39cd018247676-7">7</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39cd018247676-1">
+<span class="crayon-o">&lt;</span><span class="crayon-v">dependencies</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39cd018247676-2">
+<span class="crayon-h">        </span><span class="crayon-o">&lt;</span><span class="crayon-v">dependency</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39cd018247676-3">
+<span class="crayon-h">            </span><span class="crayon-o">&lt;</span><span class="crayon-v">groupId</span><span class="crayon-o">&gt;</span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">google</span><span class="crayon-sy">.</span><span class="crayon-v">guava</span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">groupId</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39cd018247676-4">
+<span class="crayon-h">            </span><span class="crayon-o">&lt;</span><span class="crayon-v">artifactId</span><span class="crayon-o">&gt;</span><span class="crayon-v">guava</span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">artifactId</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39cd018247676-5">
+<span class="crayon-h">            </span><span class="crayon-o">&lt;</span><span class="crayon-v">version</span><span class="crayon-o">&gt;</span><span class="crayon-cn">22.0</span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">version</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39cd018247676-6">
+<span class="crayon-h">        </span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">dependency</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39cd018247676-7">
+<span class="crayon-h">    </span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">dependencies</span><span class="crayon-o">&gt;</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0014 seconds] -->
+<p></p>
+<h5 id="测试一个元素是否属于一个百万元素集合所需耗时">(2)测试一个元素是否属于一个百万元素集合所需耗时</h5>
+<p></p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39d1478788085" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+package bloomfilter;
+
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
+import java.nio.charset.Charset;
+
+public class Test {
+    private static int size = 1000000;
+
+    private static BloomFilter&lt;Integer&gt; bloomFilter = BloomFilter.create(Funnels.integerFunnel(), size);
+
+    public static void main(String[] args) {
+        for (int i = 0; i &lt; size; i++) {
+            bloomFilter.put(i);
+        }
+        long startTime = System.nanoTime(); // 获取开始时间
+        
+        //判断这一百万个数中是否包含29999这个数
+        if (bloomFilter.mightContain(29999)) {
+            System.out.println("命中了");
+        }
+        long endTime = System.nanoTime();   // 获取结束时间
+
+        System.out.println("程序运行时间： " + (endTime - startTime) + "纳秒");
+
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-8">8</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-10">10</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-12">12</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-14">14</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-16">16</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-18">18</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-20">20</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-22">22</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-24">24</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d1478788085-26">26</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d1478788085-27">27</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-1">
+<span class="crayon-t">package</span><span class="crayon-h"> </span><span class="crayon-v">bloomfilter</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-2"> </div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-3">
+<span class="crayon-e">import </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">google</span><span class="crayon-sy">.</span><span class="crayon-v">common</span><span class="crayon-sy">.</span><span class="crayon-v">hash</span><span class="crayon-sy">.</span><span class="crayon-v">BloomFilter</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-4">
+<span class="crayon-e">import </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">google</span><span class="crayon-sy">.</span><span class="crayon-v">common</span><span class="crayon-sy">.</span><span class="crayon-v">hash</span><span class="crayon-sy">.</span><span class="crayon-v">Funnels</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-5">
+<span class="crayon-e">import </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">nio</span><span class="crayon-sy">.</span><span class="crayon-v">charset</span><span class="crayon-sy">.</span><span class="crayon-v">Charset</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-6"> </div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-7">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">Test</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-8">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">1000000</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-9"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-10">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-v">BloomFilter</span><span class="crayon-o">&lt;</span><span class="crayon-t">Integer</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">bloomFilter</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">BloomFilter</span><span class="crayon-sy">.</span><span class="crayon-e">create</span><span class="crayon-sy">(</span><span class="crayon-v">Funnels</span><span class="crayon-sy">.</span><span class="crayon-e">integerFunnel</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-11"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-12">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">main</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-v">args</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-13">
+<span class="crayon-h">        </span><span class="crayon-st">for</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-o">++</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-14">
+<span class="crayon-h">            </span><span class="crayon-v">bloomFilter</span><span class="crayon-sy">.</span><span class="crayon-e">put</span><span class="crayon-sy">(</span><span class="crayon-v">i</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-15">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-16">
+<span class="crayon-h">        </span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-v">startTime</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-e">nanoTime</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-c">// 获取开始时间</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-17"><span class="crayon-h">        </span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-18">
+<span class="crayon-h">        </span><span class="crayon-c">//判断这一百万个数中是否包含29999这个数</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-19">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">bloomFilter</span><span class="crayon-sy">.</span><span class="crayon-e">mightContain</span><span class="crayon-sy">(</span><span class="crayon-cn">29999</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-20">
+<span class="crayon-h">            </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-v">out</span><span class="crayon-sy">.</span><span class="crayon-e">println</span><span class="crayon-sy">(</span><span class="crayon-s">"命中了"</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-21">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-22">
+<span class="crayon-h">        </span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-v">endTime</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-e">nanoTime</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">   </span><span class="crayon-c">// 获取结束时间</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-23"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-24">
+<span class="crayon-h">        </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-v">out</span><span class="crayon-sy">.</span><span class="crayon-e">println</span><span class="crayon-sy">(</span><span class="crayon-s">"程序运行时间： "</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">endTime</span><span class="crayon-h"> </span><span class="crayon-o">-</span><span class="crayon-h"> </span><span class="crayon-v">startTime</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-s">"纳秒"</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-25"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d1478788085-26">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d1478788085-27"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0049 seconds] -->
+<p>输出如下所示</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39d4797654562" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+命中了
+程序运行时间： 219386纳秒</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d4797654562-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d4797654562-2">2</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39d4797654562-1">命中了</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d4797654562-2">程序运行时间：<span class="crayon-h"> </span><span class="crayon-cn">219386</span>纳秒</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>也就是说，判断一个数是否属于一个百万级别的集合，只要0.219ms就可以完成，性能极佳。</p>
+<h5 id="误判率的一些概念">(3)误判率的一些概念</h5>
+<p>首先，我们先不对误判率做显示的设置，进行一个测试，代码如下所示</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39d8390592986" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+package bloomfilter;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
+
+public class Test {
+    private static int size = 1000000;
+
+    private static BloomFilter&lt;Integer&gt; bloomFilter = BloomFilter.create(Funnels.integerFunnel(), size);
+
+    public static void main(String[] args) {
+        for (int i = 0; i &lt; size; i++) {
+            bloomFilter.put(i);
+        }
+        List&lt;Integer&gt; list = new ArrayList&lt;Integer&gt;(1000);  
+        
+        //故意取10000个不在过滤器里的值，看看有多少个会被认为在过滤器里
+        for (int i = size + 10000; i &lt; size + 20000; i++) {  
+            if (bloomFilter.mightContain(i)) {  
+                list.add(i);  
+            }  
+        }  
+        System.out.println("误判的数量：" + list.size()); 
+
+    }
+}</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-8">8</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-10">10</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-12">12</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-13">13</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-14">14</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-15">15</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-16">16</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-17">17</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-18">18</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-19">19</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-20">20</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-21">21</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-22">22</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-23">23</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-24">24</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-25">25</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-26">26</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-27">27</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39d8390592986-28">28</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39d8390592986-29">29</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-1">
+<span class="crayon-t">package</span><span class="crayon-h"> </span><span class="crayon-v">bloomfilter</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-2"> </div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-3">
+<span class="crayon-e">import </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">ArrayList</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-4">
+<span class="crayon-e">import </span><span class="crayon-v">java</span><span class="crayon-sy">.</span><span class="crayon-v">util</span><span class="crayon-sy">.</span><span class="crayon-v">List</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-5"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-6">
+<span class="crayon-e">import </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">google</span><span class="crayon-sy">.</span><span class="crayon-v">common</span><span class="crayon-sy">.</span><span class="crayon-v">hash</span><span class="crayon-sy">.</span><span class="crayon-v">BloomFilter</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-7">
+<span class="crayon-e">import </span><span class="crayon-v">com</span><span class="crayon-sy">.</span><span class="crayon-v">google</span><span class="crayon-sy">.</span><span class="crayon-v">common</span><span class="crayon-sy">.</span><span class="crayon-v">hash</span><span class="crayon-sy">.</span><span class="crayon-v">Funnels</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-8"> </div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-9">
+<span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">class</span><span class="crayon-h"> </span><span class="crayon-e">Test</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-10">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">1000000</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-11"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-12">
+<span class="crayon-h">    </span><span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-v">BloomFilter</span><span class="crayon-o">&lt;</span><span class="crayon-t">Integer</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">bloomFilter</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">BloomFilter</span><span class="crayon-sy">.</span><span class="crayon-e">create</span><span class="crayon-sy">(</span><span class="crayon-v">Funnels</span><span class="crayon-sy">.</span><span class="crayon-e">integerFunnel</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-13"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-14">
+<span class="crayon-h">    </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">main</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-sy">[</span><span class="crayon-sy">]</span><span class="crayon-h"> </span><span class="crayon-v">args</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-15">
+<span class="crayon-h">        </span><span class="crayon-st">for</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-cn">0</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-o">++</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-16">
+<span class="crayon-h">            </span><span class="crayon-v">bloomFilter</span><span class="crayon-sy">.</span><span class="crayon-e">put</span><span class="crayon-sy">(</span><span class="crayon-v">i</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-17">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-18">
+<span class="crayon-h">        </span><span class="crayon-v">List</span><span class="crayon-o">&lt;</span><span class="crayon-t">Integer</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">list</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-v">ArrayList</span><span class="crayon-o">&lt;</span><span class="crayon-t">Integer</span><span class="crayon-o">&gt;</span><span class="crayon-sy">(</span><span class="crayon-cn">1000</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-19"><span class="crayon-h">        </span></div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-20">
+<span class="crayon-h">        </span><span class="crayon-c">//故意取10000个不在过滤器里的值，看看有多少个会被认为在过滤器里</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-21">
+<span class="crayon-h">        </span><span class="crayon-st">for</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-t">int</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-cn">10000</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-h"> </span><span class="crayon-o">&lt;</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-cn">20000</span><span class="crayon-sy">;</span><span class="crayon-h"> </span><span class="crayon-v">i</span><span class="crayon-o">++</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-22">
+<span class="crayon-h">            </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">bloomFilter</span><span class="crayon-sy">.</span><span class="crayon-e">mightContain</span><span class="crayon-sy">(</span><span class="crayon-v">i</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-23">
+<span class="crayon-h">                </span><span class="crayon-v">list</span><span class="crayon-sy">.</span><span class="crayon-e">add</span><span class="crayon-sy">(</span><span class="crayon-v">i</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-24">
+<span class="crayon-h">            </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-25">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-26">
+<span class="crayon-h">        </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-v">out</span><span class="crayon-sy">.</span><span class="crayon-e">println</span><span class="crayon-sy">(</span><span class="crayon-s">"误判的数量："</span><span class="crayon-h"> </span><span class="crayon-o">+</span><span class="crayon-h"> </span><span class="crayon-v">list</span><span class="crayon-sy">.</span><span class="crayon-e">size</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-27"> </div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39d8390592986-28">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39d8390592986-29"><span class="crayon-sy">}</span></div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0059 seconds] -->
+<p>输出结果如下</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39db769357281" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+误判对数量：330</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5b03a4f9e39db769357281-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5b03a4f9e39db769357281-1">误判对数量：<span class="crayon-cn">330</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0004 seconds] -->
+<p>如果上述代码所示，我们故意取10000个不在过滤器里的值，却还有330个被认为在过滤器里，这说明了误判率为0.03.即，在不做任何设置的情况下，默认的误判率为0.03。<br>
+下面上源码来证明：<br>
+<img src="/images/jobbole.com/8541b95b2f86fcb6fbe2e51c41d3afe1.jpg" alt="image"></p>
+<p>接下来我们来看一下，误判率为0.03时，底层维护的bit数组的长度如下图所示<br>
+<img src="/images/jobbole.com/fb9c112e69258c11fb4eed2e9ae2003d.jpg" alt="image"></p>
+<p>将bloomfilter的构造方法改为</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39df381123726" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+private static BloomFilter&lt;Integer&gt; bloomFilter = BloomFilter.create(Funnels.integerFunnel(), size,0.01);</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;"><div class="crayon-num" data-line="crayon-5b03a4f9e39df381123726-1">1</div></div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;"><div class="crayon-line" id="crayon-5b03a4f9e39df381123726-1">
+<span class="crayon-m">private</span><span class="crayon-h"> </span><span class="crayon-m">static</span><span class="crayon-h"> </span><span class="crayon-v">BloomFilter</span><span class="crayon-o">&lt;</span><span class="crayon-t">Integer</span><span class="crayon-o">&gt;</span><span class="crayon-h"> </span><span class="crayon-v">bloomFilter</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">BloomFilter</span><span class="crayon-sy">.</span><span class="crayon-e">create</span><span class="crayon-sy">(</span><span class="crayon-v">Funnels</span><span class="crayon-sy">.</span><span class="crayon-e">integerFunnel</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">size</span><span class="crayon-sy">,</span><span class="crayon-cn">0.01</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span>
+</div></div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0009 seconds] -->
+<p>即，此时误判率为0.01。在这种情况下，底层维护的bit数组的长度如下图所示<br>
+<img src="/images/jobbole.com/3bacf7bef46f7c1b2de268d29735d41a.jpg" alt="image"><br>
+由此可见，误判率越低，则底层维护的数组越长，占用空间越大。因此，误判率实际取值，根据服务器所能够承受的负载来决定，不是拍脑袋瞎想的。</p>
+<h4 id="实际使用">3、实际使用</h4>
+<p>redis伪代码如下所示</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a4f9e39e2969331669" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+String get(String key) {  
+   String value = redis.get(key);  
+   if (value  == null) {  
+        if(!bloomfilter.mightContain(key)){
+            return null;
+        }else{
+           value = db.get(key);  
+           redis.set(key, value);  
+        }
+    } 
+    return value；
+} </textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a4f9e39e2969331669-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39e2969331669-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39e2969331669-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39e2969331669-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39e2969331669-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39e2969331669-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39e2969331669-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39e2969331669-8">8</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39e2969331669-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39e2969331669-10">10</div>
+<div class="crayon-num" data-line="crayon-5b03a4f9e39e2969331669-11">11</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a4f9e39e2969331669-12">12</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a4f9e39e2969331669-1">
+<span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39e2969331669-2">
+<span class="crayon-h">   </span><span class="crayon-t">String</span><span class="crayon-h"> </span><span class="crayon-v">value</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39e2969331669-3">
+<span class="crayon-h">   </span><span class="crayon-st">if</span><span class="crayon-h"> </span><span class="crayon-sy">(</span><span class="crayon-v">value</span><span class="crayon-h">  </span><span class="crayon-o">==</span><span class="crayon-h"> </span><span class="crayon-t">null</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39e2969331669-4">
+<span class="crayon-h">        </span><span class="crayon-st">if</span><span class="crayon-sy">(</span><span class="crayon-o">!</span><span class="crayon-v">bloomfilter</span><span class="crayon-sy">.</span><span class="crayon-e">mightContain</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">)</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39e2969331669-5">
+<span class="crayon-h">            </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-t">null</span><span class="crayon-sy">;</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39e2969331669-6">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span><span class="crayon-st">else</span><span class="crayon-sy">{</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39e2969331669-7">
+<span class="crayon-h">           </span><span class="crayon-v">value</span><span class="crayon-h"> </span><span class="crayon-o">=</span><span class="crayon-h"> </span><span class="crayon-v">db</span><span class="crayon-sy">.</span><span class="crayon-e">get</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39e2969331669-8">
+<span class="crayon-h">           </span><span class="crayon-v">redis</span><span class="crayon-sy">.</span><span class="crayon-e">set</span><span class="crayon-sy">(</span><span class="crayon-v">key</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-v">value</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39e2969331669-9">
+<span class="crayon-h">        </span><span class="crayon-sy">}</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39e2969331669-10">
+<span class="crayon-h">    </span><span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a4f9e39e2969331669-11">
+<span class="crayon-h">    </span><span class="crayon-st">return</span><span class="crayon-h"> </span><span class="crayon-i">value</span>；</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a4f9e39e2969331669-12">
+<span class="crayon-sy">}</span><span class="crayon-h"> </span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0024 seconds] -->
+<p><strong>优点:</strong></p>
+<ol>
+<li>思路简单</li>
+<li>保证一致性</li>
+<li>性能强</li>
+</ol>
+<p><strong>缺点</strong></p>
+<ol>
+<li>代码复杂度增大</li>
+<li>需要另外维护一个集合来存放缓存的Key</li>
+<li>布隆过滤器不支持删值操作</li>
+</ol>
+<h2 id="总结">总结</h2>
+<p>在总结部分，来个漫画把。希望对大家找工作有帮助<br>
+<img src="/images/jobbole.com/03e68a363cf10f1807db6cb41c827951.jpg" alt="image"></p>
+
+        
+        
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+{% endraw %}
