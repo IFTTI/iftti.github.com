@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>分布式之消息队列复习精讲 | IT技术干货</title>
+    <meta name="viewport" content="width=device-width">
+    <meta name="description" content="IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货">
+    <link rel="canonical" href="http://iftti.com/posts/2018/2018-05-21-114016-1b3612333.html">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/main.css">
+
+</head>
+
+
+    <body>
+
+    <header class="site-header">
+
+  <div class="wrap">
+
+    <a class="site-title" href="/">IT技术干货</a>
+
+    <nav class="site-nav">
+      <a href="#" class="menu-icon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+           viewBox="0 0 18 15" enable-background="new 0 0 18 15" xml:space="preserve">
+          <path fill="#505050" d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0
+            h15.031C17.335,0,18,0.665,18,1.484L18,1.484z"/>
+          <path fill="#505050" d="M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0c0-0.82,0.665-1.484,1.484-1.484
+            h15.031C17.335,6.031,18,6.696,18,7.516L18,7.516z"/>
+          <path fill="#505050" d="M18,13.516C18,14.335,17.335,15,16.516,15H1.484C0.665,15,0,14.335,0,13.516l0,0
+            c0-0.82,0.665-1.484,1.484-1.484h15.031C17.335,12.031,18,12.696,18,13.516L18,13.516z"/>
+        </svg>
+      </a>
+      <div class="trigger">
+        
+          
+        
+          <a class="page-link" href="/about/">About</a>
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+          
+        
+      </div>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <div class="page-content">
+      <div class="wrap">
+      <div class="post">
+
+  <header class="post-header">
+    <h1>分布式之消息队列复习精讲</h1>
+    <p class="meta"><span class="time">May 21, 2018</span><span class="source_url"> • 来自 jobbole.com <a name="jobbole.com" href="http://blog.jobbole.com/114016/" target="_blank">[原文链接]</a></span></p>
+  </header>
+
+  <article class="post-content">
+  
+
+
+        			<div class="textwidget"></div>
+		
+		<h2 id="引言">引言</h2>
+<h3 id="为什么写这篇文章">为什么写这篇文章?</h3>
+<p>博主有两位朋友分别是小A和小B:</p>
+<ol>
+<li>小A，工作于传统软件行业(某社保局的软件外包公司)，每天工作内容就是和产品聊聊需求，改改业务逻辑。再不然就是和运营聊聊天，写几个SQL，生成下报表。又或者接到客服的通知，某某功能故障了，改改数据，然后下班部署上线。每天过的都是这种生活，技术零成长。</li>
+<li>小B，工作于某国企，虽然能接触到一些中间件技术。然而，他只会订阅/发布消息。通俗点说，就是调调API。对为什么使用这些中间件啊？如何保证高可用啊？没有充分的认识。</li>
+</ol>
+<p>庆幸的是两位朋友都很有上进心，于是博主写这篇文章，帮助他们复习一下关于消息队列中间件这块的要点</p>
+<h3 id="复习要点">复习要点</h3>
+<p>本文大概围绕如下几点进行阐述:</p>
+<ol>
+<li>为什么使用消息队列？</li>
+<li>使用消息队列有什么缺点?</li>
+<li>消息队列如何选型?</li>
+<li>如何保证消息队列是高可用的？</li>
+<li>如何保证消息不被重复消费?</li>
+<li>如何保证消费的可靠性传输?</li>
+<li>如何保证消息的顺序性？</li>
+</ol>
+<p>我们围绕以上七点进行阐述。需要说明一下，本文不是《消息队列从入门到精通》这种课程，因此只是提供一个复习思路，而不是去教你们怎么调用消息队列的API。建议对消息队列不了解的人，去找点消息队列的博客看看，再看本文，收获更大</p>
+<h2 id="正文">正文</h2>
+<h3 id="为什么要使用消息队列">1、为什么要使用消息队列?</h3>
+<p><strong>分析</strong>:一个用消息队列的人，不知道为啥用，这就有点尴尬。没有复习这点，很容易被问蒙，然后就开始胡扯了。<br>
+<strong>回答</strong>:这个问题,咱只答三个最主要的应用场景(不可否认还有其他的，但是只答三个主要的),即以下六个字:<strong>解耦、异步、削峰</strong></p>
+<h4 id="解耦">(1)解耦</h4>
+<p><strong>传统模式:</strong><br>
+<img class="aligncenter" src="/images/jobbole.com/e6ce63e3b9fa362a6b7f5bd45ddee7aa.jpg"><br>
+传统模式的缺点：</p>
+<ul>
+<li>系统间耦合性太强，如上图所示，系统A在代码中直接调用系统B和系统C的代码，如果将来D系统接入，系统A还需要修改代码，过于麻烦！</li>
+</ul>
+<p><strong>中间件模式:</strong><br>
+<img class="aligncenter" src="/images/jobbole.com/cf479bdba64ecefe05c960c17dd953a7.jpg"><br>
+中间件模式的的优点：</p>
+<ul>
+<li>将消息写入消息队列，需要消息的系统自己从消息队列中订阅，从而系统A不需要做任何修改。</li>
+</ul>
+<h4 id="异步">(2)异步</h4>
+<p><strong>传统模式:</strong><br>
+<img class="aligncenter" src="/images/jobbole.com/f2ce98ceb3b7ff430736aff846dc1f62.jpg"><br>
+传统模式的缺点：</p>
+<ul>
+<li>一些非必要的业务逻辑以同步的方式运行，太耗费时间。</li>
+</ul>
+<p><strong>中间件模式:</strong><br>
+<img class="aligncenter" src="/images/jobbole.com/fe6b8e5939387594e02e006421d45d76.jpg"><br>
+中间件模式的的优点：</p>
+<ul>
+<li>将消息写入消息队列，非必要的业务逻辑以异步的方式运行，加快响应速度</li>
+</ul>
+<h4 id="削峰">(3)削峰</h4>
+<p><strong>传统模式</strong><br>
+<img class="aligncenter" src="/images/jobbole.com/40f95f1a497fb29c94594a59a5f676db.jpg"><br>
+传统模式的缺点：</p>
+<ul>
+<li>并发量大的时候，所有的请求直接怼到数据库，造成数据库连接异常</li>
+</ul>
+<p><strong>中间件模式:</strong><br>
+<img class="aligncenter" src="/images/jobbole.com/4eb66ff5ff6c74a8cc162f279282f526.jpg"><br>
+中间件模式的的优点：</p>
+<ul>
+<li>系统A慢慢的按照数据库能处理的并发量，从消息队列中慢慢拉取消息。在生产中，这个短暂的高峰期积压是允许的。</li>
+</ul>
+<h3 id="使用了消息队列会有什么缺点">2、使用了消息队列会有什么缺点?</h3>
+<p><strong>分析</strong>:一个使用了MQ的项目，如果连这个问题都没有考虑过，就把MQ引进去了，那就给自己的项目带来了风险。我们引入一个技术，要对这个技术的弊端有充分的认识，才能做好预防。<strong>要记住，不要给公司挖坑！</strong><br>
+<strong>回答</strong>:回答也很容易，从以下两个个角度来答</p>
+<ul>
+<li>
+<strong>系统可用性降低</strong>:你想啊，本来其他系统只要运行好好的，那你的系统就是正常的。现在你非要加个消息队列进去，那消息队列挂了，你的系统不是呵呵了。因此，系统可用性降低</li>
+<li>
+<strong>系统复杂性增加</strong>:要多考虑很多方面的问题，比如一致性问题、如何保证消息不被重复消费，如何保证保证消息可靠传输。因此，需要考虑的东西更多，系统复杂性增大。</li>
+</ul>
+<p>但是，我们该用还是要用的。</p>
+<h3 id="消息队列如何选型">3、消息队列如何选型?</h3>
+<p>先说一下，博主只会ActiveMQ,RabbitMQ,RocketMQ,Kafka，对什么ZeroMQ等其他MQ没啥理解，因此只能基于这四种MQ给出回答。<br>
+<strong>分析</strong>:既然在项目中用了MQ，肯定事先要对业界流行的MQ进行调研，如果连每种MQ的优缺点都没了解清楚，就拍脑袋依据喜好，用了某种MQ，还是给项目挖坑。如果面试官问:”你为什么用这种MQ？。”你直接回答”领导决定的。”这种回答就很LOW了。<strong>还是那句话，不要给公司挖坑。</strong><br>
+<strong>回答</strong>:首先，咱先上<a href="http://activemq.apache.org/">ActiveMQ的社区</a>，看看该MQ的更新频率:</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a40f23e93754940888" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+Apache ActiveMQ 5.15.3 Release
+Christopher L. Shannon posted on Feb 12, 2018
+Apache ActiveMQ 5.15.2 Released
+Christopher L. Shannon posted on Oct 23, 2017
+Apache ActiveMQ 5.15.0 Released
+Christopher L. Shannon posted on Jul 06, 2017
+省略以下记录
+...</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a40f23e93754940888-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23e93754940888-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23e93754940888-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23e93754940888-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23e93754940888-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23e93754940888-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23e93754940888-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23e93754940888-8">8</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a40f23e93754940888-1">
+<span class="crayon-e">Apache </span><span class="crayon-i">ActiveMQ</span><span class="crayon-h"> </span><span class="crayon-cn">5.15.3</span><span class="crayon-h"> </span><span class="crayon-e">Release</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23e93754940888-2">
+<span class="crayon-i">Christopher</span><span class="crayon-h"> </span><span class="crayon-v">L</span><span class="crayon-sy">.</span><span class="crayon-h"> </span><span class="crayon-e">Shannon </span><span class="crayon-e">posted </span><span class="crayon-e">on </span><span class="crayon-i">Feb</span><span class="crayon-h"> </span><span class="crayon-cn">12</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">2018</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23e93754940888-3">
+<span class="crayon-e">Apache </span><span class="crayon-i">ActiveMQ</span><span class="crayon-h"> </span><span class="crayon-cn">5.15.2</span><span class="crayon-h"> </span><span class="crayon-e">Released</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23e93754940888-4">
+<span class="crayon-i">Christopher</span><span class="crayon-h"> </span><span class="crayon-v">L</span><span class="crayon-sy">.</span><span class="crayon-h"> </span><span class="crayon-e">Shannon </span><span class="crayon-e">posted </span><span class="crayon-e">on </span><span class="crayon-i">Oct</span><span class="crayon-h"> </span><span class="crayon-cn">23</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">2017</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23e93754940888-5">
+<span class="crayon-e">Apache </span><span class="crayon-i">ActiveMQ</span><span class="crayon-h"> </span><span class="crayon-cn">5.15.0</span><span class="crayon-h"> </span><span class="crayon-e">Released</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23e93754940888-6">
+<span class="crayon-i">Christopher</span><span class="crayon-h"> </span><span class="crayon-v">L</span><span class="crayon-sy">.</span><span class="crayon-h"> </span><span class="crayon-e">Shannon </span><span class="crayon-e">posted </span><span class="crayon-e">on </span><span class="crayon-i">Jul</span><span class="crayon-h"> </span><span class="crayon-cn">06</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-cn">2017</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23e93754940888-7">省略以下记录</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23e93754940888-8">
+<span class="crayon-sy">.</span><span class="crayon-sy">.</span><span class="crayon-sy">.</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0016 seconds] -->
+<p>我们可以看出，ActiveMq几个月才发一次版本，据说研究重心在他们的下一代产品Apollo。<br>
+接下来，我们再去<a href="http://www.rabbitmq.com/">RabbitMQ的社区</a>去看一下,RabbitMQ的更新频率</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a40f23e9d419132289" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+RabbitMQ 3.7.3 release  30 January 2018
+RabbitMQ 3.6.15 release  17 January 2018
+RabbitMQ 3.7.2 release23 December 2017
+RabbitMQ 3.7.1 release21 December 2017
+省略以下记录
+...</textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a40f23e9d419132289-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23e9d419132289-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23e9d419132289-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23e9d419132289-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23e9d419132289-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23e9d419132289-6">6</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a40f23e9d419132289-1">
+<span class="crayon-i">RabbitMQ</span><span class="crayon-h"> </span><span class="crayon-cn">3.7.3</span><span class="crayon-h"> </span><span class="crayon-i">release</span><span class="crayon-h">  </span><span class="crayon-cn">30</span><span class="crayon-h"> </span><span class="crayon-i">January</span><span class="crayon-h"> </span><span class="crayon-cn">2018</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23e9d419132289-2">
+<span class="crayon-i">RabbitMQ</span><span class="crayon-h"> </span><span class="crayon-cn">3.6.15</span><span class="crayon-h"> </span><span class="crayon-i">release</span><span class="crayon-h">  </span><span class="crayon-cn">17</span><span class="crayon-h"> </span><span class="crayon-i">January</span><span class="crayon-h"> </span><span class="crayon-cn">2018</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23e9d419132289-3">
+<span class="crayon-i">RabbitMQ</span><span class="crayon-h"> </span><span class="crayon-cn">3.7.2</span><span class="crayon-h"> </span><span class="crayon-e">release23 </span><span class="crayon-i">December</span><span class="crayon-h"> </span><span class="crayon-cn">2017</span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23e9d419132289-4">
+<span class="crayon-i">RabbitMQ</span><span class="crayon-h"> </span><span class="crayon-cn">3.7.1</span><span class="crayon-h"> </span><span class="crayon-e">release21 </span><span class="crayon-i">December</span><span class="crayon-h"> </span><span class="crayon-cn">2017</span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23e9d419132289-5">省略以下记录</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23e9d419132289-6">
+<span class="crayon-sy">.</span><span class="crayon-sy">.</span><span class="crayon-sy">.</span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0012 seconds] -->
+<p>我们可以看出，RabbitMQ版本发布比ActiveMq频繁很多。至于RocketMQ和kafka就不带大家看了，总之也比ActiveMQ活跃的多。详情，可自行查阅。<br>
+再来一个性能对比表</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>ActiveMQ</th>
+<th>RabbitMQ</th>
+<th>RocketMQ</th>
+<th>kafka</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>开发语言</td>
+<td>java</td>
+<td>erlang</td>
+<td>java</td>
+<td>scala</td>
+</tr>
+<tr>
+<td>单机吞吐量</td>
+<td>万级</td>
+<td>万级</td>
+<td>10万级</td>
+<td>10万级</td>
+</tr>
+<tr>
+<td>时效性</td>
+<td>ms级</td>
+<td>us级</td>
+<td>ms级</td>
+<td>ms级以内</td>
+</tr>
+<tr>
+<td>可用性</td>
+<td>高(主从架构)</td>
+<td>高(主从架构)</td>
+<td>非常高(分布式架构)</td>
+<td>非常高(分布式架构)</td>
+</tr>
+<tr>
+<td>功能特性</td>
+<td>成熟的产品，在很多公司得到应用；有较多的文档；各种协议支持较好</td>
+<td>基于erlang开发，所以并发能力很强，性能极其好，延时很低;管理界面较丰富</td>
+<td>MQ功能比较完备，扩展性佳</td>
+<td>只支持主要的MQ功能，像一些消息查询，消息回溯等功能没有提供，毕竟是为大数据准备的，在大数据领域应用广。</td>
+</tr>
+</tbody>
+</table>
+<p>综合上面的材料得出以下两点:<br>
+(1)中小型软件公司，建议选RabbitMQ.一方面，erlang语言天生具备高并发的特性，而且他的管理界面用起来十分方便。正所谓，成也萧何，败也萧何！他的弊端也在这里，虽然RabbitMQ是开源的，然而国内有几个能定制化开发erlang的程序员呢？所幸，RabbitMQ的社区十分活跃，可以解决开发过程中遇到的bug，这点对于中小型公司来说十分重要。不考虑rocketmq和kafka的原因是，一方面中小型软件公司不如互联网公司，数据量没那么大，选消息中间件，应首选功能比较完备的，所以kafka排除。不考虑rocketmq的原因是，rocketmq是阿里出品，如果阿里放弃维护rocketmq，中小型公司一般抽不出人来进行rocketmq的定制化开发，因此不推荐。<br>
+(2)大型软件公司，根据具体使用在rocketMq和kafka之间二选一。一方面，大型软件公司，具备足够的资金搭建分布式环境，也具备足够大的数据量。针对rocketMQ,大型软件公司也可以抽出人手对rocketMQ进行定制化开发，毕竟国内有能力改JAVA源码的人，还是相当多的。至于kafka，根据业务场景选择，如果有日志采集功能，肯定是首选kafka了。具体该选哪个，看使用场景。</p>
+<h3 id="如何保证消息队列是高可用的">4、如何保证消息队列是高可用的？</h3>
+<p><strong>分析</strong>:在第二点说过了，引入消息队列后，系统的可用性下降。在生产中，没人使用单机模式的消息队列。因此，作为一个合格的程序员，应该对消息队列的高可用有很深刻的了解。如果面试的时候，面试官问，你们的消息中间件如何保证高可用的？你的回答只是表明自己只会订阅和发布消息，面试官就会怀疑你是不是只是自己搭着玩，压根没在生产用过。<strong>请做一个爱思考，会思考，懂思考的程序员。</strong><br>
+<strong>回答</strong>:这问题，其实要对消息队列的集群模式要有深刻了解，才好回答。<br>
+以rcoketMQ为例，他的集群就有多master 模式、多master多slave异步复制模式、多 master多slave同步双写模式。多master多slave模式部署架构图(网上找的,偷个懒，懒得画):<br>
+<img class="aligncenter" src="/images/jobbole.com/57f2e71313f6ac7d7c509a8944d8114b.jpg" alt="image"><br>
+其实博主第一眼看到这个图，就觉得和kafka好像，只是NameServer集群，在kafka中是用zookeeper代替，都是用来保存和发现master和slave用的。通信过程如下:<br>
+Producer 与 NameServer集群中的其中一个节点（随机选择）建立长连接，定期从 NameServer 获取 Topic 路由信息，并向提供 Topic 服务的 Broker Master 建立长连接，且定时向 Broker 发送心跳。Producer 只能将消息发送到 Broker master，但是 Consumer 则不一样，它同时和提供 Topic 服务的 Master 和 Slave建立长连接，既可以从 Broker Master 订阅消息，也可以从 Broker Slave 订阅消息。<br>
+那么kafka呢,为了对比说明直接上kafka的拓补架构图(也是找的，懒得画)<br>
+<img class="aligncenter" src="/images/jobbole.com/1d1aed9b7c9034941699620196f9ee7f.jpg" alt="image"><br>
+如上图所示，一个典型的Kafka集群中包含若干Producer（可以是web前端产生的Page View，或者是服务器日志，系统CPU、Memory等），若干broker（Kafka支持水平扩展，一般broker数量越多，集群吞吐率越高），若干Consumer Group，以及一个Zookeeper集群。Kafka通过Zookeeper管理集群配置，选举leader，以及在Consumer Group发生变化时进行rebalance。Producer使用push模式将消息发布到broker，Consumer使用pull模式从broker订阅并消费消息。<br>
+至于rabbitMQ,也有普通集群和镜像集群模式，自行去了解，比较简单，两小时即懂。<br>
+要求，在回答高可用的问题时，应该能逻辑清晰的画出自己的MQ集群架构或清晰的叙述出来。</p>
+<h3 id="如何保证消息不被重复消费">5、如何保证消息不被重复消费？</h3>
+<p><strong>分析</strong>:这个问题其实换一种问法就是，如何保证消息队列的幂等性?这个问题可以认为是消息队列领域的基本问题。换句话来说，是在考察你的设计能力，这个问题的回答可以根据具体的业务场景来答，没有固定的答案。<br>
+<strong>回答</strong>:先来说一下为什么会造成重复消费?<br>
+其实无论是那种消息队列，造成重复消费原因其实都是类似的。正常情况下，消费者在消费消息时候，消费完毕后，会发送一个确认信息给消息队列，消息队列就知道该消息被消费了，就会将该消息从消息队列中删除。只是不同的消息队列发送的确认信息形式不同,例如RabbitMQ是发送一个ACK确认消息，RocketMQ是返回一个CONSUME_SUCCESS成功标志，kafka实际上有个offset的概念，简单说一下(如果还不懂，出门找一个kafka入门到精通教程),就是每一个消息都有一个offset，kafka消费过消息后，需要提交offset，让消息队列知道自己已经消费过了。那造成重复消费的原因?，就是因为网络传输等等故障，确认信息没有传送到消息队列，导致消息队列不知道自己已经消费过该消息了，再次将该消息分发给其他的消费者。<br>
+如何解决?这个问题针对业务场景来答分以下几点<br>
+(1)比如，你拿到这个消息做数据库的insert操作。那就容易了，给这个消息做一个唯一主键，那么就算出现重复消费的情况，就会导致主键冲突，避免数据库出现脏数据。<br>
+(2)再比如，你拿到这个消息做redis的set的操作，那就容易了，不用解决，因为你无论set几次结果都是一样的，set操作本来就算幂等操作。<br>
+(3)如果上面两种情况还不行，上大招。准备一个第三方介质,来做消费记录。以redis为例，给消息分配一个全局id，只要消费过该消息，将&lt;id,message&gt;以K-V形式写入redis。那消费者开始消费前，先去redis中查询有没消费记录即可。</p>
+<h3 id="如何保证消费的可靠性传输">6、如何保证消费的可靠性传输?</h3>
+<p><strong>分析</strong>:我们在使用消息队列的过程中，应该做到消息不能多消费，也不能少消费。如果无法做到可靠性传输，可能给公司带来千万级别的财产损失。同样的，如果可靠性传输在使用过程中，没有考虑到，这不是给公司挖坑么，你可以拍拍屁股走了，公司损失的钱，谁承担。还是那句话，<strong>认真对待每一个项目，不要给公司挖坑。</strong><br>
+<strong>回答</strong>:其实这个可靠性传输，每种MQ都要从三个角度来分析:生产者弄丢数据、消息队列弄丢数据、消费者弄丢数据</p>
+<h4 id="rabbitmq">RabbitMQ</h4>
+<p><strong>(1)生产者丢数据</strong><br>
+从生产者弄丢数据这个角度来看，RabbitMQ提供transaction和confirm模式来确保生产者不丢消息。<br>
+transaction机制就是说，发送消息前，开启事物(channel.txSelect())，然后发送消息，如果发送过程中出现什么异常，事物就会回滚(channel.txRollback())，如果发送成功则提交事物(channel.txCommit())。<br>
+然而缺点就是吞吐量下降了。因此，按照博主的经验，生产上用confirm模式的居多。一旦channel进入confirm模式，所有在该信道上面发布的消息都将会被指派一个唯一的ID(从1开始)，一旦消息被投递到所有匹配的队列之后，rabbitMQ就会发送一个Ack给生产者(包含消息的唯一ID)，这就使得生产者知道消息已经正确到达目的队列了.如果rabiitMQ没能处理该消息，则会发送一个Nack消息给你，你可以进行重试操作。处理Ack和Nack的代码如下所示（说好不上代码的，偷偷上了）:</p>
+<!-- Crayon Syntax Highlighter v2.7.1.1 -->
+
+		<div id="crayon-5b03a40f23ea6993817054" class="crayon-syntax crayon-theme-github crayon-font-monaco crayon-os-pc print-yes notranslate" data-settings=" minimize scroll-always" style=" margin-top: 12px; margin-bottom: 12px; font-size: 13px !important; line-height: 15px !important;">
+		
+			<div class="crayon-toolbar" data-settings=" show" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<span class="crayon-title"></span>
+			<div class="crayon-tools" style="font-size: 13px !important;height: 19.5px !important; line-height: 19.5px !important;">
+<div class="crayon-button crayon-nums-button" title="切换是否显示行编号"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-plain-button" title="纯文本显示代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-wrap-button" title="切换自动换行"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-expand-button" title="点击展开代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-copy-button" title="复制代码"><div class="crayon-button-icon"></div></div>
+<div class="crayon-button crayon-popup-button" title="在新窗口中显示代码"><div class="crayon-button-icon"></div></div>
+</div>
+</div>
+			<div class="crayon-info" style="min-height: 18.2px !important; line-height: 18.2px !important;"></div>
+			<div class="crayon-plain-wrap"><textarea wrap="soft" class="crayon-plain print-no" data-settings="dblclick" readonly style="-moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4; font-size: 13px !important; line-height: 15px !important;">
+channel.addConfirmListener(new ConfirmListener() {  
+                &lt;a href="http://www.jobbole.com/members/wx610506454"&gt;@Override&lt;/a&gt;  
+                public void handleNack(long deliveryTag, boolean multiple) throws IOException {  
+                    System.out.println("nack: deliveryTag = "+deliveryTag+" multiple: "+multiple);  
+                }  
+                &lt;a href="http://www.jobbole.com/members/wx610506454"&gt;@Override&lt;/a&gt;  
+                public void handleAck(long deliveryTag, boolean multiple) throws IOException {  
+                    System.out.println("ack: deliveryTag = "+deliveryTag+" multiple: "+multiple);  
+                }  
+            });  </textarea></div>
+			<div class="crayon-main" style="">
+				<table class="crayon-table">
+					<tr class="crayon-row">
+				<td class="crayon-nums " data-settings="show">
+					<div class="crayon-nums-content" style="font-size: 13px !important; line-height: 15px !important;">
+<div class="crayon-num" data-line="crayon-5b03a40f23ea6993817054-1">1</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23ea6993817054-2">2</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23ea6993817054-3">3</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23ea6993817054-4">4</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23ea6993817054-5">5</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23ea6993817054-6">6</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23ea6993817054-7">7</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23ea6993817054-8">8</div>
+<div class="crayon-num" data-line="crayon-5b03a40f23ea6993817054-9">9</div>
+<div class="crayon-num crayon-striped-num" data-line="crayon-5b03a40f23ea6993817054-10">10</div>
+</div>
+				</td>
+						<td class="crayon-code"><div class="crayon-pre" style="font-size: 13px !important; line-height: 15px !important; -moz-tab-size:4; -o-tab-size:4; -webkit-tab-size:4; tab-size:4;">
+<div class="crayon-line" id="crayon-5b03a40f23ea6993817054-1">
+<span class="crayon-v">channel</span><span class="crayon-sy">.</span><span class="crayon-e">addConfirmListener</span><span class="crayon-sy">(</span><span class="crayon-r">new</span><span class="crayon-h"> </span><span class="crayon-e">ConfirmListener</span><span class="crayon-sy">(</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23ea6993817054-2">
+<span class="crayon-h">                </span><span class="crayon-o">&lt;</span><span class="crayon-i">a</span><span class="crayon-h"> </span><span class="crayon-v">href</span><span class="crayon-o">=</span><span class="crayon-s">"http://www.jobbole.com/members/wx610506454"</span><span class="crayon-o">&gt;</span><span class="crayon-sy">@</span><span class="crayon-v">Override</span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">a</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23ea6993817054-3">
+<span class="crayon-h">                </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">handleNack</span><span class="crayon-sy">(</span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-v">deliveryTag</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">boolean</span><span class="crayon-h"> </span><span class="crayon-v">multiple</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">throws</span><span class="crayon-h"> </span><span class="crayon-e">IOException</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23ea6993817054-4">
+<span class="crayon-h">                    </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-v">out</span><span class="crayon-sy">.</span><span class="crayon-e">println</span><span class="crayon-sy">(</span><span class="crayon-s">"nack: deliveryTag = "</span><span class="crayon-o">+</span><span class="crayon-v">deliveryTag</span><span class="crayon-o">+</span><span class="crayon-s">" multiple: "</span><span class="crayon-o">+</span><span class="crayon-v">multiple</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23ea6993817054-5">
+<span class="crayon-h">                </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23ea6993817054-6">
+<span class="crayon-h">                </span><span class="crayon-o">&lt;</span><span class="crayon-i">a</span><span class="crayon-h"> </span><span class="crayon-v">href</span><span class="crayon-o">=</span><span class="crayon-s">"http://www.jobbole.com/members/wx610506454"</span><span class="crayon-o">&gt;</span><span class="crayon-sy">@</span><span class="crayon-v">Override</span><span class="crayon-o">&lt;</span><span class="crayon-o">/</span><span class="crayon-v">a</span><span class="crayon-o">&gt;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23ea6993817054-7">
+<span class="crayon-h">                </span><span class="crayon-m">public</span><span class="crayon-h"> </span><span class="crayon-t">void</span><span class="crayon-h"> </span><span class="crayon-e">handleAck</span><span class="crayon-sy">(</span><span class="crayon-t">long</span><span class="crayon-h"> </span><span class="crayon-v">deliveryTag</span><span class="crayon-sy">,</span><span class="crayon-h"> </span><span class="crayon-t">boolean</span><span class="crayon-h"> </span><span class="crayon-v">multiple</span><span class="crayon-sy">)</span><span class="crayon-h"> </span><span class="crayon-e">throws</span><span class="crayon-h"> </span><span class="crayon-e">IOException</span><span class="crayon-h"> </span><span class="crayon-sy">{</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23ea6993817054-8">
+<span class="crayon-h">                    </span><span class="crayon-v">System</span><span class="crayon-sy">.</span><span class="crayon-v">out</span><span class="crayon-sy">.</span><span class="crayon-e">println</span><span class="crayon-sy">(</span><span class="crayon-s">"ack: deliveryTag = "</span><span class="crayon-o">+</span><span class="crayon-v">deliveryTag</span><span class="crayon-o">+</span><span class="crayon-s">" multiple: "</span><span class="crayon-o">+</span><span class="crayon-v">multiple</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line" id="crayon-5b03a40f23ea6993817054-9">
+<span class="crayon-h">                </span><span class="crayon-sy">}</span><span class="crayon-h">  </span>
+</div>
+<div class="crayon-line crayon-striped-line" id="crayon-5b03a40f23ea6993817054-10">
+<span class="crayon-h">            </span><span class="crayon-sy">}</span><span class="crayon-sy">)</span><span class="crayon-sy">;</span><span class="crayon-h">  </span>
+</div>
+</div></td>
+					</tr>
+				</table>
+			</div>
+		</div>
+<!-- [Format Time: 0.0059 seconds] -->
+<p><strong>(2)消息队列丢数据</strong><br>
+处理消息队列丢数据的情况，一般是开启持久化磁盘的配置。这个持久化配置可以和confirm机制配合使用，你可以在消息持久化磁盘后，再给生产者发送一个Ack信号。这样，如果消息持久化磁盘之前，rabbitMQ阵亡了，那么生产者收不到Ack信号，生产者会自动重发。<br>
+那么如何持久化呢，这里顺便说一下吧，其实也很容易，就下面两步<br>
+1、将queue的持久化标识durable设置为true,则代表是一个持久的队列<br>
+2、发送消息的时候将deliveryMode=2<br>
+这样设置以后，rabbitMQ就算挂了，重启后也能恢复数据<br>
+<strong>(3)消费者丢数据</strong><br>
+消费者丢数据一般是因为采用了自动确认消息模式。这种模式下，消费者会自动确认收到信息。这时rahbitMQ会立即将消息删除，这种情况下如果消费者出现异常而没能处理该消息，就会丢失该消息。<br>
+至于解决方案，采用手动确认消息即可。</p>
+<h4 id="kafka">kafka</h4>
+<p>这里先引一张kafka Replication的<a href="http://www.infoq.com/cn/articles/kafka-analysis-part-2/">数据流向图</a><br>
+<img src="/images/jobbole.com/3284c8ae83b63da108793357500d187e.jpg" alt="image"><br>
+Producer在发布消息到某个Partition时，先通过ZooKeeper找到该Partition的Leader，然后无论该Topic的Replication Factor为多少（也即该Partition有多少个Replica），Producer只将该消息发送到该Partition的Leader。Leader会将该消息写入其本地Log。每个Follower都从Leader中pull数据。<br>
+针对上述情况，得出如下分析<br>
+<strong>(1)生产者丢数据</strong><br>
+在kafka生产中，基本都有一个leader和多个follwer。follwer会去同步leader的信息。因此，为了避免生产者丢数据，做如下两点配置</p>
+<ol>
+<li>第一个配置要在producer端设置acks=all。这个配置保证了，follwer同步完成后，才认为消息发送成功。</li>
+<li>在producer端设置retries=MAX，一旦写入失败，这无限重试</li>
+</ol>
+<p><strong>(2)消息队列丢数据</strong><br>
+针对消息队列丢数据的情况，无外乎就是，数据还没同步，leader就挂了，这时zookpeer会将其他的follwer切换为leader,那数据就丢失了。针对这种情况，应该做两个配置。</p>
+<ol>
+<li>replication.factor参数，这个值必须大于1，即要求每个partition必须有至少2个副本</li>
+<li>min.insync.replicas参数，这个值必须大于1，这个是要求一个leader至少感知到有至少一个follower还跟自己保持联系</li>
+</ol>
+<p>这两个配置加上上面生产者的配置联合起来用，基本可确保kafka不丢数据</p>
+<p><strong>(3)消费者丢数据</strong><br>
+这种情况一般是自动提交了offset，然后你处理程序过程中挂了。kafka以为你处理好了。再强调一次offset是干嘛的<br>
+<strong>offset</strong>：指的是kafka的topic中的每个消费组消费的下标。简单的来说就是一条消息对应一个offset下标，每次消费数据的时候如果提交offset，那么下次消费就会从提交的offset加一那里开始消费。<br>
+比如一个topic中有100条数据，我消费了50条并且提交了，那么此时的kafka服务端记录提交的offset就是49(offset从0开始)，那么下次消费的时候offset就从50开始消费。<br>
+解决方案也很简单，改成手动提交即可。</p>
+<h4 id="activemq和rocketmq">ActiveMQ和RocketMQ</h4>
+<p>大家自行查阅吧</p>
+<h3 id="如何保证消息的顺序性">7、如何保证消息的顺序性？</h3>
+<p><strong>分析</strong>:其实并非所有的公司都有这种业务需求，但是还是对这个问题要有所复习。<br>
+<strong>回答</strong>:针对这个问题，通过某种算法，将需要保持先后顺序的消息放到同一个消息队列中(kafka中就是partition,rabbitMq中就是queue)。然后只用一个消费者去消费该队列。<br>
+有的人会问:那如果为了吞吐量，有多个消费者去消费怎么办？<br>
+这个问题，没有固定回答的套路。比如我们有一个微博的操作，发微博、写评论、删除微博，这三个异步操作。如果是这样一个业务场景，那只要重试就行。比如你一个消费者先执行了写评论的操作，但是这时候，微博都还没发，写评论一定是失败的，等一段时间。等另一个消费者，先执行写评论的操作后，再执行，就可以成功。<br>
+总之，针对这个问题，我的观点是保证入队有序就行，出队以后的顺序交给消费者自己去保证，没有固定套路。</p>
+<h2 id="总结">总结</h2>
+<p>写到这里，希望读者把本文提出的这几个问题，经过深刻的准备后，一般来说，能囊括大部分的消息队列的知识点。如果面试官不问这几个问题怎么办，简单，自己把几个问题讲清楚，突出以下自己考虑的全面性。<br>
+最后，其实我不太提倡这样突击复习，希望大家打好基本功，<strong>做一个爱思考，懂思考，会思考的程序员</strong>。</p>
+
+        
+        
+        
+    
+
+
+
+
+        <!-- BEGIN #author-bio -->
+
+
+<!-- END #author-bio -->
+	
+
+
+  </article>
+
+  <div class="meta">
+  
+    <a class="basic-alignment left" href="/posts/2018/2018-05-20-114009-9d318dfaa.html" title="Previous Post: 分布式之延时任务方案解析" data-instant>&laquo; 分布式之延时任务方案解析</a>
+  
+  
+</div>
+  <div id="related">
+  <h2 class="subheader">Related Posts <small>They might be useful</small></h2>
+  <ul class="posts">
+    
+      <li><span>20 May 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-05-20-114009-9d318dfaa.html">分布式之延时任务方案解析</a></li>
+    
+      <li><span>19 May 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-05-19-114012-06b67f2d6.html">分布式之缓存击穿</a></li>
+    
+      <li><span>19 May 2018</span> &raquo; <a href="http://iftti.com/posts/2018/2018-05-19-114005-4e10d4da2.html">终于有人把云计算、大数据和人工智能讲明白了</a></li>
+    
+  </ul>
+</div>
+
+  
+<comments>
+
+<!-- UY BEGIN -->
+<div id="uyan_frame"></div>
+<script type="text/javascript" src="http://v2.uyan.cc/code/uyan.js?uid=1936498"></script>
+<!-- UY END -->
+
+</comments>
+
+</div>
+      <!-- JiaThis Button BEGIN -->
+<div class="jiathis_share_slide jiathis_share_24x24" id="jiathis_share_slide">
+<div class="jiathis_share_slide_top" id="jiathis_share_title"></div>
+<div class="jiathis_share_slide_inner">
+<div class="jiathis_style_24x24">
+<a class="jiathis_button_tsina"></a>
+<a class="jiathis_button_googleplus"></a>
+<a class="jiathis_button_twitter"></a>
+<a class="jiathis_button_linkedin"></a>
+<a class="jiathis_button_weixin"></a>
+<a class="jiathis_button_cqq"></a>
+<a class="jiathis_button_renren"></a>
+<a class="jiathis_button_evernote"></a>
+<a class="jiathis_button_pocket"></a>
+<a href="http://www.jiathis.com/share" class="jiathis jiathis_txt jtico jtico_jiathis" target="_blank"></a>
+<script type="text/javascript">
+var jiathis_config = {data_track_clickback:'true'
+	,slide:{
+		divid:'wrap',
+		pos:'left',
+		gt:'true'
+	}
+};
+</script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jia.js?uid=1936498" charset="utf-8"></script>
+<script type="text/javascript" src="http://v3.jiathis.com/code/jiathis_slide.js" charset="utf-8"></script>
+</div></div></div>
+<!-- JiaThis Button END -->
+      </div>
+    </div>
+
+    <footer class="site-footer">
+
+  <div class="wrap">
+
+    <h2 class="footer-heading">IT技术干货</h2>
+
+    <div class="footer-col-1 column">
+      <p class="text">IT技术干货 KernelHacks 最好的技术站点 技术信息 纯干货</p>
+      <ul>
+        <li>汇集最好的科技与互联网信息</li>
+        <li>Liu Lantao</li>
+        <li><a href="mailto:iftti@iftti.com">iftti@iftti.com</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col-2 column">
+      <ul>
+        <li>
+          <a href="https://github.com/Lax">
+            <span class="icon github">
+              <svg version="1.1" class="github-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill-rule="evenodd" clip-rule="evenodd" fill="#C2C2C2" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761
+                c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32
+                c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472
+                c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037
+                C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65
+                c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261
+                c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082
+                c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129
+                c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/>
+              </svg>
+            </span>
+            <span class="username">Lax</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://twitter.com/liulantao">
+            <span class="icon twitter">
+              <svg version="1.1" class="twitter-icon-svg" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                 viewBox="0 0 16 16" enable-background="new 0 0 16 16" xml:space="preserve">
+                <path fill="#C2C2C2" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809
+                c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27
+                c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767
+                c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206
+                C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271
+                c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469
+                c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/>
+              </svg>
+            </span>
+            <span class="username">@liulantao</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://plus.google.com/+LiuLantao">
+            <span class="icon googleplus">
+              <svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+                width="16px" height="16px" viewBox="0 0 134.658 131.646" enable-background="new 0 0 134.658 131.646"
+                xml:space="preserve">
+                <g>
+                  <path fill="#C2C2C2" d="M126.515,4.109H8.144c-2.177,0-3.94,1.763-3.94,3.938v115.546c0,2.179,1.763,3.942,3.94,3.942h118.371
+                  c2.177,0,3.94-1.764,3.94-3.942V8.048C130.455,5.872,128.691,4.109,126.515,4.109z"/>
+                  <g>
+                    <path fill="#FFFFFF" d="M70.479,71.845l-3.983-3.093c-1.213-1.006-2.872-2.334-2.872-4.765c0-2.441,1.659-3.993,3.099-5.43
+                    c4.64-3.652,9.276-7.539,9.276-15.73c0-8.423-5.3-12.854-7.84-14.956h6.849l7.189-4.517H60.418
+                    c-5.976,0-14.588,1.414-20.893,6.619c-4.752,4.1-7.07,9.753-7.07,14.842c0,8.639,6.633,17.396,18.346,17.396
+                    c1.106,0,2.316-0.109,3.534-0.222c-0.547,1.331-1.1,2.439-1.1,4.32c0,3.431,1.763,5.535,3.317,7.528
+                    c-4.977,0.342-14.268,0.893-21.117,5.103c-6.523,3.879-8.508,9.525-8.508,13.51c0,8.202,7.731,15.842,23.762,15.842
+                    c19.01,0,29.074-10.519,29.074-20.932C79.764,79.709,75.344,75.943,70.479,71.845z M56,59.107
+                    c-9.51,0-13.818-12.294-13.818-19.712c0-2.888,0.547-5.87,2.428-8.199c1.773-2.218,4.861-3.657,7.744-3.657
+                    c9.168,0,13.923,12.404,13.923,20.382c0,1.996-0.22,5.533-2.762,8.09C61.737,57.785,58.762,59.107,56,59.107z M56.109,103.65
+                    c-11.826,0-19.452-5.657-19.452-13.523c0-7.864,7.071-10.524,9.504-11.405c4.64-1.561,10.611-1.779,11.607-1.779
+                    c1.105,0,1.658,0,2.538,0.111c8.407,5.983,12.056,8.965,12.056,14.629C72.362,98.542,66.723,103.65,56.109,103.65z"/>
+                    <polygon fill="#FFFFFF" points="98.393,58.938 98.393,47.863 92.923,47.863 92.923,58.938 81.866,58.938 81.866,64.469
+                    92.923,64.469 92.923,75.612 98.393,75.612 98.393,64.469 109.506,64.469 109.506,58.938"/>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="username">+LiuLantao</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="footer-col-3 column">
+      
+<!--以下是QQ邮件列表订阅嵌入代码--><script >var nId = "6be92ef3590ee662cd5e6381ab2044c328716364f684cf3e",nWidth="auto",sColor="light",sText="填写您的邮件地址，订阅我们的精彩内容：" ;</script><script src="http://list.qq.com/zh_CN/htmledition/js/qf/page/qfcode.js" charset="gb18030"></script>
+
+    </div>
+
+  </div>
+
+  <div class="wrap">
+    <div>
+      <a href="http://blog.liulantao.com">Blog</a> | <a href="http://1000bit.com">铅笔特评 1000bit</a> | <a href="http://visplanet.com">VisPlanet</a> | <a href="http://iftti.com">IT技术干货</a> | <a href="http://relax.org.cn">Relax</a> | <a href="http://hangzhou.io">杭州城市指南</a>
+    </div>
+  </div>
+
+  
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-1658815-7', 'iftti.com');
+  ga('require', 'displayfeatures');
+  ga('send', 'pageview');
+
+</script>
+
+
+</footer>
+
+
+    </body>
+</html>
